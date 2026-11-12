@@ -211,8 +211,11 @@ class ContextualSpanMemory(nn.Module):
             (weights > 0).sum(-1).float() / k,
         ), dim=-1)
         confidence = torch.sigmoid(self.gate(conf)).squeeze(-1)
+        # Streamed chunks carry an absolute document cursor; conventional
+        # R22 windows intentionally retain their historical local cutoff.
+        offset = int(memory.get("query_position_offset", 0))
         eligible = (memory["mask"].any(-1) &
-                    (torch.arange(T, device=scores.device) >=
+                    (torch.arange(T, device=scores.device) + offset >=
                      self.minimum_query_position))
         gain = (2 * torch.tanh(self.amplitude) *
                 confidence * eligible.float())
