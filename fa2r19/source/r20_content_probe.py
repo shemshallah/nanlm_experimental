@@ -19,7 +19,7 @@ def run(root, count=8):
     docs,_=read_books_cached(root/'nanrouter',comp,r6.vocab,0)
     choices=windows(docs,400,500,2000)['dev'][:count]
     configs=[(mode,g) for mode in ('all','content') for g in (0.,.05,.1,.2,.5,1.)]
-    sums={f'${mode}:${g}':{'nats':0.,'other_nats':0.,'bytes':0,'other':0,'active':0} for mode,g in configs}
+    sums={f'{mode}:{g}':{'nats':0.,'other_nats':0.,'bytes':0,'other':0,'active':0} for mode,g in configs}
     for pick in choices:
         ex,lc,t,tag,bytes_=batch(docs['dev'],[pick],400)
         n=int((t[0]!=-100).sum());x=t[0,:n]
@@ -28,7 +28,7 @@ def run(root, count=8):
         for mode,g in configs:
             out,meta=soft_candidate_copy(net,logits,x,torch.tensor(float(g)),content_only=(mode=='content'))
             ce=F.cross_entropy(out,x,reduction='none')
-            z=sums[f'${mode}:${g}'];z['nats']+=float(ce.sum());z['other_nats']+=float(ce[other].sum());z['bytes']+=bytes_;z['other']+=int(other.sum());z['active']+=meta['enabled_positions']
+            z=sums[f'{mode}:{g}'];z['nats']+=float(ce.sum());z['other_nats']+=float(ce[other].sum());z['bytes']+=bytes_;z['other']+=int(other.sum());z['active']+=meta['enabled_positions']
     res={k:{'bpb':v['nats']/v['bytes']/math.log(2),'nonspace_nll':v['other_nats']/v['other'],'enabled_queries':v['active']} for k,v in sums.items()}
     assert h==pal.sha(ck)
     report={'checkpoint_sha256':h,'type':'R20 read-only nonspace-value admission ablation','positions':len(choices),'outcomes':res,'promoted':False,'warning':'Historical development data; no training or semantic generalization claims'}
