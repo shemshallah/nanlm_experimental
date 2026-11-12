@@ -55,6 +55,25 @@ z1/
       kernel-metadata.json
 ```
 
+## Continuation — 10 more minutes on new data
+
+Kernel: https://www.kaggle.com/code/shem42/nanlmv3-v2-continue10
+
+Loaded this z1 `best.pt`, evaluated it on a new held-out slice from
+`corpora-paragraphs-0009` + `corpora-short-stories-0003`, then trained 600 s
+at LR 5e-5.
+
+| Checkpoint | Bits/token | Top-1 | Top-5 |
+|---|---:|---:|---:|
+| Baseline (z1 on new val) | 10.3721 | 8.59% | 20.70% |
+| Best after continuation | **10.0394** | 10.64% | 22.46% |
+| Final after continuation | 10.0442 | **10.94%** | **22.66%** |
+| Final EMA | 10.0467 | 10.64% | 22.17% |
+
+Improvement: **-0.333 bits/token, +2.35 pp top-1**. Final is effectively tied
+with best (0.005 bits), with higher top-1/top-5. The continuation rewards are
+in `build/continuation10_result.json` and `build/continuation10_history.json`.
+
 ## Checkpoints
 
 The Kaggle kernel output contains:
