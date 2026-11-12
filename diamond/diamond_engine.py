@@ -766,6 +766,10 @@ print(
     flush=True,
 )
 opt = tf.keras.optimizers.AdamW(learning_rate=ARGS.lr, weight_decay=ARGS.weight_decay)
+# Build every optimizer slot up front. Epoch 1 is bottom-up, so the top-down
+# cross layers have no gradients yet; without this, Keras 3 rejects them when
+# they become active in epoch 2, and checkpoint resume would miss their slots.
+opt.build(model.trainable_variables)
 
 SIGNATURE = json.dumps({
     "vocab": VOCAB,

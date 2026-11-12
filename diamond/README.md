@@ -45,16 +45,16 @@ python diamond_engine.py --quick --corpus-dir ../NaNROUTER/corpora \
 python diamond_engine.py \
   --corpus-dir ../NaNROUTER/corpora \
   --require-real-corpus \
-  --epochs 1000 --examples 4000 --batch 64 \
+  --epochs 1000 --examples 2500 --batch 64 \
   --byte-win 1024 --word-win 128 --sent-win 32 \
   --vocab 2000 --corpus-chars 2000000 \
-  --test-size 512 --eval-every 10 \
+  --test-size 512 --eval-every 20 \
   --lr 0.0025 --lr-schedule cosine --warmup-epochs 20 --grad-clip 1.0 \
   --save-every 25 --time-budget-minutes 330 \
   --checkpoint state/diamond_state.npz \
   --history state/diamond_history.jsonl \
   --out state/diamond_metrics.json \
-  --self-loop-every 50 --self-streams 32 --self-steps 8 \
+  --self-loop-every 100 --self-streams 32 --self-steps 8 \
   --threads 4 --memory-limit-gb 0
 ```
 

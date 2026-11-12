@@ -12,7 +12,7 @@ on:
         description: 'Training examples per epoch (256-8000)'
         type: string
         required: true
-        default: '4000'
+        default: '2500'
       corpus_chars:
         description: 'NaNROUTER corpus characters (500000-4000000)'
         type: string
@@ -134,8 +134,8 @@ jobs:
           set -euo pipefail
           [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=1000
           (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=1000
-          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=4000
-          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=4000
+          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=2500
+          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=2500
           [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=2000000
           (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 4000000 )) || CORPUS_CHARS=2000000
           [[ "$TIME_BUDGET" =~ ^[0-9]+$ ]] || TIME_BUDGET=330
@@ -151,15 +151,15 @@ jobs:
             --byte-win 1024 --word-win 128 --sent-win 32 \
             --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
-            --test-size 512 --eval-every 10 --eval-batch 64 \
+            --test-size 512 --eval-every 20 --eval-batch 64 \
             --lr 0.0025 --lr-schedule cosine --warmup-epochs 20 \
             --grad-clip 1.0 --weight-decay 0.01 --dropout 0.1 \
-            --save-every 25 --report-every-steps 100 \
+            --save-every 25 --report-every-steps 20 \
             --time-budget-minutes "$TIME_BUDGET" \
             --checkpoint diamond/state/diamond_state.npz \
             --history diamond/state/diamond_history.jsonl \
             --out diamond/state/diamond_metrics.json \
-            --self-loop-every 50 --self-streams 32 --self-steps 8 \
+            --self-loop-every 100 --self-streams 32 --self-steps 8 \
             --threads 4 --memory-limit-gb 0 \
             --seed 11
 
