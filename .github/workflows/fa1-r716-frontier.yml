@@ -1,0 +1,114 @@
+name: FA1 R7.16 - independent NaNROUTER book audit (no promotion)
+
+on:
+  workflow_dispatch:
+    inputs:
+      accepted_release_tag:
+        description: 'GitHub release holding accepted, verified R7.13 full archive'
+        type: string
+        required: true
+        default: 'fa1-accepted-r7.13'
+      books:
+        description: 'Whole Gutenberg books to import from NaNROUTER batch 0001 (200-1000)'
+        type: string
+        required: true
+        default: '500'
+      test_positions:
+        description: 'Sealed new-book test examples (256-4096)'
+        type: string
+        required: true
+        default: '1024'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r716-independent-book-audit
+  cancel-in-progress: false
+
+jobs:
+  audit-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONHASHSEED: '716'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU runtime and zstd reader
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy sentencepiece zstandard
+      - name: Fail closed if accepted checkpoint release is absent
+        env:
+          ACCEPTED_RELEASE_TAG: ${{ inputs.accepted_release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$ACCEPTED_RELEASE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then echo 'Invalid release tag' >&2; exit 2; fi
+          if ! gh release view "$ACCEPTED_RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+             echo 'FA1 accepted R7.13 checkpoint not hosted as GitHub release. Refusing training/audit.' >&2
+             exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/fa1-full" && cd "$RUNNER_TEMP/fa1-full"
+          gh release download "$ACCEPTED_RELEASE_TAG" -R "$GITHUB_REPOSITORY" -p FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip
+          echo '99f25e5ff604492c6c043335eddbf638415a423f43d94f5c9a426f5a283a2728  FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip' | sha256sum -c -
+          mkdir extracted && unzip -q FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip -d extracted
+          cd extracted
+          echo '54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d  checkpoint/pal_active.pt' | sha256sum -c -
+          echo "FA1_FULL_ROOT=$PWD" >> "$GITHUB_ENV"
+      - name: Restore exact small R7.16 candidate adapter (not an accepted model)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$FA1_FULL_ROOT/adaptation"
+          base64 --decode fa1r7.12/source/fa1_r716_candidate.pt.b64 > "$FA1_FULL_ROOT/adaptation/fa1_r716_candidate.pt"
+          echo '436ff87fae69ef1f44b53e2ffde92313da408342f65a1897c6eaff1876f9c09c  '"$FA1_FULL_ROOT/adaptation/fa1_r716_candidate.pt" | sha256sum -c -
+          export PYTHONPATH="$GITHUB_WORKSPACE/fa1r7.12/source:$FA1_FULL_ROOT/source"
+          python fa1r7.12/source/test_fa1_r716.py
+      - name: Import SHA-pinned NaNROUTER book batch
+        env:
+          BOOKS: ${{ inputs.books }}
+          POSITIONS: ${{ inputs.test_positions }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BOOKS" =~ ^[0-9]+$ ]] || (( BOOKS<200 || BOOKS>1000 )); then echo 'books must be 200-1000'; exit 2; fi
+          if [[ ! "$POSITIONS" =~ ^[0-9]+$ ]] || (( POSITIONS<256 || POSITIONS>4096 )); then echo 'positions must be 256-4096'; exit 2; fi
+          mkdir -p "$RUNNER_TEMP/newbooks"
+          gh release download corpora-short-stories-0001 -R shemshallah/NaNROUTER -p short_stories-0001.tar.zst -D "$RUNNER_TEMP/newbooks"
+          echo 'bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5  '"$RUNNER_TEMP/newbooks/short_stories-0001.tar.zst" | sha256sum -c -
+          export PYTHONPATH="$GITHUB_WORKSPACE/fa1r7.12/source:$FA1_FULL_ROOT/source"
+          python "$GITHUB_WORKSPACE/fa1r7.12/source/fetch_nanrouter_release.py" --output "$RUNNER_TEMP/newbooks" --skip-download
+          python "$GITHUB_WORKSPACE/fa1r7.12/source/prepare_document_corpus.py" --root "$FA1_FULL_ROOT" \
+            --input "$RUNNER_TEMP/newbooks/books" --out "$RUNNER_TEMP/processed" --limit "$BOOKS"
+          echo "FA1_CORPUS=$RUNNER_TEMP/processed" >> "$GITHUB_ENV"
+      - name: Frozen candidate and disjoint-book causal evaluation (NO promotion)
+        env:
+          POSITIONS: ${{ inputs.test_positions }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/fa1r7.12/source:$FA1_FULL_ROOT/source"
+          mkdir -p "$RUNNER_TEMP/reports"
+          python fa1r7.12/source/fa1_r716_newbooks.py --root "$FA1_FULL_ROOT" \
+            --corpus-dir "$FA1_CORPUS" \
+            --overlay "$FA1_FULL_ROOT/adaptation/fa1_r716_candidate.pt" \
+            --test "$POSITIONS" --min-books 12 \
+            --output "$RUNNER_TEMP/reports/FA1_R7p16_NEW_BOOKS.json"
+          echo '54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d  '"$FA1_FULL_ROOT/checkpoint/pal_active.pt" | sha256sum -c -
+          echo 'Review metrics only: no write to accepted weights and no promotion.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fa1-r716-newbook-evaluation-only
+          path: ${{ runner.temp }}/reports/
+          if-no-files-found: warn
+          retention-days: 30
