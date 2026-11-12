@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - 'fa2r19/source/r24_*.py'
+      - 'fa2r19/source/test_r24_unified.py'
+      - 'fa2r19/source/test_r23_*.py'
       - 'fa2r19/source/r23_context64.py'
       - 'fa2r19/source/r23_stream_carry.py'
       - 'fa2r19/source/r21_relevance_novelty.py'
@@ -14,6 +16,8 @@ on:
   pull_request:
     paths:
       - 'fa2r19/source/r24_*.py'
+      - 'fa2r19/source/test_r24_unified.py'
+      - 'fa2r19/source/test_r23_*.py'
       - 'fa2r19/source/r23_context64.py'
       - 'fa2r19/source/r23_stream_carry.py'
       - 'fa2r19/source/r21_relevance_novelty.py'
