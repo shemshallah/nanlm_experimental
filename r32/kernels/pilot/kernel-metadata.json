@@ -1,0 +1,18 @@
+{
+  "id": "shem42/r32-multidomain-pilot",
+  "title": "R32 multidomain pilot",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [
+    "shem42/r32-code",
+    "shem42/r32-multidomain-16domains"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": []
+}
