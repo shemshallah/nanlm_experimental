@@ -1,0 +1,218 @@
+{
+  "round": "FA1 R7.18",
+  "hypothesis": "Disjoint 32K-128K retrieval can improve a frozen 32K R7.16 candidate without wrong-memory shortcuts",
+  "accepted_parent_step": 14416,
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "r716_overlay_sha256": "436ff87fae69ef1f44b53e2ffde92313da408342f65a1897c6eaff1876f9c09c",
+  "original_five_optimizer_histories_preserved": true,
+  "accepted_weights_unmodified": true,
+  "r716_overlay_unmodified": true,
+  "r716_candidate_not_promoted": true,
+  "train_n": 256,
+  "dev_n": 128,
+  "test_n": 128,
+  "training_steps": 192,
+  "selected_step": 48,
+  "selected": true,
+  "promoted": false,
+  "initial_dev": {
+    "n": 128,
+    "base_nll": 5.005634307861328,
+    "r716_near_nll": 4.965639591217041,
+    "r718_correct_nll": 4.964004993438721,
+    "r718_wrong_far_nll": 4.9638142585754395,
+    "far_incremental_gain": 0.0016348306089639664,
+    "correct_far_advantage": -0.000190644059330225,
+    "correct_far_advantage_train_donor": 0.001799535471946001,
+    "total_vs_accepted_gain": 0.04162915423512459,
+    "average_far_gate": 0.0008473251364193857,
+    "far_coverage": 0.921875
+  },
+  "selected_dev": {
+    "n": 128,
+    "base_nll": 5.005634307861328,
+    "r716_near_nll": 4.965639591217041,
+    "r718_correct_nll": 4.915891170501709,
+    "r718_wrong_far_nll": 5.030436038970947,
+    "far_incremental_gain": 0.049748100340366364,
+    "correct_far_advantage": 0.1145445853471756,
+    "correct_far_advantage_train_donor": 0.0840824618935585,
+    "total_vs_accepted_gain": 0.08974242955446243,
+    "average_far_gate": 0.1316254436969757,
+    "far_coverage": 0.921875
+  },
+  "historical_test": {
+    "n": 128,
+    "base_nll": 6.34972620010376,
+    "r716_near_nll": 6.150187969207764,
+    "r718_correct_nll": 5.9429216384887695,
+    "r718_wrong_far_nll": 6.194504737854004,
+    "far_incremental_gain": 0.2072666436433792,
+    "correct_far_advantage": 0.2515835165977478,
+    "correct_far_advantage_train_donor": 0.228034108877182,
+    "total_vs_accepted_gain": 0.40680450201034546,
+    "average_far_gate": 0.1225954070687294,
+    "far_coverage": 0.8984375
+  },
+  "historical_test_reference_near": {
+    "r716_near_nll": 6.150187969207764,
+    "base_nll": 6.34972620010376,
+    "extra_far_contribution": 0.0
+  },
+  "all_dev_gates": [
+    {
+      "step": 1,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.963816165924072,
+        "r718_wrong_far_nll": 4.963650226593018,
+        "far_incremental_gain": 0.0018234355375170708,
+        "correct_far_advantage": -0.00016647670418024063,
+        "correct_far_advantage_train_donor": 0.0020074197091162205,
+        "total_vs_accepted_gain": 0.041817761957645416,
+        "average_far_gate": 0.0009478334686718881,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 24,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.947104454040527,
+        "r718_wrong_far_nll": 4.96077823638916,
+        "far_incremental_gain": 0.018535170704126358,
+        "correct_far_advantage": 0.013673567213118076,
+        "correct_far_advantage_train_donor": 0.021309025585651398,
+        "total_vs_accepted_gain": 0.05852948874235153,
+        "average_far_gate": 0.015283606946468353,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 48,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.915891170501709,
+        "r718_wrong_far_nll": 5.030436038970947,
+        "far_incremental_gain": 0.049748100340366364,
+        "correct_far_advantage": 0.1145445853471756,
+        "correct_far_advantage_train_donor": 0.0840824618935585,
+        "total_vs_accepted_gain": 0.08974242955446243,
+        "average_far_gate": 0.1316254436969757,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 72,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.919405937194824,
+        "r718_wrong_far_nll": 5.05164098739624,
+        "far_incremental_gain": 0.04623323678970337,
+        "correct_far_advantage": 0.1322343647480011,
+        "correct_far_advantage_train_donor": 0.08530548959970474,
+        "total_vs_accepted_gain": 0.08622756600379944,
+        "average_far_gate": 0.1438736915588379,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 96,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.9231438636779785,
+        "r718_wrong_far_nll": 5.045052528381348,
+        "far_incremental_gain": 0.04249579831957817,
+        "correct_far_advantage": 0.12190873175859451,
+        "correct_far_advantage_train_donor": 0.0787859633564949,
+        "total_vs_accepted_gain": 0.08249012380838394,
+        "average_far_gate": 0.1355516016483307,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 120,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.927677631378174,
+        "r718_wrong_far_nll": 5.045659065246582,
+        "far_incremental_gain": 0.037961479276418686,
+        "correct_far_advantage": 0.11798088997602463,
+        "correct_far_advantage_train_donor": 0.07415597885847092,
+        "total_vs_accepted_gain": 0.07795580476522446,
+        "average_far_gate": 0.1363782286643982,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 144,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.936031341552734,
+        "r718_wrong_far_nll": 5.0302886962890625,
+        "far_incremental_gain": 0.029608096927404404,
+        "correct_far_advantage": 0.09425705671310425,
+        "correct_far_advantage_train_donor": 0.062215667217969894,
+        "total_vs_accepted_gain": 0.06960242241621017,
+        "average_far_gate": 0.11648799479007721,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 168,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.942999839782715,
+        "r718_wrong_far_nll": 5.039950847625732,
+        "far_incremental_gain": 0.022640295326709747,
+        "correct_far_advantage": 0.0969516709446907,
+        "correct_far_advantage_train_donor": 0.05646712705492973,
+        "total_vs_accepted_gain": 0.06263461709022522,
+        "average_far_gate": 0.12722289562225342,
+        "far_coverage": 0.921875
+      }
+    },
+    {
+      "step": 192,
+      "dev": {
+        "n": 128,
+        "base_nll": 5.005634307861328,
+        "r716_near_nll": 4.965639591217041,
+        "r718_correct_nll": 4.942989826202393,
+        "r718_wrong_far_nll": 5.0327935218811035,
+        "far_incremental_gain": 0.022649958729743958,
+        "correct_far_advantage": 0.08980382233858109,
+        "correct_far_advantage_train_donor": 0.05268116295337677,
+        "total_vs_accepted_gain": 0.06264428794384003,
+        "average_far_gate": 0.11952350288629532,
+        "far_coverage": 0.921875
+      }
+    }
+  ],
+  "exact_horizon_groups": {
+    "near": "[2049,32768]",
+    "far": "[32769,131072]"
+  },
+  "history_controls": "order-shuffled far past and distinct-train-split far donors; original and 32K near unchanged",
+  "independent_book_evaluation": false,
+  "legacy_splits_reused": true,
+  "adapter_path": "/mnt/data/fa1_r718_work/adaptation/fa1_r718_candidate.pt",
+  "adapter_sha256": "aed1d692cc49bc13c680292d10534c8adb01f077241eebeefc25bfab93d4580a",
+  "seconds": 16.26
+}
