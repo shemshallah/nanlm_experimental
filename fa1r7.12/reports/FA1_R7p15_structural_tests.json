@@ -1,0 +1,17 @@
+{
+  "finite_likelihood": true,
+  "all_writer_reader_gate_gradients": true,
+  "wrong_memory_baseline_unchanged": true,
+  "retrieval_selection_independent_of_target": true,
+  "zero_trust_exactly_recovers_inherited_likelihood": true,
+  "grad_norm": {
+    "scores": 0.0046577006578445435,
+    "key.weight": 0.0002531874051783234,
+    "value.weight": 0.007357691880315542,
+    "context.weight": 0.00014492122863885015,
+    "gate.0.weight": 0.0,
+    "gate.0.bias": 0.0,
+    "gate.2.weight": 0.6019008159637451,
+    "gate.2.bias": 0.24606084823608398
+  }
+}
