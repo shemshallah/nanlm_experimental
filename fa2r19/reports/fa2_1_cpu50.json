@@ -1,0 +1,46 @@
+{
+  "round": "FA2.1 CPU50 standard-LR continuation",
+  "codename": "FA2.1",
+  "source_checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "source_r12_updates": 10756,
+  "candidate_updates": 50,
+  "training_tokens": 14193,
+  "seed": 18020,
+  "span": 96,
+  "long_span": 400,
+  "optimizer": {
+    "mode": "migrated_retrieval_and_gain_adam",
+    "r18_restored_moments": 15,
+    "lr_scale": 1
+  },
+  "short_dev": {
+    "positions": 32,
+    "raw_bytes": 4380,
+    "before_bpb": 2.599445593504973,
+    "after_bpb": 2.599547811825433,
+    "before_nonspace_nll": 4.795088790437634,
+    "after_nonspace_nll": 4.813522309765873,
+    "before_nonspace_top1": 0.10870947234583599,
+    "after_nonspace_top1": 0.10235219326128417
+  },
+  "long_dev": {
+    "positions": 8,
+    "raw_bytes": 18070,
+    "before_bpb": 2.5659966774706318,
+    "after_bpb": 2.568984353000342,
+    "before_nonspace_nll": 4.591845368685788,
+    "after_nonspace_nll": 4.614710977632705,
+    "before_nonspace_top1": 0.12418106015485408,
+    "after_nonspace_top1": 0.12194758784991067
+  },
+  "dev_all_gains": false,
+  "legacy_anchors_ok": true,
+  "promoted": false,
+  "accepted_checkpoint_sha256_after": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "local_cpu_elapsed_sec": 65.98701535799998,
+  "limitations": [
+    "Evaluation windows are small and historically reused",
+    "No independent new-book or downstream semantic improvement measured",
+    "Rejected candidate not saved; original checkpoint remains byte-identical"
+  ]
+}
