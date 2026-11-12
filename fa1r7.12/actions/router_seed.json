@@ -1,0 +1,26 @@
+{
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "adam": {
+    "m": [
+      -0.0008710847469046712,
+      -0.02336505986750126,
+      -0.00030618676100857556
+    ],
+    "step": 192,
+    "v": [
+      1.3692422271560645e-06,
+      0.0004919435596093535,
+      3.972450031142216e-06
+    ]
+  },
+  "bias": -0.09832609444856644,
+  "comment": "This seed preserves R7.13 router scalar Adam moments; source R7.13 full overlay is recoverable in the full Library archive.",
+  "format": "FA1_R7_13_ROUTER_SEED_FROM_EXACT_OVERLAY_V1",
+  "r713_overlay_sha256": "b2385f84c6943c865b2522defb85620211a3796382176117c995bf5fdfdbcab6",
+  "surrogate_training_promoted": false,
+  "weights": [
+    10.25741958618164,
+    6.584434509277344,
+    -0.07944551110267639
+  ]
+}
