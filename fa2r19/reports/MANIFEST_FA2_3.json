@@ -1,0 +1,41 @@
+{
+  "round": "FA2.3/R22",
+  "created_utc": "2026-11-12",
+  "accepted_checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "accepted_checkpoint_bytes": 121882910,
+  "accepted_updates": 10756,
+  "accepted_promotion": false,
+  "r21_state_sha256": "df6a71caae7c508784e1cc4ee07f5d7baf4df09b35a4da6b0ce85734536054f9",
+  "r22_candidate_sha256": "d004988717113e557d61d84b75a6987df83d281ea117d8939829394580b92c5b",
+  "r22_candidate_bytes": 31137,
+  "r22_candidate_optimizer_saved": true,
+  "r22_candidate_steps": 1000,
+  "new_parameters": 414,
+  "original_model_in_archive": false,
+  "large_corpora_in_archive": false,
+  "evaluation_status": "historical, book-disjoint but previously seen in wider PAL research",
+  "regression_tests": {
+    "R18": [
+      16,
+      16
+    ],
+    "R19": [
+      12,
+      12
+    ],
+    "R22": [
+      11,
+      11
+    ]
+  },
+  "400_chunk_scores": {
+    "r18_test_bpb": 2.4133319617440203,
+    "r21_test_bpb": 2.4102241429875186,
+    "r22_test_bpb": 2.401242530496642
+  },
+  "limitations": [
+    "No clean new-book evaluation",
+    "No verified compositional semantic transfer",
+    "32k externally addressed candidate read, not 32k end-to-end model context"
+  ]
+}
