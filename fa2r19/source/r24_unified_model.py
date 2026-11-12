@@ -89,7 +89,8 @@ class UnifiedFA2(nn.Module):
         self.moe = CausalMirrorMoE(dim, expert_width, expert_count, expert_topk)
         self.local_history = int(local_history)
 
-    def forward_chunk(self, book, segment, carry, *, counterfactual=False):
+    def forward_chunk(self, book, segment, carry, *, counterfactual=False,
+                      donor_book=None):
         begin, end, t0, t1 = segment
         examples = torch.as_tensor(book.examples[begin:end].astype(np.int64))[None]
         lexical = torch.as_tensor(book.context[begin:end].astype(np.float32))[None]
@@ -132,6 +133,7 @@ class UnifiedFA2(nn.Module):
         memory = None
         actual = post22
         permuted = post22
+        unrelated = None
         if t0 >= 64:
             memory = build_index(book.tokens, t0, t1 - t0)
             memory["query_position_offset"] = t0
@@ -141,13 +143,27 @@ class UnifiedFA2(nn.Module):
                 permuted, _ = self.r23(
                     post22, scramble_completed_values(memory),
                     piece_table=self.model.memory.piece_emb.weight)
+                # Unrelated book MUST use the current book's exact causal
+                # query. Its values and index positions come exclusively
+                # from the earlier completed portion of a different book.
+                if donor_book is not None and donor_book.book_id != book.book_id:
+                    donor_start = min(t0, len(donor_book.tokens) - (t1 - t0))
+                    if donor_start >= 129:
+                        alternate = build_index(
+                            donor_book.tokens, donor_start, t1 - t0,
+                            query_book_tokens=book.tokens, query_start=t0)
+                        alternate["query_position_offset"] = t0
+                        unrelated, _ = self.r23(
+                            post22, alternate,
+                            piece_table=self.model.memory.piece_emb.weight)
         byte_start = int(book.byte_starts[begin])
         byte_end = (int(book.byte_starts[end]) if end < len(book.byte_starts)
                     else int(book.raw_len))
         if byte_end <= byte_start:
             raise ValueError("nonpositive source-verified byte span")
         return {"logits": actual, "without_r23": post22,
-                "scrambled_values": permuted, "target": y,
+                "scrambled_values": permuted, "unrelated_history": unrelated,
+                "target": y,
                 "bytes": byte_end - byte_start, "memory_detail": details,
                 "memory_index": memory,
                 "moe_balance": balance, "start": t0}
