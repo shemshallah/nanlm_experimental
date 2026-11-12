@@ -1,0 +1,19 @@
+{
+  "from_step": 14416,
+  "updates": 512,
+  "continuity_verified": true,
+  "all_five_optimizers_preserved": true,
+  "initial_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "final_step": 14928,
+  "last_training": {
+    "step": 14928,
+    "word_nll": 7.780180931091309,
+    "loss": 8.882509231567383,
+    "semantic_cap": 0.00395386666059494,
+    "semantic_cap_grad": 5.281831181491725e-05,
+    "semantic_hit_rate": 0.0
+  },
+  "no_independent_books": true,
+  "wall_seconds": 119.55,
+  "checkpoint_sha256": "553d798bb51def9fb498293ed40b26dbe76b680c4991c09cbba1eec9f713bc84"
+}

@@ -1,0 +1,26 @@
+{
+  "checkpoint_format": "PAL_R7_4_CROSSWINDOW_V1",
+  "joint_step": 3240,
+  "context": "2048 exact + 6144 older recurrent mirror, with streaming carry",
+  "historical_holdout_only": true,
+  "new_documents_not_screened": true,
+  "caveat": "Original historical corpus has no explicit document boundary map; long-context metrics are exploratory.",
+  "positions_per_split": 4096,
+  "results": {
+    "dev": {
+      "active_nll": 5.23565471265465,
+      "outer_off_nll": 5.235654709395021,
+      "inwindow_mirror_off_nll": 5.236092400737107,
+      "outer_memory_benefit_nats": -3.259629011154175e-09
+    },
+    "test": {
+      "active_nll": 5.886861626524478,
+      "outer_off_nll": 5.886861743405461,
+      "inwindow_mirror_off_nll": 5.887149226851761,
+      "outer_memory_benefit_nats": 1.1688098311424255e-07
+    }
+  },
+  "outer_gain": -0.0003510696697048843,
+  "model_parameter_count": 11315081,
+  "elapsed_s": 39.7
+}

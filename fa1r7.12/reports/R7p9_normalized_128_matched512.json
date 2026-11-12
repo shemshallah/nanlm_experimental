@@ -1,0 +1,76 @@
+{
+  "step": 14544,
+  "source": "checkpoint/pal_r79_normalized_candidate.pt",
+  "same_original_model": true,
+  "results": {
+    "dev": {
+      "matched": {
+        "n": 512,
+        "semantic_coverage": 496,
+        "semantic_target_hits": 194,
+        "exact_key_coverage": 418,
+        "pair_coverage": 179,
+        "active_nll": 4.955024190247059,
+        "semantic_off_nll": 4.955175701528788,
+        "pair_off_nll": 4.9638915583491325,
+        "one_word_only_nll": 4.964043702930212,
+        "retrieval_off_nll": 5.062748156487942,
+        "outer_off_nll": 4.955251011997461,
+        "semantic_gain": 0.0001515112817287445,
+        "pair_gain": 0.008868001401424408,
+        "exact_gain": 0.09870445355772972,
+        "total_gain": 0.10772396624088287,
+        "outer_gain": 0.00022682175040245056
+      },
+      "causal_128": {
+        "correct_nll": 4.889458954334259,
+        "normalized_off_nll": 4.8895441591739655,
+        "outer_off_nll": 4.8897246569395065,
+        "reversed_nll": 4.889458805322647,
+        "unrelated_nll": 4.889462411403656,
+        "n": 128,
+        "normalized_advantage": 8.52048397064209e-05,
+        "correct_over_unrelated": 3.4570693969726562e-06,
+        "correct_over_reversed": -1.4901161193847656e-07,
+        "normal_gain": 0.0012098167790099978,
+        "order_gain": 0.0004979915102012455,
+        "pair_gain": -0.07225225865840912
+      }
+    },
+    "test": {
+      "matched": {
+        "n": 512,
+        "semantic_coverage": 490,
+        "semantic_target_hits": 171,
+        "exact_key_coverage": 390,
+        "pair_coverage": 144,
+        "active_nll": 5.836842153221369,
+        "semantic_off_nll": 5.841180879622698,
+        "pair_off_nll": 5.837140489369631,
+        "one_word_only_nll": 5.841365914791822,
+        "retrieval_off_nll": 5.945834804326296,
+        "outer_off_nll": 5.836885616183281,
+        "semantic_gain": 0.0043387264013290405,
+        "pair_gain": 0.00018503516912460327,
+        "exact_gain": 0.10446888953447342,
+        "total_gain": 0.10899265110492706,
+        "outer_gain": 4.346296191215515e-05
+      },
+      "causal_128": {
+        "correct_nll": 5.799557060003281,
+        "normalized_off_nll": 5.799462124705315,
+        "outer_off_nll": 5.799335867166519,
+        "reversed_nll": 5.799563005566597,
+        "unrelated_nll": 5.799545720219612,
+        "n": 128,
+        "normalized_advantage": -9.493529796600342e-05,
+        "correct_over_unrelated": -1.1339783668518066e-05,
+        "correct_over_reversed": 5.945563316345215e-06,
+        "normal_gain": 0.0012098167790099978,
+        "order_gain": 0.0004979915102012455,
+        "pair_gain": -0.07225225865840912
+      }
+    }
+  },
+  "wall_seconds": 29.22
+}

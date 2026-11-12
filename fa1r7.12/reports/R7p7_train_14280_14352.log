@@ -1,0 +1,2 @@
+{"phase": "TRAIN", "step": 14352, "word_nll": 2.8072283267974854, "loss": 3.870474338531494, "semantic_cap": 0.0037077907472848892, "semantic_cap_grad": 6.860485427750973e-06, "semantic_hit_rate": 0.5, "elapsed_seconds": 19.5}
+{"phase": "SAVED", "checkpoint_sha256": "e1674bd84c4a2646255b678d25d8fe25316d618906939e6c4b5923af6a35dd1c", "final_step": 14352}

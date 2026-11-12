@@ -1,0 +1,2 @@
+{"split": "dev", "nll": 4.955024190247059, "outer_utility": 0.00022682175040245056, "normal_gain": 0.0012098167790099978, "normalized_utility_128": 8.52048397064209e-05, "correct_over_unrelated_128": 3.4570693969726562e-06, "correct_over_reversed_128": -1.4901161193847656e-07}
+{"split": "test", "nll": 5.836842153221369, "outer_utility": 4.346296191215515e-05, "normal_gain": 0.0012098167790099978, "normalized_utility_128": -9.493529796600342e-05, "correct_over_unrelated_128": -1.1339783668518066e-05, "correct_over_reversed_128": 5.945563316345215e-06}

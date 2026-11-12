@@ -1,0 +1,11 @@
+{"phase": "FROZEN_EVIDENCE", "before": {"train": {"nll": 5.35441780090332, "base_nll": 5.35706090927124, "gain": 0.002643108367919922, "avg_gate": 0.0032960830722004175, "memory_target_hit_rate": 0.6328125, "avg_mem_prob_when_hit": 0.12306324392557144, "n": 256}, "dev": {"nll": 5.449058532714844, "base_nll": 5.4526286125183105, "gain": 0.003570079803466797, "avg_gate": 0.0032960830722004175, "memory_target_hit_rate": 0.6875, "avg_mem_prob_when_hit": 0.07790037989616394, "n": 96}}, "seconds": 3.58}
+{"phase": "GATE", "step": 1, "train_gain": 0.0026617050170898438, "dev_gain": 0.0035943984985351562, "gate": 0.0033222639467567205}
+{"phase": "GATE", "step": 16, "train_gain": 0.0028634071350097656, "dev_gain": 0.0038547515869140625, "gate": 0.003611222142353654}
+{"phase": "GATE", "step": 32, "train_gain": 0.0031342506408691406, "dev_gain": 0.004201412200927734, "gate": 0.004007334355264902}
+{"phase": "GATE", "step": 48, "train_gain": 0.0034270286560058594, "dev_gain": 0.004573345184326172, "gate": 0.004448068793863058}
+{"phase": "GATE", "step": 64, "train_gain": 0.0037469863891601562, "dev_gain": 0.004974365234375, "gate": 0.004943424835801125}
+{"phase": "GATE", "step": 80, "train_gain": 0.004093647003173828, "dev_gain": 0.005403041839599609, "gate": 0.005497513338923454}
+{"phase": "GATE", "step": 96, "train_gain": 0.004387855529785156, "dev_gain": 0.005763530731201172, "gate": 0.005983790382742882}
+{"phase": "GATE", "step": 112, "train_gain": 0.004689216613769531, "dev_gain": 0.006127834320068359, "gate": 0.006496680434793234}
+{"phase": "GATE", "step": 128, "train_gain": 0.005077362060546875, "dev_gain": 0.006589412689208984, "gate": 0.007178933825343847}
+{"phase": "DONE", "selected_step": 128, "dev_gain": 0.006589412689208984, "test_gain": 0.028897762298583984, "accepted_unchanged": true, "elapsed_s": 4.72}

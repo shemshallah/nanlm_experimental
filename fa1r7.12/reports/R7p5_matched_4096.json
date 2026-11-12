@@ -1,0 +1,29 @@
+{
+  "round": "R7.5",
+  "joint_steps": 3500,
+  "positions_per_split": 4096,
+  "historical_test_not_independently_screened": true,
+  "retrieval_method": "exact older-window previous-token->next-token pairs",
+  "split": {
+    "dev": {
+      "n": 4096,
+      "key_positions": 3382,
+      "target_hits": 1448,
+      "active_nll": 5.175295975990593,
+      "retrieval_off_nll": 5.23571591777727,
+      "outer_off_nll": 5.175296067260206,
+      "retrieval_benefit_nats": 0.060419941786676645,
+      "outer_benefit_nats": 9.12696123123169e-08
+    },
+    "test": {
+      "n": 4096,
+      "key_positions": 3218,
+      "target_hits": 1174,
+      "active_nll": 5.812452519778162,
+      "retrieval_off_nll": 5.887560197617859,
+      "outer_off_nll": 5.812452279031277,
+      "retrieval_benefit_nats": 0.07510767783969641,
+      "outer_benefit_nats": -2.407468855381012e-07
+    }
+  }
+}

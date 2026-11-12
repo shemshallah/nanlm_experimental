@@ -1,0 +1,19 @@
+{
+  "source_sha256": "43a0245e26a55d7c6ef5ec89f573940fb4c6a14786d8a63cfbcb1fe02ed70504",
+  "source_step": 14448,
+  "migration": "PAL_R7_8_ORDERED_MIRROR_V1",
+  "five_optimizer_histories_preserved": true,
+  "from_step": 14448,
+  "updates": 96,
+  "final_step": 14544,
+  "last_train": {
+    "step": 14544,
+    "word_nll": 4.976592540740967,
+    "loss": 5.944698810577393,
+    "order_gain": 0.0023530174512416124,
+    "order_gain_gradient": -2.2407864435081137e-06
+  },
+  "independent_books_evaluated": false,
+  "wall_seconds": 24.11,
+  "checkpoint_sha256": "68673320ce291ef0c98add8b1c9e6af6623b65833b660d6311175498562a784a"
+}

@@ -1,0 +1,19 @@
+/mnt/data/pal_work/source/test_r76.py:26: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  assert exists.all() and 0<float(prob[0])<1 and float(prob[1])==0
+{
+  "step": 4500,
+  "format": "PAL_R7_6_PAIR_ASSOCIATIVE_V1",
+  "checks": {
+    "five_optimizer_histories_continuous": "PASS",
+    "optimizer_updates_live_model_parameters": "PASS",
+    "pair_key_exact_ordered_retrieval": "PASS",
+    "reversing_key_fails_as_expected": "PASS",
+    "older_memory_ablation_disables_pair": "PASS",
+    "trained_trunk_and_now_state_identical": "PASS",
+    "current_target_and_future_columns_excluded": "PASS",
+    "all_retrieval_ablation_exact": "PASS",
+    "pair_and_trunk_gradient_flow": "PASS"
+  },
+  "passes": 9
+}

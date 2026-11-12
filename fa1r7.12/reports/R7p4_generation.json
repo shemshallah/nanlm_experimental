@@ -1,0 +1,10 @@
+{
+  "mode": "word",
+  "prompt": "the stars were shining above the old house",
+  "generated": "man , in the first , he would go to be seen . acough he had said : i am not so well , , y que se ora como los cabvil de su mujer buena . i should have to go on you , as a few years before his hat as if they",
+  "joint_steps": 3240,
+  "fallbacks": 2,
+  "older_memory_active": true,
+  "future_labels_seen": false,
+  "warning": "PAL corpus has normalized word streams, not original punctuation and whitespace."
+}

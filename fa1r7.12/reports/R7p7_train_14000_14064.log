@@ -1,0 +1,1 @@
+{"phase": "TRAIN", "step": 14064, "word_nll": 4.514532089233398, "loss": 5.550480842590332, "semantic_cap": 0.0035301789175719023, "semantic_cap_grad": -1.0538218703004532e-05, "semantic_hit_rate": 0.25, "elapsed_seconds": 17.85}

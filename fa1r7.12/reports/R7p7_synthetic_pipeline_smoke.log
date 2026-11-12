@@ -1,0 +1,57 @@
+{
+  "train": {
+    "documents": 1,
+    "files": 1
+  },
+  "dev": {
+    "documents": 1,
+    "files": 1
+  },
+  "test": {
+    "documents": 1,
+    "files": 1
+  }
+}
+{
+  "checkpoint_step": 14208,
+  "split": "test",
+  "source_path": "/mnt/data/pal_r77_work/tmp_smoke_books",
+  "source_kind": "independently supplied whole-book Gutenberg files (expected NaNROUTER release)",
+  "new_books_trained": false,
+  "historical_train_corpus_unchanged": true,
+  "holdout_books_available": 1,
+  "holdout_books_screened": 1,
+  "screening": "document SHA deduplication + historical training 16-token rolling hash",
+  "screening_is_not_proof_of_zero_leakage": true,
+  "documents": [
+    {
+      "relative_file": "fixture_1.txt",
+      "sha256": "f51e1231caeac3febb44515fd8745c4b44504eb6eac0e04b3832ed22b9af6ff9",
+      "words": 12502,
+      "first_record": 0,
+      "eligible_16grams": 12487,
+      "overlapping_16grams": 0,
+      "overlap_fraction": 0.0,
+      "screening_status": "SCREENED_NO_LARGE_OVERLAP"
+    }
+  ],
+  "metrics": {
+    "n": 128,
+    "semantic_coverage": 101,
+    "semantic_target_hits": 63,
+    "exact_key_coverage": 100,
+    "pair_coverage": 87,
+    "active_nll": 6.903275638818741,
+    "semantic_off_nll": 6.974323481321335,
+    "pair_off_nll": 7.027633547782898,
+    "one_word_only_nll": 7.099072188138962,
+    "retrieval_off_nll": 9.442285120487213,
+    "outer_off_nll": 6.903197020292282,
+    "semantic_gain": 0.071047842502594,
+    "pair_gain": 0.12474870681762695,
+    "exact_gain": 2.3432129323482513,
+    "total_gain": 2.5390094816684723,
+    "outer_gain": -7.861852645874023e-05
+  },
+  "elapsed_seconds": 8.22
+}

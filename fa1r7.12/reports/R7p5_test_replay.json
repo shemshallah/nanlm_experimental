@@ -1,0 +1,12 @@
+{
+  "original_predictions_and_decoder_unchanged": "PASS",
+  "target_and_future_columns_excluded": "PASS",
+  "exact_old_key_value_retrieval": "PASS",
+  "older_memory_ablation_removes_recall": "PASS",
+  "causal_fifo_shift": "PASS",
+  "single_model_five_optimizer_states": "PASS",
+  "original_mirror_preserved": "PASS",
+  "joint_gradient_to_retrieval_and_original_trunk": "PASS",
+  "joint_step": 3500,
+  "count": 8
+}

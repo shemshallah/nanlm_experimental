@@ -1,0 +1,27 @@
+{
+  "past_older_words": 6144,
+  "exact_words": 2048,
+  "note": "Opportunity only: historical records may lack explicit document boundaries; counts are not proven learned retrieval.",
+  "splits": {
+    "dev": {
+      "positions": 4096,
+      "known_target": 3999,
+      "in_exact": 3320,
+      "in_older": 3481,
+      "older_only": 323,
+      "bigram_match": 1227,
+      "older_bigram_match": 1569,
+      "older_only_bigram_match": 592
+    },
+    "test": {
+      "positions": 4096,
+      "known_target": 3958,
+      "in_exact": 3169,
+      "in_older": 3388,
+      "older_only": 395,
+      "bigram_match": 1105,
+      "older_bigram_match": 1347,
+      "older_only_bigram_match": 511
+    }
+  }
+}

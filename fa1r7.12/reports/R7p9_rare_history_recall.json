@@ -1,0 +1,71 @@
+{
+  "accepted": {
+    "dev": {
+      "split": "dev",
+      "n_positions": 128,
+      "valid_unique_key_queries": 128,
+      "mean_ce_correct": 4.01376530341804,
+      "mean_ce_unrelated": 4.019366480410099,
+      "mean_ce_within_block_reversed": 4.013765305280685,
+      "memory_advantage_ce": 0.005601176992058754,
+      "bootstrap_ci95_query_level": [
+        0.00014740726910531521,
+        0.01134991869330406
+      ],
+      "bootstrap_limitation": "query-level bootstrap within historically consulted split, not book bootstrap",
+      "step": 14416,
+      "independent_books": false
+    },
+    "test": {
+      "split": "test",
+      "n_positions": 128,
+      "valid_unique_key_queries": 128,
+      "mean_ce_correct": 4.010878898203373,
+      "mean_ce_unrelated": 4.005283867940307,
+      "mean_ce_within_block_reversed": 4.010878873988986,
+      "memory_advantage_ce": -0.005595030263066292,
+      "bootstrap_ci95_query_level": [
+        -0.013543696328997611,
+        0.002352561149746176
+      ],
+      "bootstrap_limitation": "query-level bootstrap within historically consulted split, not book bootstrap",
+      "step": 14416,
+      "independent_books": false
+    }
+  },
+  "r79_trial": {
+    "dev": {
+      "split": "dev",
+      "n_positions": 128,
+      "valid_unique_key_queries": 128,
+      "mean_ce_correct": 3.9267461160197854,
+      "mean_ce_unrelated": 3.933098066598177,
+      "mean_ce_within_block_reversed": 3.93244943395257,
+      "memory_advantage_ce": 0.006351950578391552,
+      "bootstrap_ci95_query_level": [
+        0.0007594664813950659,
+        0.012258719815872607
+      ],
+      "bootstrap_limitation": "query-level bootstrap within historically consulted split, not book bootstrap",
+      "step": 14544,
+      "independent_books": false
+    },
+    "test": {
+      "split": "test",
+      "n_positions": 128,
+      "valid_unique_key_queries": 128,
+      "mean_ce_correct": 3.931575298309326,
+      "mean_ce_unrelated": 3.9248410165309906,
+      "mean_ce_within_block_reversed": 3.936249988153577,
+      "memory_advantage_ce": -0.006734281778335571,
+      "bootstrap_ci95_query_level": [
+        -0.015049328980967402,
+        0.0015967769548296898
+      ],
+      "bootstrap_limitation": "query-level bootstrap within historically consulted split, not book bootstrap",
+      "step": 14544,
+      "independent_books": false
+    }
+  },
+  "elapsed_seconds": 9.87
+}

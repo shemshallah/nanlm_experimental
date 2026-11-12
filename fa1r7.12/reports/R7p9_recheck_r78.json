@@ -1,0 +1,15 @@
+{
+  "checks": {
+    "all_existing_adam_moments_preserved": "PASS",
+    "all_old_weights_bit_identical": "PASS",
+    "one_live_mirror_memory_and_same_optimizer": "PASS",
+    "zero_gate_migration_identical_states_and_nll": "PASS",
+    "within_64_word_order_now_distinguishable": "PASS",
+    "order_gate_has_causal_loss_gradient": "PASS"
+  },
+  "passed": 6,
+  "permutation_delta_zero": 7.450580596923828e-09,
+  "permutation_delta_gain_0p2": 0.000557970255613327,
+  "gate_grad": -2.4290640794788487e-05,
+  "step": 14416
+}

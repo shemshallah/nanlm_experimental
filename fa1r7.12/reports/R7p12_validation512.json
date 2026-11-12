@@ -1,0 +1,81 @@
+{
+  "r712_validation": "reseeding and source-mismatch controls",
+  "accepted_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "five_optimizers_intact": true,
+  "historical_data_not_independent_books": true,
+  "pairwise_query_bootstrap_not_book_level": true,
+  "results": {
+    "dev": {
+      "correct": {
+        "nll": 5.138845920562744,
+        "base_nll": 5.139106750488281,
+        "gain": 0.0002608299255371094,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.62890625,
+        "avg_mem_prob_when_hit": 0.07611746340990067,
+        "n": 512
+      },
+      "wrong_memory": {
+        "nll": 5.131276607513428,
+        "base_nll": 5.139106750488281,
+        "gain": 0.007830142974853516,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.62890625,
+        "avg_mem_prob_when_hit": 0.09323252737522125,
+        "n": 512
+      },
+      "paired_statistics": {
+        "positive_gain_ci95_query_bootstrap": [
+          -0.002339186181779951,
+          0.003911120945122091
+        ],
+        "correct_vs_wrong_ci95_query_bootstrap": [
+          -0.017635325249284507,
+          -0.00010063016670756162
+        ],
+        "correct_vs_wrong_mean": -0.007569432724267244,
+        "correct_nll": 5.138846397399902,
+        "wrong_nll": 5.131276607513428,
+        "legacy_nll": 5.139106750488281,
+        "n": 512
+      },
+      "book_cluster_ci_available": false
+    },
+    "test": {
+      "correct": {
+        "nll": 5.960437774658203,
+        "base_nll": 5.967286586761475,
+        "gain": 0.006848812103271484,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.591796875,
+        "avg_mem_prob_when_hit": 0.08363320678472519,
+        "n": 512
+      },
+      "wrong_memory": {
+        "nll": 5.966781139373779,
+        "base_nll": 5.967286586761475,
+        "gain": 0.0005054473876953125,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.55078125,
+        "avg_mem_prob_when_hit": 0.09129824489355087,
+        "n": 512
+      },
+      "paired_statistics": {
+        "positive_gain_ci95_query_bootstrap": [
+          0.0014188508212100714,
+          0.013638488948345183
+        ],
+        "correct_vs_wrong_ci95_query_bootstrap": [
+          0.0016729150753235444,
+          0.01181251115631312
+        ],
+        "correct_vs_wrong_mean": 0.006343253888189793,
+        "correct_nll": 5.960437774658203,
+        "wrong_nll": 5.966781139373779,
+        "legacy_nll": 5.967286586761475,
+        "n": 512
+      },
+      "book_cluster_ci_available": false
+    }
+  }
+}

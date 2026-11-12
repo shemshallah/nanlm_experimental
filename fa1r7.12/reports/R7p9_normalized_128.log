@@ -1,0 +1,8 @@
+/mnt/data/pal_r78_work/source/r79_normalized_memory.py:143: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  print(json.dumps(dict(step=step+i+1,loss=float(loss),train_nll=float(word),normal_gain=float(model.r74.normal_gain),
+{"step": 14448, "loss": 7.608216762542725, "train_nll": 6.440600872039795, "normal_gain": 0.005612132139503956, "order_gain": 0.0008436684147454798, "pair_gain": -0.031298570334911346, "elapsed_s": 10.1}
+{"step": 14480, "loss": 6.601448059082031, "train_nll": 5.461585998535156, "normal_gain": -0.007726948242634535, "order_gain": 0.001273375703021884, "pair_gain": -0.05267340689897537, "elapsed_s": 17.4}
+{"step": 14512, "loss": 9.138643264770508, "train_nll": 8.062703132629395, "normal_gain": -0.006753277499228716, "order_gain": 0.0008505547884851694, "pair_gain": -0.06264646351337433, "elapsed_s": 24.9}
+{"step": 14544, "loss": 5.9445295333862305, "train_nll": 4.976430416107178, "normal_gain": 0.0012098167790099978, "order_gain": 0.0004979915102012455, "pair_gain": -0.07225225865840912, "elapsed_s": 32.2}
+{"SAVED": "checkpoint/pal_r79_normalized_candidate.pt", "step": 14544, "sha256": "b18971f1daa76fc13a5737ab8fac1fea5dced2bf8bfe346afa5517abca50f656"}

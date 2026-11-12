@@ -1,0 +1,55 @@
+{
+  "codename": "FA1",
+  "stage": "R7.13 hierarchical memory -> frozen R7.12 LM gate",
+  "accepted_joint_step": 14416,
+  "parent_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "historical_books_not_sealed": true,
+  "LM_promotion": false,
+  "frozen_gate": true,
+  "development_memory_gate_positive": false,
+  "metrics": {
+    "dev": {
+      "correct": {
+        "nll": 5.172446250915527,
+        "base_nll": 5.171989917755127,
+        "gain": -0.0004563331604003906,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.748046875,
+        "avg_mem_prob_when_hit": 0.07654661685228348,
+        "n": 512
+      },
+      "wrong": {
+        "nll": 5.164559841156006,
+        "base_nll": 5.171989917755127,
+        "gain": 0.007430076599121094,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.716796875,
+        "avg_mem_prob_when_hit": 0.07715839892625809,
+        "n": 512
+      },
+      "correct_vs_wrong_nll_advantage": -0.007886409759521484
+    },
+    "test": {
+      "correct": {
+        "nll": 5.63386869430542,
+        "base_nll": 5.639172077178955,
+        "gain": 0.005303382873535156,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.646484375,
+        "avg_mem_prob_when_hit": 0.11200463771820068,
+        "n": 512
+      },
+      "wrong": {
+        "nll": 5.59616231918335,
+        "base_nll": 5.639172077178955,
+        "gain": 0.04300975799560547,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.619140625,
+        "avg_mem_prob_when_hit": 0.10764528065919876,
+        "n": 512
+      },
+      "correct_vs_wrong_nll_advantage": -0.03770637512207031
+    }
+  },
+  "seconds": 29.283
+}

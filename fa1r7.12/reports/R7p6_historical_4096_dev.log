@@ -1,0 +1,20 @@
+{
+  "split": "dev",
+  "checkpoint_joint_step": 14000,
+  "historical_only": true,
+  "independently_screened": false,
+  "metrics": {
+    "n": 4096,
+    "key_positions": 3382,
+    "target_hits": 1448,
+    "pair_positions": 1425,
+    "pair_target_hits": 288,
+    "active_nll": 5.144823351409286,
+    "pair_off_nll": 5.156072011683136,
+    "retrieval_off_nll": 5.23199692228809,
+    "outer_off_nll": 5.144905692897737,
+    "one_word_gain": 0.07592491060495377,
+    "incremental_pair_gain": 0.011248660273849964,
+    "total_retrieval_gain": 0.08717357087880373
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "step": 14544,
+  "split": "dev",
+  "historical_only": true,
+  "outer_assoc": {
+    "positions": 128,
+    "correct_state_CE": 3.250790923833847,
+    "shuffled_state_CE": 3.237601563334465,
+    "correct_state_advantage": -0.013189360499382019
+  }
+}

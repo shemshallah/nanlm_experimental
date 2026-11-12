@@ -1,0 +1,17 @@
+{
+  "dev_nll_by_blend": {
+    "0": 5.563613027334213,
+    "0.05": 5.563624769449234,
+    "0.2": 5.563660204410553,
+    "0.5": 5.563731998205185,
+    "0.9": 5.563828378915787
+  },
+  "test_baseline_and_dev_selected": {
+    "0": 11.949154287576675
+  },
+  "dev_selected_gate": 0.0,
+  "model_selection_uses_test": false,
+  "historical_test_not_sealed": true,
+  "note": "Only evaluates full-window reinitialization. Nonzero-gate streaming advance is not yet correct.",
+  "elapsed_seconds": 9.64
+}

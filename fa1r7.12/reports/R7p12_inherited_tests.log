@@ -1,0 +1,13 @@
+{
+  "passed": 7,
+  "checks": {
+    "five_continuous_optimizer_histories": "PASS",
+    "legacy_model_and_adam_tensors_bit_identical": "PASS",
+    "zero_gate_exact_prediction_migration": "PASS",
+    "normalized_gate_changes_prediction": "PASS",
+    "zero_gate_order_invariance": "PASS",
+    "one_matrix_causal_order_detection": "PASS",
+    "normalized_gate_backpropagation": "PASS"
+  },
+  "source_step": 14416
+}
