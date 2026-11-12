@@ -1,0 +1,7 @@
+Initialized unified model (no v23 checkpoint was supplied).
+Window-safe sampling: training 43/43 docs, validation 5/5 docs
+parameters=151,005,954 pairs=128 signed_experts=256 device=cuda max_context=256 train_context=256 eval_context=256 context_mix=none grad_accum=1
+{"step": 1, "tokens_seen": 8192, "train_ce": 5.65447, "validation_ce": 4.34802, "validation_h2_ce": 4.36919, "validation_h3_ce": 4.37801, "validation_ppl": 77.325}
+{"step": 100, "tokens_seen": 819200, "train_ce": 2.10448, "validation_ce": 2.08919, "validation_h2_ce": 2.75313, "validation_h3_ce": 3.00584, "validation_ppl": 8.078}
+{"step": 200, "tokens_seen": 1638400, "train_ce": 1.65473, "validation_ce": 1.77765, "validation_h2_ce": 2.52234, "validation_h3_ce": 2.88366, "validation_ppl": 5.916}
+Canonical checkpoint: /kaggle/working/hybrid_geo/latest.pt

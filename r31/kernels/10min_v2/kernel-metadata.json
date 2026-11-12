@@ -1,0 +1,18 @@
+{
+  "id": "shem42/r31-10min-v2",
+  "title": "R31 10min v2",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [
+    "shem42/r30-poincare-nanrouter-books",
+    "shem42/r31-code"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": []
+}

@@ -1,0 +1,25 @@
+{
+  "run_dir": "/kaggle/working/hybrid_both",
+  "checkpoint_step": 220,
+  "prompt": "It was not that he cared much for the club, but that the remote contingency of having to give it up stood to him, just then, perhaps by",
+  "generated": " the from in the repeced from their open through the large of the consident of Mermor, while first be my when he eness as should climped and this dire any the swarm of the brokes, \u201cOpewiy somether, ",
+  "generated_bytes": 200,
+  "temperature": 0.8,
+  "topk_sample": 30,
+  "repetition": {
+    "unique_3gram_fraction": 0.811224,
+    "repetition_3gram": 0.188776,
+    "unique_4gram_fraction": 0.902564,
+    "repetition_4gram": 0.097436,
+    "unique_5gram_fraction": 0.948454,
+    "repetition_5gram": 0.051546,
+    "most_common_4gram": {
+      "text": " the",
+      "count": 7
+    },
+    "longest_repeated_substring": {
+      "length": 8,
+      "text": " of the "
+    }
+  }
+}

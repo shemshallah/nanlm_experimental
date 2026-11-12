@@ -1,0 +1,62 @@
+{
+  "plain21": {
+    "8": {
+      "params": 21388032,
+      "seconds_per_step": 0.1052,
+      "tokens_per_second": 19465.6,
+      "peak_vram_gib": 0.8
+    },
+    "16": {
+      "params": 21388032,
+      "seconds_per_step": 0.2095,
+      "tokens_per_second": 19550.7,
+      "peak_vram_gib": 1.33
+    },
+    "32": {
+      "params": 21388032,
+      "seconds_per_step": 0.4042,
+      "tokens_per_second": 20266.9,
+      "peak_vram_gib": 2.39
+    }
+  },
+  "hybrid151": {
+    "8": {
+      "params": 151005954,
+      "seconds_per_step": 1.4056,
+      "tokens_per_second": 1457.0,
+      "peak_vram_gib": 3.18
+    },
+    "16": {
+      "params": 151005954,
+      "seconds_per_step": 1.6062,
+      "tokens_per_second": 2550.2,
+      "peak_vram_gib": 3.88
+    },
+    "32": {
+      "params": 151005954,
+      "seconds_per_step": 1.9156,
+      "tokens_per_second": 4276.6,
+      "peak_vram_gib": 5.25
+    }
+  },
+  "control21": {
+    "8": {
+      "params": 21408642,
+      "seconds_per_step": 0.4162,
+      "tokens_per_second": 4920.2,
+      "peak_vram_gib": 0.58
+    },
+    "16": {
+      "params": 21408642,
+      "seconds_per_step": 0.4342,
+      "tokens_per_second": 9433.8,
+      "peak_vram_gib": 0.78
+    },
+    "32": {
+      "params": 21408642,
+      "seconds_per_step": 0.4968,
+      "tokens_per_second": 16490.4,
+      "peak_vram_gib": 1.19
+    }
+  }
+}

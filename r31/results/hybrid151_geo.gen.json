@@ -1,0 +1,25 @@
+{
+  "run_dir": "/kaggle/working/hybrid_geo",
+  "checkpoint_step": 220,
+  "prompt": "It was not that he cared much for the club, but that the remote contingency of having to give it up stood to him, just then, perhaps by",
+  "generated": " the opperning do, Holded and them undipht and of thee had men for for the torriate.\nBearing the buelt hour to a once officience midding and tootal, and he had never being when enward daxey her door, ",
+  "generated_bytes": 200,
+  "temperature": 0.8,
+  "topk_sample": 30,
+  "repetition": {
+    "unique_3gram_fraction": 0.772727,
+    "repetition_3gram": 0.227273,
+    "unique_4gram_fraction": 0.888325,
+    "repetition_4gram": 0.111675,
+    "unique_5gram_fraction": 0.954082,
+    "repetition_5gram": 0.045918,
+    "most_common_4gram": {
+      "text": " the",
+      "count": 5
+    },
+    "longest_repeated_substring": {
+      "length": 6,
+      "text": " and t"
+    }
+  }
+}

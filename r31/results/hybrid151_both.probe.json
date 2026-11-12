@@ -1,0 +1,1148 @@
+{
+  "run_dir": "/kaggle/working/hybrid_both",
+  "checkpoint_step": 220,
+  "parameters": 151005954,
+  "config": {
+    "vocab_size": 257,
+    "dim": 544,
+    "layers": 4,
+    "heads": 16,
+    "pairs": 128,
+    "topk_pairs": 2,
+    "expert_hidden": 235,
+    "context": 256,
+    "moe_every": 2,
+    "hyperbolic_strength": 1.0,
+    "balance_weight": 0.01,
+    "future2_weight": 0.3,
+    "future3_weight": 0.15,
+    "future_mode": "rollout",
+    "future_block_index": -1,
+    "norm_divisor": 0,
+    "dispatch_mode": "grouped",
+    "gather_chunk": 32,
+    "router_mode": "both",
+    "learnable_strength": true,
+    "moe_additive": true
+  },
+  "evaluated_positions": 65536,
+  "ce": 1.706278,
+  "bpb": 2.461639,
+  "top1": 0.492172,
+  "moe_layers": [
+    1,
+    3
+  ],
+  "layers": {
+    "1": {
+      "assignments": 131072,
+      "active_pairs": 128,
+      "dead_pairs": 0,
+      "effective_pairs": 87.729,
+      "entropy_nats": 4.474251,
+      "max_share": 0.057816,
+      "cumulative_share": {
+        "top1": 0.057816,
+        "top2": 0.089958,
+        "top4": 0.142036,
+        "top8": 0.227692,
+        "top16": 0.365768,
+        "top32": 0.560974
+      },
+      "counts": [
+        810,
+        1606,
+        7578,
+        596,
+        637,
+        1560,
+        331,
+        437,
+        1846,
+        109,
+        1210,
+        1254,
+        108,
+        1581,
+        2590,
+        179,
+        839,
+        884,
+        100,
+        29,
+        382,
+        1152,
+        140,
+        1368,
+        520,
+        186,
+        263,
+        833,
+        493,
+        2006,
+        561,
+        1158,
+        797,
+        1198,
+        242,
+        350,
+        2,
+        1173,
+        904,
+        514,
+        1508,
+        2366,
+        63,
+        928,
+        226,
+        423,
+        1738,
+        1605,
+        1122,
+        2384,
+        1213,
+        1142,
+        410,
+        2795,
+        3795,
+        393,
+        1456,
+        442,
+        713,
+        1783,
+        1719,
+        317,
+        4213,
+        408,
+        2394,
+        110,
+        1258,
+        1702,
+        795,
+        978,
+        593,
+        823,
+        2943,
+        2047,
+        1083,
+        1017,
+        228,
+        2377,
+        1417,
+        641,
+        572,
+        59,
+        1151,
+        941,
+        146,
+        100,
+        128,
+        587,
+        89,
+        1210,
+        1393,
+        131,
+        205,
+        825,
+        1112,
+        87,
+        1149,
+        719,
+        691,
+        3,
+        552,
+        713,
+        1091,
+        3031,
+        120,
+        745,
+        786,
+        1597,
+        755,
+        2413,
+        1336,
+        491,
+        1588,
+        854,
+        614,
+        483,
+        512,
+        101,
+        454,
+        2899,
+        162,
+        2111,
+        700,
+        106,
+        1487,
+        1058,
+        596,
+        325
+      ],
+      "pair_bias_min": 0.0,
+      "pair_bias_max": 0.0,
+      "specialization": {
+        "mean_kl_to_global": 0.815609,
+        "max_kl_to_global": 4.352674,
+        "min_kl_to_global": 0.127646,
+        "active_pairs": 128,
+        "most_specialized": [
+          {
+            "pair": 118,
+            "assignments": 454,
+            "kl_to_global": 4.352674,
+            "top_bytes": [
+              {
+                "byte": 10,
+                "char": null,
+                "share": 0.80837
+              },
+              {
+                "byte": 226,
+                "char": null,
+                "share": 0.096916
+              },
+              {
+                "byte": 34,
+                "char": "\"",
+                "share": 0.026432
+              },
+              {
+                "byte": 46,
+                "char": ".",
+                "share": 0.026432
+              },
+              {
+                "byte": 32,
+                "char": " ",
+                "share": 0.026432
+              }
+            ]
+          },
+          {
+            "pair": 57,
+            "assignments": 442,
+            "kl_to_global": 2.99231,
+            "top_bytes": [
+              {
+                "byte": 156,
+                "char": null,
+                "share": 0.171946
+              },
+              {
+                "byte": 157,
+                "char": null,
+                "share": 0.165158
+              },
+              {
+                "byte": 153,
+                "char": null,
+                "share": 0.140271
+              },
+              {
+                "byte": 32,
+                "char": " ",
+                "share": 0.097285
+              },
+              {
+                "byte": 115,
+                "char": "s",
+                "share": 0.033937
+              }
+            ]
+          },
+          {
+            "pair": 104,
+            "assignments": 120,
+            "kl_to_global": 2.521896,
+            "top_bytes": [
+              {
+                "byte": 104,
+                "char": "h",
+                "share": 0.9
+              },
+              {
+                "byte": 111,
+                "char": "o",
+                "share": 0.033333
+              },
+              {
+                "byte": 116,
+                "char": "t",
+                "share": 0.025
+              },
+              {
+                "byte": 110,
+                "char": "n",
+                "share": 0.008333
+              },
+              {
+                "byte": 105,
+                "char": "i",
+                "share": 0.008333
+              }
+            ]
+          },
+          {
+            "pair": 34,
+            "assignments": 242,
+            "kl_to_global": 2.408072,
+            "top_bytes": [
+              {
+                "byte": 84,
+                "char": "T",
+                "share": 0.107438
+              },
+              {
+                "byte": 72,
+                "char": "H",
+                "share": 0.090909
+              },
+              {
+                "byte": 65,
+                "char": "A",
+                "share": 0.086777
+              },
+              {
+                "byte": 226,
+                "char": null,
+                "share": 0.070248
+              },
+              {
+                "byte": 73,
+                "char": "I",
+                "share": 0.061983
+              }
+            ]
+          },
+          {
+            "pair": 36,
+            "assignments": 2,
+            "kl_to_global": 2.338752,
+            "top_bytes": [
+              {
+                "byte": 121,
+                "char": "y",
+                "share": 0.5
+              },
+              {
+                "byte": 32,
+                "char": " ",
+                "share": 0.5
+              },
+              {
+                "byte": 172,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 173,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 171,
+                "char": null,
+                "share": 0.0
+              }
+            ]
+          },
+          {
+            "pair": 99,
+            "assignments": 3,
+            "kl_to_global": 2.219213,
+            "top_bytes": [
+              {
+                "byte": 115,
+                "char": "s",
+                "share": 0.333333
+              },
+              {
+                "byte": 103,
+                "char": "g",
+                "share": 0.333333
+              },
+              {
+                "byte": 110,
+                "char": "n",
+                "share": 0.333333
+              },
+              {
+                "byte": 173,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 171,
+                "char": null,
+                "share": 0.0
+              }
+            ]
+          },
+          {
+            "pair": 60,
+            "assignments": 1719,
+            "kl_to_global": 2.205116,
+            "top_bytes": [
+              {
+                "byte": 104,
+                "char": "h",
+                "share": 0.753927
+              },
+              {
+                "byte": 111,
+                "char": "o",
+                "share": 0.185573
+              },
+              {
+                "byte": 105,
+                "char": "i",
+                "share": 0.018615
+              },
+              {
+                "byte": 114,
+                "char": "r",
+                "share": 0.01338
+              },
+              {
+                "byte": 101,
+                "char": "e",
+                "share": 0.008726
+              }
+            ]
+          },
+          {
+            "pair": 123,
+            "assignments": 106,
+            "kl_to_global": 2.090606,
+            "top_bytes": [
+              {
+                "byte": 100,
+                "char": "d",
+                "share": 0.726415
+              },
+              {
+                "byte": 105,
+                "char": "i",
+                "share": 0.066038
+              },
+              {
+                "byte": 97,
+                "char": "a",
+                "share": 0.056604
+              },
+              {
+                "byte": 101,
+                "char": "e",
+                "share": 0.056604
+              },
+              {
+                "byte": 111,
+                "char": "o",
+                "share": 0.028302
+              }
+            ]
+          }
+        ],
+        "global_top_bytes": [
+          {
+            "byte": 32,
+            "char": " ",
+            "share": 0.16748
+          },
+          {
+            "byte": 101,
+            "char": "e",
+            "share": 0.10054
+          },
+          {
+            "byte": 116,
+            "char": "t",
+            "share": 0.067871
+          },
+          {
+            "byte": 97,
+            "char": "a",
+            "share": 0.058899
+          },
+          {
+            "byte": 111,
+            "char": "o",
+            "share": 0.05809
+          },
+          {
+            "byte": 110,
+            "char": "n",
+            "share": 0.057343
+          },
+          {
+            "byte": 105,
+            "char": "i",
+            "share": 0.051773
+          },
+          {
+            "byte": 115,
+            "char": "s",
+            "share": 0.048019
+          },
+          {
+            "byte": 104,
+            "char": "h",
+            "share": 0.047821
+          },
+          {
+            "byte": 114,
+            "char": "r",
+            "share": 0.046432
+          }
+        ]
+      },
+      "geometry": {
+        "strength": 0.976528,
+        "centers_norm_mean": 0.463647,
+        "centers_norm_median": 0.455165,
+        "centers_norm_min": 0.375411,
+        "centers_norm_max": 0.592086,
+        "pair_distance_mean": 0.654941,
+        "pair_distance_min": 0.511442,
+        "pair_distance_max": 0.852716,
+        "hyperbolic_pair_distance_mean": 1.525069,
+        "hyperbolic_pair_distance_min": 1.144226,
+        "hyperbolic_pair_distance_max": 2.161247,
+        "router_logit_std_mean": 0.647063,
+        "router_logit_abs_mean": 0.638548,
+        "geometry_term_std_mean": 0.118501,
+        "geometry_term_abs_mean": 10.088291,
+        "geo_to_router_std_ratio": 0.183137
+      }
+    },
+    "3": {
+      "assignments": 131072,
+      "active_pairs": 127,
+      "dead_pairs": 1,
+      "effective_pairs": 101.11,
+      "entropy_nats": 4.616206,
+      "max_share": 0.043266,
+      "cumulative_share": {
+        "top1": 0.043266,
+        "top2": 0.065506,
+        "top4": 0.105553,
+        "top8": 0.172844,
+        "top16": 0.2938,
+        "top32": 0.487236
+      },
+      "counts": [
+        591,
+        2915,
+        202,
+        1806,
+        584,
+        811,
+        340,
+        1225,
+        429,
+        2106,
+        1116,
+        904,
+        907,
+        1560,
+        2654,
+        823,
+        2025,
+        0,
+        1,
+        1946,
+        640,
+        634,
+        931,
+        735,
+        407,
+        1233,
+        56,
+        1830,
+        1175,
+        121,
+        715,
+        1537,
+        1785,
+        514,
+        570,
+        1114,
+        286,
+        830,
+        920,
+        891,
+        2000,
+        1390,
+        343,
+        984,
+        846,
+        1139,
+        606,
+        976,
+        283,
+        2595,
+        431,
+        519,
+        692,
+        5671,
+        538,
+        2300,
+        1986,
+        960,
+        884,
+        295,
+        181,
+        1584,
+        1047,
+        1700,
+        1558,
+        622,
+        247,
+        629,
+        1323,
+        1720,
+        559,
+        969,
+        910,
+        914,
+        163,
+        1014,
+        1198,
+        944,
+        1253,
+        1252,
+        406,
+        214,
+        1418,
+        2040,
+        1253,
+        1509,
+        2128,
+        670,
+        221,
+        315,
+        191,
+        938,
+        138,
+        147,
+        1229,
+        553,
+        735,
+        1336,
+        1042,
+        1367,
+        1727,
+        822,
+        1070,
+        953,
+        987,
+        224,
+        648,
+        501,
+        459,
+        930,
+        1515,
+        2286,
+        2020,
+        557,
+        357,
+        1062,
+        854,
+        1042,
+        993,
+        570,
+        1161,
+        283,
+        1772,
+        1286,
+        330,
+        306,
+        1406,
+        2007
+      ],
+      "pair_bias_min": 0.0,
+      "pair_bias_max": 0.0,
+      "specialization": {
+        "mean_kl_to_global": 0.936717,
+        "max_kl_to_global": 4.232566,
+        "min_kl_to_global": 0.207995,
+        "active_pairs": 127,
+        "most_specialized": [
+          {
+            "pair": 121,
+            "assignments": 283,
+            "kl_to_global": 4.232566,
+            "top_bytes": [
+              {
+                "byte": 128,
+                "char": null,
+                "share": 0.795053
+              },
+              {
+                "byte": 108,
+                "char": "l",
+                "share": 0.067138
+              },
+              {
+                "byte": 104,
+                "char": "h",
+                "share": 0.035336
+              },
+              {
+                "byte": 119,
+                "char": "w",
+                "share": 0.021201
+              },
+              {
+                "byte": 116,
+                "char": "t",
+                "share": 0.021201
+              }
+            ]
+          },
+          {
+            "pair": 18,
+            "assignments": 1,
+            "kl_to_global": 4.028162,
+            "top_bytes": [
+              {
+                "byte": 109,
+                "char": "m",
+                "share": 1.0
+              },
+              {
+                "byte": 171,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 172,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 170,
+                "char": null,
+                "share": 0.0
+              },
+              {
+                "byte": 169,
+                "char": null,
+                "share": 0.0
+              }
+            ]
+          },
+          {
+            "pair": 0,
+            "assignments": 591,
+            "kl_to_global": 3.21859,
+            "top_bytes": [
+              {
+                "byte": 73,
+                "char": "I",
+                "share": 0.130288
+              },
+              {
+                "byte": 84,
+                "char": "T",
+                "share": 0.113367
+              },
+              {
+                "byte": 226,
+                "char": null,
+                "share": 0.094755
+              },
+              {
+                "byte": 65,
+                "char": "A",
+                "share": 0.089679
+              },
+              {
+                "byte": 72,
+                "char": "H",
+                "share": 0.079526
+              }
+            ]
+          },
+          {
+            "pair": 21,
+            "assignments": 634,
+            "kl_to_global": 2.941003,
+            "top_bytes": [
+              {
+                "byte": 10,
+                "char": null,
+                "share": 0.550473
+              },
+              {
+                "byte": 32,
+                "char": " ",
+                "share": 0.329653
+              },
+              {
+                "byte": 226,
+                "char": null,
+                "share": 0.063091
+              },
+              {
+                "byte": 34,
+                "char": "\"",
+                "share": 0.015773
+              },
+              {
+                "byte": 39,
+                "char": "'",
+                "share": 0.012618
+              }
+            ]
+          },
+          {
+            "pair": 36,
+            "assignments": 286,
+            "kl_to_global": 2.300469,
+            "top_bytes": [
+              {
+                "byte": 104,
+                "char": "h",
+                "share": 0.804196
+              },
+              {
+                "byte": 111,
+                "char": "o",
+                "share": 0.125874
+              },
+              {
+                "byte": 98,
+                "char": "b",
+                "share": 0.013986
+              },
+              {
+                "byte": 119,
+                "char": "w",
+                "share": 0.013986
+              },
+              {
+                "byte": 97,
+                "char": "a",
+                "share": 0.01049
+              }
+            ]
+          },
+          {
+            "pair": 114,
+            "assignments": 357,
+            "kl_to_global": 2.190191,
+            "top_bytes": [
+              {
+                "byte": 104,
+                "char": "h",
+                "share": 0.711485
+              },
+              {
+                "byte": 102,
+                "char": "f",
+                "share": 0.170868
+              },
+              {
+                "byte": 110,
+                "char": "n",
+                "share": 0.05042
+              },
+              {
+                "byte": 105,
+                "char": "i",
+                "share": 0.014006
+              },
+              {
+                "byte": 111,
+                "char": "o",
+                "share": 0.008403
+              }
+            ]
+          },
+          {
+            "pair": 107,
+            "assignments": 501,
+            "kl_to_global": 2.182599,
+            "top_bytes": [
+              {
+                "byte": 102,
+                "char": "f",
+                "share": 0.610778
+              },
+              {
+                "byte": 110,
+                "char": "n",
+                "share": 0.121756
+              },
+              {
+                "byte": 117,
+                "char": "u",
+                "share": 0.065868
+              },
+              {
+                "byte": 114,
+                "char": "r",
+                "share": 0.037924
+              },
+              {
+                "byte": 32,
+                "char": " ",
+                "share": 0.025948
+              }
+            ]
+          }
+        ],
+        "global_top_bytes": [
+          {
+            "byte": 32,
+            "char": " ",
+            "share": 0.16748
+          },
+          {
+            "byte": 101,
+            "char": "e",
+            "share": 0.10054
+          },
+          {
+            "byte": 116,
+            "char": "t",
+            "share": 0.067871
+          },
+          {
+            "byte": 97,
+            "char": "a",
+            "share": 0.058899
+          },
+          {
+            "byte": 111,
+            "char": "o",
+            "share": 0.05809
+          },
+          {
+            "byte": 110,
+            "char": "n",
+            "share": 0.057343
+          },
+          {
+            "byte": 105,
+            "char": "i",
+            "share": 0.051773
+          },
+          {
+            "byte": 115,
+            "char": "s",
+            "share": 0.048019
+          },
+          {
+            "byte": 104,
+            "char": "h",
+            "share": 0.047821
+          },
+          {
+            "byte": 114,
+            "char": "r",
+            "share": 0.046432
+          }
+        ]
+      },
+      "geometry": {
+        "strength": 0.971377,
+        "centers_norm_mean": 0.471445,
+        "centers_norm_median": 0.468124,
+        "centers_norm_min": 0.421179,
+        "centers_norm_max": 0.553644,
+        "pair_distance_mean": 0.664315,
+        "pair_distance_min": 0.55839,
+        "pair_distance_max": 0.80345,
+        "hyperbolic_pair_distance_mean": 1.551228,
+        "hyperbolic_pair_distance_min": 1.276739,
+        "hyperbolic_pair_distance_max": 1.956189,
+        "router_logit_std_mean": 0.68072,
+        "router_logit_abs_mean": 1.194898,
+        "geometry_term_std_mean": 0.105069,
+        "geometry_term_abs_mean": 10.021094,
+        "geo_to_router_std_ratio": 0.15435
+      }
+    }
+  },
+  "union": {
+    "assignments": 262144,
+    "active_pairs": 128,
+    "dead_pairs": 0,
+    "effective_pairs": 108.391,
+    "entropy_nats": 4.685743,
+    "max_share": 0.032295,
+    "cumulative_share": {
+      "top1": 0.032295,
+      "top2": 0.061974,
+      "top4": 0.102043,
+      "top8": 0.17001,
+      "top16": 0.280373,
+      "top32": 0.450199
+    },
+    "counts": [
+      1401,
+      4521,
+      7780,
+      2402,
+      1221,
+      2371,
+      671,
+      1662,
+      2275,
+      2215,
+      2326,
+      2158,
+      1015,
+      3141,
+      5244,
+      1002,
+      2864,
+      884,
+      101,
+      1975,
+      1022,
+      1786,
+      1071,
+      2103,
+      927,
+      1419,
+      319,
+      2663,
+      1668,
+      2127,
+      1276,
+      2695,
+      2582,
+      1712,
+      812,
+      1464,
+      288,
+      2003,
+      1824,
+      1405,
+      3508,
+      3756,
+      406,
+      1912,
+      1072,
+      1562,
+      2344,
+      2581,
+      1405,
+      4979,
+      1644,
+      1661,
+      1102,
+      8466,
+      4333,
+      2693,
+      3442,
+      1402,
+      1597,
+      2078,
+      1900,
+      1901,
+      5260,
+      2108,
+      3952,
+      732,
+      1505,
+      2331,
+      2118,
+      2698,
+      1152,
+      1792,
+      3853,
+      2961,
+      1246,
+      2031,
+      1426,
+      3321,
+      2670,
+      1893,
+      978,
+      273,
+      2569,
+      2981,
+      1399,
+      1609,
+      2256,
+      1257,
+      310,
+      1525,
+      1584,
+      1069,
+      343,
+      972,
+      2341,
+      640,
+      1884,
+      2055,
+      1733,
+      1370,
+      2279,
+      1535,
+      2161,
+      3984,
+      1107,
+      969,
+      1434,
+      2098,
+      1214,
+      3343,
+      2851,
+      2777,
+      3608,
+      1411,
+      971,
+      1545,
+      1366,
+      1143,
+      1447,
+      3469,
+      1323,
+      2394,
+      2472,
+      1392,
+      1817,
+      1364,
+      2002,
+      2332
+    ]
+  },
+  "per_book": [
+    {
+      "book": "267--wharton-edith-1862-1937--the-touchstone.txt",
+      "positions": 1024,
+      "ce": 1.767912,
+      "bpb": 2.550559
+    },
+    {
+      "book": "361--porter-eleanor-h-eleanor-hodgman-1868-1920--miss-billy-married.txt",
+      "positions": 1024,
+      "ce": 1.703602,
+      "bpb": 2.457779
+    },
+    {
+      "book": "650--dickens-charles-1812-1870-stone-marcus-1840-1921-illustrator--pictures-from-italy.txt",
+      "positions": 1024,
+      "ce": 1.686716,
+      "bpb": 2.433417
+    },
+    {
+      "book": "486--baum-l-frank-lyman-frank-1856-1919--ozma-of-oz-a-record-of-her-adventures-with-dorothy-gale-of-kansas-the-yellow-hen.txt",
+      "positions": 1024,
+      "ce": 1.692815,
+      "bpb": 2.442216
+    },
+    {
+      "book": "1076--bramah-ernest-1868-1942--the-wallet-of-kai-lung.txt",
+      "positions": 1024,
+      "ce": 1.626147,
+      "bpb": 2.346034
+    }
+  ]
+}
