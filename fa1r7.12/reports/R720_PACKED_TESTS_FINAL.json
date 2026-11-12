@@ -1,0 +1,72 @@
+{
+  "round": "FA1 R7.20 packed index",
+  "passed": 10,
+  "total": 10,
+  "tests": [
+    "constant_collision_free_expiry_and_merge_rebuild",
+    "constant_target_not_a_route_feature",
+    "periodic_collision_free_expiry_and_merge_rebuild",
+    "periodic_target_not_a_route_feature",
+    "zipf_collision_free_expiry_and_merge_rebuild",
+    "zipf_target_not_a_route_feature",
+    "document_boundary_no_cross_book_history",
+    "age_128k_and_32k_exclusion_exact",
+    "packed_15bit_capacity_fail_closed",
+    "CPU_microbenchmark_observed"
+  ],
+  "details": {
+    "constant": {
+      "build_s": 0.007660736000161705,
+      "index": {
+        "position": 131305,
+        "keys_sorted": 393206,
+        "pending_events": 9,
+        "pending_records": 36,
+        "index_array_bytes": 4718472,
+        "merge_rebuilds": 8
+      }
+    },
+    "periodic": {
+      "build_s": 0.012963151000121798,
+      "index": {
+        "position": 131305,
+        "keys_sorted": 393206,
+        "pending_events": 9,
+        "pending_records": 36,
+        "index_array_bytes": 4718472,
+        "merge_rebuilds": 8
+      }
+    },
+    "zipf": {
+      "build_s": 0.02671138699997755,
+      "index": {
+        "position": 131305,
+        "keys_sorted": 393206,
+        "pending_events": 9,
+        "pending_records": 36,
+        "index_array_bytes": 4718472,
+        "merge_rebuilds": 8
+      }
+    },
+    "benchmark": {
+      "positions": 700,
+      "build_s": 0.023181524000165155,
+      "packed_update_query_s": 3.2451656089999688,
+      "reference_rescan_s": 3.9074504739999156,
+      "speedup_excluding_build": 1.2040835337226554,
+      "speedup_including_build": 1.1955432868641238,
+      "memory": {
+        "position": 131771,
+        "keys_sorted": 393206,
+        "pending_events": 699,
+        "pending_records": 2796,
+        "index_array_bytes": 4718472,
+        "merge_rebuilds": 1
+      },
+      "note": "CPU retrieval microbenchmark; not full-model inference and not independent-book loss"
+    }
+  },
+  "accepted_step": 14416,
+  "weights_changed": false,
+  "new_book_validation": false
+}
