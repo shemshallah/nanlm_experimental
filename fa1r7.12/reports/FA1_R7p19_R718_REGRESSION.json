@@ -1,0 +1,19 @@
+{
+  "passed": 12,
+  "total": 12,
+  "tests": [
+    "far_only_32k_128k_retrieval",
+    "far_excludes_near_32k_and_recent_2k",
+    "labels_never_enter_far_features_or_route_selection",
+    "near_and_far_disjoint_age_bands",
+    "far_cannot_see_near_content_changes",
+    "legacy_future_donor_bug_regression_reproduced_and_excluded",
+    "shuffled_past_preserves_token_frequencies",
+    "router_inputs_match_target_free_feature_shape",
+    "empty_far_index_exactly_falls_back_to_r716",
+    "far_zero_eligibility_is_exact",
+    "future_token_excluded_from_index",
+    "new_book_position_sampler_obeys_doc_boundaries_and_equal_book_coverage"
+  ],
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d"
+}
