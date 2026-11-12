@@ -56,3 +56,11 @@ python fa2r19/restore_fa2_checkpoint.py --root fa2r19
 This produces `fa2r19/checkpoint/r12_active.pal12` (121,882,910 bytes). The script checks each part's length and SHA-256, the concatenated compressed stream, and the restored checkpoint before atomically installing it. The checkpoint file itself is **not duplicated in Git**.
 
 The 49 archived source modules, the original archive README, the R19 report, requirements, and archived manifest are mirrored in this directory. The original full reproducibility ZIP in ChatGPT Library remains the authoritative source for corpus, tokenizer binaries, and the broader historical reports that are not duplicated here. The GitHub Actions round-trip workflow validates the hosted binary parts.
+
+## FA2.2 R21 adaptive memory candidate — November 12, 2026
+
+A 138-parameter relevance-and-novelty gate now learns when to use R20's causal content-only R18-key retrieval. The existing decoder, learned R18 memory, and Adam histories remain unchanged. The gate initializes to exact R18 logits and activates only at query position >=192 to prevent short-span regression.
+
+A reproducible **1,000-update CPU trial** completed. Development long-context BPB improved by 0.003190 and historical book-disjoint long BPB by 0.000872, relative to the original R18 checkpoint. Short-context results remained bitwise identical by gating policy. These are small, historically reused-split gains, **not fresh book or semantic QA improvements**. Accepted checkpoint remains R18, step 10,756, SHA-256 `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`.
+
+See [FA2.2 R21 methods and gates](docs/FA2_2_R21.md), [CPU candidate report](reports/r21_fa2_2_cpu_candidate.json), [relevance gate](source/r21_relevance_novelty.py), and the quarantined base64-encoded 11 KB gate optimizer state at `reports/fa2_2_r21_gate_candidate.pth.b64`. The canonical large checkpoint is not duplicated.
