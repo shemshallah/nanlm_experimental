@@ -1,0 +1,132 @@
+name: FA2 R23 - 64 token context and parallel CPU training
+
+on:
+  push:
+    branches: [master, fa2-r23-context64-parallel]
+    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+  pull_request:
+    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+  workflow_dispatch:
+    inputs:
+      archive_url:
+        description: 'HTTPS link to exact pinned R19 release ZIP; blank means audit only'
+        type: string
+        default: ''
+      steps:
+        description: 'CPU updates per independent arm'
+        type: number
+        default: 300
+      train_windows:
+        description: 'Source-verified book windows per arm'
+        type: number
+        default: 24
+permissions:
+  contents: read
+jobs:
+  source-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: python -m pip install torch numpy
+      - name: Compile and test R23 causal memory
+        run: |
+          python -m compileall -q fa2r19/source
+          cd fa2r19/source
+          python test_r23_context64.py
+      - name: Verify original checkpoint has not changed
+        run: |
+          python fa2r19/restore_fa2_checkpoint.py --root fa2r19
+          python - <<'PY'
+          import hashlib,pathlib
+          p=pathlib.Path('fa2r19/checkpoint/r12_active.pal12')
+          h=hashlib.sha256()
+          with p.open('rb') as f:
+              for b in iter(lambda:f.read(1048576),b''):h.update(b)
+          assert h.hexdigest()=='dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f'
+          print('Accepted checkpoint unchanged')
+          PY
+
+  parallel-arms:
+    needs: source-gates
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.archive_url != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [context, value, semantic, joint]
+    env:
+      ARCHIVE_URL: ${{ inputs.archive_url }}
+      STEPS: ${{ inputs.steps }}
+      TRAIN_WINDOWS: ${{ inputs.train_windows }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install original PAL requirements
+        run: python -m pip install -r fa2r19/requirements.txt
+      - name: Check archive address and bounds
+        run: |
+          python - <<'PY'
+          import os,urllib.parse
+          u=urllib.parse.urlsplit(os.environ['ARCHIVE_URL'])
+          assert u.scheme=='https' and u.hostname and not u.username and not u.password
+          assert 1<=int(os.environ['STEPS'])<=10000
+          assert 1<=int(os.environ['TRAIN_WINDOWS'])<=512
+          PY
+      - name: Download and verify exact original full R19 archive
+        run: |
+          mkdir -p incoming
+          curl --fail --location --retry 3 --connect-timeout 30 --max-time 1800 --output incoming/original-r19.zip "$ARCHIVE_URL"
+          python fa2r19/verify_release.py incoming/original-r19.zip --extract work/release
+      - name: Overlay R21/R22/R23 source and frozen adapter weights
+        run: |
+          cp fa2r19/source/r21_relevance_novelty.py work/release/source/
+          cp fa2r19/source/r22_multiscale_memory.py work/release/source/
+          cp fa2r19/source/r22_cpu_longmemory.py work/release/source/
+          cp fa2r19/source/r23_context64.py work/release/source/
+          cp fa2r19/source/r23_cpu_parallel.py work/release/source/
+          cp fa2r19/source/test_r22_multiscale_memory.py work/release/source/
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          for stem in ('fa2_2_r21_gate_candidate','r22_multiscale_candidate'):
+              src=Path('fa2r19/reports')/(stem+'.pth.b64')
+              dst=Path('work/release/reports')/(stem+'.pth')
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              dst.write_bytes(base64.b64decode(src.read_text()))
+          PY
+      - name: Run inherited regression tests
+        run: |
+          cd work/release
+          python source/r18_verify_lineage.py --root .
+          python source/test_r18.py .
+          python source/test_r19.py --root .
+          python source/test_r22_multiscale_memory.py .
+      - name: Train one independent CPU candidate
+        run: |
+          cd work/release
+          python source/r23_cpu_parallel.py --root . --mode "${{ matrix.arm }}" --steps "$STEPS" --train-windows "$TRAIN_WINDOWS" --threads 2 | tee "../../incoming/r23-${{ matrix.arm }}.log"
+      - name: Verify checkpoint after candidate
+        if: always()
+        run: |
+          if [ -f work/release/checkpoint/r12_active.pal12 ]; then sha256sum work/release/checkpoint/r12_active.pal12; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fa2-r23-${{ matrix.arm }}-${{ github.run_id }}
+          path: |
+            incoming/r23-${{ matrix.arm }}.log
+            work/release/reports/r23_${{ matrix.arm }}.json
+            work/release/reports/r23_${{ matrix.arm }}_candidate.pth
+          retention-days: 30
+          if-no-files-found: warn
