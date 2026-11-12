@@ -29,7 +29,8 @@ def _history(tokens, endpoint, width=64):
 
 
 def build_index(book_tokens, window_start, window_length, *,
-                memory=32768, gap=65, value_length=8, per_band=12):
+                memory=32768, gap=65, value_length=8, per_band=12,
+                query_book_tokens=None, query_start=None):
     """Bounded query-specific candidate index, with 32K persistent addresses.
 
     Only prior-window source values are eligible: j + value_length <= start.
@@ -38,6 +39,17 @@ def build_index(book_tokens, window_start, window_length, *,
     exact-prefix rescue; sparse anchors cover the uncompressed horizon.
     """
     tok = [int(v) for v in book_tokens]
+    if query_book_tokens is None:
+        query_tokens, query_at = tok, window_start
+    else:
+        if query_start is None:
+            raise ValueError("cross-book query requires absolute query start")
+        query_tokens = [int(v) for v in query_book_tokens]
+        query_at = int(query_start)
+        if not (64 <= query_at <= len(query_tokens) - window_length):
+            raise ValueError("invalid target-book query address")
+        if any(v < 0 for v in query_tokens):
+            raise ValueError("invalid target-book query tokens")
     if not (64 <= window_start <= len(tok) - window_length):
         raise ValueError("bad query window")
     if memory < 8192 or gap < value_length or per_band < 3:
@@ -63,7 +75,7 @@ def build_index(book_tokens, window_start, window_length, *,
         if j % stride == 0:
             anchors[tier].append(j)
     C = per_band * len(TIERS)
-    query = torch.tensor([_history(tok, window_start + t)
+    query = torch.tensor([_history(query_tokens, query_at + t)
                           for t in range(window_length)], dtype=torch.long)
     keys = torch.full((window_length, C, 64), -1, dtype=torch.long)
     values = torch.zeros((window_length, C, value_length), dtype=torch.long)
@@ -76,8 +88,9 @@ def build_index(book_tokens, window_start, window_length, *,
 
     for t in range(window_length):
         pos = window_start + t
-        pair = (tok[pos - 2], tok[pos - 1])
-        prior = tok[pos - 1]
+        pair = (query_tokens[query_at + t - 2],
+                query_tokens[query_at + t - 1])
+        prior = query_tokens[query_at + t - 1]
         for b, (low, high) in enumerate(BANDS):
             def admissible(j):
                 d = pos - j
