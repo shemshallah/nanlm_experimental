@@ -37,3 +37,7 @@ Adversarial temporal-conflict query: top-1 segment selection **4.35%** on 115 ev
 ## GitHub and release discipline
 
 Every future FA1 training round should update code, evaluation reports, provenance, and the pointer to the **one accepted checkpoint**. Do not publish unverified candidate overlays as accepted weights. Check memory-specific LM advantage and held-out book splits before promotion. GitHub updates occur during active chats, not as an autonomous background process.
+
+## R7.14 fast CPU diagnostic (2026-11-12)
+
+Two CPU candidate adapters were tested on the unchanged step-14,416 checkpoint and failed the correct-vs-unrelated-memory LM promotion gate. The accepted FA1 weights and all five optimizer histories remain unchanged; FA2 is separate. See [FA1 R7.14 CPU results](FA1_R7p14_FAST_LOCAL_CPU.md). New scripts/reports are distributed in the conversation's 15.6 KB minimal source ZIP; they are not yet present in this GitHub subtree.
