@@ -64,3 +64,7 @@ A 138-parameter relevance-and-novelty gate now learns when to use R20's causal c
 A reproducible **1,000-update CPU trial** completed. Development long-context BPB improved by 0.003190 and historical book-disjoint long BPB by 0.000872, relative to the original R18 checkpoint. Short-context results remained bitwise identical by gating policy. These are small, historically reused-split gains, **not fresh book or semantic QA improvements**. Accepted checkpoint remains R18, step 10,756, SHA-256 `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`.
 
 See [FA2.2 R21 methods and gates](docs/FA2_2_R21.md), [CPU candidate report](reports/r21_fa2_2_cpu_candidate.json), [relevance gate](source/r21_relevance_novelty.py), and the quarantined base64-encoded 11 KB gate optimizer state at `reports/fa2_2_r21_gate_candidate.pth.b64`. The canonical large checkpoint is not duplicated.
+
+### FA2.2 full 400-chunk frozen-gate audit
+
+The development-selected R21 1,000-update candidate was evaluated without additional training on the original R20 400-chunk windows. Dev BPB was **2.562485** (R20 fixed gain **2.563825**, accepted R18 **2.565997**); historical test BPB was **2.410224** (R20 **2.411362**, R18 **2.413332**). Historical test non-space NLL was **4.519880** (R20 **4.522701**, R18 **4.527414**). This is positive evidence for adaptive relevance gating, not independent semantic transfer, as the historical books were previously consulted. **No promotion.** Detailed frozen comparison: [400-chunk report](reports/r21_400_horizon_probe.json).
