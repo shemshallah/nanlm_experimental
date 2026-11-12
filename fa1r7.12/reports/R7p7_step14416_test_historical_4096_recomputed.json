@@ -1,0 +1,23 @@
+{
+  "split": "test",
+  "joint_step": 14416,
+  "n": 4096,
+  "historical_only": true,
+  "metrics": {
+    "active_nll": 5.774113793391734,
+    "semantic_off_nll": 5.777994132600725,
+    "pair_off_nll": 5.782342057209462,
+    "one_word_only_nll": 5.7861920217983425,
+    "retrieval_off_nll": 5.888772350735962,
+    "outer_off_nll": 5.774221152532846,
+    "semantic_coverage": 3926,
+    "semantic_target_hits": 1362,
+    "exact_key_coverage": 3218,
+    "pair_coverage": 1197,
+    "semantic_gain": 0.0038803392089903355,
+    "pair_gain": 0.00819788919761777,
+    "exact_gain": 0.10258032893761992,
+    "total_gain": 0.11465855734422803,
+    "outer_gain": 0.0001073591411113739
+  }
+}

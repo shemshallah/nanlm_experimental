@@ -1,0 +1,19 @@
+{
+  "step": 14416,
+  "format": "PAL_R7_7_SEMANTIC_ASSOCIATIVE_V1",
+  "checks": {
+    "one_checkpoint_five_optimizer_state_histories": "PASS",
+    "optimizer_param_groups_bound_to_live_model": "PASS",
+    "single_shared_trainable_network": "PASS",
+    "ordered_pair_lookup_preserved": "PASS",
+    "soft_retrieval_novel_key_nonexact_value": "PASS",
+    "values_are_only_historical_following_words": "PASS",
+    "semantic_off_matches_identical_original_r76_path": "PASS",
+    "target_and_future_not_injected_into_now": "PASS",
+    "all_retrieval_ablation_exactly_matches_trunk": "PASS",
+    "pair_ablation_preserves_soft_path": "PASS",
+    "no_older_memory_no_retrieval_prediction": "PASS",
+    "trunk_pair_and_new_soft_head_receive_gradients": "PASS"
+  },
+  "passed": 12
+}

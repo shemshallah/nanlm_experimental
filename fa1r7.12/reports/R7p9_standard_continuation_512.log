@@ -1,0 +1,10 @@
+{"phase": "TRAIN", "step": 14480, "word_nll": 5.461112022399902, "loss": 6.6011457443237305, "semantic_cap": 0.003715975908562541, "semantic_cap_grad": 1.3723230949835852e-05, "semantic_hit_rate": 0.25, "elapsed_seconds": 16.91}
+{"phase": "TRAIN", "step": 14544, "word_nll": 4.976592540740967, "loss": 5.944698810577393, "semantic_cap": 0.0037476818542927504, "semantic_cap_grad": -1.3530379874282517e-05, "semantic_hit_rate": 0.75, "elapsed_seconds": 31.95}
+{"phase": "TRAIN", "step": 14608, "word_nll": 4.527435302734375, "loss": 5.556880950927734, "semantic_cap": 0.00372669892385602, "semantic_cap_grad": 3.9753962482791394e-05, "semantic_hit_rate": 0.25, "elapsed_seconds": 47.36}
+{"phase": "TRAIN", "step": 14672, "word_nll": 3.664438247680664, "loss": 4.605770587921143, "semantic_cap": 0.003829316468909383, "semantic_cap_grad": -0.00010582224058452994, "semantic_hit_rate": 1.0, "elapsed_seconds": 62.11}
+{"phase": "PERIODIC_SAVE", "joint_step": 14672, "sha256": "9849c25cc36592df802b69ca387293b683f87b56d202e801f47f560b3ce71058"}
+{"phase": "TRAIN", "step": 14736, "word_nll": 6.722704887390137, "loss": 8.05109977722168, "semantic_cap": 0.0038440374191850424, "semantic_cap_grad": 2.807750934152864e-05, "semantic_hit_rate": 0.0, "elapsed_seconds": 77.01}
+{"phase": "TRAIN", "step": 14800, "word_nll": 2.479165554046631, "loss": 3.308931827545166, "semantic_cap": 0.003939543850719929, "semantic_cap_grad": 4.216560046188533e-05, "semantic_hit_rate": 0.75, "elapsed_seconds": 90.79}
+{"phase": "TRAIN", "step": 14864, "word_nll": 3.6623055934906006, "loss": 4.656795501708984, "semantic_cap": 0.0039308760315179825, "semantic_cap_grad": 6.027533163432963e-05, "semantic_hit_rate": 0.5, "elapsed_seconds": 105.52}
+{"phase": "TRAIN", "step": 14928, "word_nll": 7.780180931091309, "loss": 8.882509231567383, "semantic_cap": 0.00395386666059494, "semantic_cap_grad": 5.281831181491725e-05, "semantic_hit_rate": 0.0, "elapsed_seconds": 119.55}
+{"phase": "SAVED", "checkpoint_sha256": "553d798bb51def9fb498293ed40b26dbe76b680c4991c09cbba1eec9f713bc84", "final_step": 14928}

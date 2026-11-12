@@ -1,0 +1,37 @@
+{
+  "steps_executed": 1600,
+  "joint_step": 2400,
+  "metrics": {
+    "before_dev": 5.095970794558525,
+    "before_test": 5.958556525409222,
+    "after_dev": 5.092170037329197,
+    "after_test": 5.957560531795025
+  },
+  "last_train": {
+    "loss": 5.750111103057861,
+    "word": 4.693732738494873,
+    "future": 6.497530937194824,
+    "subword": 2.451281785964966,
+    "stream": 3.311016321182251,
+    "grad_norms": {
+      "E": 0.8360365629196167,
+      "H": 0.31688588857650757,
+      "P": 0.22195756435394287,
+      "M": 0.04439151659607887,
+      "Q": 0.2502966523170471,
+      "NOW": 1.0502945184707642,
+      "W": 0.6825765371322632,
+      "B": 0.2718210518360138,
+      "L": 3.524484872817993
+    }
+  },
+  "trunk_lr": 2e-06,
+  "adapter_lr": 6e-05,
+  "mirror_lr": 0.0001,
+  "elapsed_s": 194.35,
+  "device": "cpu",
+  "cuda_verified": false,
+  "legacy_optimizer": "PAL6 squared-gradient accumulator, loaded exact",
+  "pretrained_legacy_updates": 11940,
+  "active_checkpoint_sha256": "41de081ef27e8c52379b2f318c012e2c80a363bf537ff5aa161535d5e61a9b48"
+}

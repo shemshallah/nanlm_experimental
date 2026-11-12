@@ -1,0 +1,16 @@
+{"stage": "RESTORE_OK", "source": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d", "old_joint_steps": 14416}
+{"stage": "EXAMPLES", "n": {"train": 120, "dev": 64, "test": 64}}
+{"stage": "BEFORE", "train": {"correct": {"ce": 3.742960214614868, "top1": 0.0833333358168602, "margin": -2.2262160778045654}, "unrelated": {"ce": 4.120326042175293, "top1": 0.0833333358168602, "margin": -2.724179267883301}, "reversed": {"ce": 5.4385809898376465, "top1": 0.008333333767950535, "margin": -4.128647327423096}, "zero": {"ce": 3.46573543548584, "top1": 0.03125, "margin": 0.0}, "memory_ce_advantage": 0.3773658275604248, "order_ce_advantage": 1.6956207752227783, "examples": 120}, "dev": {"correct": {"ce": 4.198296070098877, "top1": 0.078125, "margin": -2.7890610694885254}, "unrelated": {"ce": 4.557553291320801, "top1": 0.078125, "margin": -3.2063851356506348}, "reversed": {"ce": 5.676100730895996, "top1": 0.015625, "margin": -4.516791820526123}, "zero": {"ce": 3.465736150741577, "top1": 0.03125, "margin": 0.0}, "memory_ce_advantage": 0.35925722122192383, "order_ce_advantage": 1.4778046607971191, "examples": 64}}
+{"stage": "GATE", "step": 1, "train_ce": 3.0397064685821533, "dev_ce": 4.170353412628174, "dev_mem_advantage": 0.34360694885253906, "dev_accuracy": 0.078125, "elapsed": 2.7}
+{"stage": "GATE", "step": 12, "train_ce": 2.7171518802642822, "dev_ce": 3.9810032844543457, "dev_mem_advantage": 0.2845425605773926, "dev_accuracy": 0.15625, "elapsed": 2.9}
+{"stage": "GATE", "step": 24, "train_ce": 2.357252836227417, "dev_ce": 3.889164924621582, "dev_mem_advantage": 0.3047475814819336, "dev_accuracy": 0.140625, "elapsed": 3.3}
+{"stage": "GATE", "step": 36, "train_ce": 2.231916666030884, "dev_ce": 3.873049736022949, "dev_mem_advantage": 0.40496206283569336, "dev_accuracy": 0.140625, "elapsed": 3.6}
+{"stage": "GATE", "step": 48, "train_ce": 1.5992084741592407, "dev_ce": 3.7222673892974854, "dev_mem_advantage": 0.5002734661102295, "dev_accuracy": 0.140625, "elapsed": 3.9}
+Traceback (most recent call last):
+  File "/mnt/data/pal_r710_work/source/r711_selective_writer.py", line 263, in <module>
+    run(p.parse_args())
+    ~~~^^^^^^^^^^^^^^^^
+  File "/mnt/data/pal_r710_work/source/r711_selective_writer.py", line 225, in run
+    if n=='outer_adamw':assert deep_equal(now['state'],parent['optimizers'][n]['state'])
+                               ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

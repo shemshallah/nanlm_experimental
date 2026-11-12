@@ -1,0 +1,28 @@
+{
+  "split": "test",
+  "step": 14208,
+  "total_fixed_count": 4096,
+  "shard_start": 2048,
+  "shard_count": 512,
+  "historical_only": true,
+  "independent_books": false,
+  "results": {
+    "n": 512,
+    "semantic_coverage": 495,
+    "semantic_target_hits": 173,
+    "exact_key_coverage": 418,
+    "pair_coverage": 157,
+    "active_nll": 5.918456722050905,
+    "semantic_off_nll": 5.934056367725134,
+    "pair_off_nll": 5.944808445870876,
+    "one_word_only_nll": 5.960413243621588,
+    "retrieval_off_nll": 6.1924599297344685,
+    "outer_off_nll": 5.918623525649309,
+    "semantic_gain": 0.015599645674228668,
+    "pair_gain": 0.026356875896453857,
+    "exact_gain": 0.2320466861128807,
+    "total_gain": 0.27400320768356323,
+    "outer_gain": 0.00016680359840393066
+  },
+  "elapsed_seconds": 6.84
+}

@@ -1,0 +1,43 @@
+{
+  "dev": {
+    "768": {
+      "ce": 3.1027935445308685,
+      "top1": 0.21875,
+      "examples": 128,
+      "candidate_answers": 32
+    },
+    "1536": {
+      "ce": 3.2961915861233138,
+      "top1": 0.15625,
+      "examples": 128,
+      "candidate_answers": 32
+    },
+    "3072": {
+      "ce": 3.4865986416116357,
+      "top1": 0.140625,
+      "examples": 128,
+      "candidate_answers": 32
+    },
+    "6144": {
+      "ce": 3.6732867975661065,
+      "top1": 0.1484375,
+      "examples": 128,
+      "candidate_answers": 32
+    }
+  },
+  "dev_selected_horizon": 768,
+  "test_postselection": {
+    "768": {
+      "ce": 3.2698892019689083,
+      "top1": 0.1875,
+      "examples": 128,
+      "candidate_answers": 32
+    }
+  },
+  "eval_positions": 128,
+  "original_horizon": 768,
+  "trained_weights_unchanged": true,
+  "selection_only_uses_historical_dev": true,
+  "historical_test_not_sealed": true,
+  "elapsed_seconds": 3.69
+}

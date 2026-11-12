@@ -1,0 +1,13 @@
+{
+  "checks": {
+    "old_parameters_identical": "PASS",
+    "zero_gate_exact_migration": "PASS",
+    "five_optimizer_slots_original_states_live": "PASS",
+    "causal_adjacent_order_distinguished": "PASS",
+    "pair_event_gate_backprop": "PASS"
+  },
+  "passed": 5,
+  "permutation_difference_disabled": 7.450580596923828e-09,
+  "permutation_difference_enabled": 0.009215615689754486,
+  "source_step": 14416
+}

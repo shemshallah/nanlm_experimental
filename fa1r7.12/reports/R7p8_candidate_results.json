@@ -1,0 +1,58 @@
+{
+  "source_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "source_step": 14416,
+  "migration": "PAL_R7_7_SEMANTIC_ASSOCIATIVE_V1",
+  "five_optimizer_histories_preserved": true,
+  "from_step": 14416,
+  "updates": 32,
+  "before_dev": {
+    "correct_nll": 5.558521345257759,
+    "outer_off_nll": 5.559231832623482,
+    "swapped_batch_nll": 5.558553531765938,
+    "within_block_reversed_nll": 5.558521345257759,
+    "zero_nll": 5.559231832623482,
+    "outer_gain": 0.01772969588637352,
+    "order_gain": 0.0,
+    "order_vs_reversed": 0.0,
+    "order_vs_swapped": 3.218650817871094e-05,
+    "outer_gain_nll": 0.0007104873657226562,
+    "n": 32
+  },
+  "final_step": 14448,
+  "last_train": {
+    "step": 14448,
+    "word_nll": 6.434116840362549,
+    "loss": 7.601694107055664,
+    "order_gain": 0.0007177767110988498,
+    "order_gain_gradient": -2.606537236715667e-06
+  },
+  "after_dev": {
+    "correct_nll": 5.557464361190796,
+    "outer_off_nll": 5.558264896273613,
+    "swapped_batch_nll": 5.557513773441315,
+    "within_block_reversed_nll": 5.557464376091957,
+    "zero_nll": 5.558264896273613,
+    "outer_gain": 0.018084745854139328,
+    "order_gain": 0.0007177767110988498,
+    "order_vs_reversed": 1.4901161193847656e-08,
+    "order_vs_swapped": 4.941225051879883e-05,
+    "outer_gain_nll": 0.0008005350828170776,
+    "n": 32
+  },
+  "after_test": {
+    "correct_nll": 5.010648392140865,
+    "outer_off_nll": 5.010965526103973,
+    "swapped_batch_nll": 5.01058067381382,
+    "within_block_reversed_nll": 5.010648220777512,
+    "zero_nll": 5.010965526103973,
+    "outer_gain": 0.018084745854139328,
+    "order_gain": 0.0007177767110988498,
+    "order_vs_reversed": -1.7136335372924805e-07,
+    "order_vs_swapped": -6.771832704544067e-05,
+    "outer_gain_nll": 0.00031713396310806274,
+    "n": 32
+  },
+  "independent_books_evaluated": false,
+  "wall_seconds": 11.9,
+  "checkpoint_sha256": "43a0245e26a55d7c6ef5ec89f573940fb4c6a14786d8a63cfbcb1fe02ed70504"
+}

@@ -1,0 +1,11 @@
+{
+  "streams": 2,
+  "stream_positions": 64,
+  "max_matrix_abs_difference": 0.0,
+  "seconds_read_plus_advance": 0.1126,
+  "milliseconds_per_batch_step": 1.759,
+  "reference": "incremental legacy matrix + independent exact 768-word ring reconstruction",
+  "future_target_leakage": "no target enters state initializer, advancement or ring",
+  "cpu_threads": 2,
+  "accepted_parent_unmodified": true
+}

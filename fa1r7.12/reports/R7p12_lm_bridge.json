@@ -1,0 +1,260 @@
+{
+  "r712": "Causal sparse directed-memory LM bridge",
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "accepted_joint_steps": 14416,
+  "r711_selected_aux_updates": 80,
+  "r712_calibration_updates_attempted": 128,
+  "dev_selected_step": 128,
+  "candidate_promoted": false,
+  "dev_selected_positive": true,
+  "before": {
+    "train": {
+      "nll": 5.35441780090332,
+      "base_nll": 5.35706090927124,
+      "gain": 0.002643108367919922,
+      "avg_gate": 0.0032960830722004175,
+      "memory_target_hit_rate": 0.6328125,
+      "avg_mem_prob_when_hit": 0.12306324392557144,
+      "n": 256
+    },
+    "dev": {
+      "nll": 5.449058532714844,
+      "base_nll": 5.4526286125183105,
+      "gain": 0.003570079803466797,
+      "avg_gate": 0.0032960830722004175,
+      "memory_target_hit_rate": 0.6875,
+      "avg_mem_prob_when_hit": 0.07790037989616394,
+      "n": 96
+    }
+  },
+  "selected": {
+    "train": {
+      "nll": 5.351983547210693,
+      "base_nll": 5.35706090927124,
+      "gain": 0.005077362060546875,
+      "avg_gate": 0.007178932894021273,
+      "memory_target_hit_rate": 0.6328125,
+      "avg_mem_prob_when_hit": 0.12306324392557144,
+      "n": 256
+    },
+    "dev": {
+      "nll": 5.446039199829102,
+      "base_nll": 5.4526286125183105,
+      "gain": 0.006589412689208984,
+      "avg_gate": 0.007178933825343847,
+      "memory_target_hit_rate": 0.6875,
+      "avg_mem_prob_when_hit": 0.07790037989616394,
+      "n": 96
+    }
+  },
+  "historical_test": {
+    "nll": 5.950618743896484,
+    "base_nll": 5.979516506195068,
+    "gain": 0.028897762298583984,
+    "avg_gate": 0.007178933825343847,
+    "memory_target_hit_rate": 0.5520833134651184,
+    "avg_mem_prob_when_hit": 0.10976392775774002,
+    "n": 96
+  },
+  "logs": [
+    {
+      "step": 1,
+      "train": {
+        "nll": 5.35439920425415,
+        "base_nll": 5.35706090927124,
+        "gain": 0.0026617050170898438,
+        "avg_gate": 0.0033222639467567205,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.449034214019775,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.0035943984985351562,
+        "avg_gate": 0.0033222639467567205,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 16,
+      "train": {
+        "nll": 5.3541975021362305,
+        "base_nll": 5.35706090927124,
+        "gain": 0.0028634071350097656,
+        "avg_gate": 0.003611222142353654,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.4487738609313965,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.0038547515869140625,
+        "avg_gate": 0.003611222142353654,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 32,
+      "train": {
+        "nll": 5.353926658630371,
+        "base_nll": 5.35706090927124,
+        "gain": 0.0031342506408691406,
+        "avg_gate": 0.004007334355264902,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.448427200317383,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.004201412200927734,
+        "avg_gate": 0.004007334355264902,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 48,
+      "train": {
+        "nll": 5.353633880615234,
+        "base_nll": 5.35706090927124,
+        "gain": 0.0034270286560058594,
+        "avg_gate": 0.004448069259524345,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.448055267333984,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.004573345184326172,
+        "avg_gate": 0.004448068793863058,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 64,
+      "train": {
+        "nll": 5.35331392288208,
+        "base_nll": 5.35706090927124,
+        "gain": 0.0037469863891601562,
+        "avg_gate": 0.004943424370139837,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.4476542472839355,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.004974365234375,
+        "avg_gate": 0.004943424835801125,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 80,
+      "train": {
+        "nll": 5.352967262268066,
+        "base_nll": 5.35706090927124,
+        "gain": 0.004093647003173828,
+        "avg_gate": 0.005497513338923454,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.447225570678711,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.005403041839599609,
+        "avg_gate": 0.005497513338923454,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 96,
+      "train": {
+        "nll": 5.352673053741455,
+        "base_nll": 5.35706090927124,
+        "gain": 0.004387855529785156,
+        "avg_gate": 0.005983791779726744,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.446865081787109,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.005763530731201172,
+        "avg_gate": 0.005983790382742882,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 112,
+      "train": {
+        "nll": 5.352371692657471,
+        "base_nll": 5.35706090927124,
+        "gain": 0.004689216613769531,
+        "avg_gate": 0.006496679503470659,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.446500778198242,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.006127834320068359,
+        "avg_gate": 0.006496680434793234,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    },
+    {
+      "step": 128,
+      "train": {
+        "nll": 5.351983547210693,
+        "base_nll": 5.35706090927124,
+        "gain": 0.005077362060546875,
+        "avg_gate": 0.007178932894021273,
+        "memory_target_hit_rate": 0.6328125,
+        "avg_mem_prob_when_hit": 0.12306324392557144,
+        "n": 256
+      },
+      "dev": {
+        "nll": 5.446039199829102,
+        "base_nll": 5.4526286125183105,
+        "gain": 0.006589412689208984,
+        "avg_gate": 0.007178933825343847,
+        "memory_target_hit_rate": 0.6875,
+        "avg_mem_prob_when_hit": 0.07790037989616394,
+        "n": 96
+      }
+    }
+  ],
+  "full_model_checkpoint_unchanged": true,
+  "independent_books": false,
+  "elapsed_s": 4.72,
+  "notes": [
+    "The sparse readout uses older directed events; it is not a 32k-vocabulary dense transformer head.",
+    "No independent book splits, no frontier comparison.",
+    "Existing model weights and all optimizer moments are preserved in the parent.",
+    "Calibration optimizes only the new gate; no full-model joint update has occurred."
+  ],
+  "r712_overlay_sha256": "e2d828c22eff535c0cc5cc721ff1d93b3c8c00cb9f03f8b9c0d223230fa07295"
+}

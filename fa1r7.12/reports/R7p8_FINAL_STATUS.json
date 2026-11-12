@@ -1,0 +1,19 @@
+{
+  "round": "R7.8",
+  "status": "REJECTED_CANDIDATE_NO_PROMOTION",
+  "accepted_checkpoint": "checkpoint/pal_active.pt",
+  "accepted_step": 14416,
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "experimental_highest_step": 14912,
+  "exploratory_updates": 496,
+  "rejected_candidate_checkpoint_sha256": "f8d96271e6f5ee642cdce0b1ac9ee82e079daf7fc42b947c5b1856f9be483024",
+  "optimizer_histories_retained": 5,
+  "rank": 64,
+  "physical_memory_matrices": 1,
+  "historical_dev_nll_512": {"accepted_r77": 4.953608255833387, "experimental_r78": 4.950418788939714},
+  "historical_test_nll_512": {"accepted_r77": 5.832248628139496, "experimental_r78": 5.834672540426254},
+  "validation_decision": "failed due to historical test regression and lack of correct-state recall advantage",
+  "independent_new_books_evaluated": false,
+  "tests": {"r77_regressions": 12, "r78_order": 6, "r78_bigram": 5},
+  "unpromoted_weights_in_archive": false
+}

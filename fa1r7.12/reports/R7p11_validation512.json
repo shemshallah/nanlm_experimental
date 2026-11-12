@@ -1,0 +1,74 @@
+{
+  "checks": {
+    "accepted_checkpoint_unchanged": true,
+    "bitwise_identical_inherited_matrix": true,
+    "bitwise_identical_inherited_parameters": true,
+    "five_inherited_optimizer_histories_unchanged": true,
+    "auxiliary_updates_restored": 80,
+    "directed_writer_key_value_selector_gradients_nonzero": true
+  },
+  "independent_book_validation": false,
+  "alternate_query_seed": true,
+  "selected_hyperparameters_unchanged": true,
+  "historical_split_results": {
+    "dev": {
+      "before_untrained_migration": {
+        "n": 512,
+        "correct_ce": 4.2590532302856445,
+        "wrong_ce": 4.4843244552612305,
+        "reversed_ce": 5.111194610595703,
+        "zero_ce": 3.465736150741577,
+        "unrelated_advantage": 0.22527170181274414,
+        "reversed_advantage": 0.8521419763565063,
+        "top1": 0.0703125
+      },
+      "after_aux_training": {
+        "n": 512,
+        "correct_ce": 3.3310070037841797,
+        "wrong_ce": 3.8564295768737793,
+        "reversed_ce": 4.601372718811035,
+        "zero_ce": 3.465736150741577,
+        "unrelated_advantage": 0.5254228115081787,
+        "reversed_advantage": 1.2703654766082764,
+        "top1": 0.1796875
+      },
+      "ce_improvement": 0.9280462265014648,
+      "document_cluster": {
+        "document_metadata_available": false,
+        "distinct_documents": null,
+        "ci": null,
+        "reason": "Legacy corpus lacks per-position document-start metadata; no independent book bootstrap possible."
+      }
+    },
+    "test": {
+      "before_untrained_migration": {
+        "n": 512,
+        "correct_ce": 4.471410751342773,
+        "wrong_ce": 4.682516574859619,
+        "reversed_ce": 5.06181526184082,
+        "zero_ce": 3.465736150741577,
+        "unrelated_advantage": 0.21110546588897705,
+        "reversed_advantage": 0.5904038548469543,
+        "top1": 0.09375
+      },
+      "after_aux_training": {
+        "n": 512,
+        "correct_ce": 3.4125585556030273,
+        "wrong_ce": 4.033718585968018,
+        "reversed_ce": 4.435317516326904,
+        "zero_ce": 3.465736150741577,
+        "unrelated_advantage": 0.6211600303649902,
+        "reversed_advantage": 1.022758960723877,
+        "top1": 0.177734375
+      },
+      "ce_improvement": 1.058852195739746,
+      "document_cluster": {
+        "document_metadata_available": false,
+        "distinct_documents": null,
+        "ci": null,
+        "reason": "Legacy corpus lacks per-position document-start metadata; no independent book bootstrap possible."
+      }
+    }
+  },
+  "elapsed_seconds": 9.26
+}

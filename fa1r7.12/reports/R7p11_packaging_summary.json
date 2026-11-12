@@ -1,0 +1,10 @@
+{
+  "path": "/mnt/data/PAL_R7p11_DIRECTED_HARD_NEGATIVE_SINGLE_CHECKPOINT_FULL.zip",
+  "sha256": "1a89d7cd1d2e0f90911c0f8215b13c7fd13878997427cfc696cf298fb4ceeead",
+  "size_bytes": 214449878,
+  "entries": 223,
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "experimental_overlay_sha256": "a7ff6f371f7a08474d80f74195c0a081e96ea71c183aa3d6f3b16c8a8898402c",
+  "archive_crc": "PASS",
+  "one_full_checkpoint": true
+}

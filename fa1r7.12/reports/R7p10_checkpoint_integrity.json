@@ -1,0 +1,54 @@
+{
+  "accepted": {
+    "format": "PAL_R7_7_SEMANTIC_ASSOCIATIVE_V1",
+    "step": 14416,
+    "model_tensors": 74,
+    "optimizer_histories": {
+      "legacy_accum": 10,
+      "adapter_adamw": 24,
+      "mirror_adamw": 10,
+      "outer_adamw": 9,
+      "retrieval_adamw": 21
+    },
+    "rng_keys_verified": [
+      "torch_rng",
+      "numpy_rng",
+      "python_rng",
+      "batch_rng_state"
+    ],
+    "sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d"
+  },
+  "roundtrip": {
+    "format": "PAL_R7_7_SEMANTIC_ASSOCIATIVE_V1",
+    "step": 14416,
+    "model_tensors": 74,
+    "optimizer_histories": {
+      "legacy_accum": 10,
+      "adapter_adamw": 24,
+      "mirror_adamw": 10,
+      "outer_adamw": 9,
+      "retrieval_adamw": 21
+    },
+    "rng_keys_verified": [
+      "torch_rng",
+      "numpy_rng",
+      "python_rng",
+      "batch_rng_state"
+    ],
+    "sha256": "e28a7f2cf58d8629d5e3f5f3a4df549bac8f9675a5753437fd88d8fffa81c1f3"
+  },
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "state_identical": {
+    "model": true,
+    "optimizers": true,
+    "torch_rng": true,
+    "numpy_rng": true,
+    "python_rng": true,
+    "batch_rng_state": true
+  },
+  "corrupted_sidecar_rejected": true,
+  "accepted_overwrite_blocked": true,
+  "accepted_unchanged": true,
+  "new_training_updates": 0,
+  "elapsed_seconds": 1.12
+}

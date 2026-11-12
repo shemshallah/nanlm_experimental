@@ -1,0 +1,7 @@
+checkpoint/
+corpus/
+*.pt
+*.pending
+__pycache__/
+*.pyc
+*.zip

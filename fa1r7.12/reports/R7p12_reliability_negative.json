@@ -1,0 +1,144 @@
+{
+  "status": "incomplete_run_timeout_after_256_training_steps",
+  "train_and_dev_observed": true,
+  "historical_test_after_calibration": "not_run",
+  "promotion": "REJECTED",
+  "reason": "Every observed dev gate violates both positive-NLL and correct-over-wrong-memory criteria.",
+  "observed_logs": [
+    {
+      "phase": "PRECOMPUTED",
+      "train": 1024,
+      "dev": 384,
+      "initial": {
+        "correct_gain": -0.0010788649087771773,
+        "wrong_gain": 0.007689923048019409,
+        "correct_advantage": -0.008768787607550621,
+        "correct_nll": 5.218307018280029,
+        "n": 384,
+        "mean_gate_correct": 0.006823629140853882,
+        "mean_gate_wrong": 0.00682331807911396
+      },
+      "seconds": 28.32
+    },
+    {
+      "phase": "GATE",
+      "step": 1,
+      "dev_gain": -0.0011132245417684317,
+      "dev_adv": -0.008922932669520378,
+      "wrong_gain": 0.007809709291905165
+    },
+    {
+      "phase": "GATE",
+      "step": 16,
+      "dev_gain": -0.0009607845568098128,
+      "dev_adv": -0.008076484315097332,
+      "wrong_gain": 0.007115699350833893
+    },
+    {
+      "phase": "GATE",
+      "step": 32,
+      "dev_gain": -0.0005905645084567368,
+      "dev_adv": -0.0056039257906377316,
+      "wrong_gain": 0.005013360641896725
+    },
+    {
+      "phase": "GATE",
+      "step": 48,
+      "dev_gain": -0.0005869477172382176,
+      "dev_adv": -0.0055551230907440186,
+      "wrong_gain": 0.004968173801898956
+    },
+    {
+      "phase": "GATE",
+      "step": 64,
+      "dev_gain": -0.000558600528165698,
+      "dev_adv": -0.005316644906997681,
+      "wrong_gain": 0.004758043680340052
+    },
+    {
+      "phase": "GATE",
+      "step": 80,
+      "dev_gain": -0.0005540926358662546,
+      "dev_adv": -0.005309237167239189,
+      "wrong_gain": 0.004755144473165274
+    },
+    {
+      "phase": "GATE",
+      "step": 96,
+      "dev_gain": -0.0005075293011032045,
+      "dev_adv": -0.00487913703545928,
+      "wrong_gain": 0.004371607676148415
+    },
+    {
+      "phase": "GATE",
+      "step": 112,
+      "dev_gain": -0.0005037995870225132,
+      "dev_adv": -0.004782720934599638,
+      "wrong_gain": 0.00427892105653882
+    },
+    {
+      "phase": "GATE",
+      "step": 128,
+      "dev_gain": -0.00039410716271959245,
+      "dev_adv": -0.0037550239358097315,
+      "wrong_gain": 0.0033609168604016304
+    },
+    {
+      "phase": "GATE",
+      "step": 144,
+      "dev_gain": -0.0003753018972929567,
+      "dev_adv": -0.0035936839412897825,
+      "wrong_gain": 0.0032183818984776735
+    },
+    {
+      "phase": "GATE",
+      "step": 160,
+      "dev_gain": -0.0003821996506303549,
+      "dev_adv": -0.003660702845081687,
+      "wrong_gain": 0.0032785029616206884
+    },
+    {
+      "phase": "GATE",
+      "step": 176,
+      "dev_gain": -0.00040690918103791773,
+      "dev_adv": -0.003911973442882299,
+      "wrong_gain": 0.0035050648730248213
+    },
+    {
+      "phase": "GATE",
+      "step": 192,
+      "dev_gain": -0.0002906933950725943,
+      "dev_adv": -0.0028460335452109575,
+      "wrong_gain": 0.002555340528488159
+    },
+    {
+      "phase": "GATE",
+      "step": 208,
+      "dev_gain": -0.000275221565971151,
+      "dev_adv": -0.0027032040525227785,
+      "wrong_gain": 0.0024279821664094925
+    },
+    {
+      "phase": "GATE",
+      "step": 224,
+      "dev_gain": -0.00025691441260278225,
+      "dev_adv": -0.002554634353145957,
+      "wrong_gain": 0.0022977199405431747
+    },
+    {
+      "phase": "GATE",
+      "step": 240,
+      "dev_gain": -0.0002719095500651747,
+      "dev_adv": -0.002729154424741864,
+      "wrong_gain": 0.002457245020195842
+    },
+    {
+      "phase": "GATE",
+      "step": 256,
+      "dev_gain": -0.00029774787253700197,
+      "dev_adv": -0.0030200311448425055,
+      "wrong_gain": 0.002722283126786351
+    }
+  ],
+  "candidate_overlay_written": false
+}

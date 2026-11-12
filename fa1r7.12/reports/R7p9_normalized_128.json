@@ -1,0 +1,9 @@
+{
+  "source_step": 14416,
+  "source_hash": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "updates": 128,
+  "five_optimizer_states_retained": true,
+  "final_step": 14544,
+  "elapsed_seconds": 32.2,
+  "candidate_sha256": "b18971f1daa76fc13a5737ab8fac1fea5dced2bf8bfe346afa5517abca50f656"
+}

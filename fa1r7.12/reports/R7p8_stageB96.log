@@ -1,0 +1,4 @@
+{"phase": "TRAIN", "step": 14576, "word_nll": 5.629055500030518, "loss": 6.68789529800415, "order_gain": 0.0019237443339079618, "order_gain_gradient": 3.247911990911234e-06, "elapsed_s": 8.9}
+{"phase": "TRAIN", "step": 14608, "word_nll": 4.527435302734375, "loss": 5.556880950927734, "order_gain": 0.0012753172777593136, "order_gain_gradient": -1.4230526801384258e-07, "elapsed_s": 15.98}
+{"phase": "TRAIN", "step": 14640, "word_nll": 4.469620704650879, "loss": 5.59972620010376, "order_gain": 0.0015286211855709553, "order_gain_gradient": 3.127705099359446e-07, "elapsed_s": 23.29}
+{"phase": "SAVED", "step": 14640, "sha256": "f001af63557dad303d8511f7fafdad309a777edec6b5cbe3765fcf49366ec46b"}

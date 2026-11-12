@@ -1,0 +1,12 @@
+{
+  "zero_gain_migration_max_difference": 8.046627044677734e-07,
+  "future_label_invariance": "PASS",
+  "stream_state_carry": "PASS",
+  "bos_padding_is_not_memory": "PASS",
+  "strictly_prior_context": "PASS",
+  "single_physical_mirror": "PASS",
+  "historical_optimizers_preserved": "PASS",
+  "causal_gradient_to_new_and_old": "PASS",
+  "initial_joint_step": 3240,
+  "passed": 7
+}

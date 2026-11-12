@@ -1,0 +1,28 @@
+{
+  "checkpoint_format": "PAL_R7_5_ASSOCIATIVE_V1",
+  "joint_step": 3500,
+  "total_positions": 4096,
+  "slice_start": 3072,
+  "slice_count": 1024,
+  "historical_splits_only": true,
+  "new_documents_evaluated": false,
+  "split_sums": {
+    "dev": {
+      "active": 5499.845045089722,
+      "retrieval_off": 5570.706932067871,
+      "outer_off": 5499.84504699707,
+      "key_positions": 818,
+      "target_hits": 334,
+      "n": 1024
+    },
+    "test": {
+      "active": 6439.362289428711,
+      "retrieval_off": 6536.876344680786,
+      "outer_off": 6439.362037658691,
+      "key_positions": 805,
+      "target_hits": 273,
+      "n": 1024
+    }
+  },
+  "elapsed_s": 12.4
+}

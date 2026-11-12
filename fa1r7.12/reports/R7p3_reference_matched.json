@@ -1,0 +1,60 @@
+{
+  "joint_updates": 2400,
+  "adapter_initial_updates": 11940,
+  "historical_legacy_updates": 43850000,
+  "historical_holdout_warning": "Original R6/R7 Gutenberg splits; not a new independently sourced document holdout",
+  "positions_per_split": 4096,
+  "results": {
+    "dev": {
+      "word_nll": 5.236285613849759,
+      "no_mirror_word_nll": 5.236654805019498,
+      "adapter_off_word_nll": 5.282087206840515,
+      "legacy_R7p2_word_nll": 5.244081802666187,
+      "forecast_horizon_nll": {
+        "+1": {
+          "active": 6.818971743345073,
+          "without_offset": 6.893020483970892,
+          "count": 3817
+        },
+        "+2": {
+          "active": 7.015323267592909,
+          "without_offset": 7.105112722382818,
+          "count": 3534
+        },
+        "+3": {
+          "active": 7.218569941564979,
+          "without_offset": 7.286683742180697,
+          "count": 3230
+        }
+      },
+      "six_word_teacher_forced_stream_nll_per_piece": 3.2184876595685674,
+      "stream_piece_count": 3657
+    },
+    "test": {
+      "word_nll": 5.887820798903704,
+      "no_mirror_word_nll": 5.888116402551532,
+      "adapter_off_word_nll": 5.921243472024798,
+      "legacy_R7p2_word_nll": 5.889805810526013,
+      "forecast_horizon_nll": {
+        "+1": {
+          "active": 7.0931749315785275,
+          "without_offset": 7.16107131774167,
+          "count": 3735
+        },
+        "+2": {
+          "active": 7.314705503358543,
+          "without_offset": 7.383262696026041,
+          "count": 3336
+        },
+        "+3": {
+          "active": 7.279121451251839,
+          "without_offset": 7.350532116958552,
+          "count": 2989
+        }
+      },
+      "six_word_teacher_forced_stream_nll_per_piece": 3.380963801033795,
+      "stream_piece_count": 3840
+    }
+  },
+  "elapsed_s": 26.4
+}

@@ -1,0 +1,12 @@
+{
+  "source_step": 14672,
+  "source_sha256": "131de4b0de82a50cbc5d9ce98c884147aaf47cb4cff84f7e3cfcbf1a9b52e690",
+  "updates": 96,
+  "five_optimizer_histories_preserved": true,
+  "source_format": "PAL_R7_8_CAUSAL_EVENT_PAIR_V2",
+  "target_format": "PAL_R7_8_CAUSAL_EVENT_PAIR_V2",
+  "final_step": 14768,
+  "independent_books_evaluated": false,
+  "wall_seconds": 18.86,
+  "checkpoint_sha256": "d854567a5d46004e4428a175e592f28510532e46e622ff3aa99645348cbb6d50"
+}

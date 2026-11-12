@@ -1,0 +1,83 @@
+{
+  "dev": {
+    "accepted_14416": {
+      "n": 512,
+      "semantic_coverage": 496,
+      "semantic_target_hits": 191,
+      "exact_key_coverage": 418,
+      "pair_coverage": 179,
+      "active_nll": 4.953608255833387,
+      "semantic_off_nll": 4.953745920211077,
+      "pair_off_nll": 4.96205024048686,
+      "one_word_only_nll": 4.962193455547094,
+      "retrieval_off_nll": 5.062475427985191,
+      "outer_off_nll": 4.953729506582022,
+      "semantic_gain": 0.00013766437768936157,
+      "pair_gain": 0.008447535336017609,
+      "exact_gain": 0.100281972438097,
+      "total_gain": 0.10886717215180397,
+      "outer_gain": 0.00012125074863433838
+    },
+    "continued_14928": {
+      "n": 512,
+      "semantic_coverage": 496,
+      "semantic_target_hits": 181,
+      "exact_key_coverage": 418,
+      "pair_coverage": 179,
+      "active_nll": 4.953817021101713,
+      "semantic_off_nll": 4.953918594866991,
+      "pair_off_nll": 4.9657382518053055,
+      "one_word_only_nll": 4.965842228382826,
+      "retrieval_off_nll": 5.0644077733159065,
+      "outer_off_nll": 4.954055644571781,
+      "semantic_gain": 0.00010157376527786255,
+      "pair_gain": 0.011923633515834808,
+      "exact_gain": 0.09856554493308067,
+      "total_gain": 0.11059075221419334,
+      "outer_gain": 0.0002386234700679779
+    },
+    "continued_advantage": -0.00020876526832580566,
+    "outer_utility": 0.0002386234700679779
+  },
+  "test": {
+    "accepted_14416": {
+      "n": 512,
+      "semantic_coverage": 490,
+      "semantic_target_hits": 181,
+      "exact_key_coverage": 390,
+      "pair_coverage": 144,
+      "active_nll": 5.832248628139496,
+      "semantic_off_nll": 5.841863181442022,
+      "pair_off_nll": 5.832590717822313,
+      "one_word_only_nll": 5.842092871665955,
+      "retrieval_off_nll": 5.947306074202061,
+      "outer_off_nll": 5.8323077373206615,
+      "semantic_gain": 0.009614553302526474,
+      "pair_gain": 0.00022969022393226624,
+      "exact_gain": 0.10521320253610611,
+      "total_gain": 0.11505744606256485,
+      "outer_gain": 5.910918116569519e-05
+    },
+    "continued_14928": {
+      "n": 512,
+      "semantic_coverage": 490,
+      "semantic_target_hits": 176,
+      "exact_key_coverage": 390,
+      "pair_coverage": 144,
+      "active_nll": 5.832500204443932,
+      "semantic_off_nll": 5.840166963636875,
+      "pair_off_nll": 5.834066577255726,
+      "one_word_only_nll": 5.841732934117317,
+      "retrieval_off_nll": 5.9441531747579575,
+      "outer_off_nll": 5.832645211368799,
+      "semantic_gain": 0.007666759192943573,
+      "pair_gain": 0.0015659704804420471,
+      "exact_gain": 0.10242024064064026,
+      "total_gain": 0.11165297031402588,
+      "outer_gain": 0.00014500692486763
+    },
+    "continued_advantage": -0.00025157630443573,
+    "outer_utility": 0.00014500692486763
+  },
+  "elapsed_seconds": 20.97
+}

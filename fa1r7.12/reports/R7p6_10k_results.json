@@ -1,0 +1,88 @@
+{
+  "start_joint_step": 4000,
+  "planned_updates": 10000,
+  "migration_from": "PAL_R7_5_ASSOCIATIVE_V1",
+  "optimizer_names": [
+    "legacy_accum",
+    "adapter_adamw",
+    "mirror_adamw",
+    "outer_adamw",
+    "retrieval_adamw"
+  ],
+  "checkpoint": "checkpoint/pal_active.pt",
+  "historical_splits_only": true,
+  "before_dev": {
+    "n": 512,
+    "key_positions": 418,
+    "target_hits": 188,
+    "pair_positions": 179,
+    "pair_target_hits": 35,
+    "active_nll": 4.986420642584562,
+    "pair_off_nll": 4.992840450257063,
+    "retrieval_off_nll": 5.068489454686642,
+    "outer_off_nll": 4.986420661211014,
+    "one_word_gain": 0.07564900442957878,
+    "incremental_pair_gain": 0.00641980767250061,
+    "total_retrieval_gain": 0.08206881210207939
+  },
+  "before_test": {
+    "n": 512,
+    "key_positions": 390,
+    "target_hits": 134,
+    "pair_positions": 144,
+    "pair_target_hits": 23,
+    "active_nll": 5.862268079072237,
+    "pair_off_nll": 5.864035729318857,
+    "retrieval_off_nll": 5.952270042151213,
+    "outer_off_nll": 5.862268149852753,
+    "one_word_gain": 0.0882343128323555,
+    "incremental_pair_gain": 0.0017676502466201782,
+    "total_retrieval_gain": 0.09000196307897568
+  },
+  "completed_updates": 10000,
+  "end_joint_step": 14000,
+  "last_training_step": {
+    "joint_step": 14000,
+    "word_nll": 3.840193510055542,
+    "loss": 4.812259197235107,
+    "retrieval_cap": 0.127999410033226,
+    "pair_strength": 0.06631466001272202,
+    "pair_gate_grad": 0.0009930578526109457,
+    "pair_coverage": 0.5,
+    "pair_hits": 0.0
+  },
+  "wall_time_s": 1891.9,
+  "checkpoint_sha256": "b48b405018024d5c3883351597b2ba8db4a50cd14df2ad1638fe584f6740f419",
+  "latest_eval": {
+    "joint_step": 14000,
+    "elapsed_s": 1884.2,
+    "dev": {
+      "n": 512,
+      "key_positions": 418,
+      "target_hits": 188,
+      "pair_positions": 179,
+      "pair_target_hits": 35,
+      "active_nll": 4.962198667228222,
+      "pair_off_nll": 4.975282344967127,
+      "retrieval_off_nll": 5.065176289528608,
+      "outer_off_nll": 4.962291359901428,
+      "one_word_gain": 0.08989394456148148,
+      "incremental_pair_gain": 0.013083677738904953,
+      "total_retrieval_gain": 0.10297762230038643
+    },
+    "test": {
+      "n": 512,
+      "key_positions": 390,
+      "target_hits": 134,
+      "pair_positions": 144,
+      "pair_target_hits": 23,
+      "active_nll": 5.848323184996843,
+      "pair_off_nll": 5.850653495639563,
+      "retrieval_off_nll": 5.948302831500769,
+      "outer_off_nll": 5.84835347533226,
+      "one_word_gain": 0.09764933586120605,
+      "incremental_pair_gain": 0.002330310642719269,
+      "total_retrieval_gain": 0.09997964650392532
+    }
+  }
+}

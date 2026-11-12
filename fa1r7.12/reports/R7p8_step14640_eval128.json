@@ -1,0 +1,35 @@
+{
+  "checkpoint_step": 14640,
+  "results": {
+    "dev": {
+      "correct_nll": 4.8891352117061615,
+      "outer_off_nll": 4.889506235718727,
+      "order_off_nll": 4.889135122299194,
+      "swapped_batch_nll": 4.889136090874672,
+      "within_block_reversed_nll": 4.889135196805,
+      "zero_nll": 4.889506235718727,
+      "outer_gain": 0.019625451415777206,
+      "order_gain": 0.0015286211855709553,
+      "order_benefit_nll": -8.940696716308594e-08,
+      "order_vs_reversed": -1.4901161193847656e-08,
+      "order_vs_swapped": 8.791685104370117e-07,
+      "outer_gain_nll": 0.0003710240125656128,
+      "n": 128
+    },
+    "test": {
+      "correct_nll": 5.799217119812965,
+      "outer_off_nll": 5.7990569323301315,
+      "order_off_nll": 5.799217209219933,
+      "swapped_batch_nll": 5.799220949411392,
+      "within_block_reversed_nll": 5.799217343330383,
+      "zero_nll": 5.7990569323301315,
+      "outer_gain": 0.019625451415777206,
+      "order_gain": 0.0015286211855709553,
+      "order_benefit_nll": 8.940696716308594e-08,
+      "order_vs_reversed": 2.2351741790771484e-07,
+      "order_vs_swapped": 3.829598426818848e-06,
+      "outer_gain_nll": -0.0001601874828338623,
+      "n": 128
+    }
+  }
+}

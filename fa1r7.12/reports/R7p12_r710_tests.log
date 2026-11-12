@@ -1,0 +1,22 @@
+{
+  "tests_passed": 15,
+  "checks": {
+    "one_accepted_checkpoint_five_full_histories": true,
+    "torch_numpy_python_batch_rng_tracked": true,
+    "accepted_model_restores_bitwise": true,
+    "random_repeatable_mining": true,
+    "random_strict_causal_older_positive": true,
+    "random_distinct_in_history_negatives": true,
+    "random_no_future_target_dependency": true,
+    "hard_repeatable_mining": true,
+    "hard_strict_causal_older_positive": true,
+    "hard_distinct_in_history_negatives": true,
+    "hard_no_future_target_dependency": true,
+    "inherited_rank64_cannot_recall_withinblock_order": true,
+    "padding_does_not_create_false_pairs": true,
+    "frozen_embedding_hardness_defined": true,
+    "no_implicit_training_step": true
+  },
+  "accepted_step": 14416,
+  "accepted_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d"
+}

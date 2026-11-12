@@ -1,0 +1,17 @@
+{
+  "joint_step": 14208,
+  "prompt": "the stars were shining above the old house",
+  "generated": ", bob . if i had not seen to be good man , and feel so , through the generic unequal a prerecies of the work i nails inwardly in his hair mouth . they were looking at a red",
+  "source_counts": {
+    "tree": 40
+  },
+  "mean_mixture_gates": {
+    "one_word": 0.0,
+    "pair": 0.0,
+    "semantic": 0.0
+  },
+  "seed": 17,
+  "temperature": 0.9,
+  "future_tokens_provided": false,
+  "note": "Original word-stream normalization; output remains an exploratory fluency probe."
+}

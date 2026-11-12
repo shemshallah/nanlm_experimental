@@ -1,0 +1,17 @@
+{
+  "split": "dev",
+  "step": 14208,
+  "metrics": {
+    "n": 128,
+    "semantic_positive": 54,
+    "semantic_candidates": 125,
+    "all_nll": 4.896123692393303,
+    "semantic_off_nll": 4.896526783704758,
+    "pair_off_nll": 4.935091882944107,
+    "retrieval_off_nll": 5.08151450753212,
+    "outer_off_nll": 4.896339252591133,
+    "semantic_gain": 0.00040309131145477295,
+    "pair_gain": 0.038565099239349365,
+    "retrieval_gain": 0.18539081513881683
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "passed": 10,
+  "tests": {
+    "full_parent_hash_and_auxiliary_step_pinning": true,
+    "inherited_tensors_bitwise_unchanged": true,
+    "all_five_existing_optimizer_moments_unchanged": true,
+    "zero_gate_inherited_memory_bitwise": true,
+    "zero_gate_has_nonzero_learning_gradient": true,
+    "nonzero_gate_streaming_fails_closed": true,
+    "directed_memory_sensitive_to_order": true,
+    "exactly_one_rank64_pair_matrix": true,
+    "corrupt_overlay_rejected": true,
+    "accepted_checkpoint_preserved": true
+  },
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "auxiliary_updates": 80,
+  "reproducible_overlay_bytes": 173477
+}

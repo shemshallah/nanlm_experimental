@@ -1,0 +1,2 @@
+{"split": "dev", "accepted_nll": 4.953608255833387, "continued_nll": 4.953817021101713, "improvement": -0.00020876526832580566}
+{"split": "test", "accepted_nll": 5.832248628139496, "continued_nll": 5.832500204443932, "improvement": -0.00025157630443573}

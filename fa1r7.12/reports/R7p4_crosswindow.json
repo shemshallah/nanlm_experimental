@@ -1,0 +1,35 @@
+{
+  "steps_executed": 800,
+  "joint_step": 3240,
+  "metrics": {
+    "input_joint_step": 2440,
+    "R73_pretrained_step": 2400,
+    "before_dev": 5.071994412690401,
+    "before_dev_outer_off": 5.071994382888079,
+    "before_test": 5.94946139678359,
+    "before_test_outer_off": 5.949461463838816,
+    "after_dev": 5.068436939269304,
+    "after_dev_outer_off": 5.068436983972788,
+    "after_test": 5.94881122559309,
+    "after_test_outer_off": 5.948811307549477
+  },
+  "last_train": {
+    "loss": 6.423826694488525,
+    "word": 5.311892986297607,
+    "stream": 3.4047107696533203,
+    "outer_gain": -0.0003510696697048843,
+    "outer_gain_grad": 0.0028849910013377666
+  },
+  "wall_time_s": 238.58,
+  "device": "cpu",
+  "cuda_verified": false,
+  "older_window_words": 6144,
+  "exact_context_words": 2048,
+  "optimizer_histories": [
+    "legacy_accum",
+    "adapter_adamw",
+    "mirror_adamw",
+    "outer_adamw"
+  ],
+  "checkpoint_sha256": "7a09e26b6252e10192fea8252e7881192ddb47bb726f362e7b4666222dc99828"
+}

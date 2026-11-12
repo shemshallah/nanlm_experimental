@@ -1,0 +1,175 @@
+{
+  "dev": {
+    "random": {
+      "split": "dev",
+      "mining": "random",
+      "step": 14416,
+      "checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+      "candidate_set_size": 32,
+      "attempted_positions": 16,
+      "valid_queries": 16,
+      "independent_books": false,
+      "query_sampling_seed": 710,
+      "note": "Unsealed historic split. Query-level bootstrap is NOT book-level confidence.",
+      "conditions": {
+        "correct": {
+          "ce_mean": 3.8451023995876312,
+          "top1_mean": 0.0,
+          "margin_mean": -1.7200697399675846
+        },
+        "unrelated": {
+          "ce_mean": 3.8693537414073944,
+          "top1_mean": 0.0,
+          "margin_mean": -1.7466410510241985
+        },
+        "reversed": {
+          "ce_mean": 3.8451023995876312,
+          "top1_mean": 0.0,
+          "margin_mean": -1.7200697362422943
+        },
+        "zero": {
+          "ce_mean": 3.465735912322998,
+          "top1_mean": 0.03125,
+          "margin_mean": 0.0
+        }
+      },
+      "oracle_symbolic_lookup_accuracy": 1.0,
+      "correct_vs_unrelated_ce_advantage": 0.024251341819763184,
+      "query_bootstrap_ci95": [
+        0.002460405603051186,
+        0.04688062481582165
+      ],
+      "chance_ce": 3.4657359027997265,
+      "chance_top1": 0.03125
+    },
+    "hard": {
+      "split": "dev",
+      "mining": "hard",
+      "step": 14416,
+      "checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+      "candidate_set_size": 32,
+      "attempted_positions": 16,
+      "valid_queries": 16,
+      "independent_books": false,
+      "query_sampling_seed": 710,
+      "note": "Unsealed historic split. Query-level bootstrap is NOT book-level confidence.",
+      "conditions": {
+        "correct": {
+          "ce_mean": 3.67634080350399,
+          "top1_mean": 0.0,
+          "margin_mean": -1.4234238602221012
+        },
+        "unrelated": {
+          "ce_mean": 3.694725424051285,
+          "top1_mean": 0.0,
+          "margin_mean": -1.4559808485209942
+        },
+        "reversed": {
+          "ce_mean": 3.6763409078121185,
+          "top1_mean": 0.0,
+          "margin_mean": -1.4234239310026169
+        },
+        "zero": {
+          "ce_mean": 3.465735912322998,
+          "top1_mean": 0.03125,
+          "margin_mean": 0.0
+        }
+      },
+      "oracle_symbolic_lookup_accuracy": 1.0,
+      "correct_vs_unrelated_ce_advantage": 0.018384620547294617,
+      "query_bootstrap_ci95": [
+        0.005643095448613167,
+        0.033021450787782666
+      ],
+      "chance_ce": 3.4657359027997265,
+      "chance_top1": 0.03125
+    }
+  },
+  "test": {
+    "random": {
+      "split": "test",
+      "mining": "random",
+      "step": 14416,
+      "checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+      "candidate_set_size": 32,
+      "attempted_positions": 16,
+      "valid_queries": 16,
+      "independent_books": false,
+      "query_sampling_seed": 710,
+      "note": "Unsealed historic split. Query-level bootstrap is NOT book-level confidence.",
+      "conditions": {
+        "correct": {
+          "ce_mean": 4.101126343011856,
+          "top1_mean": 0.0,
+          "margin_mean": -2.015211481601
+        },
+        "unrelated": {
+          "ce_mean": 4.100733071565628,
+          "top1_mean": 0.0,
+          "margin_mean": -2.0305604077875614
+        },
+        "reversed": {
+          "ce_mean": 4.101126283407211,
+          "top1_mean": 0.0,
+          "margin_mean": -2.015211444348097
+        },
+        "zero": {
+          "ce_mean": 3.465735912322998,
+          "top1_mean": 0.03125,
+          "margin_mean": 0.0
+        }
+      },
+      "oracle_symbolic_lookup_accuracy": 1.0,
+      "correct_vs_unrelated_ce_advantage": -0.00039327144622802734,
+      "query_bootstrap_ci95": [
+        -0.022323810309171677,
+        0.021600497514009474
+      ],
+      "chance_ce": 3.4657359027997265,
+      "chance_top1": 0.03125
+    },
+    "hard": {
+      "split": "test",
+      "mining": "hard",
+      "step": 14416,
+      "checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+      "candidate_set_size": 32,
+      "attempted_positions": 16,
+      "valid_queries": 16,
+      "independent_books": false,
+      "query_sampling_seed": 710,
+      "note": "Unsealed historic split. Query-level bootstrap is NOT book-level confidence.",
+      "conditions": {
+        "correct": {
+          "ce_mean": 3.8551665544509888,
+          "top1_mean": 0.0,
+          "margin_mean": -1.6896618180908263
+        },
+        "unrelated": {
+          "ce_mean": 3.854874223470688,
+          "top1_mean": 0.0,
+          "margin_mean": -1.691693454515189
+        },
+        "reversed": {
+          "ce_mean": 3.855166509747505,
+          "top1_mean": 0.0,
+          "margin_mean": -1.6896617631427944
+        },
+        "zero": {
+          "ce_mean": 3.465735912322998,
+          "top1_mean": 0.03125,
+          "margin_mean": 0.0
+        }
+      },
+      "oracle_symbolic_lookup_accuracy": 1.0,
+      "correct_vs_unrelated_ce_advantage": -0.0002923309803009033,
+      "query_bootstrap_ci95": [
+        -0.016791196167469023,
+        0.017900101095437985
+      ],
+      "chance_ce": 3.4657359027997265,
+      "chance_top1": 0.03125
+    }
+  },
+  "wall_seconds": 5.291
+}

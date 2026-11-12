@@ -1,0 +1,1 @@
+{"phase": "TRAIN", "step": 14512, "word_nll": 8.053971290588379, "loss": 9.129868507385254, "order_gain": 0.0019195445347577333, "order_gain_gradient": 2.617465952425846e-06, "elapsed_s": 23.94}

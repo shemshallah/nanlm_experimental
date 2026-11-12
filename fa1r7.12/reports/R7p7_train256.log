@@ -1,0 +1,3 @@
+{"phase": "TRAIN", "step": 14032, "word_nll": 5.991671085357666, "loss": 7.297300338745117, "semantic_cap": 0.0034752923529595137, "semantic_cap_grad": 2.410564229649026e-05, "semantic_hit_rate": 0.0, "elapsed_seconds": 13.15}
+{"phase": "TRAIN", "step": 14064, "word_nll": 4.514532089233398, "loss": 5.550480842590332, "semantic_cap": 0.0035301789175719023, "semantic_cap_grad": -1.0538218703004532e-05, "semantic_hit_rate": 0.25, "elapsed_seconds": 20.98}
+{"phase": "TRAIN", "step": 14096, "word_nll": 3.564007520675659, "loss": 4.540204048156738, "semantic_cap": 0.0035812563728541136, "semantic_cap_grad": -1.3700578165298793e-05, "semantic_hit_rate": 0.75, "elapsed_seconds": 28.64}

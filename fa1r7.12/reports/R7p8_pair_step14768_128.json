@@ -1,0 +1,33 @@
+{
+  "step": 14768,
+  "dev": {
+    "correct_nll": 4.888512670993805,
+    "pair_off_nll": 4.888508632779121,
+    "both_order_off_nll": 4.888508677482605,
+    "outer_off_nll": 4.8888663202524185,
+    "reversed_nll": 4.888512402772903,
+    "unrelated_nll": 4.88850773870945,
+    "pair_gain": -0.029458075761795044,
+    "order_gain": 0.0018955933628603816,
+    "pair_benefit": -4.038214683532715e-06,
+    "all_order_benefit": -3.993511199951172e-06,
+    "correct_over_reversed": -2.682209014892578e-07,
+    "correct_over_unrelated": -4.932284355163574e-06,
+    "n": 128
+  },
+  "test": {
+    "correct_nll": 5.802663639187813,
+    "pair_off_nll": 5.802666902542114,
+    "both_order_off_nll": 5.802666857838631,
+    "outer_off_nll": 5.802491143345833,
+    "reversed_nll": 5.802665427327156,
+    "unrelated_nll": 5.80267596244812,
+    "pair_gain": -0.029458075761795044,
+    "order_gain": 0.0018955933628603816,
+    "pair_benefit": 3.2633543014526367e-06,
+    "all_order_benefit": 3.2186508178710938e-06,
+    "correct_over_reversed": 1.7881393432617188e-06,
+    "correct_over_unrelated": 1.2323260307312012e-05,
+    "n": 128
+  }
+}
