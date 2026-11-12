@@ -1,0 +1,162 @@
+{
+  "round": "FA2.3 R22 1000-step frozen selected postselection",
+  "parent_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "r21_state_sha256": "df6a71caae7c508784e1cc4ee07f5d7baf4df09b35a4da6b0ce85734536054f9",
+  "adapter_steps": 1000,
+  "checkpoint_promoted": false,
+  "no_retraining": true,
+  "context_source": "NaNROUTER source-verified distinct books",
+  "results": {
+    "dev_long": {
+      "scores": {
+        "r18": {
+          "bpb": 2.5149562154075715,
+          "nonspace_nll": 4.645062008628362,
+          "nonspace_top1": 0.1291139240506329,
+          "tokens": 6068,
+          "bytes": 10985
+        },
+        "r21": {
+          "bpb": 2.512991764659078,
+          "nonspace_nll": 4.640448801547666,
+          "nonspace_top1": 0.13088607594936708,
+          "tokens": 6068,
+          "bytes": 10985
+        },
+        "r22": {
+          "bpb": 2.5027106704099147,
+          "nonspace_nll": 4.618021502917326,
+          "nonspace_top1": 0.1331645569620253,
+          "tokens": 6068,
+          "bytes": 10985
+        }
+      },
+      "query_coverage": {
+        "recent": 3742,
+        "middle": 3494,
+        "far": 2788
+      },
+      "maximum_retrieval_distance": {
+        "recent": 2045,
+        "middle": 8156,
+        "far": 32762
+      },
+      "windows": 16
+    },
+    "dev_short": {
+      "scores": {
+        "r18": {
+          "bpb": 2.5597062944825106,
+          "nonspace_nll": 4.724223989658255,
+          "nonspace_top1": 0.10052910052910052,
+          "tokens": 599,
+          "bytes": 1066
+        },
+        "r21": {
+          "bpb": 2.5597062944825106,
+          "nonspace_nll": 4.724223989658255,
+          "nonspace_top1": 0.10052910052910052,
+          "tokens": 599,
+          "bytes": 1066
+        },
+        "r22": {
+          "bpb": 2.5597062944825106,
+          "nonspace_nll": 4.724223989658255,
+          "nonspace_top1": 0.10052910052910052,
+          "tokens": 599,
+          "bytes": 1066
+        }
+      },
+      "query_coverage": {
+        "recent": 357,
+        "middle": 357,
+        "far": 252
+      },
+      "maximum_retrieval_distance": {
+        "recent": 1646,
+        "middle": 8077,
+        "far": 32637
+      },
+      "windows": 8
+    },
+    "test_long": {
+      "scores": {
+        "r18": {
+          "bpb": 2.399261802224173,
+          "nonspace_nll": 4.381387619363341,
+          "nonspace_top1": 0.14135575407251708,
+          "tokens": 2787,
+          "bytes": 5194
+        },
+        "r21": {
+          "bpb": 2.398389439465623,
+          "nonspace_nll": 4.378580964369581,
+          "nonspace_top1": 0.14240672622175513,
+          "tokens": 2787,
+          "bytes": 5194
+        },
+        "r22": {
+          "bpb": 2.3884565374263573,
+          "nonspace_nll": 4.356440212873177,
+          "nonspace_top1": 0.14450867052023122,
+          "tokens": 2787,
+          "bytes": 5194
+        }
+      },
+      "query_coverage": {
+        "recent": 1794,
+        "middle": 1794,
+        "far": 1329
+      },
+      "maximum_retrieval_distance": {
+        "recent": 2034,
+        "middle": 8185,
+        "far": 32738
+      },
+      "windows": 8
+    },
+    "test_short": {
+      "scores": {
+        "r18": {
+          "bpb": 2.339100850029109,
+          "nonspace_nll": 4.299743783133371,
+          "nonspace_top1": 0.15428571428571428,
+          "tokens": 528,
+          "bytes": 971
+        },
+        "r21": {
+          "bpb": 2.339100850029109,
+          "nonspace_nll": 4.299743783133371,
+          "nonspace_top1": 0.15428571428571428,
+          "tokens": 528,
+          "bytes": 971
+        },
+        "r22": {
+          "bpb": 2.339100850029109,
+          "nonspace_nll": 4.299743783133371,
+          "nonspace_top1": 0.15428571428571428,
+          "tokens": 528,
+          "bytes": 971
+        }
+      },
+      "query_coverage": {
+        "recent": 332,
+        "middle": 332,
+        "far": 240
+      },
+      "maximum_retrieval_distance": {
+        "recent": 1545,
+        "middle": 8185,
+        "far": 32738
+      },
+      "windows": 8
+    }
+  },
+  "seconds": 4.710530453000047,
+  "limits": [
+    "Previously accessed historical test books, not independent new-book holdout",
+    "32K sparse memory addresses, not 32K dense model context",
+    "Only small new residual trained; original decoder and inherited optimizers frozen",
+    "No paraphrase or multi-hop competence demonstrated"
+  ]
+}
