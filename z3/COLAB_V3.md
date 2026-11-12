@@ -163,14 +163,20 @@ Consequences:
 - `best.pt` contains model weights and metadata, not optimizer or data-RNG
   state. Resuming with `--init-from best.pt` starts a fresh optimizer and step
   counter, which is what the current notebook does for a new 30-minute run.
+- `--init-from` also does not seed the trainer's `best` tracker. The first
+  evaluation of a continuation writes a new `best.pt` even if that model is not
+  better than the loaded checkpoint. `--eval-before` reports the baseline but
+  does not seed `best`. Copy the old checkpoint aside before a continuation if
+  you need to preserve it.
 - `last.pt` is the full training-state checkpoint. `--resume last` restores the
   optimizer, EMA, data RNG, RNG state, step, elapsed time, and history. Because
   the notebook passes an explicit `--max-seconds 1800`, resuming a nearly
   finished `last.pt` can leave little or no time in the budget; use it to
   recover an interrupted run, not to add a second full 30 minutes.
 - A resumed checkpoint must match the architecture and tokenizer configuration:
-  `d_model`, layers, heads, context, expert count/top-k, MTP, and vocabulary.
-  Changing those values makes the checkpoint incompatible.
+  `d_model`, layers, heads, context, expert count/top-k, expert hidden, SwiGLU,
+  MTP, vocabulary, and the RoPE/memory flags. Changing those values makes the
+  checkpoint incompatible.
 - To force a fresh run, rename both checkpoints instead of deleting them:
 
   ```sh
