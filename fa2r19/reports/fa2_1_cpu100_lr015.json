@@ -1,0 +1,53 @@
+{
+  "round": "FA2.1 CPU100 0.15x-LR continuation",
+  "codename": "FA2.1",
+  "source_checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "source_r12_updates": 10756,
+  "candidate_updates": 100,
+  "training_tokens": 28585,
+  "seed": 18020,
+  "span": 96,
+  "long_span": 400,
+  "optimizer": {
+    "mode": "migrated_retrieval_and_gain_adam",
+    "r18_restored_moments": 15,
+    "lr_scale": 0.15,
+    "effective_lrs": [
+      3e-9,
+      0.0000045,
+      0.0000375,
+      0.00003,
+      0.0000075
+    ]
+  },
+  "short_dev": {
+    "positions": 32,
+    "raw_bytes": 4380,
+    "before_bpb": 2.599445593504973,
+    "after_bpb": 2.6003354025270458,
+    "before_nonspace_nll": 4.795088790437634,
+    "after_nonspace_nll": 4.799272502067358,
+    "before_nonspace_top1": 0.10870947234583599,
+    "after_nonspace_top1": 0.10616656071201526
+  },
+  "long_dev": {
+    "positions": 8,
+    "raw_bytes": 18070,
+    "before_bpb": 2.5659966774706318,
+    "after_bpb": 2.566476960390131,
+    "before_nonspace_nll": 4.591845368685788,
+    "after_nonspace_nll": 4.596311877070615,
+    "before_nonspace_top1": 0.12418106015485408,
+    "after_nonspace_top1": 0.12313877307921382
+  },
+  "dev_all_gains": false,
+  "legacy_anchors_ok": true,
+  "promoted": false,
+  "accepted_checkpoint_sha256_after": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "local_cpu_elapsed_sec": 151.20830343299997,
+  "limitations": [
+    "Historical development windows have been repeatedly inspected",
+    "No held-out new-book or downstream multi-hop improvement",
+    "Candidate not saved; the one accepted checkpoint remains byte-identical"
+  ]
+}
