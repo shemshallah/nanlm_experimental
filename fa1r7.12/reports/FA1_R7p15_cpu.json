@@ -1,0 +1,198 @@
+{
+  "experiment": "FA1 R7.15 query-conditioned symmetric/antisymmetric mirror LM",
+  "parent_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "accepted_step": 14416,
+  "training_candidate_updates": 128,
+  "select_step": 0,
+  "promoted": false,
+  "full_model_weights_updated": false,
+  "new_memory_writer_reader_jointly_trained_from_lm_nll": true,
+  "inherited_training_state_preserved": true,
+  "number_inherited_optimizers": 5,
+  "inherited_fifth_optimizer_groups": 4,
+  "additional_fifth_groups": 1,
+  "book_disjointness_verified": false,
+  "historical_test_only_post_selection": true,
+  "topk_target_free": 96,
+  "counts": {
+    "train": 128,
+    "dev": 64,
+    "test": 64
+  },
+  "initial_dev": {
+    "base_nll": 4.618317604064941,
+    "correct_nll": 4.618477821350098,
+    "wrong_nll": 4.618492126464844,
+    "correct_gain": -0.00016101263463497162,
+    "correct_vs_wrong_advantage": 1.4249235391616821e-05,
+    "gate_mean": 0.000838373729493469,
+    "correct_memory_hit_rate": 0.5625,
+    "wrong_memory_hit_rate": 0.546875,
+    "n": 64
+  },
+  "selected_dev": {
+    "base_nll": 4.618317604064941,
+    "correct_nll": 4.618317604064941,
+    "wrong_nll": 4.618317604064941,
+    "correct_gain": 0.0,
+    "correct_vs_wrong_advantage": 0.0,
+    "gate_mean": 6.119573798322756e-36,
+    "correct_memory_hit_rate": 0.5625,
+    "wrong_memory_hit_rate": 0.546875,
+    "n": 64
+  },
+  "historical_test": {
+    "base_nll": 5.2442402839660645,
+    "correct_nll": 5.2442402839660645,
+    "wrong_nll": 5.2442402839660645,
+    "correct_gain": 0.0,
+    "correct_vs_wrong_advantage": 0.0,
+    "gate_mean": 6.119573798322756e-36,
+    "correct_memory_hit_rate": 0.5625,
+    "wrong_memory_hit_rate": 0.453125,
+    "n": 64
+  },
+  "dev_gate_pass": false,
+  "book_level_gate_pass": false,
+  "unrelated_history_control": "full 6144-token donor history shuffled, topk recomputed per current query",
+  "optimizer_legacy_state_bitwise_unchanged": true,
+  "elapsed_s": 6.7,
+  "training_log": [
+    {
+      "step": 1,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.618474006652832,
+        "wrong_nll": 4.618434906005859,
+        "correct_gain": -0.00015645707026124,
+        "correct_vs_wrong_advantage": -3.864709287881851e-05,
+        "gate_mean": 0.0007695239619351923,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.0018404088914394379
+    },
+    {
+      "step": 16,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.618754863739014,
+        "wrong_nll": 4.6186299324035645,
+        "correct_gain": -0.00043767504394054413,
+        "correct_vs_wrong_advantage": -0.00012531597167253494,
+        "gate_mean": 0.0016198307275772095,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.02040829323232174
+    },
+    {
+      "step": 32,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.6295928955078125,
+        "wrong_nll": 4.628164768218994,
+        "correct_gain": -0.011275741271674633,
+        "correct_vs_wrong_advantage": -0.001427995041012764,
+        "gate_mean": 0.03494304046034813,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.13222432136535645
+    },
+    {
+      "step": 48,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.772222518920898,
+        "wrong_nll": 4.742030620574951,
+        "correct_gain": -0.15390516817569733,
+        "correct_vs_wrong_advantage": -0.030192237347364426,
+        "gate_mean": 0.29476264119148254,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.1765025407075882
+    },
+    {
+      "step": 64,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.818708896636963,
+        "wrong_nll": 4.858219146728516,
+        "correct_gain": -0.2003915160894394,
+        "correct_vs_wrong_advantage": 0.039510518312454224,
+        "gate_mean": 0.32972094416618347,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.18769143521785736
+    },
+    {
+      "step": 80,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.820843696594238,
+        "wrong_nll": 4.868159294128418,
+        "correct_gain": -0.20252615213394165,
+        "correct_vs_wrong_advantage": 0.04731595143675804,
+        "gate_mean": 0.33358120918273926,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.20798765122890472
+    },
+    {
+      "step": 96,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.845206260681152,
+        "wrong_nll": 4.894227027893066,
+        "correct_gain": -0.22688895463943481,
+        "correct_vs_wrong_advantage": 0.04902051016688347,
+        "gate_mean": 0.3345071077346802,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.15508714318275452
+    },
+    {
+      "step": 112,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.848169326782227,
+        "wrong_nll": 4.889894485473633,
+        "correct_gain": -0.22985196113586426,
+        "correct_vs_wrong_advantage": 0.04172506555914879,
+        "gate_mean": 0.33503586053848267,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.1332327276468277
+    },
+    {
+      "step": 128,
+      "dev": {
+        "base_nll": 4.618317604064941,
+        "correct_nll": 4.845735549926758,
+        "wrong_nll": 4.893853664398193,
+        "correct_gain": -0.22741834819316864,
+        "correct_vs_wrong_advantage": 0.04811807721853256,
+        "gate_mean": 0.33546727895736694,
+        "correct_memory_hit_rate": 0.5625,
+        "wrong_memory_hit_rate": 0.546875,
+        "n": 64
+      },
+      "grad_norm": 0.17718012630939484
+    }
+  ],
+  "candidate_sha256": "bd4197218ba5186619b059a5edb9dbed899a976c575b8669363390c8bb97ff57"
+}
