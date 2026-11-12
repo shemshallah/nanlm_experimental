@@ -86,3 +86,8 @@ R7.19 adds a causal incremental weighted 1–4-gram index over the 32,769–131,
 ## FA1 R7.20 — packed causal 128K CPU memory (not promoted)
 
 R7.20 adds a collision-free packed uint64 1–4-gram inverted index with ~4.7 MB of sorted NumPy index arrays. The [R7.20 report](FA1_R7p20_PACKED_128K_CPU.md), [runtime](source/fa1_r720_runtime.py), [packed index](source/fa1_r720_packed_index.py), and [CPU tests](source/test_fa1_r720.py) are published. On two 1,024-position historical checkpoint benchmarks in opposite execution orders, end-to-end CPU acceleration was 1.16–1.17x, with max final NLL discrepancy 9.54e-7 nats/word. The source has an `auto` fallback for short and sparse queries. Accepted FA1 remains at step 14,416 with five optimizer histories unchanged; independent book evaluation is still blocked pending a full R7.13 checkpoint GitHub Release.
+
+
+## R7.21 ONE UNIFIED R7 ARCHITECTURE
+
+**Active R7 source of truth:** [`R7_CURRENT.md`](R7_CURRENT.md), [`FA1_R7p21_UNIFIED_ARCHITECTURE.md`](FA1_R7p21_UNIFIED_ARCHITECTURE.md), and [`source/r7_current.py`](source/r7_current.py). One model, one R7.21 recoverable candidate, five inherited optimizer histories, on `master` only; old R7.14–R7.20 files are reference implementations, not alternative models. The accepted step-14416 model is unchanged; unpromoted R7.21 candidate achieved exact 1,024-position historical parity. Joint 96-step CPU pilot was rejected on development. Whole-book NaNROUTER validation remains mandatory for promotion.

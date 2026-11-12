@@ -1,0 +1,52 @@
+name: FA1 R7.21 - single unified architecture CPU checks
+
+on:
+  push:
+    paths:
+      - 'fa1r7.12/source/fa1_r721_unified.py'
+      - 'fa1r7.12/source/fa1_r721_joint_train.py'
+      - 'fa1r7.12/source/test_fa1_r721_synthetic.py'
+      - 'fa1r7.12/source/fa1_r721_packed*'
+      - '.github/workflows/fa1-r721-unified.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r721-one-unified-main
+  cancel-in-progress: false
+
+jobs:
+  synthetic-unified:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only runtime
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify inherited R7.18, R7.19 and R7.20
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r718.py
+          python fa1r7.12/source/test_fa1_r719.py
+          python fa1r7.12/source/test_fa1_r720.py
+      - name: Verify one unified R7 model and joint gradient path
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r721_synthetic.py
+      - name: Require trusted candidate for expensive real checkpoint audit
+        run: |
+          echo 'This source-only CI does not have the R7.21 94.8 MB checkpoint.'
+          echo 'Real 1024-position parity and five-moment restore were verified locally.'
+          echo 'Independent NaNROUTER whole-book validation is NOT included here.'
