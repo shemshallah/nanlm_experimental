@@ -1,0 +1,54 @@
+{
+  "round": "FA1 R7.20 real checkpoint and real LM runtime",
+  "accepted_step": 14416,
+  "five_inherited_optimizer_histories": 5,
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "test_type": "historical contiguous corpus (NOT new books)",
+  "execution_order": "packed_first",
+  "split": "test",
+  "start_position": 134000,
+  "positions": 1024,
+  "batch_size": 16,
+  "mean_original_baseline_nll": 5.4351337535335915,
+  "mean_frozen_near_nll": 5.235851927121985,
+  "mean_r718_far_nll": 5.145802037091926,
+  "mean_r720_packed_far_nll": 5.14580203674268,
+  "maximum_abs_parity_error": {
+    "baseline_nll": 0.0,
+    "near_nll": 0.0,
+    "far_nll": 9.5367431640625e-07
+  },
+  "old_gather_crosscheck_4_positions": {
+    "baseline": 0.0,
+    "near": 0.0,
+    "far": 0.0
+  },
+  "whole_runtime_seconds": {
+    "r718_reference": 10.967657217999886,
+    "r720_packed": 9.423337070000116
+  },
+  "model_and_retrieval_profile_seconds": {
+    "r718_reference": {
+      "data": 0.6313776300005429,
+      "base": 8.472757316000298,
+      "near": 0.5591779280009632,
+      "far": 1.1165463420024935,
+      "prior_and_gate": 0.14047999100148445
+    },
+    "r720_packed": {
+      "data": 0.2231129660001443,
+      "base": 8.200165431999949,
+      "near": 0.5283117859992217,
+      "far": 0.28380437499868094,
+      "prior_and_gate": 0.15493190400002277
+    }
+  },
+  "whole_runtime_speedup_including_index_build": 1.1638825117395224,
+  "far_phase_speedup_including_index_build": 3.934211169252352,
+  "packed_index_resets": 1,
+  "packed_incremental_steps": 1023,
+  "total_elapsed_seconds": 22.32090260399991,
+  "checkpoint_modified": false,
+  "new_book_validation": false,
+  "promoted": false
+}
