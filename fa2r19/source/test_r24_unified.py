@@ -31,8 +31,8 @@ class FakeMemory(nn.Module):
     def __init__(self, dim=12):
         super().__init__()
         self.start_piece = 1
-        self.piece_emb = nn.Embedding(256, dim)
-        self.subword_cell = nn.GRUCell(dim, dim)
+        self.piece_emb = nn.Embedding(256, dim - 4)
+        self.subword_cell = nn.GRUCell(dim - 4, dim)
         self.subword_out = nn.Linear(dim, 256)
 
 
@@ -176,6 +176,9 @@ def run():
         count_restored == 2 and len(first_group.param_groups) == 2 and
         all("exp_avg" in first_group.state[p] for p in revived.parameters()))
     checks["mirror_expert_top2"] = unified.moe.topk == 2
+    checks["independent_recurrence_embedding_dims"] = (
+        base.memory.subword_out.in_features != base.memory.piece_emb.embedding_dim
+        and unified.moe.router.in_features == base.memory.subword_out.in_features * 2)
     try:
         wrong = ContinuousPALState("other-book")
         unified.forward_chunk(book, (70, 100, 210, 300), wrong)
