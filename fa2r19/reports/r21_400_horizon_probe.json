@@ -1,0 +1,86 @@
+{
+  "round": "FA2.2 R21 full 400-chunk horizon gate-only postselected frozen probe",
+  "accepted_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "gate_steps": 1000,
+  "checkpoint_promoted": false,
+  "eval_only": true,
+  "horizon_chunks": 400,
+  "results": {
+    "dev": {
+      "results": {
+        "r18": {
+          "bpb": 2.565996696962633,
+          "nonspace_nll": 4.591845077869081,
+          "nonspace_top1": 0.12418106015485408,
+          "tokens": 10183,
+          "bytes": 18070
+        },
+        "r20_gain1": {
+          "bpb": 2.5638250540800347,
+          "nonspace_nll": 4.587083790400257,
+          "nonspace_top1": 0.12432995830851698,
+          "tokens": 10183,
+          "bytes": 18070
+        },
+        "r21_adaptive": {
+          "bpb": 2.562485095921835,
+          "nonspace_nll": 4.584141634133971,
+          "nonspace_top1": 0.12462775461584276,
+          "tokens": 10183,
+          "bytes": 18070
+        }
+      },
+      "deltas_vs_r18": {
+        "bpb": -0.0035116010407980625,
+        "nonspace_nll": -0.007703443735110227,
+        "nonspace_top1": 0.00044669446098867527
+      },
+      "delta_r21_vs_r20_gain1": {
+        "bpb": -0.00133995815819965,
+        "nonspace_nll": -0.0029421562662861334
+      },
+      "samples": 8
+    },
+    "test": {
+      "results": {
+        "r18": {
+          "bpb": 2.4133319617440203,
+          "nonspace_nll": 4.527413733010611,
+          "nonspace_top1": 0.12694300518134716,
+          "tokens": 10551,
+          "bytes": 18601
+        },
+        "r20_gain1": {
+          "bpb": 2.411362492427489,
+          "nonspace_nll": 4.52270124598779,
+          "nonspace_top1": 0.12785736056080463,
+          "tokens": 10551,
+          "bytes": 18601
+        },
+        "r21_adaptive": {
+          "bpb": 2.4102241429875186,
+          "nonspace_nll": 4.51987956522878,
+          "nonspace_top1": 0.12831453825053338,
+          "tokens": 10551,
+          "bytes": 18601
+        }
+      },
+      "deltas_vs_r18": {
+        "bpb": -0.003107818756501679,
+        "nonspace_nll": -0.007534167781830803,
+        "nonspace_top1": 0.0013715330691862204
+      },
+      "delta_r21_vs_r20_gain1": {
+        "bpb": -0.0011383494399703764,
+        "nonspace_nll": -0.0028216807590100146
+      },
+      "samples": 8
+    }
+  },
+  "seconds": 9.50509242999999,
+  "limitations": [
+    "Test books previously used by PAL (not untouched fresh data)",
+    "Same 400-chunk R20 windows; no threshold or parameter selection on this probe",
+    "No evidence of semantic paraphrase or end-to-end long-document reasoning"
+  ]
+}
