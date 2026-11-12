@@ -11,7 +11,7 @@ prototype, not a frontier-scale trained model.
 | Q/K stability | none | **QK-RMSNorm per head** |
 | Position | RoPE base 10k | **YaRN/NTK RoPE, 8k position cache** |
 | MoE | 128 mirror pairs, top-8 | **32 routed experts, top-2, +2 shared experts** |
-| MoE dispatch | Python expert loop | **gather + einsum vectorized top-k** |
+| MoE dispatch | Python expert loop | **grouped/chunked top-k dispatch** |
 | Memory | hashed n-gram path | **optional learned cross-attention + sparse n-gram bias** |
 | MoE aux | load balance | **load balance + router z-loss** |
 | Prediction | next token + S− | **multi-token prediction (MTP)** |
@@ -75,7 +75,9 @@ dominate.
    learned memory cross-attention. Enable with `--use-memory`; the store is
    built from the training split with `--memory-max-tokens`.
 4. **Expert dispatch:** `moe_vectorized.py` replaces the per-expert loop with
-   gathered top-k weights and batched einsums. `v3_model.SparseMoE` wraps it.
+   grouped, row-chunked top-k dispatch. `v3_model.SparseMoE` wraps it. The
+   grouped path bounds peak memory at the T4 profile instead of gathering
+   `(tokens × topk, d_model, expert_hidden)` weights.
 5. **Evaluation:** `eval_v3.py` reports bits/token, top-1/top-5, MTP accuracy,
    router utilization, and per-corpus metrics.
 6. **Single-GPU smoke:** `v3_colab.ipynb` / `COLAB_V3.md` run the mixed-corpus

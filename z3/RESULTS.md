@@ -11,8 +11,9 @@ quality and not frontier-scale training.
 - **Long context:** RoPE cache covers 8,192 positions. `rope_scaling="auto"`
   selects standard RoPE at 1k and YaRN above the 1k original window; `ntk` is
   also available explicitly.
-- **MoE dispatch:** gathered top-k weights + batched einsums in
-  `moe_vectorized.py`; `v3_model.SparseMoE` no longer loops over experts.
+- **MoE dispatch:** grouped, row-chunked top-k dispatch in
+  `moe_vectorized.py`; `v3_model.SparseMoE` no longer loops over experts and
+  no longer materializes per-token expert weights.
 - **Memory:** optional learned memory cross-attention plus a sparse hashed
   4-gram bias. The n-gram store is built from the training split only.
 
@@ -22,12 +23,32 @@ All commands were run from the repository root.
 
 ```text
 z3/test_rope_scaling.py       17 tests  OK  (includes 8k finite forward/backward)
-z3/test_moe_vectorized.py      9 tests  OK  (output/gradient parity vs loop)
+z3/test_moe_vectorized.py     11 tests  OK  (output/gradient parity vs loop)
 z3/test_memory_attention.py   17 tests  OK  (causality, collisions, gradients)
 z3/test_eval_v3.py             6 tests  OK
 z3/test_train_v3_smoke.py      2 tests  OK
-z3/test_v3_integration.py      4 tests  OK  (1 optional default-param test)
+z3/test_v3_integration.py      5 tests  OK
 ```
+
+## MoE memory check
+
+The first T4 attempt failed before any training step. The old dispatch gathered
+`(tokens × topk, d_model, expert_hidden)` weights; for the notebook profile
+(4,096 tokens, 32 experts, top-2, hidden 1,024) that is about **8.6 GB per
+projection**. It is replaced with grouped, row-chunked dispatch.
+
+Measured on CPU for the same MoE shape (4×1,024 tokens, d_model 256, 32 routed
+experts, top-2, 2 shared, hidden 1,024, no grad):
+
+```text
+output        (4, 1024, 256), finite
+wall          10.5 s
+peak RSS      351 MB (MoE-only)
+```
+
+A full 128.6M-parameter v3 forward with this profile (batch 1, 256 tokens)
+also ran finite and peaked at 1.09 GB RSS, but the complete T4 step has not
+been rerun here.
 
 The integration tests verify that YaRN is selected at `ctx=8192`, NTK builds,
 the model uses `VectorizedSparseMoE`, and the memory path backpropagates into

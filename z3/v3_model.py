@@ -7,7 +7,7 @@ Architecture changes over v2:
   * RoPE with YaRN/NTK scaling for an 8k position range
   * sliding-window local attention + periodic full-causal global layers
   * sparse MoE with 32 routed experts, top-2, plus 2 shared experts
-  * vectorized top-k expert dispatch (no Python per-expert forward loop)
+  * grouped, vectorized top-k expert dispatch with bounded memory
   * multi-token prediction (MTP) heads for better data efficiency
   * optional learned memory cross-attention + sparse hashed n-gram bias
   * pre-LN / RMSNorm / SwiGLU throughout
@@ -72,6 +72,8 @@ class V3Config:
     topk: int = 2
     shared_experts: int = 2
     expert_hidden: int = 1536
+    moe_group_size: int = 4
+    moe_max_rows: int = 512
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -155,11 +157,12 @@ class SwiGLU(nn.Module):
 
 
 class SparseMoE(nn.Module):
-    """Backward-compatible wrapper around the vectorized top-k MoE.
+    """Backward-compatible wrapper around the grouped top-k MoE.
 
     The old implementation looped over every expert in Python.  The inner
-    module gathers top-k expert weights and uses batched einsums, while this
-    wrapper keeps the ``(out, load_balance, router_z)`` contract used by Block.
+    module dispatches expert groups to their routed tokens with batched
+    einsums and bounded row chunks, while this wrapper keeps the
+    ``(out, load_balance, router_z)`` contract used by Block.
     """
 
     def __init__(self, cfg: V3Config):

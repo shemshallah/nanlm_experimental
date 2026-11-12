@@ -571,6 +571,10 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--topk", type=int, default=2)
     model.add_argument("--shared-experts", type=int, default=2)
     model.add_argument("--expert-hidden", type=int, default=1536)
+    model.add_argument("--moe-group-size", type=int, default=4,
+                       help="experts dispatched per batched einsum group")
+    model.add_argument("--moe-max-rows", type=int, default=512,
+                       help="token-row chunk size for MoE peak memory")
     model.add_argument("--mtp", type=int, default=2,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--dropout", type=float, default=0.1)
@@ -746,6 +750,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--topk must be between 1 and --n-experts")
     if args.n_experts < 1 or args.shared_experts < 0:
         raise SystemExit("invalid expert counts")
+    if not 1 <= args.moe_group_size <= args.n_experts:
+        raise SystemExit("--moe-group-size must be between 1 and --n-experts")
+    if args.moe_max_rows < 1:
+        raise SystemExit("--moe-max-rows must be positive")
     if args.mtp < 1:
         raise SystemExit("--mtp must be at least 1")
     if args.global_every < 1 or args.window < 1:
@@ -792,6 +800,8 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         topk=int(args.topk),
         shared_experts=int(args.shared_experts),
         expert_hidden=int(args.expert_hidden),
+        moe_group_size=int(args.moe_group_size),
+        moe_max_rows=int(args.moe_max_rows),
         mtp=int(args.mtp),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),

@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Vectorized top-k sparse MoE dispatch.
+"""Grouped, vectorized top-k sparse MoE dispatch.
 
 This replaces the per-expert Python loop in ``v3_model.SparseMoE`` with a
-single gather + einsum dispatch:
+grouped gather + einsum dispatch:
 
   * router logits: Linear(D, E), no bias
   * top-k selection per token, softmax over the selected logits
   * expert SwiGLU weights stored as dense Parameters, not a ModuleList:
         gate_w (E, D, H), up_w (E, D, H), down_w (E, H, D)
-  * per-token top-k weights are gathered with ``index_select`` and applied
-    with einsum, so there is no Python loop over experts in forward
+  * tokens are routed to a group of experts, the group is applied with
+    batched einsums, and only the selected expert outputs are gathered
   * shared experts are one batched shared FFN (S, D, H) / (S, H, D)
 
-The gathered weight tensor has shape (M * K, D, H). That is intentional for
-correctness and readability; a production kernel would use a grouped GEMM or
-permute-and-bmm dispatch to avoid materializing expert weights per token.
+The original gather materialized ``(tokens * topk, D, H)`` weights per token.
+At the T4 profile (4096 tokens, 32 experts, H=1024) that is ~8.6 GB per
+projection.  This version bounds memory with ``group_size`` and ``max_rows``
+row chunks, so the same profile fits a T4.  The loop is over small expert
+groups and row chunks, not over every expert per token.
 
 API
 ---
     moe = VectorizedSparseMoE(d_model=..., n_experts=..., topk=...,
                               shared_experts=..., expert_hidden=...,
-                              dropout=...)
+                              dropout=..., group_size=4, max_rows=512)
     out, aux = moe(x)                 # x: (B, T, D)
     # aux["load_balance"]: Switch-style E * sum(f_i * P_i)
     # aux["router_z"]:     mean(logsumexp(logits, -1) ** 2)
@@ -43,7 +45,7 @@ __all__ = ["VectorizedSparseMoE"]
 
 
 class VectorizedSparseMoE(nn.Module):
-    """Top-k routed SwiGLU MoE with vectorized expert dispatch.
+    """Top-k routed SwiGLU MoE with grouped expert dispatch.
 
     Args:
         d_model: token width D.
@@ -52,6 +54,8 @@ class VectorizedSparseMoE(nn.Module):
         shared_experts: number of always-on shared experts S.
         expert_hidden: per-expert SwiGLU hidden width H. Defaults to 4 * D.
         dropout: dropout probability on expert outputs.
+        group_size: experts processed together in one batched einsum.
+        max_rows: token-row chunk size for peak-memory bounding.
     """
 
     def __init__(
@@ -62,6 +66,8 @@ class VectorizedSparseMoE(nn.Module):
         shared_experts: int = 0,
         expert_hidden: int | None = None,
         dropout: float = 0.0,
+        group_size: int = 4,
+        max_rows: int = 512,
     ):
         super().__init__()
         if d_model <= 0:
@@ -76,31 +82,43 @@ class VectorizedSparseMoE(nn.Module):
             expert_hidden = 4 * d_model
         if expert_hidden <= 0:
             raise ValueError(f"expert_hidden must be positive, got {expert_hidden}")
+        if not 1 <= int(group_size) <= n_experts:
+            raise ValueError("group_size must be between 1 and n_experts")
+        if int(max_rows) <= 0:
+            raise ValueError("max_rows must be positive")
 
-        self.d_model = d_model
-        self.n_experts = n_experts
-        self.topk = topk
-        self.shared_experts = shared_experts
-        self.expert_hidden = expert_hidden
-        self.dropout = dropout
+        self.d_model = int(d_model)
+        self.n_experts = int(n_experts)
+        self.topk = int(topk)
+        self.shared_experts = int(shared_experts)
+        self.expert_hidden = int(expert_hidden)
+        self.dropout = float(dropout)
+        self.group_size = int(group_size)
+        self.max_rows = int(max_rows)
 
-        self.router = nn.Linear(d_model, n_experts, bias=False)
+        self.router = nn.Linear(self.d_model, self.n_experts, bias=False)
 
         # Routed expert SwiGLU weights, one dense Parameter per projection.
-        self.gate_w = nn.Parameter(torch.empty(n_experts, d_model, expert_hidden))
-        self.up_w = nn.Parameter(torch.empty(n_experts, d_model, expert_hidden))
-        self.down_w = nn.Parameter(torch.empty(n_experts, expert_hidden, d_model))
+        self.gate_w = nn.Parameter(
+            torch.empty(self.n_experts, self.d_model, self.expert_hidden)
+        )
+        self.up_w = nn.Parameter(
+            torch.empty(self.n_experts, self.d_model, self.expert_hidden)
+        )
+        self.down_w = nn.Parameter(
+            torch.empty(self.n_experts, self.expert_hidden, self.d_model)
+        )
 
         # Shared experts as one batched FFN.
-        if shared_experts > 0:
+        if self.shared_experts > 0:
             self.shared_gate_w = nn.Parameter(
-                torch.empty(shared_experts, d_model, expert_hidden)
+                torch.empty(self.shared_experts, self.d_model, self.expert_hidden)
             )
             self.shared_up_w = nn.Parameter(
-                torch.empty(shared_experts, d_model, expert_hidden)
+                torch.empty(self.shared_experts, self.d_model, self.expert_hidden)
             )
             self.shared_down_w = nn.Parameter(
-                torch.empty(shared_experts, expert_hidden, d_model)
+                torch.empty(self.shared_experts, self.expert_hidden, self.d_model)
             )
         else:
             self.shared_gate_w = None
@@ -119,6 +137,8 @@ class VectorizedSparseMoE(nn.Module):
             shared_experts=cfg.shared_experts,
             expert_hidden=cfg.expert_hidden,
             dropout=cfg.dropout,
+            group_size=getattr(cfg, "moe_group_size", 4),
+            max_rows=getattr(cfg, "moe_max_rows", 512),
         )
 
     @torch.no_grad()
@@ -148,7 +168,13 @@ class VectorizedSparseMoE(nn.Module):
             topi: (M, K) selected expert indices.
             weights: (M, K) softmax over selected logits (sums to 1).
         """
-        logits = self.router(flat)
+        # The module call keeps forward hooks (used by eval_v3's router
+        # utilization tracker) working.  The explicit F.linear branch is only
+        # for callers passing a differently-typed activation (e.g. fp16).
+        if flat.dtype == self.router.weight.dtype:
+            logits = self.router(flat)
+        else:
+            logits = F.linear(flat, self.router.weight.to(dtype=flat.dtype))
         probs = F.softmax(logits, dim=-1)
         topv, topi = torch.topk(logits, k=self.topk, dim=-1)
         weights = F.softmax(topv, dim=-1)
@@ -174,30 +200,72 @@ class VectorizedSparseMoE(nn.Module):
         m = flat.shape[0]
         logits, probs, _, topi, weights = self.route(flat)
 
-        # Gather the top-k expert weights for every token: (M*K, ...).
-        sel = topi.reshape(-1)
-        gate = self.gate_w.index_select(0, sel)
-        up = self.up_w.index_select(0, sel)
-        down = self.down_w.index_select(0, sel)
-        xr = flat.repeat_interleave(self.topk, dim=0)
+        # Grouped dispatch.  A group of experts is applied to every token
+        # routed to that group; no (tokens, d_model, expert_hidden) gather is
+        # created.  Row chunks bound peak activation memory further.
+        out = torch.zeros_like(flat)
+        for g0 in range(0, self.n_experts, self.group_size):
+            g1 = min(g0 + self.group_size, self.n_experts)
+            group_width = g1 - g0
+            in_group = (topi >= g0) & (topi < g1)  # (M, K)
+            if not bool(in_group.any()):
+                continue
+            rows = in_group.any(dim=1).nonzero(as_tuple=False).flatten()
+            for r0 in range(0, rows.numel(), self.max_rows):
+                sel_rows = rows[r0:r0 + self.max_rows]
+                xg = flat.index_select(0, sel_rows)                 # (N, D)
+                selected = in_group.index_select(0, sel_rows)       # (N, K)
+                local = (topi.index_select(0, sel_rows) - g0).clamp(
+                    0, group_width - 1
+                )                                                   # (N, K)
+                row_ids = torch.arange(
+                    sel_rows.numel(), device=x.device
+                ).unsqueeze(1)
 
-        # SwiGLU: silu(x @ W_gate) * (x @ W_up) @ W_down, batched over M*K.
-        h_gate = torch.einsum("md,mdh->mh", xr, gate)
-        h_up = torch.einsum("md,mdh->mh", xr, up)
-        y = torch.einsum("mh,mhd->md", F.silu(h_gate) * h_up, down)
-        y = F.dropout(y, p=self.dropout, training=self.training)
-        y = y.view(m, self.topk, d)
-        out = (weights.unsqueeze(-1) * y).sum(dim=1)
+                h_gate = torch.einsum(
+                    "nd,gdh->gnh", xg,
+                    self.gate_w[g0:g1].to(dtype=xg.dtype),
+                )
+                h_up = torch.einsum(
+                    "nd,gdh->gnh", xg,
+                    self.up_w[g0:g1].to(dtype=xg.dtype),
+                )
+                y = torch.einsum(
+                    "gnh,ghd->gnd", F.silu(h_gate) * h_up,
+                    self.down_w[g0:g1].to(dtype=xg.dtype),
+                )                                                   # (G, N, D)
+                y = F.dropout(y, p=self.dropout, training=self.training)
+                y_sel = y[local, row_ids, :] * selected.unsqueeze(-1)
+                w_sel = weights.index_select(0, sel_rows) * selected
+                out.index_add_(
+                    0, sel_rows,
+                    (y_sel * w_sel.unsqueeze(-1)).sum(dim=1).to(
+                        dtype=out.dtype
+                    ),
+                )
 
-        # Shared experts: one batched SwiGLU over all tokens and shared slots.
+        # Shared experts: batched SwiGLU over row chunks.
         if self.shared_gate_w is not None:
-            sh_gate = torch.einsum("md,sdh->smh", flat, self.shared_gate_w)
-            sh_up = torch.einsum("md,sdh->smh", flat, self.shared_up_w)
-            shared = torch.einsum(
-                "smh,shd->smd", F.silu(sh_gate) * sh_up, self.shared_down_w
-            )
-            shared = F.dropout(shared, p=self.dropout, training=self.training)
-            out = out + shared.sum(dim=0)
+            for r0 in range(0, m, self.max_rows):
+                chunk = flat[r0:r0 + self.max_rows]
+                sh_gate = torch.einsum(
+                    "nd,sdh->snh", chunk,
+                    self.shared_gate_w.to(dtype=chunk.dtype),
+                )
+                sh_up = torch.einsum(
+                    "nd,sdh->snh", chunk,
+                    self.shared_up_w.to(dtype=chunk.dtype),
+                )
+                shared = torch.einsum(
+                    "snh,shd->snd", F.silu(sh_gate) * sh_up,
+                    self.shared_down_w.to(dtype=chunk.dtype),
+                )
+                shared = F.dropout(
+                    shared, p=self.dropout, training=self.training
+                )
+                out[r0:r0 + chunk.shape[0]] += shared.sum(dim=0).to(
+                    dtype=out.dtype
+                )
 
         # Switch-style load balance and router z-loss.
         mask = torch.zeros_like(logits).scatter_(1, topi, 1.0)
@@ -215,5 +283,6 @@ class VectorizedSparseMoE(nn.Module):
         return (
             f"d_model={self.d_model}, n_experts={self.n_experts}, "
             f"topk={self.topk}, shared_experts={self.shared_experts}, "
-            f"expert_hidden={self.expert_hidden}, dropout={self.dropout}"
+            f"expert_hidden={self.expert_hidden}, dropout={self.dropout}, "
+            f"group_size={self.group_size}, max_rows={self.max_rows}"
         )

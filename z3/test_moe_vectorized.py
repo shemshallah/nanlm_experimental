@@ -166,6 +166,40 @@ class TestVectorizedSparseMoE(unittest.TestCase):
         for key in ("load_balance", "router_z"):
             torch.testing.assert_close(aux_v[key], aux_r[key], atol=1e-5, rtol=1e-5)
 
+    def test_half_precision_forward_and_grad(self):
+        model = self._model().half()
+        x = torch.randn(
+            self.B, self.T, self.D, dtype=torch.float16, requires_grad=True
+        )
+        out, aux = model(x)
+        self.assertEqual(out.dtype, torch.float16)
+        self.assertTrue(torch.isfinite(out).all())
+        out.float().sum().backward()
+        self.assertIsNotNone(model.gate_w.grad)
+        self.assertTrue(torch.isfinite(model.gate_w.grad).all())
+
+    def test_group_and_row_chunk_dispatch_matches_reference(self):
+        # Force several expert groups and several row chunks, including a
+        # final partial chunk.  This is the dispatch path used to avoid the
+        # 8.6 GB per-token weight gather at the T4 profile.
+        d, e, k, h, s = 8, 5, 3, 16, 1
+        torch.manual_seed(7)
+        vec = VectorizedSparseMoE(
+            d_model=d, n_experts=e, topk=k, shared_experts=s,
+            expert_hidden=h, dropout=0.0, group_size=2, max_rows=7,
+        ).double().eval()
+        ref = PerExpertReference(
+            d_model=d, n_experts=e, topk=k, shared_experts=s,
+            expert_hidden=h, dropout=0.0,
+        ).double().eval()
+        ref.load_state_dict(vec.state_dict())
+        x = torch.randn(3, 11, d, dtype=torch.float64)
+        out_v, aux_v = vec(x)
+        out_r, aux_r = ref(x)
+        torch.testing.assert_close(out_v, out_r, atol=1e-5, rtol=1e-5)
+        for key in ("load_balance", "router_z"):
+            torch.testing.assert_close(aux_v[key], aux_r[key], atol=1e-5, rtol=1e-5)
+
     def test_gradients_match_per_expert_reference(self):
         vec, ref = self._pair()
         x_v = torch.randn(
