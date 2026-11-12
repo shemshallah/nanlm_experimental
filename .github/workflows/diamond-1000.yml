@@ -85,7 +85,8 @@ jobs:
           mkdir -p \
             "$RUNNER_TEMP/nanrouter-download" \
             "$RUNNER_TEMP/NaNROUTER/corpora/short_stories/books-0001" \
-            "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001"
+            "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs/books-0001"
           cd "$RUNNER_TEMP/nanrouter-download"
 
           gh release download corpora-short-stories-0001 \
@@ -102,8 +103,16 @@ jobs:
           tar --zstd -xf sentences-0001.tar.zst \
             -C "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001"
 
+          gh release download corpora-paragraphs-0001 \
+            -R shemshallah/NaNROUTER -p 'paragraphs-0001.tar.zst'
+          echo 'f2c616697a23f56ad4b5dba8ef28a860ae223654acfe5471e53fe8485f4bce3b  paragraphs-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf paragraphs-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs/books-0001"
+
           echo "short-story files: $(find "$RUNNER_TEMP/NaNROUTER/corpora/short_stories" -type f -name '*.txt' | wc -l)"
           echo "sentence files:    $(find "$RUNNER_TEMP/NaNROUTER/corpora/sentences" -type f -name '*.txt' | wc -l)"
+          echo "paragraph files:   $(find "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs" -type f -name '*.txt' | wc -l)"
           du -sh "$RUNNER_TEMP/NaNROUTER/corpora"
 
       - name: Restore latest resumable diamond state
@@ -156,12 +165,15 @@ jobs:
             --byte-win 1024 --word-win 128 --sent-win 32 \
             --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
-            --test-size 512 --eval-every 10 --eval-batch 64 \
-            --lr 0.0025 --lr-schedule cosine --warmup-epochs 20 \
-            --grad-clip 1.0 --weight-decay 0.01 --dropout 0.1 \
-            --save-every 25 --report-every-steps 20 \
+            --test-size 1024 --eval-every 1 --eval-batch 64 \
+            --lr 0.0008 --lr-schedule cosine --warmup-epochs 5 \
+            --grad-clip 1.0 --weight-decay 0.05 --dropout 0.2 \
+            --label-smoothing 0.05 --patience 12 \
+            --save-every 10 --report-every-steps 25 \
             --time-budget-minutes "$TIME_BUDGET" \
             --checkpoint diamond/state/diamond_state.npz \
+            --best-checkpoint diamond/state/diamond_best.npz \
+            --best-weights diamond/state/diamond_best.weights.h5 \
             --history diamond/state/diamond_history.jsonl \
             --out diamond/state/diamond_metrics.json \
             --save-weights \
@@ -205,13 +217,17 @@ jobs:
           if ! gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$GH_REPO" \
               --title "Diamond weights — $TAG" \
-              --notes "Diamond engine weights trained on the NaNROUTER corpora. diamond_state.npz is a resumable checkpoint (weights + AdamW state); diamond_weights.weights.h5 is inference weights."
+              --notes "Diamond engine weights trained on the NaNROUTER corpora. diamond_best.npz / diamond_best.weights.h5 are the best held-out checkpoint and inference weights. diamond_state.npz is the latest resumable checkpoint (weights + AdamW state)."
           fi
-          gh release upload "$TAG" --repo "$GH_REPO" --clobber "$WEIGHTS"
-          if [ -s diamond/state/diamond_weights.weights.h5 ]; then
-            gh release upload "$TAG" --repo "$GH_REPO" --clobber \
-              diamond/state/diamond_weights.weights.h5
-          fi
+          for f in \
+            diamond/state/diamond_best.npz \
+            diamond/state/diamond_best.weights.h5 \
+            "$WEIGHTS" \
+            diamond/state/diamond_weights.weights.h5; do
+            if [ -s "$f" ]; then
+              gh release upload "$TAG" --repo "$GH_REPO" --clobber "$f"
+            fi
+          done
           for f in diamond/state/diamond_metrics.json diamond/state/diamond_history.jsonl; do
             if [ -s "$f" ]; then
               gh release upload "$TAG" --repo "$GH_REPO" --clobber "$f" || true

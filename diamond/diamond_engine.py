@@ -131,6 +131,17 @@ def parse_args():
     p.add_argument("--quick", action="store_true",
                    help="smoke test: 200 examples, 1 epoch, no self-loop")
     p.add_argument("--save-weights", action="store_true")
+    p.add_argument("--label-smoothing", type=float, default=0.0,
+                   help="label smoothing for training cross-entropy (0-0.2)")
+    p.add_argument("--patience", type=int, default=0,
+                   help="early-stop after N held-out evals without improvement; 0=off")
+    p.add_argument("--best-checkpoint", type=str, default="",
+                   help="optional NPZ path for the best held-out checkpoint")
+    p.add_argument("--best-weights", type=str, default="",
+                   help="optional H5 path for the best held-out weights")
+    p.add_argument("--fixed-train", dest="resample_train", action="store_false",
+                   help="reuse one fixed training subset instead of resampling each epoch")
+    p.set_defaults(resample_train=True)
     p.add_argument("--seed", type=int, default=11)
     p.add_argument("--out", type=str, default="diamond_metrics.json")
     return p.parse_args()
@@ -153,6 +164,12 @@ if ARGS.batch > 64:
     ARGS.batch = 64
 if ARGS.eval_batch > 128:
     ARGS.eval_batch = 128
+if ARGS.label_smoothing < 0.0:
+    ARGS.label_smoothing = 0.0
+if ARGS.label_smoothing > 0.2:
+    ARGS.label_smoothing = 0.2
+if ARGS.patience < 0:
+    ARGS.patience = 0
 
 # threads + memory limit, before TF work
 os.environ["OMP_NUM_THREADS"] = str(ARGS.threads)
@@ -594,26 +611,59 @@ def build(pos_list):
 if n_words < 200:
     raise SystemExit(f"[data] corpus is too small ({n_words} words); need at least 200")
 all_pos = np.arange(150, n_words - 1)
-np.random.shuffle(all_pos)
 test_size = min(ARGS.test_size, max(64, len(all_pos) // 10))
-if len(all_pos) < ARGS.examples + test_size:
-    available = max(16, len(all_pos) - test_size)
-    if ARGS.examples > available:
-        print(
-            f"[data] only {len(all_pos)} positions available; reducing examples "
-            f"{ARGS.examples} -> {available}",
-            flush=True,
-        )
-        ARGS.examples = available
-if ARGS.examples < 16:
+
+# Hold out one contiguous block. The previous split shuffled positions and
+# trained on the interleaved neighbors of every test position; that leaks the
+# test distribution into training and produces a misleading early "improvement".
+# A gap larger than both the byte and word context windows keeps held-out
+# targets out of every training window.
+test_start = min(len(all_pos) // 2, len(all_pos) - test_size)
+test_start = max(0, test_start)
+test_pos = all_pos[test_start:test_start + test_size]
+gap = max(WIN_W, WIN_B) + 1
+train_pool = np.concatenate([
+    all_pos[:max(0, test_start - gap)],
+    all_pos[min(len(all_pos), test_start + test_size + gap):],
+])
+if len(train_pool) < 16:
     raise SystemExit("[data] corpus produced too few training positions")
-train_pos = all_pos[:ARGS.examples]
-test_pos = all_pos[ARGS.examples:ARGS.examples + test_size]
-train_B, train_W, train_S, train_yb, train_yw, train_ys = build(train_pos)
+if len(train_pool) < ARGS.examples:
+    print(
+        f"[data] only {len(train_pool)} training positions outside the held-out "
+        f"block; reducing examples {ARGS.examples} -> {len(train_pool)}",
+        flush=True,
+    )
+    ARGS.examples = len(train_pool)
+
+
+def sample_train_positions(epoch_no):
+    """Draw fresh positions from the full pool so epochs do not replay one subset."""
+    n = min(ARGS.examples, len(train_pool))
+    if ARGS.resample_train:
+        rng = np.random.default_rng(ARGS.seed * 1000003 + int(epoch_no))
+        return rng.choice(train_pool, size=n, replace=False)
+    return train_pool[:n]
+
+
 test_B, test_W, test_S, test_yb, test_yw, test_ys = build(test_pos)
-print(f"[data] train {train_B.shape} test {test_B.shape} time {time.time() - T0:.1f}s", flush=True)
-# free raw spans / text to stay under 6GB
-del real_text, spans
+# Training arrays are built lazily at the start of every epoch. This keeps
+# memory flat and lets each epoch see different positions from the corpus.
+train_B = np.empty((0, WIN_B), dtype=np.int32)
+train_W = np.empty((0, WIN_W), dtype=np.int32)
+train_S = np.empty((0, WIN_S), dtype=np.int32)
+train_yb = np.empty((0,), dtype=np.int32)
+train_yw = np.empty((0,), dtype=np.int32)
+train_ys = np.empty((0,), dtype=np.int32)
+print(
+    f"[data] train_pool {len(train_pool)} test {test_B.shape[0]} "
+    f"block [{test_start}:{test_start + test_size}] gap {gap} "
+    f"resample={ARGS.resample_train} time {time.time() - T0:.1f}s",
+    flush=True,
+)
+# Free raw text and token lists, but keep spans: make_example uses it for the
+# fresh position samples on every epoch.
+del real_text, raw_words, sentences
 gc.collect()
 
 
@@ -780,6 +830,12 @@ SIGNATURE = json.dumps({
     "dim_w": DIM_W,
     "dim_s": DIM_S,
     "corpus_sha256": corpus_stats["sha256"],
+    "split": "contiguous-block-v2",
+    "test_start": int(test_start),
+    "test_size": int(test_size),
+    "test_gap": int(gap),
+    "resample_train": bool(ARGS.resample_train),
+    "label_smoothing": float(ARGS.label_smoothing),
 }, sort_keys=True)
 
 
@@ -819,23 +875,43 @@ def optimizer_variables():
     return variables() if callable(variables) else variables
 
 
-def save_state(epochs_done):
-    if not ARGS.checkpoint:
+def save_state_to(path, epochs_done, extra_meta=None):
+    if not path:
         return
-    path = _norm(ARGS.checkpoint)
+    path = _norm(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     arrays = {f"w{i}": v.numpy() for i, v in enumerate(model.trainable_variables)}
     arrays.update({f"o{i}": v.numpy() for i, v in enumerate(optimizer_variables())})
-    arrays["__meta__"] = np.array(json.dumps({
+    meta = {
         "signature": SIGNATURE,
         "epochs_done": int(epochs_done),
         "args": vars(ARGS),
         "saved_at": datetime.now(timezone.utc).isoformat(),
-    }))
+    }
+    if extra_meta:
+        meta.update(extra_meta)
+    arrays["__meta__"] = np.array(json.dumps(meta))
     tmp = path + ".tmp.npz"
     np.savez(tmp, **arrays)
     os.replace(tmp, path)
     print(f"[checkpoint] saved epoch {epochs_done} -> {path}", flush=True)
+
+
+def save_state(epochs_done):
+    save_state_to(ARGS.checkpoint, epochs_done)
+
+
+def save_weights_to(path):
+    if not path:
+        return
+    path = _norm(path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    try:
+        model.save_weights(path)
+        print(f"[weights] saved -> {path}", flush=True)
+    except Exception as e:
+        # A failed H5 export must not discard a completed/best checkpoint.
+        print(f"[warn] could not export weights to {path}: {e}", flush=True)
 
 
 def load_state():
@@ -882,13 +958,24 @@ def lr_at(epoch):
     return ARGS.min_lr + 0.5 * (base - ARGS.min_lr) * (1.0 + math.cos(math.pi * progress))
 
 
+def cross_entropy_per_example(y, logits):
+    """Cross-entropy with optional label smoothing, per example."""
+    nll = tf.keras.losses.sparse_categorical_crossentropy(y, logits, from_logits=True)
+    eps = float(ARGS.label_smoothing or 0.0)
+    if eps > 0.0:
+        logp = tf.nn.log_softmax(logits, axis=-1)
+        smooth = -tf.reduce_mean(logp, axis=-1)
+        nll = (1.0 - eps) * nll + eps * smooth
+    return nll
+
+
 @tf.function
 def train_step(b, w, s, yb, yw, ys, two_way):
     with tf.GradientTape() as tape:
         bl, wl, sl, intro = model((b, w, s), training=True, two_way=two_way)
-        per_b = tf.keras.losses.sparse_categorical_crossentropy(yb, bl, from_logits=True)
-        per_w = tf.keras.losses.sparse_categorical_crossentropy(yw, wl, from_logits=True)
-        per_s = tf.keras.losses.sparse_categorical_crossentropy(ys, sl, from_logits=True)
+        per_b = cross_entropy_per_example(yb, bl)
+        per_w = cross_entropy_per_example(yw, wl)
+        per_s = cross_entropy_per_example(ys, sl)
         il = tf.reduce_mean(tf.square(tf.squeeze(intro, -1) - tf.stop_gradient(per_b)))
         wgt = 1.0 + tf.nn.sigmoid(tf.squeeze(intro, -1))
         wgt = wgt / tf.reduce_mean(wgt)
@@ -1063,6 +1150,23 @@ else:
     print(f"[resume] continuing at epoch {start_epoch + 1}/{ARGS.epochs}", flush=True)
 
 completed_epochs = start_epoch
+best_eval_loss = float("inf")
+best_epoch = 0
+best_record = None
+for h in history:
+    if h.get("stage") in ("init", "final"):
+        continue
+    if all(k in h for k in ("byte_loss", "word_loss", "sent_loss")):
+        h_loss = h.get(
+            "eval_loss",
+            h["byte_loss"] + 0.5 * h["word_loss"] + 0.3 * h["sent_loss"],
+        )
+        if h_loss < best_eval_loss:
+            best_eval_loss = float(h_loss)
+            best_epoch = int(h.get("epoch", 0))
+            best_record = dict(h)
+evals_without_improvement = 0
+early_stop_triggered = False
 if start_epoch < ARGS.epochs:
     for epoch in range(start_epoch, ARGS.epochs):
         epoch_no = epoch + 1
@@ -1073,9 +1177,20 @@ if start_epoch < ARGS.epochs:
             opt.learning_rate.assign(lr)
         except Exception:
             pass
-        t_epoch = time.time()
         print(f"EPOCH {epoch_no}/{ARGS.epochs} {mode} lr {lr:.6f} time {time.time() - T0:.1f}s", flush=True)
-        perm = np.random.permutation(len(train_B))
+        if len(train_B) == 0 or ARGS.resample_train:
+            t_sample = time.time()
+            pos = sample_train_positions(epoch_no)
+            train_B, train_W, train_S, train_yb, train_yw, train_ys = build(pos)
+            print(
+                f"  data {len(pos)} positions sampled from {len(train_pool)} "
+                f"in {time.time() - t_sample:.1f}s",
+                flush=True,
+            )
+        t_epoch = time.time()
+        # Per-epoch RNG makes the shuffle reproducible even if the run is resumed.
+        rng = np.random.default_rng(ARGS.seed * 1000003 + 7 + epoch_no)
+        perm = rng.permutation(len(train_B))
         Bs, Ws, Ss = train_B[perm], train_W[perm], train_S[perm]
         ybs, yws, yss = train_yb[perm], train_yw[perm], train_ys[perm]
         tot = 0.0
@@ -1105,6 +1220,35 @@ if start_epoch < ARGS.epochs:
         )
         if do_eval:
             res = evaluate(test_B, test_W, test_S, test_yb, test_yw, test_ys, two_way=True)
+            eval_loss = res["byte_loss"] + 0.5 * res["word_loss"] + 0.3 * res["sent_loss"]
+            res["eval_loss"] = eval_loss
+            if eval_loss < best_eval_loss - 1e-9:
+                best_eval_loss = eval_loss
+                best_epoch = epoch_no
+                best_record = {
+                    "stage": "best",
+                    "epoch": epoch_no,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "train_loss": train_loss,
+                    "lr": lr,
+                    **res,
+                }
+                evals_without_improvement = 0
+                save_state_to(
+                    ARGS.best_checkpoint,
+                    epoch_no,
+                    {"best_eval_loss": best_eval_loss, "best": True},
+                )
+                save_weights_to(ARGS.best_weights)
+                print(
+                    f"[best] epoch {epoch_no} eval_loss {eval_loss:.4f} "
+                    f"byte_bits {res['byte_bits']:.4f} "
+                    f"word_bits {res['word_bits']:.4f} "
+                    f"sent_bits {res['sent_bits']:.4f}",
+                    flush=True,
+                )
+            else:
+                evals_without_improvement += 1
 
         elapsed = time.time() - T0
         done = max(1, epoch_no - start_epoch)
@@ -1124,7 +1268,7 @@ if start_epoch < ARGS.epochs:
         if res:
             print(
                 f"EPOCH {epoch_no}/{ARGS.epochs} {mode} lr {lr:.6f} "
-                f"train {train_loss:.4f} | "
+                f"train {train_loss:.4f} eval {res['eval_loss']:.4f} | "
                 f"byte {res['byte_loss']:.4f} bits {res['byte_bits']:.4f} "
                 f"top1 {res['byte_top1']:.3f} top5 {res['byte_top5']:.3f} | "
                 f"word {res['word_loss']:.4f} bits {res['word_bits']:.4f} "
@@ -1141,6 +1285,16 @@ if start_epoch < ARGS.epochs:
                 f"eta {eta / 60:.1f}m",
                 flush=True,
             )
+
+        if do_eval and ARGS.patience > 0 and evals_without_improvement >= ARGS.patience:
+            save_state(epoch_no)
+            early_stop_triggered = True
+            print(
+                f"[early-stop] no held-out improvement for {ARGS.patience} evals; "
+                f"best epoch {best_epoch} eval_loss {best_eval_loss:.4f}",
+                flush=True,
+            )
+            break
 
         if ARGS.self_loop_every > 0 and epoch_no % ARGS.self_loop_every == 0 and epoch < ARGS.epochs - 1:
             self_loop(epoch_no)
@@ -1163,8 +1317,9 @@ if completed_epochs < ARGS.epochs:
         flush=True,
     )
 
-print("FINAL full eval", flush=True)
+print("FINAL full eval (latest weights)", flush=True)
 res = evaluate(test_B, test_W, test_S, test_yb, test_yw, test_ys, two_way=True)
+res["eval_loss"] = res["byte_loss"] + 0.5 * res["word_loss"] + 0.3 * res["sent_loss"]
 final_rec = {
     "stage": "final",
     "epoch": completed_epochs,
@@ -1197,6 +1352,14 @@ print(
     f"CPU time {time.time() - T0:.1f}s",
     flush=True,
 )
+if best_record:
+    print(
+        f"BEST epoch {best_epoch} eval_loss {best_eval_loss:.4f} "
+        f"byte bits {best_record['byte_bits']:.4f} "
+        f"word bits {best_record['word_bits']:.4f} "
+        f"sent bits {best_record['sent_bits']:.4f}",
+        flush=True,
+    )
 if completed_epochs > 0:
     save_state(completed_epochs)
 out = {
@@ -1208,6 +1371,10 @@ out = {
     "completed_epochs": completed_epochs,
     "target_epochs": ARGS.epochs,
     "finished": completed_epochs >= ARGS.epochs,
+    "early_stopped": bool(early_stop_triggered),
+    "best_epoch": best_epoch,
+    "best_eval_loss": best_eval_loss if best_record else None,
+    "best": best_record,
     "history": history,
     "final": final_rec,
 }
@@ -1218,10 +1385,4 @@ if ARGS.out:
         json.dump(out, f, indent=2)
     print(f"[out] wrote {out_path}", flush=True)
 if ARGS.save_weights:
-    try:
-        model.save_weights("diamond_weights.weights.h5")
-        print("[out] wrote diamond_weights.weights.h5", flush=True)
-    except Exception as e:
-        # The resumable .npz checkpoint above is authoritative; an H5 export
-        # failure must not discard a completed training run.
-        print(f"[warn] could not export H5 weights: {e}", flush=True)
+    save_weights_to("diamond_weights.weights.h5")
