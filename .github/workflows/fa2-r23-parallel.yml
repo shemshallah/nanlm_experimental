@@ -1,33 +1,52 @@
-name: FA2 R23 - 64 token context and parallel CPU training
+name: FA2 R24 - single unified PAL and mirror-MoE CPU
 
 on:
   push:
-    branches: [master, fa2-r23-context64-parallel]
-    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/source/test_r23_stream_carry.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+    branches: [master]
+    paths:
+      - 'fa2r19/source/r24_*.py'
+      - 'fa2r19/source/r23_context64.py'
+      - 'fa2r19/source/r23_stream_carry.py'
+      - 'fa2r19/source/r21_relevance_novelty.py'
+      - 'fa2r19/source/r22_multiscale_memory.py'
+      - 'fa2r19/docs/FA2_R24_UNIFIED.md'
+      - '.github/workflows/fa2-r23-parallel.yml'
   pull_request:
-    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/source/test_r23_stream_carry.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+    paths:
+      - 'fa2r19/source/r24_*.py'
+      - 'fa2r19/source/r23_context64.py'
+      - 'fa2r19/source/r23_stream_carry.py'
+      - 'fa2r19/source/r21_relevance_novelty.py'
+      - 'fa2r19/source/r22_multiscale_memory.py'
+      - 'fa2r19/docs/FA2_R24_UNIFIED.md'
+      - '.github/workflows/fa2-r23-parallel.yml'
   workflow_dispatch:
     inputs:
       archive_url:
-        description: 'HTTPS link to exact pinned R19 release ZIP; blank means audit only'
+        description: 'Pinned exact original R19 full release ZIP HTTPS URL (blank = source-only)'
         type: string
         default: ''
       steps:
-        description: 'CPU updates per independent arm'
+        description: 'Cumulative joint optimizer updates'
         type: number
-        default: 300
-      train_windows:
-        description: 'Source-verified book windows per arm'
+        default: 100
+      chunk_span:
+        description: 'Contiguous word chunks per forward pass'
         type: number
-        default: 24
-      stream_max_chunks:
-        description: 'Maximum consecutive word chunks per train/dev/test book'
+        default: 12
+      unroll:
+        description: 'Consecutive chunks per truncated-BPTT optimizer update'
         type: number
-        default: 32
+        default: 2
+      max_chunks:
+        description: 'Available contiguous book chunks per training book'
+        type: number
+        default: 256
 permissions:
   contents: read
+
 jobs:
-  source-gates:
+  unified-source-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -36,40 +55,36 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install CPU dependencies
-        run: python -m pip install torch numpy
-      - name: Compile and test R23 causal memory
+        run: python -m pip install torch numpy sentencepiece
+      - name: Compile, causality, Adam and streaming tests
         run: |
           python -m compileall -q fa2r19/source
           cd fa2r19/source
           python test_r23_context64.py
           python test_r23_stream_carry.py
-      - name: Verify original checkpoint has not changed
+          python test_r24_unified.py
+      - name: Verify exact accepted R18 digest
         run: |
           python fa2r19/restore_fa2_checkpoint.py --root fa2r19
           python - <<'PY'
           import hashlib,pathlib
           p=pathlib.Path('fa2r19/checkpoint/r12_active.pal12')
-          h=hashlib.sha256()
-          with p.open('rb') as f:
-              for b in iter(lambda:f.read(1048576),b''):h.update(b)
-          assert h.hexdigest()=='dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f'
-          print('Accepted checkpoint unchanged')
+          digest=hashlib.sha256(p.read_bytes()).hexdigest()
+          assert digest=='dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f'
+          print('Accepted FA2 R18 parent immutable:',digest)
           PY
 
-  parallel-arms:
-    needs: source-gates
+  unified-cpu-training:
+    needs: unified-source-gates
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.archive_url != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix:
-        arm: [context, value, semantic, joint, stream]
     env:
       ARCHIVE_URL: ${{ inputs.archive_url }}
       STEPS: ${{ inputs.steps }}
-      TRAIN_WINDOWS: ${{ inputs.train_windows }}
-      STREAM_MAX_CHUNKS: ${{ inputs.stream_max_chunks }}
+      CHUNK_SPAN: ${{ inputs.chunk_span }}
+      UNROLL: ${{ inputs.unroll }}
+      MAX_CHUNKS: ${{ inputs.max_chunks }}
       OMP_NUM_THREADS: '2'
       MKL_NUM_THREADS: '2'
       OPENBLAS_NUM_THREADS: '2'
@@ -78,70 +93,62 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install original PAL requirements
+      - name: Install original PAL CPU dependencies
         run: python -m pip install -r fa2r19/requirements.txt
-      - name: Check archive address and bounds
+      - name: Validate archive URL and CPU bounds
         run: |
           python - <<'PY'
           import os,urllib.parse
           u=urllib.parse.urlsplit(os.environ['ARCHIVE_URL'])
           assert u.scheme=='https' and u.hostname and not u.username and not u.password
           assert 1<=int(os.environ['STEPS'])<=10000
-          assert 1<=int(os.environ['TRAIN_WINDOWS'])<=512
-          assert 2<=int(os.environ['STREAM_MAX_CHUNKS'])<=1024
+          assert 1<=int(os.environ['CHUNK_SPAN'])<=64
+          assert 1<=int(os.environ['UNROLL'])<=32
+          assert int(os.environ['UNROLL'])<=int(os.environ['MAX_CHUNKS'])<=4096
           PY
-      - name: Download and verify exact original full R19 archive
+      - name: Obtain original R19 full archive (tokenizer, verified books and weights)
         run: |
           mkdir -p incoming
           curl --fail --location --retry 3 --connect-timeout 30 --max-time 1800 --output incoming/original-r19.zip "$ARCHIVE_URL"
           python fa2r19/verify_release.py incoming/original-r19.zip --extract work/release
-      - name: Overlay R21/R22/R23 source and frozen adapter weights
+      - name: Overlay unified master source and verified R21/R22 adapter states
         run: |
-          cp fa2r19/source/r21_relevance_novelty.py work/release/source/
-          cp fa2r19/source/r22_multiscale_memory.py work/release/source/
-          cp fa2r19/source/r22_cpu_longmemory.py work/release/source/
-          cp fa2r19/source/r23_context64.py work/release/source/
-          cp fa2r19/source/r23_cpu_parallel.py work/release/source/
-          cp fa2r19/source/r23_stream_carry.py work/release/source/
-          cp fa2r19/source/r23_stream_cpu.py work/release/source/
-          cp fa2r19/source/test_r22_multiscale_memory.py work/release/source/
+          cp fa2r19/source/*.py work/release/source/
           python - <<'PY'
           import base64
           from pathlib import Path
           for stem in ('fa2_2_r21_gate_candidate','r22_multiscale_candidate'):
-              src=Path('fa2r19/reports')/(stem+'.pth.b64')
-              dst=Path('work/release/reports')/(stem+'.pth')
-              dst.parent.mkdir(parents=True,exist_ok=True)
-              dst.write_bytes(base64.b64decode(src.read_text()))
+              source=Path('fa2r19/reports')/(stem+'.pth.b64')
+              output=Path('work/release/reports')/(stem+'.pth')
+              output.parent.mkdir(parents=True,exist_ok=True)
+              output.write_bytes(base64.b64decode(source.read_text()))
           PY
-      - name: Run inherited regression tests
+      - name: Inherited R18/R19 regression and unified source tests
         run: |
           cd work/release
           python source/r18_verify_lineage.py --root .
           python source/test_r18.py .
           python source/test_r19.py --root .
           python source/test_r22_multiscale_memory.py .
-      - name: Train one independent CPU candidate
-        if: ${{ matrix.arm != 'stream' }}
+          python source/test_r24_unified.py
+      - name: Train ONE unified CPU model and ONE optimizer
         run: |
           cd work/release
-          python source/r23_cpu_parallel.py --root . --mode "${{ matrix.arm }}" --steps "$STEPS" --train-windows "$TRAIN_WINDOWS" --threads 2 | tee "../../incoming/r23-${{ matrix.arm }}.log"
-      - name: Train stream-persistent CPU candidate
-        if: ${{ matrix.arm == 'stream' }}
-        run: |
-          cd work/release
-          python source/r23_stream_cpu.py --root . --steps "$STEPS" --max-chunks "$STREAM_MAX_CHUNKS" --threads 2 | tee "../../incoming/r23-stream.log"
-      - name: Verify checkpoint after candidate
+          python source/r24_unified_cpu.py --root . --steps "$STEPS" --chunk-span "$CHUNK_SPAN" --unroll "$UNROLL" --max-chunks "$MAX_CHUNKS" --threads 2 | tee ../../incoming/fa2-unified.log
+      - name: Verify accepted checkpoint remained unchanged
         if: always()
         run: |
-          if [ -f work/release/checkpoint/r12_active.pal12 ]; then sha256sum work/release/checkpoint/r12_active.pal12; fi
+          if [ -f work/release/checkpoint/r12_active.pal12 ]; then
+            echo "R18 parent:"
+            sha256sum work/release/checkpoint/r12_active.pal12
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fa2-r23-${{ matrix.arm }}-${{ github.run_id }}
+          name: fa2-r24-single-unified-${{ github.run_id }}
           path: |
-            incoming/r23-${{ matrix.arm }}.log
-            work/release/reports/r23_${{ matrix.arm }}.json
-            work/release/reports/r23_${{ matrix.arm }}_candidate.pth
+            incoming/fa2-unified.log
+            work/release/reports/fa2_unified.json
+            work/release/reports/fa2_unified_candidate.pth
           retention-days: 30
           if-no-files-found: warn
