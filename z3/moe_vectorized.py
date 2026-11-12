@@ -68,6 +68,7 @@ class VectorizedSparseMoE(nn.Module):
         dropout: float = 0.0,
         group_size: int = 4,
         max_rows: int = 512,
+        dense_dispatch: bool = False,
     ):
         super().__init__()
         if d_model <= 0:
@@ -95,6 +96,7 @@ class VectorizedSparseMoE(nn.Module):
         self.dropout = float(dropout)
         self.group_size = int(group_size)
         self.max_rows = int(max_rows)
+        self.dense_dispatch = bool(dense_dispatch)
 
         self.router = nn.Linear(self.d_model, self.n_experts, bias=False)
 
@@ -139,6 +141,7 @@ class VectorizedSparseMoE(nn.Module):
             dropout=cfg.dropout,
             group_size=getattr(cfg, "moe_group_size", 4),
             max_rows=getattr(cfg, "moe_max_rows", 512),
+            dense_dispatch=getattr(cfg, "moe_dense_dispatch", False),
         )
 
     @torch.no_grad()
@@ -180,29 +183,8 @@ class VectorizedSparseMoE(nn.Module):
         weights = F.softmax(topv, dim=-1)
         return logits, probs, topv, topi, weights
 
-    def forward(self, x: torch.Tensor):
-        """Forward pass.
-
-        Args:
-            x: (B, T, D) token states.
-
-        Returns:
-            out: (B, T, D) MoE output.
-            aux: dict with scalar ``load_balance`` and ``router_z`` terms.
-        """
-        if x.ndim != 3:
-            raise ValueError(f"x must be (B, T, D), got shape {tuple(x.shape)}")
-        b, t, d = x.shape
-        if d != self.d_model:
-            raise ValueError(f"expected last dim {self.d_model}, got {d}")
-
-        flat = x.reshape(-1, d)
-        m = flat.shape[0]
-        logits, probs, _, topi, weights = self.route(flat)
-
-        # Grouped dispatch.  A group of experts is applied to every token
-        # routed to that group; no (tokens, d_model, expert_hidden) gather is
-        # created.  Row chunks bound peak activation memory further.
+    def _chunked_group_dispatch(self, flat, topi, weights):
+        """Memory-bounded dispatch used on CUDA/CPU (dynamic row selection)."""
         out = torch.zeros_like(flat)
         for g0 in range(0, self.n_experts, self.group_size):
             g1 = min(g0 + self.group_size, self.n_experts)
@@ -219,7 +201,7 @@ class VectorizedSparseMoE(nn.Module):
                     0, group_width - 1
                 )                                                   # (N, K)
                 row_ids = torch.arange(
-                    sel_rows.numel(), device=x.device
+                    sel_rows.numel(), device=flat.device
                 ).unsqueeze(1)
 
                 h_gate = torch.einsum(
@@ -243,6 +225,64 @@ class VectorizedSparseMoE(nn.Module):
                         dtype=out.dtype
                     ),
                 )
+        return out
+
+    def _dense_group_dispatch(self, flat, topi, weights):
+        """Fixed-shape dispatch for XLA; avoids dynamic ``nonzero`` shapes."""
+        out = torch.zeros_like(flat)
+        m = flat.shape[0]
+        row_ids = torch.arange(m, device=flat.device).unsqueeze(1)
+        for g0 in range(0, self.n_experts, self.group_size):
+            g1 = min(g0 + self.group_size, self.n_experts)
+            group_width = g1 - g0
+            selected = (topi >= g0) & (topi < g1)  # (M, K)
+            local = (topi - g0).clamp(0, group_width - 1)
+
+            h_gate = torch.einsum(
+                "md,gdh->gmh", flat,
+                self.gate_w[g0:g1].to(dtype=flat.dtype),
+            )
+            h_up = torch.einsum(
+                "md,gdh->gmh", flat,
+                self.up_w[g0:g1].to(dtype=flat.dtype),
+            )
+            y = torch.einsum(
+                "gmh,ghd->gmd", F.silu(h_gate) * h_up,
+                self.down_w[g0:g1].to(dtype=flat.dtype),
+            )                                                       # (G, M, D)
+            y = F.dropout(y, p=self.dropout, training=self.training)
+            y_sel = y[local, row_ids, :] * selected.unsqueeze(-1)
+            out = out + (y_sel * (weights * selected).unsqueeze(-1)).sum(dim=1)
+        return out
+
+    def forward(self, x: torch.Tensor):
+        """Forward pass.
+
+        Args:
+            x: (B, T, D) token states.
+
+        Returns:
+            out: (B, T, D) MoE output.
+            aux: dict with scalar ``load_balance`` and ``router_z`` terms.
+        """
+        if x.ndim != 3:
+            raise ValueError(f"x must be (B, T, D), got shape {tuple(x.shape)}")
+        b, t, d = x.shape
+        if d != self.d_model:
+            raise ValueError(f"expected last dim {self.d_model}, got {d}")
+
+        flat = x.reshape(-1, d)
+        m = flat.shape[0]
+        logits, probs, _, topi, weights = self.route(flat)
+
+        # Grouped dispatch.  A group of experts is applied to every token
+        # routed to that group; no (tokens, d_model, expert_hidden) gather is
+        # created.  XLA uses a fixed-shape variant to avoid dynamic nonzero
+        # shapes; CUDA/CPU uses row chunks to bound peak activation memory.
+        if self.dense_dispatch or x.device.type == "xla":
+            out = self._dense_group_dispatch(flat, topi, weights)
+        else:
+            out = self._chunked_group_dispatch(flat, topi, weights)
 
         # Shared experts: batched SwiGLU over row chunks.
         if self.shared_gate_w is not None:

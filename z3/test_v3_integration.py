@@ -84,6 +84,22 @@ class V3IntegrationTest(unittest.TestCase):
         self.assertIn("load_balance", aux)
         self.assertIn("router_z", aux)
 
+    def test_manual_attention_matches_sdpa(self):
+        base = dict(
+            vocab_size=64, ctx=32, max_ctx=32, d_model=32,
+            n_layers=1, n_heads=4, swiglu=64, window=16,
+            global_every=1, moe_layers=0, n_experts=4, topk=2,
+            shared_experts=0, expert_hidden=64, mtp=1, dropout=0.0,
+        )
+        sdpa = V3LM(V3Config(**base)).eval()
+        manual = V3LM(V3Config(**base, force_manual_attention=True)).eval()
+        manual.load_state_dict(sdpa.state_dict())
+        x = torch.randint(0, 64, (2, 32))
+        with torch.no_grad():
+            y_sdpa, _, _ = sdpa(x)
+            y_manual, _, _ = manual(x)
+        torch.testing.assert_close(y_manual, y_sdpa, atol=1e-5, rtol=1e-5)
+
     def test_memory_path_gradients(self):
         cfg = V3Config(
             vocab_size=32, ctx=32, max_ctx=32, d_model=32,

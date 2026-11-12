@@ -200,6 +200,26 @@ class TestVectorizedSparseMoE(unittest.TestCase):
         for key in ("load_balance", "router_z"):
             torch.testing.assert_close(aux_v[key], aux_r[key], atol=1e-5, rtol=1e-5)
 
+    def test_dense_fixed_shape_dispatch_matches_reference(self):
+        # XLA uses this fixed-shape path rather than dynamic nonzero().
+        d, e, k, h, s = 8, 5, 3, 16, 1
+        torch.manual_seed(11)
+        vec = VectorizedSparseMoE(
+            d_model=d, n_experts=e, topk=k, shared_experts=s,
+            expert_hidden=h, dropout=0.0, group_size=2, dense_dispatch=True,
+        ).double().eval()
+        ref = PerExpertReference(
+            d_model=d, n_experts=e, topk=k, shared_experts=s,
+            expert_hidden=h, dropout=0.0,
+        ).double().eval()
+        ref.load_state_dict(vec.state_dict())
+        x = torch.randn(2, 7, d, dtype=torch.float64)
+        out_v, aux_v = vec(x)
+        out_r, aux_r = ref(x)
+        torch.testing.assert_close(out_v, out_r, atol=1e-5, rtol=1e-5)
+        for key in ("load_balance", "router_z"):
+            torch.testing.assert_close(aux_v[key], aux_r[key], atol=1e-5, rtol=1e-5)
+
     def test_gradients_match_per_expert_reference(self):
         vec, ref = self._pair()
         x_v = torch.randn(

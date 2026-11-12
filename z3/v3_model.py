@@ -74,6 +74,8 @@ class V3Config:
     expert_hidden: int = 1536
     moe_group_size: int = 4
     moe_max_rows: int = 512
+    moe_dense_dispatch: bool = False
+    force_manual_attention: bool = False
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -118,6 +120,19 @@ class Attention(nn.Module):
         self.drop = cfg.dropout
         self.is_global = layer % cfg.global_every == 0
         self.window = cfg.window
+        self.force_manual = bool(cfg.force_manual_attention)
+
+    def _manual_attention(self, q, k, v):
+        """Dense attention fallback for backends without a working SDPA."""
+        scale = self.dh ** -0.5
+        scores = (q @ k.transpose(-2, -1)) * scale
+        t = q.shape[-2]
+        ones = torch.ones(t, t, device=q.device, dtype=torch.bool)
+        mask = ones.tril() if self.is_global else (ones.tril() & ones.triu(1 - self.window))
+        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+        attn = torch.softmax(scores, dim=-1)
+        attn = F.dropout(attn, p=self.drop if self.training else 0.0)
+        return attn @ v
 
     def forward(self, x):
         b, t, d = x.shape
@@ -129,7 +144,9 @@ class Attention(nn.Module):
         k = self.k_norm(k)
         q = self.rope(q)
         k = self.rope(k)
-        if self.is_global:
+        if self.force_manual or x.device.type == "xla":
+            y = self._manual_attention(q, k, v)
+        elif self.is_global:
             y = F.scaled_dot_product_attention(
                 q, k, v, dropout_p=self.drop if self.training else 0.0, is_causal=True
             )

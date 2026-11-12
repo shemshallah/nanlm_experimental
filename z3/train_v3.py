@@ -73,6 +73,29 @@ def _torch_load(path: Path) -> Any:
         return torch.load(path, map_location="cpu")
 
 
+def _to_cpu(value: Any) -> Any:
+    """Recursively move tensors to CPU so XLA checkpoints are portable."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu()
+    if isinstance(value, dict):
+        return {key: _to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_cpu(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_to_cpu(item) for item in value)
+    return value
+
+
+def _save_cpu(path: Path, payload: Any) -> None:
+    torch.save(_to_cpu(payload), path)
+
+
+def _xla_sync(device: torch.device) -> None:
+    if device.type == "xla":
+        import torch_xla
+        torch_xla.sync()
+
+
 def _extract_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
     state = checkpoint
     if isinstance(state, dict):
@@ -235,6 +258,23 @@ def load_text_ids(
     return ids.astype(np.int32, copy=False)
 
 
+def load_token_bin(path: str, dtype: str) -> np.ndarray:
+    """Load pre-tokenized IDs from a raw binary file."""
+    file_path = Path(path).expanduser()
+    if not file_path.is_file():
+        raise SystemExit(f"token bin not found: {file_path}")
+    dtype_map = {"uint16": np.uint16, "uint32": np.uint32, "int32": np.int32}
+    if dtype not in dtype_map:
+        raise SystemExit(f"unsupported --token-dtype: {dtype}")
+    ids = np.fromfile(file_path, dtype=dtype_map[dtype])
+    if ids.size == 0:
+        raise SystemExit(f"token bin is empty: {file_path}")
+    if np.issubdtype(ids.dtype, np.signedinteger) and int(ids.min()) < 0:
+        raise SystemExit(f"token bin contains negative IDs: {file_path}")
+    print(f"[data] read {file_path} ({ids.size:,} tokens, {dtype})", flush=True)
+    return ids.astype(np.int32, copy=False)
+
+
 def _window_batch(ids: np.ndarray, positions: np.ndarray, ctx: int) -> torch.Tensor:
     rows = [ids[int(pos) - ctx:int(pos)] for pos in positions]
     return torch.from_numpy(np.stack(rows).astype(np.int64, copy=False))
@@ -251,15 +291,24 @@ class TextBatchSource:
         batch_size: int,
         eval_batches: int,
         seed: int,
+        val_ids: np.ndarray | None = None,
     ) -> None:
         self.ids = ids
         self.split = int(split)
         self.ctx = int(ctx)
         self.batch_size = int(batch_size)
         self.rng = np.random.default_rng(seed)
+        self.val_ids = val_ids
 
-        val_lo = max(self.split, self.ctx)
-        val_hi = len(ids)
+        if val_ids is None:
+            val_source = ids
+            val_lo = max(self.split, self.ctx)
+            val_tokens = len(ids) - int(split)
+        else:
+            val_source = val_ids
+            val_lo = self.ctx
+            val_tokens = len(val_ids)
+        val_hi = len(val_source)
         if val_hi <= val_lo:
             raise SystemExit("validation split is empty; lower --train-fraction")
         eval_rng = np.random.default_rng(seed + 100_003)
@@ -267,16 +316,17 @@ class TextBatchSource:
             val_lo, val_hi, size=eval_batches * batch_size
         ).astype(np.int64)
         self.eval_batches = [
-            _window_batch(ids, positions[i:i + batch_size], self.ctx)
+            _window_batch(val_source, positions[i:i + batch_size], self.ctx)
             for i in range(0, len(positions), batch_size)
         ]
         self.info = {
             "mode": "text",
             "tokens": int(len(ids)),
             "train_tokens": int(split),
-            "val_tokens": int(len(ids) - split),
+            "val_tokens": int(val_tokens),
             "vocab_size": None,
             "val_windows": int(len(positions)),
+            "separate_validation": val_ids is not None,
         }
 
     def train_batch(self) -> torch.Tensor:
@@ -523,6 +573,7 @@ def evaluate(
         ),
         "router_z": router_z_sum / aux_batches if aux_batches else None,
     }
+    _xla_sync(next(model.parameters()).device)
     model.train(was_training)
     return metrics
 
@@ -547,10 +598,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="one or more UTF-8 text files (not used by --random-smoke)",
     )
     data.add_argument(
-        "--tokenizer", choices=("bpe", "bytes"), default="bpe",
-        help="text tokenizer; BPE lazily imports the optional `tokenizers` package",
+        "--tokenizer", choices=("bpe", "bytes", "bin"), default="bpe",
+        help="text tokenizer; 'bin' reads pre-tokenized IDs from --corpus",
     )
     data.add_argument("--bpe-model", default="", help="tokenizer.json path for --tokenizer bpe")
+    data.add_argument("--token-dtype", choices=("uint16", "uint32", "int32"),
+                      default="uint16", help="dtype for --tokenizer bin")
+    data.add_argument("--val-corpus", default="",
+                      help="separate validation token file for --tokenizer bin")
     data.add_argument("--max-bytes", type=int, default=0, help="cap corpus bytes (0 = all)")
     data.add_argument("--train-fraction", type=float, default=0.95,
                       help="head fraction used for training; the tail is fixed validation")
@@ -885,6 +940,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.device == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    elif args.device == "xla":
+        try:
+            import torch_xla.core.xla_model as xm
+        except ImportError as exc:
+            raise SystemExit(
+                "--device xla requires torch_xla; install the TPU wheel first"
+            ) from exc
+        device = xm.xla_device()
     else:
         device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
@@ -895,7 +958,7 @@ def main(argv: list[str] | None = None) -> int:
         amp = bool(args.amp) and device.type == "cuda"
         if args.amp and device.type != "cuda":
             print("[amp] requested on non-CUDA device; running fp32", flush=True)
-    if args.random_smoke:
+    if args.random_smoke or device.type == "xla":
         amp = False
 
     out = Path(args.out).expanduser()
@@ -927,6 +990,45 @@ def main(argv: list[str] | None = None) -> int:
             args.seed,
         )
         vocab_size = args.vocab_size
+    elif args.tokenizer == "bin":
+        if len(args.corpus) != 1:
+            raise SystemExit("--tokenizer bin takes exactly one --corpus file")
+        if not args.val_corpus:
+            raise SystemExit("--tokenizer bin requires --val-corpus")
+        token_ids = load_token_bin(args.corpus[0], args.token_dtype)
+        val_ids = load_token_bin(args.val_corpus, args.token_dtype)
+        vocab_size = int(args.vocab_size)
+        if token_ids.size and int(token_ids.max()) >= vocab_size:
+            raise SystemExit(
+                f"token ID {int(token_ids.max())} >= --vocab-size {vocab_size}"
+            )
+        if val_ids.size and int(val_ids.max()) >= vocab_size:
+            raise SystemExit(
+                f"validation token ID {int(val_ids.max())} >= --vocab-size {vocab_size}"
+            )
+        if len(token_ids) <= args.ctx + 2:
+            raise SystemExit(
+                f"token file has {len(token_ids)} tokens, need more than --ctx"
+            )
+        split = len(token_ids)
+        source = TextBatchSource(
+            token_ids,
+            split,
+            args.ctx,
+            args.batch_size,
+            args.eval_batches,
+            args.seed,
+            val_ids=val_ids,
+        )
+        source.info["vocab_size"] = vocab_size
+        source.info["corpus"] = [str(Path(p).expanduser()) for p in args.corpus]
+        source.info["val_corpus"] = str(Path(args.val_corpus).expanduser())
+        source.info["tokenizer"] = "bin"
+        print(
+            f"[data] tokenizer=bin vocab={vocab_size} "
+            f"train={len(token_ids):,} val={len(val_ids):,} ctx={args.ctx}",
+            flush=True,
+        )
     else:
         tokenizer = build_tokenizer(args)
         token_ids = load_text_ids(args.corpus, tokenizer, args.max_bytes)
@@ -1143,7 +1245,7 @@ def main(argv: list[str] | None = None) -> int:
             "args": vars(args),
             "metrics": metrics,
         }
-        torch.save(payload, out / "last.pt")
+        _save_cpu(out / "last.pt", payload)
 
     def consider_best(
         metrics: dict[str, Any] | None,
@@ -1165,7 +1267,8 @@ def main(argv: list[str] | None = None) -> int:
             "metrics": metrics,
         }
         checkpoint_model = ema_model if source_name == "ema" else model
-        torch.save(
+        _save_cpu(
+            out / "best.pt",
             {
                 "model": checkpoint_model.state_dict(),
                 "source": source_name,
@@ -1175,7 +1278,6 @@ def main(argv: list[str] | None = None) -> int:
                 "model_config": model_config,
                 "args": vars(args),
             },
-            out / "best.pt",
         )
         print(
             f"[best] step {step} {source_name} loss={loss:.4f} "
@@ -1253,7 +1355,11 @@ def main(argv: list[str] | None = None) -> int:
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), args.grad_clip
             )
-            optimizer.step()
+            if device.type == "xla":
+                import torch_xla.core.xla_model as xm
+                xm.optimizer_step(optimizer)
+            else:
+                optimizer.step()
 
         step_done = step + 1
         last_step = step_done
@@ -1275,6 +1381,8 @@ def main(argv: list[str] | None = None) -> int:
                         and ema_buffer.dtype == buffer.dtype
                     ):
                         ema_buffer.copy_(buffer)
+
+        _xla_sync(device)
 
         last_train = {
             "loss": _finite(loss_value),
@@ -1359,7 +1467,8 @@ def main(argv: list[str] | None = None) -> int:
         consider_best(final_ema_metrics, "ema", last_step)
 
     elapsed_total = time.time() - t0
-    torch.save(
+    _save_cpu(
+        out / "final.pt",
         {
             "model": model.state_dict(),
             "step": last_step,
@@ -1367,10 +1476,10 @@ def main(argv: list[str] | None = None) -> int:
             "model_config": model_config,
             "args": vars(args),
         },
-        out / "final.pt",
     )
     if ema_model is not None:
-        torch.save(
+        _save_cpu(
+            out / "ema.pt",
             {
                 "model": ema_model.state_dict(),
                 "source": "ema",
@@ -1379,7 +1488,6 @@ def main(argv: list[str] | None = None) -> int:
                 "model_config": model_config,
                 "args": vars(args),
             },
-            out / "ema.pt",
         )
 
     if not history or history[-1].get("step") != last_step:
