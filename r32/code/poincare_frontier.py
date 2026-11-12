@@ -1021,23 +1021,28 @@ def train(args):
     else:
         start, seen = 0, 0
         print('Initialized unified model (no v23 checkpoint was supplied).')
-    if args.train_context is not None and not 4 <= args.train_context <= cfg.context:
-        raise ValueError('--train-context must be within 4..checkpoint max context')
-    mix = parse_context_mix(args.context_mix, cfg.context) if args.context_mix else None
+    use_domain_tokens = bool(meta.get('train_domains'))
+    max_byte_context = cfg.context - 1 if use_domain_tokens else cfg.context
+    if args.train_context is not None and not 4 <= args.train_context <= max_byte_context:
+        raise ValueError('--train-context must be within 4..checkpoint max byte context')
+    mix = parse_context_mix(args.context_mix, max_byte_context) if args.context_mix else None
     if mix and args.train_context is not None:
         raise ValueError('Use --context-mix OR --train-context, not both')
-    active_context = max(mix[0]) if mix else (args.train_context or cfg.context)
+    active_context = max(mix[0]) if mix else (args.train_context or max_byte_context)
     eval_context = args.eval_context or active_context
-    if not 4 <= eval_context <= cfg.context:
-        raise ValueError('--eval-context must be within 4..checkpoint maximum context')
+    if not 4 <= eval_context <= max_byte_context:
+        raise ValueError('--eval-context must be within 4..checkpoint maximum byte context')
     if args.grad_accum < 1:
         raise ValueError('--grad-accum must be positive')
     train_doc_lengths = legacy_document_lengths(trainmem, meta, 'train')
-    train_samplers = {length: DocumentWindowSampler(trainmem, length, train_doc_lengths)
+    train_samplers = {length: DocumentWindowSampler(
+                          trainmem, length, train_doc_lengths,
+                          domains=meta.get('train_domains'), domain_token_base=meta.get('domain_token_base', 257))
                       for length in (mix[0] if mix else [active_context])}
     train_sampler = train_samplers[active_context]
-    valid_sampler = DocumentWindowSampler(valmem, eval_context,
-        legacy_document_lengths(valmem, meta, 'valid'))
+    valid_sampler = DocumentWindowSampler(
+        valmem, eval_context, legacy_document_lengths(valmem, meta, 'valid'),
+        domains=meta.get('valid_domains'), domain_token_base=meta.get('domain_token_base', 257))
     if mix:
         history.append({'kind': 'cpu_context_mixture', 'step': start,
                         'lengths': mix[0], 'weights': mix[1].tolist(),
