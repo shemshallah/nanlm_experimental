@@ -62,6 +62,9 @@ class Config:
     router_mode: str = 'both'  # linear | geo | both
     learnable_strength: bool = True
     moe_additive: bool = False  # keep dense SwiGLU and add a separate MoE branch
+    hierarchical: bool = False  # domain -> branch -> pair routing
+    branches: int = 8
+    pairs_per_branch: int = 16
 
     def check(self):
         assert self.dim % self.heads == 0
@@ -74,6 +77,10 @@ class Config:
         assert self.norm_divisor == 0 or 0 < self.norm_divisor <= self.dim
         assert self.dispatch_mode in ('grouped', 'gather') and self.gather_chunk > 0
         assert self.router_mode in ('linear', 'geo', 'both')
+        if self.hierarchical:
+            assert self.branches >= 1 and self.pairs_per_branch >= 1
+            assert self.branches * self.pairs_per_branch == self.pairs
+            assert self.topk_pairs <= self.pairs_per_branch
 
 
 class RMSNorm(nn.Module):
@@ -151,12 +158,16 @@ class MirrorPairMoE(nn.Module):
         self.strength = cfg.hyperbolic_strength
         self.router_mode = cfg.router_mode
         self.learnable_strength = cfg.learnable_strength
+        self.hierarchical = cfg.hierarchical
+        self.branches = cfg.branches
+        self.pairs_per_branch = cfg.pairs_per_branch
         self.dispatch_mode = cfg.dispatch_mode
         self.gather_chunk = cfg.gather_chunk
         d, f, p = cfg.dim, cfg.expert_hidden, cfg.pairs
         init_strength = cfg.hyperbolic_strength if cfg.hyperbolic_strength > 0 else 1.0
         self.log_strength = nn.Parameter(torch.tensor(math.log(init_strength)))
         self.router = nn.Linear(d, p, bias=False)
+        self.branch_router = nn.Linear(d, cfg.branches, bias=False) if cfg.hierarchical else None
         # Persistent, non-trainable capacity gate. Newly grown pairs begin
         # inactive, preserving old top-k choices, then activate gradually.
         # A buffer introduces no extra optimizer parameter on v25 resume.
@@ -191,23 +202,46 @@ class MirrorPairMoE(nn.Module):
         b, t, d = x.shape
         flat = self.normalizer(x).reshape(-1, d)
         linear_scores = self.router(flat).float()
-        self.last_router_logits = linear_scores.detach()
         strength = self.log_strength.exp() if self.learnable_strength else \
             torch.as_tensor(self.strength, device=flat.device, dtype=torch.float32)
         self.last_strength = float(strength.detach().item())
+        geo_term = None
         if self.router_mode in ('geo', 'both'):
             q = self.to_ball(self.geo_query(flat))
             c = self.to_ball(self.centers)
             geo_term = -self.hyperbolic_distance(q, c)
             self.last_geo_term = (strength * geo_term).detach()
-            if self.router_mode == 'geo':
-                scores = strength * geo_term + self.pair_bias.float()
-            else:
-                scores = linear_scores + strength * geo_term + self.pair_bias.float()
         else:
             self.last_geo_term = None
-            scores = linear_scores + self.pair_bias.float()
-        top_scores, top_idx = scores.topk(self.topk, dim=-1)
+        branch_idx = None
+        if self.hierarchical:
+            branches, per_branch = self.branches, self.pairs_per_branch
+            branch_scores = self.branch_router(flat).float()
+            pair_scores = linear_scores.reshape(-1, branches, per_branch)
+            if geo_term is not None:
+                pair_scores = pair_scores + strength * geo_term.reshape(-1, branches, per_branch)
+            pair_scores = pair_scores + self.pair_bias.reshape(branches, per_branch)
+            branch_idx = branch_scores.argmax(dim=-1)
+            tokens = torch.arange(flat.shape[0], device=flat.device)
+            selected = pair_scores[tokens, branch_idx]
+            selected = selected + branch_scores.gather(1, branch_idx[:, None])
+            top_scores, local_idx = selected.topk(self.topk, dim=-1)
+            top_idx = branch_idx[:, None] * per_branch + local_idx
+            scores = pair_scores.reshape(-1, self.pairs)
+            self.last_router_logits = scores.detach()
+            self.last_branch_idx = branch_idx.detach()
+            self.last_branch_scores = branch_scores.detach()
+        else:
+            if self.router_mode == 'geo':
+                scores = strength * geo_term + self.pair_bias.float()
+            elif self.router_mode == 'both':
+                scores = linear_scores + strength * geo_term + self.pair_bias.float()
+            else:
+                scores = linear_scores + self.pair_bias.float()
+            top_scores, top_idx = scores.topk(self.topk, dim=-1)
+            self.last_router_logits = scores.detach()
+            self.last_branch_idx = None
+            self.last_branch_scores = None
         self.last_top_idx = top_idx.detach()  # observability only; routing unchanged
         routing_weights = top_scores.softmax(dim=-1)
         sign_probs = torch.sigmoid(self.sign_router(flat))
@@ -253,6 +287,10 @@ class MirrorPairMoE(nn.Module):
         fraction = F.one_hot(top_idx, self.pairs).float().mean(dim=(0, 1)).detach()
         mean_prob = scores.softmax(-1).mean(0)
         aux = self.pairs * (fraction * mean_prob).sum()
+        if self.hierarchical and branch_idx is not None:
+            bfrac = F.one_hot(branch_idx, self.branches).float().mean(0).detach()
+            bmean = self.last_branch_scores.softmax(-1).mean(0)
+            aux = aux + self.branches * (bfrac * bmean).sum()
         return out.reshape(b, t, d), aux
 
 
@@ -835,7 +873,10 @@ def configure(args, vocab_size):
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset',
                   router_mode=getattr(args, 'router_mode', None) or 'both',
                   learnable_strength=True,
-                  moe_additive=bool(getattr(args, 'moe_additive', False)))
+                  moe_additive=bool(getattr(args, 'moe_additive', False)),
+                  hierarchical=bool(getattr(args, 'hierarchical', False)),
+                  branches=int(getattr(args, 'branches', 8)),
+                  pairs_per_branch=int(getattr(args, 'pairs_per_branch', 16)))
 
 
 def parse_context_mix(spec, maximum):
@@ -1541,6 +1582,10 @@ def main():
                     help='linear router, hyperbolic-distance router, or both (default both)')
     tr.add_argument('--moe-additive', action='store_true',
                     help='keep the dense SwiGLU and add the MoE branch instead of replacing it')
+    tr.add_argument('--hierarchical', action='store_true',
+                    help='domain -> branch -> pair routing (branches x pairs_per_branch = pairs)')
+    tr.add_argument('--branches', type=int, default=8)
+    tr.add_argument('--pairs-per-branch', type=int, default=16)
     tr.add_argument('--grow-warmup', type=int, default=1000, help='gradually unmask new pairs over steps')
     tr.add_argument('--cpu-pair-open-steps', type=int, default=None,
                     help='explicitly shorten an in-progress pair gate on ONE checkpoint; rebase bias continuously')

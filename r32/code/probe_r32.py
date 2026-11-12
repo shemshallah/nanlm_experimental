@@ -120,11 +120,13 @@ def main() -> int:
     moe_layers = [i for i, b in enumerate(model.blocks) if b.use_moe]
     mods = {i: moe_module(model.blocks[i]) for i in moe_layers}
 
-    per_domain, routing_matrix = [], []
+    per_domain, routing_matrix, branch_routing_matrix = [], [], []
     all_ce = all_n = all_correct = 0
     for d, name in enumerate(names):
         rng = np.random.default_rng(args.seed + d)
         counts = {i: torch.zeros(cfg.pairs, dtype=torch.long) for i in moe_layers}
+        branch_counts = ({i: torch.zeros(cfg.branches, dtype=torch.long) for i in moe_layers}
+                         if cfg.hierarchical else {})
         hist = {i: torch.zeros(cfg.pairs, cfg.vocab_size, dtype=torch.long) for i in moe_layers}
         ce_sum = correct = total = 0
         try:
@@ -142,6 +144,9 @@ def main() -> int:
                         mod = mods[layer]
                         routed = mod.last_top_idx.reshape(-1, mod.topk).cpu()
                         counts[layer] += torch.bincount(routed.reshape(-1), minlength=cfg.pairs)
+                        if cfg.hierarchical:
+                            branch_counts[layer] += torch.bincount(
+                                mod.last_branch_idx.reshape(-1).cpu(), minlength=cfg.branches)
                         for slot in range(mod.topk):
                             bins = torch.bincount(routed[:, slot] * cfg.vocab_size + flat,
                                                   minlength=cfg.pairs * cfg.vocab_size)
@@ -149,6 +154,7 @@ def main() -> int:
         except ValueError as exc:
             per_domain.append({"domain": name, "id": d, "error": str(exc)})
             routing_matrix.append([0] * cfg.pairs)
+            branch_routing_matrix.append([0] * (cfg.branches if cfg.hierarchical else 0))
             continue
         global_hist = torch.zeros(cfg.vocab_size, dtype=torch.long)
         for layer in moe_layers:
@@ -174,6 +180,15 @@ def main() -> int:
                 for layer in moe_layers
             },
         }
+        if cfg.hierarchical:
+            bunion = torch.zeros(cfg.branches, dtype=torch.long)
+            for layer in moe_layers:
+                bunion += branch_counts[layer]
+            entry["branch_union"] = counts_summary(bunion)
+            entry["branch_union"]["branches"] = cfg.branches
+            branch_routing_matrix.append([int(x) for x in bunion.tolist()])
+        else:
+            branch_routing_matrix.append([])
         per_domain.append(entry)
         all_ce += ce_sum; all_n += total; all_correct += correct
         print(f"{name:14} bpb={entry['bpb']:.4f} top1={entry['top1']*100:5.2f}% "
@@ -193,6 +208,10 @@ def main() -> int:
         },
         "per_domain": per_domain,
         "routing_matrix": routing_matrix,
+        "branch_routing_matrix": branch_routing_matrix,
+        "hierarchical": bool(cfg.hierarchical),
+        "branches": cfg.branches,
+        "pairs_per_branch": cfg.pairs_per_branch,
     }
     text = json.dumps(result, indent=2)
     print(text, flush=True)
