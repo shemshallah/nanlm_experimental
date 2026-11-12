@@ -1,0 +1,15 @@
+{
+  "codename": "fa2.1",
+  "lineage": "PAL R19",
+  "checkpoint": "checkpoint/r12_active.pal12",
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "archive": "PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip",
+  "archive_sha256": "0761209f51c7eef54e6e0cee6606d01ede4b2231b6dd1222e481e7dc7b20eef9",
+  "archive_location": "ChatGPT Library",
+  "github_binary_uploaded": false,
+  "github_status": "README and release metadata hosted; binary checkpoint not yet mirrored",
+  "accepted": "R18 unified checkpoint",
+  "semantic_candidate": "rejected",
+  "historical_r12_steps": 10756,
+  "policy": "single accepted checkpoint; preserve optimizer moments; gate on semantic and downstream held-out evaluations"
+}
