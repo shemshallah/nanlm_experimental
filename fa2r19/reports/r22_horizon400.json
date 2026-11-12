@@ -1,0 +1,89 @@
+{
+  "round": "FA2.3 R22 frozen 1000-state 400-chunk horizon test",
+  "accepted_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "r21_state_sha256": "df6a71caae7c508784e1cc4ee07f5d7baf4df09b35a4da6b0ce85734536054f9",
+  "r22_step": 1000,
+  "promoted": false,
+  "read_only": true,
+  "samples_per_split": 8,
+  "results": {
+    "dev": {
+      "scores": {
+        "r18": {
+          "bpb": 2.565996696962633,
+          "nonspace_nll": 4.591845077869081,
+          "nonspace_top1": 0.12418106015485408,
+          "tokens": 10183,
+          "bytes": 18070
+        },
+        "r21": {
+          "bpb": 2.562485095921835,
+          "nonspace_nll": 4.584141634133971,
+          "nonspace_top1": 0.12462775461584276,
+          "tokens": 10183,
+          "bytes": 18070
+        },
+        "r22": {
+          "bpb": 2.5497475796662865,
+          "nonspace_nll": 4.556468025284768,
+          "nonspace_top1": 0.12775461584276354,
+          "tokens": 10183,
+          "bytes": 18070
+        }
+      },
+      "query_coverage": {
+        "recent": 6306,
+        "middle": 6306,
+        "far": 4718
+      },
+      "maximum_retrieval_distance": {
+        "recent": 2046,
+        "middle": 8190,
+        "far": 32746
+      },
+      "windows": 8
+    },
+    "test": {
+      "scores": {
+        "r18": {
+          "bpb": 2.4133319617440203,
+          "nonspace_nll": 4.527413733010611,
+          "nonspace_top1": 0.12694300518134716,
+          "tokens": 10551,
+          "bytes": 18601
+        },
+        "r21": {
+          "bpb": 2.4102241429875186,
+          "nonspace_nll": 4.51987956522878,
+          "nonspace_top1": 0.12831453825053338,
+          "tokens": 10551,
+          "bytes": 18601
+        },
+        "r22": {
+          "bpb": 2.401242530496642,
+          "nonspace_nll": 4.4978213741880335,
+          "nonspace_top1": 0.13105760438890582,
+          "tokens": 10551,
+          "bytes": 18601
+        }
+      },
+      "query_coverage": {
+        "recent": 6175,
+        "middle": 6175,
+        "far": 3576
+      },
+      "maximum_retrieval_distance": {
+        "recent": 2047,
+        "middle": 8183,
+        "far": 32437
+      },
+      "windows": 8
+    }
+  },
+  "elapsed_seconds": 17.14549478799995,
+  "limitations": [
+    "Historically reused book-disjoint splits; not untouched generalization",
+    "32k externally addressed prefix slots; not a 32k-token trained transformer",
+    "No semantic QA or multi-hop benchmark here"
+  ]
+}
