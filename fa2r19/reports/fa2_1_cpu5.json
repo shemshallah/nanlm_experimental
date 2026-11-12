@@ -1,0 +1,24 @@
+{
+  "codename": "fa2.1",
+  "experiment": "cpu_joint_5_step_smoke",
+  "date": "2026-11-12",
+  "accepted_checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "steps": 5,
+  "optimizer_moments_restored": 15,
+  "baseline": {
+    "short_bpb": 2.5597062944825106,
+    "short_nonspace_nll": 4.724223989658255,
+    "long_bpb": 2.4792226969353717,
+    "long_nonspace_nll": 4.46457126962098
+  },
+  "candidate": {
+    "short_bpb": 2.5605921735677444,
+    "short_nonspace_nll": 4.723805826177042,
+    "long_bpb": 2.4802379560730325,
+    "long_nonspace_nll": 4.46284680680513
+  },
+  "legacy_anchors_ok": true,
+  "promoted": false,
+  "reason": "Both BPB regress; development gate failed; accepted checkpoint unchanged",
+  "note": "5-step CPU smoke test, not evidence of plateau or generalization"
+}
