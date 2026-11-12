@@ -1,0 +1,116 @@
+{
+  "round": "FA2.3 R22 frozen memory scale ablations",
+  "accepted_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "step": 1000,
+  "read_only": true,
+  "promoted": false,
+  "window_span_chunks": 400,
+  "book_disjoint_development_and_historical_test": true,
+  "windows_per_split": 8,
+  "scores": {
+    "dev": {
+      "R21_none": {
+        "bpb": 2.562485095921835,
+        "nonspace_nll": 4.584141634133971,
+        "nonspace_top1": 0.12462775461584276,
+        "delta_bpb_vs_r21": 0.0
+      },
+      "R22_all": {
+        "bpb": 2.5497475796662865,
+        "nonspace_nll": 4.556468025284768,
+        "nonspace_top1": 0.12775461584276354,
+        "delta_bpb_vs_r21": -0.012737516255548531
+      },
+      "recent_only": {
+        "bpb": 2.5594198812097484,
+        "nonspace_nll": 4.577121100729601,
+        "nonspace_top1": 0.1262656343061346,
+        "delta_bpb_vs_r21": -0.00306521471208665
+      },
+      "middle_only": {
+        "bpb": 2.557858922737373,
+        "nonspace_nll": 4.574153316241066,
+        "nonspace_top1": 0.1264145324597975,
+        "delta_bpb_vs_r21": -0.004626173184461901
+      },
+      "far_only": {
+        "bpb": 2.556339267816395,
+        "nonspace_nll": 4.571684282403961,
+        "nonspace_top1": 0.12552114353782012,
+        "delta_bpb_vs_r21": -0.006145828105439843
+      },
+      "without_recent": {
+        "bpb": 2.5521630285049364,
+        "nonspace_nll": 4.562463902376321,
+        "nonspace_top1": 0.12745681953543775,
+        "delta_bpb_vs_r21": -0.010322067416898673
+      },
+      "without_middle": {
+        "bpb": 2.5535498064509863,
+        "nonspace_nll": 4.5651058267453655,
+        "nonspace_top1": 0.1268612269207862,
+        "delta_bpb_vs_r21": -0.008935289470848762
+      },
+      "without_far": {
+        "bpb": 2.555174971576642,
+        "nonspace_nll": 4.5677387721486005,
+        "nonspace_top1": 0.12715902322811198,
+        "delta_bpb_vs_r21": -0.007310124345193181
+      }
+    },
+    "test": {
+      "R21_none": {
+        "bpb": 2.4102241429875186,
+        "nonspace_nll": 4.51987956522878,
+        "nonspace_top1": 0.12831453825053338,
+        "delta_bpb_vs_r21": 0.0
+      },
+      "R22_all": {
+        "bpb": 2.401242530496642,
+        "nonspace_nll": 4.4978213741880335,
+        "nonspace_top1": 0.13105760438890582,
+        "delta_bpb_vs_r21": -0.00898161249087659
+      },
+      "recent_only": {
+        "bpb": 2.406610839288322,
+        "nonspace_nll": 4.510841302194453,
+        "nonspace_top1": 0.12953367875647667,
+        "delta_bpb_vs_r21": -0.003613303699196546
+      },
+      "middle_only": {
+        "bpb": 2.407118937339168,
+        "nonspace_nll": 4.512258969731027,
+        "nonspace_top1": 0.12922889362999085,
+        "delta_bpb_vs_r21": -0.003105205648350484
+      },
+      "far_only": {
+        "bpb": 2.407568960008136,
+        "nonspace_nll": 4.513979971390677,
+        "nonspace_top1": 0.12831453825053338,
+        "delta_bpb_vs_r21": -0.0026551829793826087
+      },
+      "without_recent": {
+        "bpb": 2.404523458200367,
+        "nonspace_nll": 4.506449710156488,
+        "nonspace_top1": 0.12907650106674795,
+        "delta_bpb_vs_r21": -0.0057006847871514665
+      },
+      "without_middle": {
+        "bpb": 2.4040424569449126,
+        "nonspace_nll": 4.505084762410469,
+        "nonspace_top1": 0.12953367875647667,
+        "delta_bpb_vs_r21": -0.006181686042606049
+      },
+      "without_far": {
+        "bpb": 2.4037504894479502,
+        "nonspace_nll": 4.5034873564771605,
+        "nonspace_top1": 0.13090521182566292,
+        "delta_bpb_vs_r21": -0.006473653539568414
+      }
+    }
+  },
+  "warnings": [
+    "Historical test books reused; cannot use to tune hyperparameters",
+    "Independent scale amplitude zeroing measures marginal contribution only and is not a retrained control"
+  ]
+}
