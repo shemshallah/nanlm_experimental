@@ -56,6 +56,25 @@ Tokenizer: the z1 32k BPE tokenizer. If it is missing, the script trains a new
 `result.json` contains best/final/EMA metrics, elapsed time, parameter count,
 and the geometry state.
 
+## Drive mount behavior
+
+The notebook uses the original mount point:
+
+```text
+/content/drive/MyDrive/nanlmv3_z2
+```
+
+The mount cell:
+
+1. tries `drive.mount('/content/drive', force_remount=True)`;
+2. if that raises `Mountpoint must not already contain files` and
+   `/content/drive/MyDrive` exists, treats Drive as already mounted;
+3. otherwise moves non-Drive leftovers to `/content/drive_pre_mount_backup`
+   and retries. It does not delete your files.
+
+The run cell uses `--resume-best`, so it automatically loads
+`/content/drive/MyDrive/nanlmv3_z2/best.pt` when present.
+
 ## Resume from `best.pt`
 
 The run cell now passes `--resume-best`. The script automatically checks:
