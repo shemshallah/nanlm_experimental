@@ -42,10 +42,12 @@ R18 remains accepted until separate promotion requirements are met.
 
 The memory index admits only completed *earlier* document positions, with
 values ending before the active chunk. Labels choose positives only in losses;
-they never choose retrieval candidates. An additional **scrambled historical
-value** ablation separates content-addressed gains from global word-frequency
-effects. This is stronger than zero-memory alone but is not yet the
-unrelated-document-history test required for final promotion.
+they never choose retrieval candidates. Both a **scrambled historical value** control and a **different-book donor**
+control are evaluated. Donor candidates use the actual target-book causal query,
+but sources and values come strictly from previously completed portions of a
+different book. No future donor positions are admitted. The latter is a
+necessary but not sufficient memory-specificity check: larger blind books and
+adversarially matched donor frequencies are still required.
 
 ## Optimizer / continuation
 
@@ -89,7 +91,7 @@ gating, sparse routing and Adam-migration checks. The original R18 SHA-256
 must match exactly.
 
 Development selection uses byte-normalized NLL and a nonspace-loss penalty.
-The report records **correct-vs-scrambled-history advantage** in
+The report records **correct-vs-scrambled and correct-vs-unrelated-book advantage** in
 nats/token, nonspace NLL, semantic accuracy, and actual maximum retrieved
 distance for each 32K tier. Additional gates require improvement versus the
 initial development reference, nonspace preservation, actual far-tier reads,
