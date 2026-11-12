@@ -97,3 +97,11 @@ on genuinely unseen paraphrase keys, two-hop chains, and independently
 held-out prose, and require improvements across long and short BPB plus
 non-space NLL and inherited future/word anchors. Longer than 2K memory indexing
 does not by itself establish trained long-context language understanding.
+
+## FA2.2 R21 trainable semantic-memory gate — November 12, 2026
+
+Continued one FA2 model from the unchanged R18 accepted checkpoint. Implemented a trainable content relevance/novelty gate with 138 new parameters, reusing R18 projections, 65-token minimum causal gap, and R20 content-only candidates. A conservative 192-position warmup preserves short-context predictions exactly. The 13/13 R21 causal/identity/gradient/integrity tests passed; the inherited R18 and R19 test suites also passed.
+
+CPU: **1,000 cumulative gate-only updates**, with actual gate Adam moments restored at 300; 24 training, 8 long development, 8 long historical test, 12 short development and 12 short historical test windows. The selected development long BPB delta against R18 was **−0.003190** and non-space NLL **−0.006849**; historical book-disjoint long BPB delta **−0.000872** and non-space NLL **−0.002807**. Short metrics were exactly unchanged, by activation threshold. Gains are modest and historical test books are reused, not pristine; R21 is not proven a semantic QA or multi-hop improvement.
+
+**No promotion.** Original 10,756-update checkpoint SHA-256 remains `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`. A small quarantined `fa2_2_r21_gate_candidate.pth.b64` stores ONLY the new gate parameters and its own Adam state for future continuation; no independent base model was initialized. Full methods: `docs/FA2_2_R21.md`. Metrics: `reports/r21_fa2_2_cpu_candidate.json`. Promotion still requires an untouched new-book eval, genuine paraphrase/hard-negative and two-hop downstream gain, and complete inherited regression gates.
