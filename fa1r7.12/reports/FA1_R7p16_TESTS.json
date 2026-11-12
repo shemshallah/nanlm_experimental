@@ -1,0 +1,16 @@
+{
+  "passed": 9,
+  "total": 9,
+  "tests": [
+    "32k_old_history_read_8k_miss",
+    "recent_2048_cannot_enter_extra_memory",
+    "changing_next_token_cannot_change_memory_selection_or_features",
+    "future_near_context_mutation_does_not_affect_memory",
+    "no_evidence_is_exact_gate_off",
+    "gate_off_preserves_original_lm_exactly",
+    "one_scale_ablations_are_target_free_and_finite",
+    "causal_1_2_3_4_gram_alignment",
+    "completed_historical_dev_test_and_optimizer_gates"
+  ],
+  "parent_binary_untouched": true
+}
