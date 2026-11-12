@@ -77,6 +77,23 @@ The probe returns per-domain BPB/top-1, 128-bin routing counts, an
 `routing_matrix` of shape `[16, 128]`, per-pair KL specialization, domain-token
 norms, and geometry diagnostics.
 
+## Hierarchical routing (r32.1, code ready)
+
+Flat 128-way routing is available, but the next run uses a **domain → branch →
+pair** hierarchy:
+
+- 8 branches × 16 pairs = 128 leaves
+- one branch selected per token, then top-2 pairs inside that branch
+- branch balance auxiliary term added to the pair balance term
+- domain token conditions the branch and pair routers through the hidden state
+- `--hierarchical --branches 8 --pairs-per-branch 16`
+
+Implemented in `code/poincare_frontier.py`; `probe_r32.py` also reports
+`branch_routing_matrix[16][8]` and per-domain branch effective counts. The
+30-minute multidomain run is packaged as a Colab notebook:
+[`colab/colab_multidomain_30min.ipynb`](colab/colab_multidomain_30min.ipynb),
+with instructions and Colab quota notes in [`colab/README.md`](colab/README.md).
+
 ## Latest result (2026-11-12)
 
 220 steps × batch 32 × context 256 = 1.8M positions per arm.

@@ -5,7 +5,44 @@ built from the new `corpora/domains/` releases, not the Gutenberg-only corpus.
 
 ---
 
-## 2026-11-12 — r32 multidomain domain-token pilot (latest)
+## 2026-11-12 — hierarchical routing implementation (pending 10M run)
+
+The next iteration adds **domain → branch → pair** routing to the 16-domain
+system:
+
+- 128 leaves = 8 branches × 16 pairs
+- one branch per token (argmax), top-2 pairs inside the selected branch
+- leaf score = pair score + selected branch score; branch_router gets task
+  gradient through the selected branch score
+- branch Switch-style balance term added to the existing pair balance term
+- domain token still prefixes every window; the branch router sees it through
+  the hidden state
+
+New flags:
+
+```sh
+--hierarchical --branches 8 --pairs-per-branch 16
+```
+
+`probe_r32.py` now records `branch_routing_matrix[16][8]`, per-domain branch
+effective counts, and the branch union. The code was validated with a tiny CPU
+train/probe; no 10M-position hierarchical result exists yet.
+
+A 30-minute Colab run is packaged at
+[`colab/colab_multidomain_30min.ipynb`](colab/colab_multidomain_30min.ipynb).
+It builds the 16-domain corpus from public releases, trains the 151M hybrid
+with hierarchical routing until a 30-minute wall-clock cap, and probes 16
+domains (131,072 held-out positions). On a T4 that is ~7.7M positions, not
+10M; on A100/H100 it is more.
+
+Colab has no published weekly GPU allowance; free GPU access is dynamic, Pro
+uses 100 units/month, Pro+ 500–600 units/month with priority A100/H100. There
+is no T100 GPU in Colab or Kaggle. Kaggle offers 30 GPU-hours/week with T4×2 or
+P100.
+
+---
+
+## 2026-11-12 — r32 multidomain domain-token pilot (latest measured)
 
 **Question:** on 16 domains, does the 151M-total / ~21M-active hybrid still tie
 the 21M dense model at matched active compute? Does a per-document domain token

@@ -289,7 +289,7 @@ class MirrorPairMoE(nn.Module):
         aux = self.pairs * (fraction * mean_prob).sum()
         if self.hierarchical and branch_idx is not None:
             bfrac = F.one_hot(branch_idx, self.branches).float().mean(0).detach()
-            bmean = self.last_branch_scores.softmax(-1).mean(0)
+            bmean = branch_scores.softmax(-1).mean(0)
             aux = aux + self.branches * (bfrac * bmean).sum()
         return out.reshape(b, t, d), aux
 

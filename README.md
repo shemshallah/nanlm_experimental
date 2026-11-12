@@ -11,7 +11,8 @@ domain-dependent: code and multilingual use ~39 effective pairs while most
 domains use ~100.
 
 - [`r32/EXPERIMENTS.md`](r32/EXPERIMENTS.md) — latest experiment log
-- [`r32/README.md`](r32/README.md) — multidomain corpus, domain-token scheme, how to run
+- [`r32/README.md`](r32/README.md) — multidomain corpus, domain-token scheme, hierarchical routing
+- [`r32/colab/colab_multidomain_30min.ipynb`](r32/colab/colab_multidomain_30min.ipynb) — 30-minute Colab run
 - [`r32/results/`](r32/results/) — per-domain BPB + 16×128 routing matrices
 - [`r31/EXPERIMENTS.md`](r31/EXPERIMENTS.md) — previous compute-matched/geometry log
 
@@ -19,11 +20,12 @@ domains use ~100.
 
 ```
 r32/
-  code/          domain-token Mirror LM, corpus builder, per-domain probe
+  code/          domain-token Mirror LM, hierarchical router, corpus builder, probe
+  colab/         30-minute multidomain notebook + quota instructions
   kernels/pilot/ Kaggle 16-domain pilot
   datasets/      source provenance and rebuild instructions
   results/       per-domain probes, summaries, train logs
-  EXPERIMENTS.md latest multidomain experiment
+  EXPERIMENTS.md latest multidomain experiment + hierarchical implementation
 
 r31/
   code/          compute-matched MoE + router-mode code
