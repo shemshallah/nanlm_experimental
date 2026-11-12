@@ -1,0 +1,41 @@
+{
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "task": "frozen-gain soft admission read-only dev ablation",
+  "long_windows": 8,
+  "gain_trials": {
+    "0.0": {
+      "bits_per_byte": 2.5659966774706318,
+      "nonspace_nll": 4.591845368685788,
+      "tokens": 10183,
+      "bytes": 18070,
+      "enabled_queries": 5964
+    },
+    "0.1": {
+      "bits_per_byte": 2.5659939875744104,
+      "nonspace_nll": 4.594154126165593,
+      "tokens": 10183,
+      "bytes": 18070,
+      "enabled_queries": 5964
+    },
+    "0.5": {
+      "bits_per_byte": 2.5664876225150075,
+      "nonspace_nll": 4.603856098658986,
+      "tokens": 10183,
+      "bytes": 18070,
+      "enabled_queries": 5964
+    },
+    "1.0": {
+      "bits_per_byte": 2.568216563057198,
+      "nonspace_nll": 4.617042055294725,
+      "tokens": 10183,
+      "bytes": 18070,
+      "enabled_queries": 5964
+    }
+  },
+  "promoted": false,
+  "warnings": [
+    "No R20 weights trained; copied values only from older causal positions",
+    "Historical development windows repeatedly used for experimental decisions",
+    "Does not evaluate paraphrase accuracy, multi-hop reasoning, or external new books"
+  ]
+}
