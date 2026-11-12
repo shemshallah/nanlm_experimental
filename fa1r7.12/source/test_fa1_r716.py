@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Small fail-closed causal, 32K retrieval and gate control tests."""
-import json,pathlib,sys
+import json,pathlib,sys,os
 import numpy as np,torch
 from fa1_r716_router import extract_paths, TrustRouter, CHANNELS, FEATURE_DIM, SCALES, nll
 
@@ -53,7 +53,7 @@ def run():
     assert [x['n'] for x in out]==[1,1,1,1]
     assert [x['target_probability'] for x in out]==[1.,1.,1.,1.]
     tests.append('causal_1_2_3_4_gram_alignment')
-    path=pathlib.Path('/mnt/data/fa1_r716_work/reports/FA1_R7p16_225.json')
+    path=pathlib.Path(os.environ.get('FA1_R716_REPORT', str(pathlib.Path(__file__).resolve().parent.parent/'reports/FA1_R7p16_225.json')))
     if path.exists():
         report=json.loads(path.read_text())
         assert report['parent_verified_unmodified'] and report['five_optimizer_histories_unchanged']
