@@ -1,0 +1,24 @@
+{
+  "round": "FA1 R7.19 actual R7.13+R7.16+R7.18 parity",
+  "accepted_parent_step": 14416,
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "five_optimizer_histories": 5,
+  "r716_overlay_sha256": "436ff87fae69ef1f44b53e2ffde92313da408342f65a1897c6eaff1876f9c09c",
+  "r718_overlay_sha256": "f4d9175ff202d9ec1ff3a06dcddfd3d262cea25f8441fa5dab972a313309aa9f",
+  "split": "test",
+  "historical_examples": 4,
+  "positions": [
+    139112,
+    260953,
+    276923,
+    380691
+  ],
+  "maximum_abs_feature_error": 7.450580596923828e-09,
+  "maximum_abs_gate_error": 0.0,
+  "maximum_abs_NLL_error_nats_per_word": 0.0,
+  "mean_r718_reference_NLL": 5.0530571937561035,
+  "mean_r719_indexed_NLL": 5.0530571937561035,
+  "parity_passed": true,
+  "heldout_books": false,
+  "promoted": false
+}
