@@ -109,3 +109,11 @@ CPU: **1,000 cumulative gate-only updates**, with actual gate Adam moments resto
 ### FA2.2 R21 400-chunk follow-up
 
 Reusing the *unchanged, frozen* 1,000-update gate at the same 400-chunk windows as R20 yielded long BPB **2.562485 dev / 2.410224 historical test** and non-space NLL **4.584142 dev / 4.519880 historical test**. Both outperform the R20 gain-1 control and accepted R18 on these historical windows. No retraining or hyperparameter selection occurred on these 400-chunk windows for R21; these are nevertheless heavily reused historical splits, not new books. The accepted SHA remains `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`. Full evidence: `reports/r21_400_horizon_probe.json`.
+
+## FA2.3 R22 — 1,000-step 32K-addressed memory milestone (2026-11-12)
+
+FA2.3 adds **414 trainable relevance/novelty gate parameters** in three causal memory tiers (65–2,048 / 2,048–8,192 / 8,192–32,768 token distances), using frozen R18 query/key projections, R21 inherited gate and *same* accepted R18 LM. Disk-backed feature caching enables 96 diverse training book windows within 4 GiB RAM. R22 was resumed from 300 to **1,000 cumulative CPU updates**, preserving its own Adam history. No accepted LM weights, inherited optimizer moments, or R21 state were reset or modified.
+
+Frozen 400-chunk evaluation, eight windows/split: R18 dev/test BPB **2.565997 / 2.413332**, R21 **2.562485 / 2.410224**, R22 **2.549748 / 2.401243**. Near/mid/far independently improve historical-test BPB, with far source reads beyond 32K. Structural suites R18 16/16, R19 12/12, R22 11/11 passed. **No promotion**: historical test corpus has been consulted in previous research, and independent semantic QA, paraphrase and multi-hop evidence is absent. Accepted checkpoint remains **10,756 updates** and SHA-256 `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`.
+
+See `docs/FA2_3_R22.md`, `reports/r22_horizon400.json`, `reports/r22_scale_ablation.json`, and `reports/r22_multiscale_candidate.pth.b64` (small nonpromoted adapter plus Adam moments, NOT a replacement checkpoint).
