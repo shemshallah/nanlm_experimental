@@ -35,7 +35,7 @@ class ContinuousPALState:
 
     def forward_chunk(self, model, bridge, adapter, hidden, targets, tags, *,
                       book_id, token_offset, chunk_tag_offset,
-                      detach_after=False):
+                      detach_after=False, return_states=False):
         """Process contiguous token/word state using strictly previous targets.
 
         hidden: [B, words_in_this_chunk, D], computed from previous lexical
@@ -67,6 +67,7 @@ class ContinuousPALState:
             raise ValueError("batch/hidden dimensions changed mid-document")
         retain = torch.sigmoid(bridge.retain_logit)
         logits = []
+        states = [] if return_states else None
         for t in range(T):
             local_tag = tags[:, t]
             global_tag = local_tag + chunk_tag_offset
@@ -98,13 +99,15 @@ class ContinuousPALState:
                     del self.key_history[0]
                     del self.value_history[0]
             logits.append(model.memory.subword_out(out))
+            if return_states:
+                states.append(out)
             self.previous = targets[:, t]
             self.last_tag = global_tag
         self.cursor += T
         output = torch.stack(logits, dim=1)
         if detach_after:
             self.detach()
-        return output
+        return (output, torch.stack(states, dim=1)) if return_states else output
 
     def snapshot(self):
         """Diagnostic only. Never serialize model weights into this state."""
