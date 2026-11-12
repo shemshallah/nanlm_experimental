@@ -83,6 +83,12 @@ def main(args):
     net=R18LongMemory(model.memory.piece_emb.weight)
     net.load_state_dict(saved['r18_memory'])
     opt,history=build_joint_optimizer(opt,net,saved,args.lr_memory)
+    if not (0 < args.lr_scale <= 1):
+        raise ValueError("--lr-scale must be in (0,1]")
+    for group in opt.param_groups:
+        group["lr"] *= args.lr_scale
+    history["lr_scale"] = args.lr_scale
+    history["effective_lrs"] = [float(group["lr"]) for group in opt.param_groups]
     assert len(opt.param_groups)==5
     assert history.get('restored_moments',len(list(net.parameters())))==len(list(net.parameters()))
     docs,_=read_books_cached(root/'nanrouter',comp,r6.vocab,0)
@@ -152,6 +158,7 @@ if __name__=='__main__':
     p.add_argument('--train-windows',type=int,default=500);p.add_argument('--short-windows',type=int,default=32)
     p.add_argument('--long-windows',type=int,default=8);p.add_argument('--max-tokens',type=int,default=2000)
     p.add_argument('--lr-memory',type=float,default=0.00005);p.add_argument('--min-gain',type=float,default=.0001)
+    p.add_argument('--lr-scale',type=float,default=1.0,help='Scale all restored optimizer learning rates, preserving Adam moments')
     p.add_argument('--legacy-margin',type=float,default=.01)
     p.add_argument('--promote',action='store_true')
     main(p.parse_args())
