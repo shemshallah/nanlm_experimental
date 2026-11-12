@@ -1,0 +1,228 @@
+{
+  "codename": "FA2.1",
+  "source_checkpoint": "checkpoint/r12_active.pal12",
+  "source_checkpoint_bytes": 121882910,
+  "source_checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "compression": "zlib",
+  "compressed_bytes": 73823829,
+  "compressed_sha256": "aafef58a1300d5932aa2a432a132de3a542c58cd5f4ee61aa9f70fe83fb47f55",
+  "chunk_bytes_max": 2097152,
+  "parts": [
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-000",
+      "length": 2097152,
+      "sha256": "ccf97ceb7c0e61936a895f88b4131ea78ddf669453974713ca8643250b162270",
+      "staging": "ckpt_000.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-001",
+      "length": 2097152,
+      "sha256": "35c1397cff615fce8990884a4a4e70c489cd17d31a07e18b76fdbfd35d7676b7",
+      "staging": "ckpt_001.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-002",
+      "length": 2097152,
+      "sha256": "5689f6c6ffb4a55dcbb5fdd4f197c865a524071f549c38f7e327d86442608e16",
+      "staging": "ckpt_002.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-003",
+      "length": 2097152,
+      "sha256": "b7ab5784a650dd068361924ad85c48b3ca86aca6252235a2b35f6793768ae936",
+      "staging": "ckpt_003.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-004",
+      "length": 2097152,
+      "sha256": "ec6a1172c1446f8160ac1455c2a14278b1c978a814e9cfd670edaef8e8d08378",
+      "staging": "ckpt_004.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-005",
+      "length": 2097152,
+      "sha256": "91b2521702302dc4d070b6e51df9b66a2e79497566d3861868e5f67917e6ebc5",
+      "staging": "ckpt_005.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-006",
+      "length": 2097152,
+      "sha256": "5cdc31c1d6a0bb11f46f9bbeb9512dcc1aa3795b13215a0eee09db19bb347b08",
+      "staging": "ckpt_006.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-007",
+      "length": 2097152,
+      "sha256": "b6a4c4b11b0d5134cb06315b1eb16d4abcdc69d93d132744a738036595eb7033",
+      "staging": "ckpt_007.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-008",
+      "length": 2097152,
+      "sha256": "5cfb89512807c7dd38521de107e251c08c848d42dcdcc17f52dbe4d29df3daa5",
+      "staging": "ckpt_008.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-009",
+      "length": 2097152,
+      "sha256": "8a7cfc8d3c06647f52a8fc1b9cde1e7c0eb330b36c59a5f85b7bc576a4b67148",
+      "staging": "ckpt_009.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-010",
+      "length": 2097152,
+      "sha256": "4aeea44121f2ad9b5de53c65f908578e6d192b9747dfda23e42b26db0bd91336",
+      "staging": "ckpt_010.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-011",
+      "length": 2097152,
+      "sha256": "22d428170b108380029bb1607f2e3fb914408282ae077b93a3746f2a05c4ec49",
+      "staging": "ckpt_011.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-012",
+      "length": 2097152,
+      "sha256": "c530ce63bb62b227da40994f13a7352cdc5ed6d2614c5d6df9a9be6d4d809716",
+      "staging": "ckpt_012.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-013",
+      "length": 2097152,
+      "sha256": "fa24c00a5f38d83a1da37216c4955925e3d4b44399c40f8e9c5c482fe2cba6d5",
+      "staging": "ckpt_013.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-014",
+      "length": 2097152,
+      "sha256": "09ba4ac21732e8f9a6ca0b39cf24a73fb70263491a446b4a14e979848dca5b5f",
+      "staging": "ckpt_014.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-015",
+      "length": 2097152,
+      "sha256": "794f932b2a5077157d4876b77021a95400715b5bc41728026faf44dad2d3f1ef",
+      "staging": "ckpt_015.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-016",
+      "length": 2097152,
+      "sha256": "45820174fabee9f63c49a043fad4c82bd5bc141932d84653420180e93bfd3ca1",
+      "staging": "ckpt_016.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-017",
+      "length": 2097152,
+      "sha256": "89ea0e12c066083932213aec407b5dbde29845cdfdffedbfad85366371749a97",
+      "staging": "ckpt_017.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-018",
+      "length": 2097152,
+      "sha256": "ffbf473843e14f2246816de6c38f39bb55315ea237139a944713693bf1ab768c",
+      "staging": "ckpt_018.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-019",
+      "length": 2097152,
+      "sha256": "8ec02657ef5937ac2b1f75437e8f57badbfd7e2161879203b339a77b81309b19",
+      "staging": "ckpt_019.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-020",
+      "length": 2097152,
+      "sha256": "20d2864b861fd3c00b061dcb1f1891e64a40a2ce7788a3729d4d4defb68fecef",
+      "staging": "ckpt_020.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-021",
+      "length": 2097152,
+      "sha256": "ba1521c6fe99da4136331fe62d31d3a84f625c66d15bc133c3790560d8f1baaf",
+      "staging": "ckpt_021.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-022",
+      "length": 2097152,
+      "sha256": "69e02dedf5e39c7235a52a94d8af93da7315e06763857ced3ec4082290415f50",
+      "staging": "ckpt_022.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-023",
+      "length": 2097152,
+      "sha256": "d2339243fc65626a05a70b641290fd85d874c9d749d4d71f766b344e3a642272",
+      "staging": "ckpt_023.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-024",
+      "length": 2097152,
+      "sha256": "7086146a866f833cc467499c94242857abb6d9e34a50d9efa4d4a4a0522ba621",
+      "staging": "ckpt_024.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-025",
+      "length": 2097152,
+      "sha256": "a8a0466ade2a807f73e18c97dfaa9c9ec5e99338f5d92fd6fc6c20d96913a861",
+      "staging": "ckpt_025.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-026",
+      "length": 2097152,
+      "sha256": "7694a19643dd6bcaad3ae2aff60b674e3b1ec5168909741d9bb3e1132c7715f8",
+      "staging": "ckpt_026.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-027",
+      "length": 2097152,
+      "sha256": "96ade848a46723ce85a6263f50b7f9e0882670f39feb9625bdf20e1a6b91131c",
+      "staging": "ckpt_027.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-028",
+      "length": 2097152,
+      "sha256": "75bd7d6add9357c0415315e97544b830fac790b0fae6c93e7b7613b76a494c22",
+      "staging": "ckpt_028.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-029",
+      "length": 2097152,
+      "sha256": "a71bf77491c0805d38f0bedfe79d3135a0c6c0f012bb46e299f023ae90de3703",
+      "staging": "ckpt_029.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-030",
+      "length": 2097152,
+      "sha256": "4e502bb964f1b535de73fe2bce6a270817b940415e44d44bf6cb49bae1b2825b",
+      "staging": "ckpt_030.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-031",
+      "length": 2097152,
+      "sha256": "ee6ba278b21557d270d6f3f4db71305273efbebeefbcbe92e440b33d55052677",
+      "staging": "ckpt_031.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-032",
+      "length": 2097152,
+      "sha256": "34bd9a538aa680f5124f27efb788dbf26fbd3c01fcee510d6f28a1c608dc06fe",
+      "staging": "ckpt_032.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-033",
+      "length": 2097152,
+      "sha256": "afb4d86623334217bac3ed7c1682a420c1f7b1b914f46db92044b741bdbb3fc2",
+      "staging": "ckpt_033.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-034",
+      "length": 2097152,
+      "sha256": "1bc6b1cffa6cef21e1e005e44f658097173e3a512835c2cf52b8842aff846b45",
+      "staging": "ckpt_034.txt"
+    },
+    {
+      "path": "checkpoint_parts/r12_active.pal12.zlib.part-035",
+      "length": 423509,
+      "sha256": "b817589e1e8869af22416211a7c645d986da68eb359c618aefb2c24dc11d8265",
+      "staging": "ckpt_035.txt"
+    }
+  ]
+}
