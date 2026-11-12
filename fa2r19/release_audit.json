@@ -1,0 +1,8 @@
+{
+  "archive_sha256": "0761209f51c7eef54e6e0cee6606d01ede4b2231b6dd1222e481e7dc7b20eef9",
+  "checkpoint_path": "checkpoint/r12_active.pal12",
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "entries": 239,
+  "uncompressed_bytes": 216480770,
+  "valid": true
+}
