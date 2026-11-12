@@ -9,8 +9,10 @@ prototype, not a frontier-scale trained model.
 |---|---|---|
 | Attention | full causal | **sliding-window local + global every 4th layer** |
 | Q/K stability | none | **QK-RMSNorm per head** |
-| Position | RoPE base 10k | **configurable RoPE base** (for long-context scaling) |
+| Position | RoPE base 10k | **YaRN/NTK RoPE, 8k position cache** |
 | MoE | 128 mirror pairs, top-8 | **32 routed experts, top-2, +2 shared experts** |
+| MoE dispatch | Python expert loop | **gather + einsum vectorized top-k** |
+| Memory | hashed n-gram path | **optional learned cross-attention + sparse n-gram bias** |
 | MoE aux | load balance | **load balance + router z-loss** |
 | Prediction | next token + S− | **multi-token prediction (MTP)** |
 | Dense FFN | SwiGLU 1024 | **SwiGLU 1536** |
@@ -62,14 +64,29 @@ dominate.
   utilization, zero-shot tasks, and held-out document splits.
 - **Serving:** KV cache, MoE expert parallelism, quantization, retrieval.
 
-## Next code steps
+## Integrated next steps (Nov 12)
 
-1. Add a v3 training harness with MTP loss and fixed validation.
-2. Add YaRN/NTK RoPE scaling for 4k–8k context.
-3. Add memory cross-attention to the hashed n-gram store.
-4. Add distributed expert dispatch; the current expert loop is a correctness
-   prototype, not a throughput kernel.
-5. Run a 30-minute single-GPU smoke before any larger run.
+1. **Training harness:** `train_v3.py` implements MTP loss, fixed validation,
+   time-based cosine LR, EMA, AMP, resume, and best/final/EMA artifacts.
+2. **Long context:** `rope_scaling.py` implements standard, NTK, and YaRN RoPE
+   with an 8,192-position cache. `V3Config.rope_scaling="auto"` selects
+   standard RoPE at 1k and YaRN above the original 1k window.
+3. **Memory:** `memory_attention.py` adds 1M-slot hashed 4-gram retrieval plus
+   learned memory cross-attention. Enable with `--use-memory`; the store is
+   built from the training split with `--memory-max-tokens`.
+4. **Expert dispatch:** `moe_vectorized.py` replaces the per-expert loop with
+   gathered top-k weights and batched einsums. `v3_model.SparseMoE` wraps it.
+5. **Evaluation:** `eval_v3.py` reports bits/token, top-1/top-5, MTP accuracy,
+   router utilization, and per-corpus metrics.
+6. **Single-GPU smoke:** `v3_colab.ipynb` / `COLAB_V3.md` run the mixed-corpus
+   v3 smoke on a T4. An 8k full-model run needs more GPU memory than a T4.
+
+## Remaining scale work
+
+- Distributed expert dispatch / expert parallelism for multi-GPU runs.
+- Checkpoint sharding and FP8/BF16 training at the 286M+ profile.
+- A held-out document-disjoint evaluation suite, not just random windows.
+- A real 20B-token run; the current evidence is short smoke runs only.
 
 ## Smoke check
 

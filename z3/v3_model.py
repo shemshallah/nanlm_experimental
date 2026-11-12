@@ -4,10 +4,12 @@
 Architecture changes over v2:
 
   * QK-RMSNorm inside attention for stability
-  * RoPE with configurable base and optional long-context scaling
+  * RoPE with YaRN/NTK scaling for an 8k position range
   * sliding-window local attention + periodic full-causal global layers
   * sparse MoE with 32 routed experts, top-2, plus 2 shared experts
+  * vectorized top-k expert dispatch (no Python per-expert forward loop)
   * multi-token prediction (MTP) heads for better data efficiency
+  * optional learned memory cross-attention + sparse hashed n-gram bias
   * pre-LN / RMSNorm / SwiGLU throughout
   * tied main output embedding; separate small MTP heads
 
@@ -23,11 +25,42 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
+    from .memory_attention import MemoryCrossAttention, V3MemoryPath
+    from .moe_vectorized import VectorizedSparseMoE
+    from .rope_scaling import build_rope
+except ImportError:  # pragma: no cover - script execution path
+    from memory_attention import MemoryCrossAttention, V3MemoryPath
+    from moe_vectorized import VectorizedSparseMoE
+    from rope_scaling import build_rope
+
 
 @dataclass
 class V3Config:
     vocab_size: int = 32000
     ctx: int = 1024
+    # Long-context RoPE.  ``max_ctx`` is the architecture limit; with
+    # ``rope_scaling="auto"`` the model uses YaRN when ctx exceeds the
+    # original 1k training window, and standard RoPE otherwise.
+    max_ctx: int = 8192
+    rope_scaling: str = "auto"  # auto | none | ntk | yarn
+    rope_factor: float = 8.0
+    rope_original_ctx: int = 1024
+    rope_beta_fast: float = 32.0
+    rope_beta_slow: float = 1.0
+    rope_attention_factor: float | None = None
+    # Optional memory path: learned global slots plus a sparse hashed
+    # n-gram logit bias.  Off by default; build the n-gram store with
+    # ``V3LM.build_memory(tokens)`` before training/evaluation.
+    use_memory: bool = False
+    use_ngram_memory: bool = True
+    memory_slots: int = 256
+    memory_heads: int = 4
+    memory_dropout: float = 0.0
+    memory_size: int = 1 << 20
+    memory_order: int = 4
+    memory_min_count: int = 5
+    memory_alpha_init: float = 0.1
     d_model: int = 384
     n_layers: int = 12
     n_heads: int = 12
@@ -54,23 +87,6 @@ class RMSNorm(nn.Module):
         return self.weight * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
 
-class RoPE(nn.Module):
-    def __init__(self, head_dim: int, base: float = 10000.0):
-        super().__init__()
-        self.head_dim = head_dim
-        inv = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
-        self.register_buffer("inv_freq", inv, persistent=False)
-
-    def forward(self, x):
-        t = torch.arange(x.shape[-2], device=x.device, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        emb = torch.cat([freqs, freqs], dim=-1)
-        cos = emb.cos()[None, None, :, :]
-        sin = emb.sin()[None, None, :, :]
-        x1, x2 = x.chunk(2, dim=-1)
-        return x * cos + torch.cat([-x2, x1], dim=-1) * sin
-
-
 class Attention(nn.Module):
     def __init__(self, cfg: V3Config, layer: int):
         super().__init__()
@@ -80,7 +96,23 @@ class Attention(nn.Module):
         self.out = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
         self.q_norm = RMSNorm(self.dh)
         self.k_norm = RMSNorm(self.dh)
-        self.rope = RoPE(self.dh, cfg.rope_base)
+        scaling = cfg.rope_scaling.lower()
+        if scaling == "auto":
+            scaling = "yarn" if cfg.ctx > cfg.rope_original_ctx else "none"
+        factor = cfg.rope_factor
+        if factor < 1.0:
+            factor = max(1.0, cfg.ctx / max(1, cfg.rope_original_ctx))
+        self.rope = build_rope(
+            self.dh,
+            base=cfg.rope_base,
+            max_context=max(cfg.max_ctx, cfg.ctx),
+            original_context=cfg.rope_original_ctx,
+            scaling=scaling,
+            factor=factor,
+            beta_fast=cfg.rope_beta_fast,
+            beta_slow=cfg.rope_beta_slow,
+            attention_factor=cfg.rope_attention_factor,
+        )
         self.drop = cfg.dropout
         self.is_global = layer % cfg.global_every == 0
         self.window = cfg.window
@@ -123,42 +155,21 @@ class SwiGLU(nn.Module):
 
 
 class SparseMoE(nn.Module):
+    """Backward-compatible wrapper around the vectorized top-k MoE.
+
+    The old implementation looped over every expert in Python.  The inner
+    module gathers top-k expert weights and uses batched einsums, while this
+    wrapper keeps the ``(out, load_balance, router_z)`` contract used by Block.
+    """
+
     def __init__(self, cfg: V3Config):
         super().__init__()
         self.cfg = cfg
-        self.gate = nn.Linear(cfg.d_model, cfg.n_experts, bias=False)
-        self.experts = nn.ModuleList(
-            [SwiGLU(cfg.d_model, cfg.expert_hidden, cfg.d_model, cfg.dropout)
-             for _ in range(cfg.n_experts)]
-        )
-        self.shared = nn.ModuleList(
-            [SwiGLU(cfg.d_model, cfg.expert_hidden, cfg.d_model, cfg.dropout)
-             for _ in range(cfg.shared_experts)]
-        )
+        self.inner = VectorizedSparseMoE.from_config(cfg)
 
     def forward(self, x):
-        b, t, d = x.shape
-        flat = x.reshape(-1, d)
-        logits = self.gate(flat)
-        probs = F.softmax(logits, dim=-1)
-        topv, topi = torch.topk(logits, k=self.cfg.topk, dim=-1)
-        w = F.softmax(topv, dim=-1)
-        out = torch.zeros_like(flat)
-        for e, expert in enumerate(self.experts):
-            hit = (topi == e).nonzero(as_tuple=False)
-            if hit.numel() == 0:
-                continue
-            rows, slots = hit[:, 0], hit[:, 1]
-            out[rows] += w[rows, slots].unsqueeze(-1) * expert(flat[rows])
-        for expert in self.shared:
-            out += expert(flat)
-        # Switch-style load balance + router z-loss.
-        mask = torch.zeros_like(logits).scatter_(1, topi, 1.0)
-        f = mask.mean(dim=0)
-        p = probs.mean(dim=0)
-        lb = self.cfg.n_experts * (f * p).sum()
-        z = torch.logsumexp(logits, dim=-1).pow(2).mean()
-        return out.view(b, t, d), lb, z
+        out, aux = self.inner(x)
+        return out, aux["load_balance"], aux["router_z"]
 
 
 class Block(nn.Module):
@@ -196,8 +207,39 @@ class V3LM(nn.Module):
             [nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
              for _ in range(max(0, cfg.mtp - 1))]
         )
+        self.memory_path = None
+        self.memory_cross = None
+        if cfg.use_memory:
+            mem_heads = cfg.memory_heads or cfg.n_heads
+            if cfg.d_model % mem_heads != 0:
+                raise ValueError("d_model must be divisible by memory_heads")
+            if cfg.use_ngram_memory:
+                self.memory_path = V3MemoryPath(
+                    cfg.d_model,
+                    mem_heads,
+                    cfg.vocab_size,
+                    n_slots=cfg.memory_slots,
+                    memory_size=cfg.memory_size,
+                    order=cfg.memory_order,
+                    min_count=cfg.memory_min_count,
+                    alpha_init=cfg.memory_alpha_init,
+                    dropout=cfg.memory_dropout,
+                )
+            else:
+                self.memory_cross = MemoryCrossAttention(
+                    cfg.d_model,
+                    mem_heads,
+                    n_slots=cfg.memory_slots,
+                    dropout=cfg.memory_dropout,
+                )
         self.apply(self._init)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
+
+    def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
+        """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
+        if self.memory_path is not None:
+            self.memory_path.build_memory(tokens, max_tokens=max_tokens)
+        return self
 
     @staticmethod
     def _init(m):
@@ -214,10 +256,18 @@ class V3LM(nn.Module):
             if lb is not None:
                 lbs.append(lb)
                 zs.append(z)
+        mem_aux = {}
+        if self.memory_path is not None:
+            x, mem_aux = self.memory_path.cross(x)
+        elif self.memory_cross is not None:
+            x, mem_aux = self.memory_cross(x)
         x = self.norm(x)
         main = x @ self.tok.weight.T
+        if self.memory_path is not None:
+            # Sparse n-gram bias; empty until build_memory() is called.
+            self.memory_path.logit_bias(tokens).add_(main)
         mtp = [head(x) for head in self.mtp_heads]
-        aux = {}
+        aux = dict(mem_aux)
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()
             aux["router_z"] = torch.stack(zs).mean()
