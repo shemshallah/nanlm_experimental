@@ -171,8 +171,8 @@ def main() -> int:
             "collection": name, "release_tag": tag, "file": filename, "domain": domain,
             "url": url, "sampled_bytes": len(raw), "usable_documents": len(kept),
             "train_documents": len(train), "valid_documents": len(valid),
-            "train_bytes": sum(len(d.encode("utf-8")) for _, d in train),
-            "valid_bytes": sum(len(d.encode("utf-8")) for _, d in valid),
+            "train_bytes": sum(len(d.encode("utf-8")) for _, d, _ in train),
+            "valid_bytes": sum(len(d.encode("utf-8")) for _, d, _ in valid),
             "elapsed_seconds": round(time.time() - started, 2),
         })
         print(f"  docs train={len(train)} valid={len(valid)}", flush=True)
