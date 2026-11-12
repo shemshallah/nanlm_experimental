@@ -1,0 +1,212 @@
+name: Diamond 1000-epoch NaNROUTER CPU training
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: 'Target epochs (1-1000)'
+        type: string
+        required: true
+        default: '1000'
+      examples:
+        description: 'Training examples per epoch (256-8000)'
+        type: string
+        required: true
+        default: '4000'
+      corpus_chars:
+        description: 'NaNROUTER corpus characters (500000-4000000)'
+        type: string
+        required: true
+        default: '2000000'
+      time_budget_minutes:
+        description: 'Graceful stop after N minutes; 0 disables (0-330)'
+        type: string
+        required: true
+        default: '330'
+      resume:
+        description: 'Resume from the latest diamond-state artifact if present'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: diamond-1000-nanrouter
+  cancel-in-progress: false
+
+jobs:
+  train:
+    name: Diamond 1000 epochs on NaNROUTER corpora
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      TF_CPP_MIN_LOG_LEVEL: '2'
+      OMP_NUM_THREADS: '4'
+      TF_NUM_INTRAOP_THREADS: '4'
+      TF_NUM_INTEROP_THREADS: '2'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout engine and reports
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CPU TensorFlow and zstd
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          python -m pip install --upgrade pip
+          python -m pip install 'tensorflow-cpu==2.16.2' 'keras==3.0.5' 'numpy==1.26.4'
+
+      - name: Clone NaNROUTER and fetch SHA-pinned corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/shemshallah/NaNROUTER.git "$RUNNER_TEMP/NaNROUTER"
+          mkdir -p \
+            "$RUNNER_TEMP/nanrouter-download" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/short_stories/books-0001" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001"
+          cd "$RUNNER_TEMP/nanrouter-download"
+
+          gh release download corpora-short-stories-0001 \
+            -R shemshallah/NaNROUTER -p 'short_stories-0001.tar.zst'
+          echo 'bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5  short_stories-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf short_stories-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/short_stories/books-0001"
+
+          gh release download corpora-sentences-0001 \
+            -R shemshallah/NaNROUTER -p 'sentences-0001.tar.zst'
+          echo '3ea4ee9882ee8127e298a5c1c3208b99cb95b2b3d8bf80d7380fead7ee7c644b  sentences-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf sentences-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001"
+
+          echo "short-story files: $(find "$RUNNER_TEMP/NaNROUTER/corpora/short_stories" -type f -name '*.txt' | wc -l)"
+          echo "sentence files:    $(find "$RUNNER_TEMP/NaNROUTER/corpora/sentences" -type f -name '*.txt' | wc -l)"
+          du -sh "$RUNNER_TEMP/NaNROUTER/corpora"
+
+      - name: Restore latest resumable diamond state
+        if: ${{ inputs.resume == true || inputs.resume == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diamond/state
+          for id in $(gh run list --repo "$GH_REPO" --workflow diamond-1000.yml \
+              --status success --limit 10 --json databaseId \
+              --jq '.[].databaseId' 2>/dev/null || true); do
+            rm -rf "$RUNNER_TEMP/diamond-resume"
+            mkdir -p "$RUNNER_TEMP/diamond-resume"
+            if gh run download "$id" --repo "$GH_REPO" --name diamond-state \
+                --dir "$RUNNER_TEMP/diamond-resume" >/dev/null 2>&1; then
+              find "$RUNNER_TEMP/diamond-resume" -type f -exec cp -f {} diamond/state/ \;
+              if test -s diamond/state/diamond_state.npz; then
+                echo "Resuming from artifact of successful run $id"
+                break
+              fi
+            fi
+          done
+          ls -lh diamond/state || true
+
+      - name: Train with per-epoch reporting
+        shell: bash
+        env:
+          EPOCHS: ${{ inputs.epochs }}
+          EXAMPLES: ${{ inputs.examples }}
+          CORPUS_CHARS: ${{ inputs.corpus_chars }}
+          TIME_BUDGET: ${{ inputs.time_budget_minutes }}
+        run: |
+          set -euo pipefail
+          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=1000
+          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=1000
+          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=4000
+          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=4000
+          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=2000000
+          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 4000000 )) || CORPUS_CHARS=2000000
+          [[ "$TIME_BUDGET" =~ ^[0-9]+$ ]] || TIME_BUDGET=330
+          (( TIME_BUDGET >= 0 && TIME_BUDGET <= 330 )) || TIME_BUDGET=330
+
+          echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m"
+          python diamond/diamond_engine.py \
+            --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
+            --require-real-corpus \
+            --epochs "$EPOCHS" \
+            --examples "$EXAMPLES" \
+            --batch 64 \
+            --byte-win 1024 --word-win 128 --sent-win 32 \
+            --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
+            --file-read-chars 20000 --max-files 4000 \
+            --test-size 512 --eval-every 10 --eval-batch 64 \
+            --lr 0.0025 --lr-schedule cosine --warmup-epochs 20 \
+            --grad-clip 1.0 --weight-decay 0.01 --dropout 0.1 \
+            --save-every 25 --report-every-steps 100 \
+            --time-budget-minutes "$TIME_BUDGET" \
+            --checkpoint diamond/state/diamond_state.npz \
+            --history diamond/state/diamond_history.jsonl \
+            --out diamond/state/diamond_metrics.json \
+            --self-loop-every 50 --self-streams 32 --self-steps 8 \
+            --threads 4 --memory-limit-gb 0 \
+            --seed 11
+
+      - name: Copy per-epoch reports
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p diamond/reports
+          cp -f diamond/state/diamond_metrics.json diamond/reports/ 2>/dev/null || true
+          cp -f diamond/state/diamond_history.jsonl diamond/reports/ 2>/dev/null || true
+          echo '--- latest epoch records ---'
+          tail -20 diamond/state/diamond_history.jsonl 2>/dev/null || true
+
+      - name: Upload resumable checkpoint and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diamond-state
+          path: diamond/state/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Commit the per-epoch report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s diamond/reports/diamond_metrics.json ]; then
+            echo 'No metrics produced; nothing to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diamond/reports
+          if git diff --cached --quiet; then
+            echo 'Report unchanged'
+            exit 0
+          fi
+          EPOCH=$(python -c 'import json; d=json.load(open("diamond/reports/diamond_metrics.json")); print(d.get("completed_epochs",0))')
+          git commit -m "diamond: per-epoch NaNROUTER report through epoch $EPOCH"
+          for retry in 1 2 3; do
+            git fetch origin master
+            git rebase origin/master
+            if git push origin HEAD:master; then
+              echo "Report pushed on attempt $retry"
+              exit 0
+            fi
+          done
+          echo 'Could not push the report after three attempts' >&2
+          exit 1
