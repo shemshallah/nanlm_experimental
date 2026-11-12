@@ -3,9 +3,9 @@ name: FA2 R23 - 64 token context and parallel CPU training
 on:
   push:
     branches: [master, fa2-r23-context64-parallel]
-    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/source/test_r23_stream_carry.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
   pull_request:
-    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
+    paths: ['fa2r19/source/r23_*.py', 'fa2r19/source/test_r23_context64.py', 'fa2r19/source/test_r23_stream_carry.py', 'fa2r19/docs/FA2_4_R23.md', '.github/workflows/fa2-r23-parallel.yml']
   workflow_dispatch:
     inputs:
       archive_url:
@@ -38,6 +38,7 @@ jobs:
           python -m compileall -q fa2r19/source
           cd fa2r19/source
           python test_r23_context64.py
+          python test_r23_stream_carry.py
       - name: Verify original checkpoint has not changed
         run: |
           python fa2r19/restore_fa2_checkpoint.py --root fa2r19
