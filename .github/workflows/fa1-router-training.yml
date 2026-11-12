@@ -1,0 +1,133 @@
+name: FA1 CPU temporal router training (NaNROUTER)
+
+on:
+  workflow_dispatch:
+    inputs:
+      updates:
+        description: 'CPU Adam steps for auxiliary revision router (not FA1 LM)'
+        required: false
+        default: '512'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-router-training.yml'
+      - 'fa1r7.12/source/fa1_actions_revision_train.py'
+      - 'fa1r7.12/actions/router_seed.json'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: fa1-temporal-router-cpu
+  cancel-in-progress: false
+
+jobs:
+  auxiliary-revision-router:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PYTHONHASHSEED: '0'
+    steps:
+      - name: Checkout exact FA1 sources
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install zstd for the public NaNROUTER corpus
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+
+      - name: Download and checksum NaNROUTER Gutenberg books
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fa1-book-download" "$RUNNER_TEMP/fa1-books"
+          cd "$RUNNER_TEMP/fa1-book-download"
+          gh release download corpora-short-stories-0001 \
+            -R shemshallah/NaNROUTER \
+            -p 'short_stories-0001.tar.zst' \
+            -p 'short_stories-0001.SHA256SUMS'
+          sha256sum -c short_stories-0001.SHA256SUMS
+          tar --zstd -xf short_stories-0001.tar.zst -C "$RUNNER_TEMP/fa1-books"
+          find "$RUNNER_TEMP/fa1-books" -type f -name '*.txt' | head -5 || true
+
+      - name: Restore previous auxiliary-only router state if available
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fa1-prior"
+          cp fa1r7.12/actions/router_seed.json "$RUNNER_TEMP/fa1-prior/input.json"
+          # Latest successful Actions artifact is an optional continuation.
+          for id in $(gh run list --repo "$GH_REPO" --workflow fa1-router-training.yml \
+            --status success --limit 6 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
+            mkdir -p "$RUNNER_TEMP/fa1-resume-candidate"
+            if gh run download "$id" --repo "$GH_REPO" \
+                --name fa1-router-state --dir "$RUNNER_TEMP/fa1-resume-candidate" >/dev/null 2>&1 \
+                && test -s "$RUNNER_TEMP/fa1-resume-candidate/router_state.json"; then
+              cp "$RUNNER_TEMP/fa1-resume-candidate/router_state.json" "$RUNNER_TEMP/fa1-prior/input.json"
+              echo "Resume from successful run $id"
+              break
+            fi
+          done
+          python - "$RUNNER_TEMP/fa1-prior/input.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['accepted_checkpoint_sha256']=='54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d'
+          assert d.get('surrogate_training_promoted') is False
+          assert len(d['weights'])==3 and len(d['adam']['m'])==3
+          print('FA1 accepted-parent identity and auxiliary optimizer state verified')
+          PY
+
+      - name: Train CPU router on whole-book-disjoint Gutenberg samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          STEPS='${{ inputs.updates }}'
+          if [[ ! "$STEPS" =~ ^[0-9]+$ ]] || ((STEPS<1 || STEPS>10000)); then STEPS=512; fi
+          mkdir -p fa1r7.12/actions/out
+          python fa1r7.12/source/fa1_actions_revision_train.py \
+            --books "$RUNNER_TEMP/fa1-books" \
+            --seed "$RUNNER_TEMP/fa1-prior/input.json" \
+            --report fa1r7.12/actions/out/actions_latest.json \
+            --out-state fa1r7.12/actions/out/router_state.json \
+            --updates "$STEPS" --max-books 160 --windows-per-book 2 \
+            --examples-per-window 5
+
+      - name: Upload checkpoint-safe auxiliary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-router-state
+          path: |
+            fa1r7.12/actions/out/actions_latest.json
+            fa1r7.12/actions/out/router_state.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Commit verified auxiliary state and report (never accepted LM)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub GITHUB_TOKEN writes do not trigger new workflows.
+          cp fa1r7.12/actions/out/actions_latest.json fa1r7.12/actions/actions_latest.json
+          cp fa1r7.12/actions/out/router_state.json fa1r7.12/actions/router_resume.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add fa1r7.12/actions/actions_latest.json fa1r7.12/actions/router_resume.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'FA1: preserve CPU auxiliary router training report and resumable state'
+          for retry in 1 2 3; do
+            git fetch origin master
+            git rebase origin/master
+            if git push origin HEAD:master; then exit 0; fi
+          done
+          echo 'Could not synchronize latest report after three fast-forward attempts' >&2
+          exit 1
