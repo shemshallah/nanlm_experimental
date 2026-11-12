@@ -32,12 +32,29 @@ concurrency:
 
 jobs:
   source-gates:
-    name: Local safety tests without checkpoint
+    name: Verify pinned GitHub checkpoint parts and source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify archive checker rejects unsafe archive entries
         run: python3 fa2r19/verify_release.py --self-test
+      - name: Verify all committed checkpoint parts and reconstruct exact accepted weights
+        run: |
+          python3 fa2r19/restore_fa2_checkpoint.py --root fa2r19
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('fa2r19')
+          release=json.loads((root/'RELEASE.json').read_text())
+          parts=json.loads((root/'MODEL_PARTS.json').read_text())
+          assert len(parts['parts']) == 36
+          assert release['checkpoint_sha256'] == parts['source_checkpoint_sha256']
+          checkpoint=root/parts['source_checkpoint']
+          assert checkpoint.stat().st_size == parts['source_checkpoint_bytes']
+          assert hashlib.sha256(checkpoint.read_bytes()).hexdigest() == release['checkpoint_sha256']
+          print('FA2.1 original accepted checkpoint verified; no new model initialized')
+          PY
+      - name: Verify Python source syntax
+        run: python3 -m compileall -q fa2r19/source
       - name: Show current accepted release identity
         run: cat fa2r19/RELEASE.json
 
