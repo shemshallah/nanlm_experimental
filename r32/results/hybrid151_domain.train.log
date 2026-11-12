@@ -1,0 +1,7 @@
+Initialized unified model (no v23 checkpoint was supplied).
+Window-safe sampling: training 50746/63661 docs, validation 5651/7072 docs
+parameters=151,014,658 pairs=128 signed_experts=256 device=cuda max_context=257 train_context=256 eval_context=256 context_mix=none grad_accum=1
+{"step": 1, "tokens_seen": 8192, "train_ce": 5.61645, "validation_ce": 4.56932, "validation_h2_ce": 4.58912, "validation_h3_ce": 4.6073, "validation_ppl": 96.479}
+{"step": 100, "tokens_seen": 819200, "train_ce": 2.43482, "validation_ce": 2.47587, "validation_h2_ce": 3.02771, "validation_h3_ce": 3.20213, "validation_ppl": 11.892}
+{"step": 200, "tokens_seen": 1638400, "train_ce": 1.92645, "validation_ce": 2.09129, "validation_h2_ce": 2.7889, "validation_h3_ce": 3.06855, "validation_ppl": 8.095}
+Canonical checkpoint: /kaggle/working/hybrid151_domain/latest.pt

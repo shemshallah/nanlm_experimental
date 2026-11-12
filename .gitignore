@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 r32/data/
 r32/cache/
+r32/kaggle_code/*.py
+r32/kaggle_data/meta.json
+r32/kaggle_data/split_manifest.json
