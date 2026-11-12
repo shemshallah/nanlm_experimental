@@ -970,9 +970,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if isinstance(saved_config, dict):
             diffs = {
-                key: (saved_config.get(key), getattr(cfg, key))
+                key: (saved_config[key], getattr(cfg, key))
                 for key in model_config
-                if saved_config.get(key) != getattr(cfg, key)
+                if key in saved_config and saved_config[key] != getattr(cfg, key)
             }
             if diffs:
                 raise SystemExit(
