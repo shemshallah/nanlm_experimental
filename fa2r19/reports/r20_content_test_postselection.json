@@ -1,0 +1,54 @@
+{
+  "round": "FA2.1 R20 content-only frozen-gain historical postselection test",
+  "split": "test",
+  "preselected_on_dev": {
+    "gain": 1,
+    "content_only": true
+  },
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "results": {
+    "short": {
+      "windows": 32,
+      "arms": {
+        "r18": {
+          "bpb": 2.3980484069027033,
+          "nonspace_nll": 4.399452980170816,
+          "nonspace_top1": 0.1511864406779661,
+          "raw_bytes": 4063,
+          "targets": 2200
+        },
+        "r20_content_only_gain1": {
+          "bpb": 2.398176696901845,
+          "nonspace_nll": 4.3995228292174255,
+          "nonspace_top1": 0.1511864406779661,
+          "raw_bytes": 4063,
+          "targets": 2200
+        }
+      }
+    },
+    "long": {
+      "windows": 8,
+      "arms": {
+        "r18": {
+          "bpb": 2.4133319996151523,
+          "nonspace_nll": 4.527413844626257,
+          "nonspace_top1": 0.12694300518134716,
+          "raw_bytes": 18601,
+          "targets": 10551
+        },
+        "r20_content_only_gain1": {
+          "bpb": 2.4113624734919226,
+          "nonspace_nll": 4.522701208782574,
+          "nonspace_top1": 0.12785736056080463,
+          "raw_bytes": 18601,
+          "targets": 10551
+        }
+      }
+    }
+  },
+  "checkpoint_promoted": false,
+  "limitations": [
+    "Historical test book-disjoint but used in prior PAL experiments; not untouched new books",
+    "No R20 training, semantic paraphrase benchmark or multi-hop downstream evaluation"
+  ]
+}
