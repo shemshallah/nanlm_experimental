@@ -23,7 +23,7 @@ R18's hard-negative **lexical** retrieval reached 95.08% on a historical test an
 
 The reproducibility parent is `PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip`, SHA-256 `0761209f51c7eef54e6e0cee6606d01ede4b2231b6dd1222e481e7dc7b20eef9`. It is available in the owner's ChatGPT Library.
 
-The large trained checkpoint and dataset must be byte-verifiable by the checksum above. Do **not** substitute randomly initialized weights and call them FA2.1. GitHub source files may be mirrored under this folder; a model is considered fully hosted only after the checkpoint bytes are successfully uploaded and independently verified.
+The large trained checkpoint and dataset must be byte-verifiable by the checksum above. Do **not** substitute randomly initialized weights and call them FA2.1. GitHub now hosts the byte-verified accepted checkpoint in compressed parts and the archived source modules. Corpus and tokenizer archives remain in the original full reproducibility ZIP.
 
 ## Continuation policy
 
@@ -41,3 +41,18 @@ python source/r18_verify_lineage.py --root .
 python source/test_r18.py .
 python source/test_r19.py --root .
 ```
+
+
+## Verified GitHub recovery (2026-11-12)
+
+The trained accepted checkpoint is now stored here in **36 binary Git blobs** at `checkpoint_parts/` (73,823,829 compressed bytes). All 36 Git blob hashes independently match the locally decoded transfer parts. The full uncompressed checkpoint was reconstructed locally and verified against the original manifest SHA-256. No weights, Adam history, or step counts were reset.
+
+To recover after cloning this repository:
+
+```bash
+python fa2r19/restore_fa2_checkpoint.py --root fa2r19
+```
+
+This produces `fa2r19/checkpoint/r12_active.pal12` (121,882,910 bytes). The script checks each part's length and SHA-256, the concatenated compressed stream, and the restored checkpoint before atomically installing it. The checkpoint file itself is **not duplicated in Git**.
+
+The 49 archived source modules, the original archive README, the R19 report, requirements, and archived manifest are mirrored in this directory. The original full reproducibility ZIP in ChatGPT Library remains the authoritative source for corpus, tokenizer binaries, and the broader historical reports that are not duplicated here. The GitHub Actions round-trip workflow validates the hosted binary parts.

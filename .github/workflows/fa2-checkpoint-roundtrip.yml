@@ -1,0 +1,34 @@
+name: FA2.1 checkpoint round-trip
+on:
+  push:
+    paths:
+      - 'fa2r19/checkpoint_parts/**'
+      - 'fa2r19/MODEL_PARTS.json'
+      - 'fa2r19/restore_fa2_checkpoint.py'
+      - '.github/workflows/fa2-checkpoint-roundtrip.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore FA2.1 without new weights
+        run: python fa2r19/restore_fa2_checkpoint.py --root fa2r19
+      - name: Assert exact restored identity
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('fa2r19')
+          info = json.loads((root/'MODEL_PARTS.json').read_text())
+          model = root/info['source_checkpoint']
+          actual = hashlib.sha256(model.read_bytes()).hexdigest()
+          assert model.stat().st_size == info['source_checkpoint_bytes']
+          assert actual == info['source_checkpoint_sha256']
+          assert len(info['parts']) == 36
+          print('FA2.1 byte-identical checkpoint:', actual)
+          PY
