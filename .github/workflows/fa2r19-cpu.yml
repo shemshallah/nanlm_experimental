@@ -17,6 +17,11 @@ on:
         type: number
         required: true
         default: 0
+      lr_scale:
+        description: 'Scale restored optimizer LR without resetting Adam moments; 0 < value <= 1'
+        type: number
+        required: true
+        default: 1
       publish_archive:
         description: 'Publish verified original 103.9 MB archive as FA2.1 GitHub Release (never candidate weights)'
         type: boolean
@@ -69,6 +74,7 @@ jobs:
     env:
       ARCHIVE_URL: ${{ inputs.archive_url }}
       TRAIN_STEPS: ${{ inputs.train_steps }}
+      LR_SCALE: ${{ inputs.lr_scale }}
       PUBLISH_ARCHIVE: ${{ inputs.publish_archive }}
       OMP_NUM_THREADS: '2'
       MKL_NUM_THREADS: '2'
@@ -106,15 +112,24 @@ jobs:
           python source/r18_verify_lineage.py --root .
           python source/test_r18.py .
           python source/test_r19.py --root .
+      - name: Overlay versioned FA2.1 continuation driver after archive verification
+        if: ${{ inputs.train_steps > 0 }}
+        run: cp fa2r19/source/r18_joint_continue.py work/release/source/r18_joint_continue.py
       - name: Optional CPU continuation, same one accepted checkpoint
         if: ${{ inputs.train_steps > 0 }}
         run: |
           if ! [[ "$TRAIN_STEPS" =~ ^[0-9]+$ ]] || (( TRAIN_STEPS > 500 )); then
             echo 'train_steps must be an integer from 0 to 500 per run' >&2; exit 1
           fi
+          python3 - <<'PY'
+          import os
+          v=float(os.environ['LR_SCALE'])
+          assert 0 < v <= 1 and v == v, 'lr_scale must be >0 and <=1'
+          print('Restored-optimizer LR scale:',v)
+          PY
           cd work/release
           python source/r18_joint_continue.py --root . --threads 2 \
-            --steps "$TRAIN_STEPS" --span 96 --long-span 400 --promote \
+            --steps "$TRAIN_STEPS" --span 96 --long-span 400 --lr-scale "$LR_SCALE" --promote \
             | tee ../../incoming/continuation.log
       - name: Publish verified INITIAL R19 archive to GitHub Releases
         if: ${{ inputs.publish_archive && inputs.train_steps == 0 }}
