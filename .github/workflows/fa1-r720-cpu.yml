@@ -1,0 +1,50 @@
+name: FA1 R7.20 - packed causal 128K CPU regression (no promotion)
+
+on:
+  push:
+    paths:
+      - 'fa1r7.12/source/fa1_r720_*.py'
+      - '.github/workflows/fa1-r720-cpu.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packed-index-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONPATH: fa1r7.12/source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only Python dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify inherited R7.18 and R7.19 parity
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r718.py | tee r718-regression.json
+          python fa1r7.12/source/test_fa1_r719.py | tee r719-regression.json
+      - name: Verify packed 128K causal index and benchmark
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r720.py | tee r720-synthetic-parity.json
+          python -m py_compile fa1r7.12/source/fa1_r720_runtime.py fa1r7.12/source/fa1_r720_newbooks.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fa1-r720-cpu-readonly-parity
+          path: |
+            r718-regression.json
+            r719-regression.json
+            r720-synthetic-parity.json
+          if-no-files-found: warn
+          retention-days: 30
