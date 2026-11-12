@@ -52,9 +52,9 @@ def specialization(hist: torch.Tensor, global_hist: torch.Tensor, vocab: int) ->
     active = sums.squeeze(1) > 0
     kls = kl[active]
     ranked = []
-    for idx in torch.argsort(kl, descending=True)[:5].tolist():
-        if sums[idx].item() <= 0:
-            continue
+    active_idx = torch.flatnonzero(active)
+    order = active_idx[torch.argsort(kl[active], descending=True)] if active_idx.numel() else []
+    for idx in order[:5].tolist():
         vals, ids = torch.topk(rows[idx], k=5)
         ranked.append({
             "pair": int(idx),
