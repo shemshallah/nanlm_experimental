@@ -14,7 +14,7 @@ import torch
 from torch.nn import functional as F
 
 
-def soft_candidate_copy(net, base_logits, tokens, semantic_gain, *, max_memory=None, gap=None, block=64):
+def soft_candidate_copy(net, base_logits, tokens, semantic_gain, *, max_memory=None, gap=None, block=64, content_only=False):
     """Causal soft admission. For query t, retrieve only j<=t-gap.
 
     A slot at j has key (tokens[j-2], tokens[j-1]) and value tokens[j].
@@ -47,6 +47,8 @@ def soft_candidate_copy(net, base_logits, tokens, semantic_gain, *, max_memory=N
         tp=positions[start:start+block]
         allowed=(keys_j[None,:]<=tp[:,None]-min_gap)&(keys_j[None,:]>=tp[:,None]-memory)
         allowed &= (tp[:,None]>=min_gap+2)
+        if content_only:
+            allowed &= ((tokens[keys_j]!=32)&(tokens[keys_j]!=10)&(tokens[keys_j]!=13))[None,:]
         allowed &= ~((tokens[tp-1,None]==32)|(tokens[tp-1,None]==10)|(tokens[tp-1,None]==13))
         has_any=allowed.any(dim=-1)
         if not bool(has_any.any()):
