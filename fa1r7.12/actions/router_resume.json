@@ -2,28 +2,28 @@
   "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
   "adam": {
     "m": [
-      -0.002993976689444506,
-      0.05923678485440611,
-      -0.04727669057851216
+      -0.0038959138124030246,
+      0.01465241352094142,
+      -0.02047627797552671
     ],
-    "step": 704,
+    "step": 1216,
     "v": [
-      4.528081755042235e-06,
-      0.03399874934883355,
-      0.011057226459430452
+      2.0916591167331776e-05,
+      0.02820155942731103,
+      0.0072590314188545465
     ]
   },
   "bias": -0.09832609444856644,
   "format": "FA1_R7_14_ACTIONS_TEMPORAL_ROUTER_SURROGATE_V1",
-  "prior_router_adam_steps": 192,
-  "prior_seed_sha256": "b2f012dea1258c4e4f71fb1e07c1bbdaacc4d2d5c3920b2c2d0d736ce0c7dc51",
+  "prior_router_adam_steps": 704,
+  "prior_seed_sha256": "fcc1c16c67e838f0e48188fa9fc8ceed95251b8479b06e965e48c301e8e9826c",
   "selected_aux_updates": 512,
   "source_release": "corpora-short-stories-0001",
   "surrogate_training_promoted": false,
   "total_new_training_updates_attempted": 512,
   "weights": [
-    13.95712206161518,
-    1.583937332847828,
-    6.904505764984089
+    18.492972080101403,
+    0.37558408267427895,
+    9.539113352036374
   ]
 }
