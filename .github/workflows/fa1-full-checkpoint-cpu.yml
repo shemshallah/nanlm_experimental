@@ -1,0 +1,99 @@
+name: FA1 full-checkpoint candidate CPU continuation (manual, fail closed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: 'Additional joint LM updates from exact accepted checkpoint'
+        required: true
+        default: '128'
+      release_tag:
+        description: 'GitHub Release tag holding the verified FA1 R7.13 full recovery ZIP'
+        required: true
+        default: 'fa1-accepted-r7.13'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-full-candidate-cpu
+  cancel-in-progress: false
+
+jobs:
+  candidate-continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require release asset; never initialize new model
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view '${{ inputs.release_tag }}' --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Required FA1 accepted full checkpoint release is not hosted on GitHub.' >&2
+            echo 'Upload verified FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip as a release asset first.' >&2
+            echo 'No training or new model initialization performed.' >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/fa1-complete" && cd "$RUNNER_TEMP/fa1-complete"
+          gh release download '${{ inputs.release_tag }}' --repo "$GITHUB_REPOSITORY" \
+            -p FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip
+          echo '99f25e5ff604492c6c043335eddbf638415a423f43d94f5c9a426f5a283a2728  FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip' | sha256sum -c -
+          unzip -q FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip -d extracted
+          cd extracted
+          echo '54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d  checkpoint/pal_active.pt' | sha256sum -c -
+          echo "FA1_FULL_ROOT=$PWD" >> "$GITHUB_ENV"
+      - name: Install CPU PyTorch and tokenizer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy sentencepiece
+      - name: Validate exact inherited optimizer checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$FA1_FULL_ROOT"
+          python - <<'PY'
+          import torch
+          p=torch.load('checkpoint/pal_active.pt',map_location='cpu',weights_only=False)
+          assert p.get('joint_steps')==14416, 'Wrong model update counter'
+          assert len(p.get('optimizers',{}))==5, 'Five optimizer histories required'
+          assert 'model' in p and p['model'], 'Missing learned weights'
+          print('Accepted FA1 checkpoint step 14416, all five optimizer groups present.')
+          PY
+      - name: Run CPU joint candidate continuation without promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          STEPS='${{ inputs.steps }}'
+          if [[ ! "$STEPS" =~ ^[0-9]+$ ]] || ((STEPS<1 || STEPS>1000)); then
+            echo 'steps must be 1..1000'; exit 1
+          fi
+          cd "$FA1_FULL_ROOT"
+          export PYTHONPATH=source
+          python source/r77_semantic.py --root . --resume checkpoint/pal_active.pt \
+            --output checkpoint/fa1_candidate_unpromoted.pt \
+            --steps "$STEPS" --streams 2 --seq-len 2 --eval 96 \
+            --threads 2 --checkpoint-every 0 --log-every 25
+          sha256sum checkpoint/fa1_candidate_unpromoted.pt > candidate.sha256
+          test "$(sha256sum checkpoint/pal_active.pt | cut -d ' ' -f 1)" = \
+            '54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d'
+          echo 'Original accepted checkpoint unchanged. Candidate NOT promoted.'
+      - name: Export candidate separately from slim source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-joint-candidate-unpromoted
+          path: |
+            ${{ env.FA1_FULL_ROOT }}/checkpoint/fa1_candidate_unpromoted.pt
+            ${{ env.FA1_FULL_ROOT }}/candidate.sha256
+            ${{ env.FA1_FULL_ROOT }}/reports/R7p7_semantic_results.json
+          retention-days: 30
+          if-no-files-found: error
