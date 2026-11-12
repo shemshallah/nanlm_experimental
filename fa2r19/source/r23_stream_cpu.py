@@ -47,6 +47,8 @@ def cached_book(split, book, model, bridge, adapter, r18, r21, r22,
     cache_dir.mkdir(parents=True, exist_ok=True)
     carry = ContinuousPALState(book.book_id)
     manifest = []
+    tier_coverage = {"recent":0, "middle":0, "far":0}
+    max_distance = {"recent":0, "middle":0, "far":0}
     with torch.no_grad():
         for i, (begin, end, t0, t1) in enumerate(contiguous_book_picks(book, chunk_span)):
             if i >= max_chunks:
@@ -76,6 +78,10 @@ def cached_book(split, book, model, bridge, adapter, r18, r21, r22,
             if t0 >= 65:
                 memory = build_index(book.tokens, t0, t1-t0)
                 memory["query_position_offset"] = t0
+                for tier in tier_coverage:
+                    tier_coverage[tier] += int(memory["coverage"][tier])
+                    max_distance[tier] = max(max_distance[tier],
+                                              int(memory["max_distance"][tier]))
                 file = cache_dir / ("%03d.pth" % i)
                 byte_start = int(book.byte_starts[begin])
                 byte_end = (int(book.byte_starts[end]) if end < len(book.byte_starts)
@@ -87,7 +93,8 @@ def cached_book(split, book, model, bridge, adapter, r18, r21, r22,
                 manifest.append(str(file))
     if not manifest:
         raise ValueError("no eligible chunks: increase --max-chunks")
-    return manifest, carry.snapshot()
+    return manifest, {**carry.snapshot(), "tier_coverage":tier_coverage,
+                      "max_distance":max_distance}
 
 
 def read_item(path):
