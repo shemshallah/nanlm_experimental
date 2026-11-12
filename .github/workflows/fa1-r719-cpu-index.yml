@@ -1,0 +1,46 @@
+name: FA1 R7.19 - CPU streaming 128K index parity (no promotion)
+
+on:
+  push:
+    paths:
+      - 'fa1r7.12/source/fa1_r719_streaming_index.py'
+      - 'fa1r7.12/source/test_fa1_r719.py'
+      - 'fa1r7.12/source/fa1_r718_far_residual.py'
+      - '.github/workflows/fa1-r719-cpu-index.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  index-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONPATH: fa1r7.12/source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Regression-test R7.18 reference and new R7.19 index
+        shell: bash
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r718.py | tee r718-regression.json
+          python fa1r7.12/source/test_fa1_r719.py | tee r719-parity.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fa1-r719-synthetic-parity
+          path: |
+            r718-regression.json
+            r719-parity.json
+          retention-days: 30
