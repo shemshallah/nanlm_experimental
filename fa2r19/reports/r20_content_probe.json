@@ -1,0 +1,69 @@
+{
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "type": "R20 read-only nonspace-value admission ablation",
+  "positions": 8,
+  "outcomes": {
+    "all:0.0": {
+      "bpb": 2.5659966774706318,
+      "nonspace_nll": 4.591845368685788,
+      "enabled_queries": 5964
+    },
+    "all:0.05": {
+      "bpb": 2.5659889781299987,
+      "nonspace_nll": 4.5929940219717835,
+      "enabled_queries": 5964
+    },
+    "all:0.1": {
+      "bpb": 2.5659939875744104,
+      "nonspace_nll": 4.594154126165593,
+      "enabled_queries": 5964
+    },
+    "all:0.2": {
+      "bpb": 2.5660419573903557,
+      "nonspace_nll": 4.59650959607886,
+      "enabled_queries": 5964
+    },
+    "all:0.5": {
+      "bpb": 2.5664876225150075,
+      "nonspace_nll": 4.603856098658986,
+      "enabled_queries": 5964
+    },
+    "all:1.0": {
+      "bpb": 2.568216563057198,
+      "nonspace_nll": 4.617042055294725,
+      "enabled_queries": 5964
+    },
+    "content:0.0": {
+      "bpb": 2.5659966774706318,
+      "nonspace_nll": 4.591845368685788,
+      "enabled_queries": 5963
+    },
+    "content:0.05": {
+      "bpb": 2.565880154285049,
+      "nonspace_nll": 4.591594902797424,
+      "enabled_queries": 5963
+    },
+    "content:0.1": {
+      "bpb": 2.5657643328115234,
+      "nonspace_nll": 4.591345818288416,
+      "enabled_queries": 5963
+    },
+    "content:0.2": {
+      "bpb": 2.565535399252696,
+      "nonspace_nll": 4.59085146623967,
+      "enabled_queries": 5963
+    },
+    "content:0.5": {
+      "bpb": 2.5648680126098093,
+      "nonspace_nll": 4.589398582326719,
+      "enabled_queries": 5963
+    },
+    "content:1.0": {
+      "bpb": 2.5638250930640383,
+      "nonspace_nll": 4.58708371769608,
+      "enabled_queries": 5963
+    }
+  },
+  "promoted": false,
+  "warning": "Historical development data; no training or semantic generalization claims"
+}
