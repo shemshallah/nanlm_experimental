@@ -66,6 +66,20 @@ wall                 1.13 s
 This is a plumbing test. The tiny validation set (252 tokens) and three steps
 are not evidence of a useful language model.
 
+## CPU real-corpus byte smoke
+
+A 2,000,000-byte prefix of `nanlmv3/data/corpus_100m.txt`, byte tokenizer,
+2 steps, tiny 152,192-parameter model:
+
+```text
+eval before   8.0413 bits/token, top-1 0.39%, top-5 0.98%
+final         7.9760 bits/token, top-1 0.39%, top-5 1.57%
+wall          1.97 s
+```
+
+Again, this only verifies the real-corpus/data/trainer path. It is not a
+learning result.
+
 ## Not yet measured
 
 - No 30-minute T4/Colab v3 run has been completed for this integration.
