@@ -85,7 +85,7 @@ class UnifiedFA2(nn.Module):
             raise ValueError("local history must be in [65,2048]")
         self.model, self.bridge, self.adapter = model, bridge, adapter
         self.r18, self.r21, self.r22, self.r23 = r18, r21, r22, r23
-        dim = model.memory.piece_emb.weight.shape[-1]
+        dim = model.memory.subword_out.in_features
         self.moe = CausalMirrorMoE(dim, expert_width, expert_count, expert_topk)
         self.local_history = int(local_history)
 
