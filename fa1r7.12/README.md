@@ -81,3 +81,8 @@ Full report: [R7.18 corrected controls and caveats](FA1_R7p18_128K_CORRECTED_MEM
 ## FA1 R7.19 — indexed 128K CPU continuation (unpromoted)
 
 R7.19 adds a causal incremental weighted 1–4-gram index over the 32,769–131,072-token far band, preserving the accepted R7.13 step-14,416 checkpoint and frozen R7.16/R7.18 experimental adapters. On synthetic CPU retrieval, the maintained index was 45.1x faster **after** its 1.2–2.5s construction cost; this is not end-to-end LM speed. Local evidence: 11/11 new tests, 12/12 R7.18 regression tests, and equal gate/NLL on four actual historical-checkpoint positions. Independent NaNROUTER books remain untested; no promotion. See [R7.19 report](FA1_R7p19_INCREMENTAL_128K_MEMORY.md), [source](source/fa1_r719_streaming_index.py), [tests](source/test_fa1_r719.py), and [CI](../../.github/workflows/fa1-r719-cpu-index.yml).
+
+
+## FA1 R7.20 — packed causal 128K CPU memory (not promoted)
+
+R7.20 adds a collision-free packed uint64 1–4-gram inverted index with ~4.7 MB of sorted NumPy index arrays. The [R7.20 report](FA1_R7p20_PACKED_128K_CPU.md), [runtime](source/fa1_r720_runtime.py), [packed index](source/fa1_r720_packed_index.py), and [CPU tests](source/test_fa1_r720.py) are published. On two 1,024-position historical checkpoint benchmarks in opposite execution orders, end-to-end CPU acceleration was 1.16–1.17x, with max final NLL discrepancy 9.54e-7 nats/word. The source has an `auto` fallback for short and sparse queries. Accepted FA1 remains at step 14,416 with five optimizer histories unchanged; independent book evaluation is still blocked pending a full R7.13 checkpoint GitHub Release.
