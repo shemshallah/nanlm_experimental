@@ -129,6 +129,7 @@ class UnifiedFA2(nn.Module):
         post22, _ = self.r22(post21, proposed22, f22,
                             query_position_offset=t0)
         details = None
+        memory = None
         actual = post22
         permuted = post22
         if t0 >= 64:
@@ -148,4 +149,5 @@ class UnifiedFA2(nn.Module):
         return {"logits": actual, "without_r23": post22,
                 "scrambled_values": permuted, "target": y,
                 "bytes": byte_end - byte_start, "memory_detail": details,
+                "memory_index": memory,
                 "moe_balance": balance, "start": t0}
