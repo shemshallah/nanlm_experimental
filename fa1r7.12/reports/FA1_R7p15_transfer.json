@@ -1,0 +1,23 @@
+{
+  "experiment": "Synthetic key-value writer transfer to natural-language historical dev",
+  "accepted_parent": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "synthetic_training_only": true,
+  "real_book_data_in_training": false,
+  "counts": {
+    "dev": 256
+  },
+  "dev": {
+    "base_nll": 5.068875312805176,
+    "correct_nll": 5.156073093414307,
+    "wrong_nll": 5.176750183105469,
+    "correct_gain": -0.08719763159751892,
+    "correct_vs_wrong_advantage": 0.020676668733358383,
+    "gate_mean": 0.3416481018066406,
+    "correct_memory_hit_rate": 0.53515625,
+    "wrong_memory_hit_rate": 0.50390625,
+    "n": 256
+  },
+  "book_disjointness_verified": false,
+  "status": "diagnostic only, not promotion",
+  "elapsed_s": 4.65
+}
