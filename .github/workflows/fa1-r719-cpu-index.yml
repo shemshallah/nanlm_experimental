@@ -28,7 +28,7 @@ jobs:
           python-version: '3.11'
       - name: Install CPU dependencies
         run: |
-          python -m pip install numpy
+          python -m pip install numpy sentencepiece zstandard
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Regression-test R7.18 reference and new R7.19 index
         shell: bash
