@@ -1,0 +1,67 @@
+{
+  "round": "FA1 R7.19",
+  "tests_passed": 11,
+  "tests_total": 11,
+  "tests": [
+    "constant_exact_ngram_modes_and_float_parity",
+    "constant_target_independent_features",
+    "periodic_exact_ngram_modes_and_float_parity",
+    "periodic_target_independent_features",
+    "zipf_exact_ngram_modes_and_float_parity",
+    "zipf_target_independent_features",
+    "time_expiry_per_order_and_exact_32k_boundaries",
+    "document_boundary_and_BOS_padding_parity",
+    "build_equals_incremental",
+    "r718_gate_NLL_and_probability_parity",
+    "CPU_benchmark_recorded_on_identical_causal_stream"
+  ],
+  "details": {
+    "constant": {
+      "build_s": 1.183,
+      "max_absolute_diff": 0.0029184946324676275,
+      "size": {
+        "position": 131137,
+        "tokens_indexed": 393206,
+        "keys": 4,
+        "heap_entries": 238
+      }
+    },
+    "periodic": {
+      "build_s": 1.225,
+      "max_absolute_diff": 0.0005946945511823287,
+      "size": {
+        "position": 131137,
+        "tokens_indexed": 393206,
+        "keys": 52,
+        "heap_entries": 526
+      }
+    },
+    "zipf": {
+      "build_s": 2.501,
+      "max_absolute_diff": 0.0009751866600709036,
+      "size": {
+        "position": 131137,
+        "tokens_indexed": 393206,
+        "keys": 87865,
+        "heap_entries": 235869
+      }
+    },
+    "benchmark": {
+      "index_update_plus_query_ms": 0.0577710200002457,
+      "reference_rescan_query_ms": 2.6074963124997907,
+      "speedup_excluding_initial_build": 45.13502293171734,
+      "reference_queries": 16,
+      "indexed_queries": 100,
+      "index_size": {
+        "position": 131174,
+        "tokens_indexed": 393206,
+        "keys": 95424,
+        "heap_entries": 254062
+      },
+      "note": "Synthetic Zipf distribution, not full LM throughput"
+    }
+  },
+  "promoted": false,
+  "base_parent_step": 14416,
+  "independent_books_evaluated": false
+}
