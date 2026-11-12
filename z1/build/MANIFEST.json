@@ -1,0 +1,80 @@
+{
+  "checkpoints": {
+    "best": "/kaggle/working/build/v2_newcorpus10/best.pt",
+    "ema": "/kaggle/working/build/v2_newcorpus10/ema.pt",
+    "final": "/kaggle/working/build/v2_newcorpus10/final.pt",
+    "note": "checkpoints are not committed; download from the Kaggle kernel output"
+  },
+  "corpus": [
+    "corpora-paragraphs-0010",
+    "corpora-short-stories-0004"
+  ],
+  "experiment": "z1",
+  "files": {
+    "build/config.json": {
+      "bytes": 867,
+      "sha256": "6d6734075160fc7044e6c203f88763cb2db39743adf0be04460dc1b2bbacd1b4"
+    },
+    "build/history.json": {
+      "bytes": 2985,
+      "sha256": "844f4b92ab0474ebd56e7b1b35d0554f7c2367aa6fe5702c47908a0efbbb12ee"
+    },
+    "build/result.json": {
+      "bytes": 2174,
+      "sha256": "09d73dc215be92170ab12fe4471ca03a66631e2d9dbae9e8945d8084edd81742"
+    },
+    "build/train.log": {
+      "bytes": 12046,
+      "sha256": "21fd2596d88a8a7df2b1caf9e4615a884d5d3f2e72b516d9729dc574f05f90ac"
+    },
+    "code/unified_v2.py": {
+      "bytes": 25251,
+      "sha256": "74ea2e4421ff7994dd84f251046664af4a2b5166c465dd4f42060e326f738fb4"
+    },
+    "kernels/newcorpus10/kernel-metadata.json": {
+      "bytes": 353,
+      "sha256": "87af0dceb9b9a8425f817b5867ad93575ed817c74ccea88443c2652b93bf6448"
+    },
+    "kernels/newcorpus10/train.py": {
+      "bytes": 4695,
+      "sha256": "e6f48078efc87521dead8225824c6385a261f7eb142e31bd34a53a1be526f305"
+    }
+  },
+  "kernel": "https://www.kaggle.com/code/shem42/nanlmv3-v2-newcorpus10",
+  "kernel_version": 1,
+  "metrics": {
+    "best": {
+      "accuracy": 0.068359375,
+      "bits_per_token": 10.46442718034347,
+      "loss": 7.253388196229935,
+      "source": "model",
+      "step": 4000,
+      "tokens": 1024,
+      "top5": 0.193359375
+    },
+    "final": {
+      "accuracy": 0.0703125,
+      "bits_per_token": 10.448396666707632,
+      "loss": 7.242276690900326,
+      "tokens": 1024,
+      "top5": 0.19140625
+    },
+    "final_ema": {
+      "accuracy": 0.068359375,
+      "bits_per_token": 10.45841761744666,
+      "loss": 7.249222684651613,
+      "tokens": 1024,
+      "top5": 0.19140625
+    }
+  },
+  "model": {
+    "branches": 32,
+    "ctx": 512,
+    "d_model": 256,
+    "heads": 8,
+    "layers": 8,
+    "pairs": 128,
+    "params": 84859523,
+    "topk": 8
+  }
+}

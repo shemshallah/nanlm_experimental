@@ -1,0 +1,316 @@
+Cloning into '/kaggle/working/NaNROUTER'...
+downloading paragraphs-0010.tar.zst
+downloading paragraphs-0010.SHA256SUMS
+downloading short_stories-0004.tar.zst
+downloading short_stories-0004.SHA256SUMS
+/kaggle/src/script.py:56: DeprecationWarning: Python 3.14 will, by default, filter extracted tar archives and reject files or modify their metadata. Use the filter argument to control this behavior.
+  tf.extractall(dest)
+{
+  "bytes": 100000001,
+  "files": 560,
+  "output": "/kaggle/working/build/corpus_new_100m.txt",
+  "sha256": "1f11fba40fee31e4f8f3ee4a55fc939ed1c68adc03f83660cee21de71a760df8"
+}
+files used: 560; first: /kaggle/working/build/corpus_para/59553--various-heath-james-e-editor-sparhawk-edward-vernon-1798-1838-editor--the-southern-literary-messenger-volume-i-1834-35.txt
+chunks=20 train=18 val=2 chunk_bytes=5000000 bytes=100000000
+train_offsets=[0, 5000000, 10000000, 15000000, 20000000]... val_offsets=[30000000, 65000000]
+chunks=50 train=50 val=0 chunk_bytes=1000000 bytes=50000000
+train_offsets=[0, 2020408, 4040816, 6061224, 8081632]... val_offsets=[]
+
+
+
+{
+  "corpus_chars": 49497098,
+  "min_frequency": 2,
+  "output": "/kaggle/working/build/bpe32k_new.json",
+  "tokenizer": "byte-level-bpe",
+  "vocab_size": 32000
+}
+running /usr/bin/python3 /kaggle/working/NaNROUTER/nanlmv3/unified_v2.py --tokenizer bpe --bpe-model /kaggle/working/build/bpe32k_new.json --corpus /kaggle/working/build/model_new_100m.txt --ctx 512 --d-model 256 --layers 8 --heads 8 --swiglu 1024 --d-hidden 512 --pairs 128 --topk 8 --branches 32 --steps 5000 --max-seconds 600 --batch-size 8 --eval-every 500 --eval-batches 128 --train-fraction 0.95 --prev-weight 0.1 --memory-size 1048576 --memory-tokens 10000000 --recluster-every 1000 --dropout 0.1 --weight-decay 0.05 --lr 1e-4 --lr-horizon time --min-lr-frac 0.0 --ema-decay 0.999 --ema-start-frac 0.3 --amp --amp-init-scale 1024 --device cuda --threads 4 --out /kaggle/working/build/v2_newcorpus10
+[data] tokenizer=bpe vocab=32000 tokens=22727320 train=21590954 ctx=512
+[memory] built in 27.7s
+[model] params=84,859,523
+step     50/5000 loss=11.5614 lr=2.50e-05
+/kaggle/working/NaNROUTER/nanlmv3/unified_v2.py:551: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  print(f"step {step + 1:6d}/{args.steps} loss={float(loss):.4f} lr={lr:.2e}", flush=True)
+step    100/5000 loss=11.3821 lr=5.00e-05
+step    150/5000 loss=11.2576 lr=7.50e-05
+step    200/5000 loss=10.5125 lr=1.00e-04
+step    250/5000 loss=10.2974 lr=9.94e-05
+step    300/5000 loss=9.0413 lr=9.91e-05
+step    350/5000 loss=9.8417 lr=9.88e-05
+step    400/5000 loss=9.1786 lr=9.85e-05
+step    450/5000 loss=8.0067 lr=9.81e-05
+step    500/5000 loss=8.4973 lr=9.77e-05
+  EVAL 500: model loss=7.7079 bits=11.120 top1=4.79% top5=17.87%
+        ema   loss=10.4084 bits=15.016 top1=0.00% top5=0.00%
+step    550/5000 loss=8.3860 lr=9.61e-05
+step    600/5000 loss=8.6664 lr=9.55e-05
+step    650/5000 loss=9.5221 lr=9.49e-05
+step    700/5000 loss=8.4771 lr=9.43e-05
+step    750/5000 loss=10.0233 lr=9.36e-05
+step    800/5000 loss=7.3515 lr=9.29e-05
+step    850/5000 loss=9.5662 lr=9.21e-05
+step    900/5000 loss=8.2686 lr=9.14e-05
+step    950/5000 loss=9.4496 lr=9.06e-05
+step   1000/5000 loss=8.8809 lr=8.97e-05
+  EVAL 1000: model loss=7.3661 bits=10.627 top1=5.18% top5=17.97%
+        ema   loss=10.4084 bits=15.016 top1=0.00% top5=0.00%
+step   1050/5000 loss=7.4859 lr=8.68e-05
+step   1100/5000 loss=8.3272 lr=8.58e-05
+step   1150/5000 loss=9.1161 lr=8.48e-05
+step   1200/5000 loss=9.1399 lr=8.38e-05
+step   1250/5000 loss=8.3282 lr=8.27e-05
+step   1300/5000 loss=8.1048 lr=8.16e-05
+step   1350/5000 loss=9.5194 lr=8.05e-05
+step   1400/5000 loss=7.1216 lr=7.93e-05
+step   1450/5000 loss=7.5730 lr=7.82e-05
+step   1500/5000 loss=7.0202 lr=7.70e-05
+  EVAL 1500: model loss=7.3724 bits=10.636 top1=5.18% top5=17.48%
+        ema   loss=10.4064 bits=15.013 top1=0.00% top5=0.00%
+step   1550/5000 loss=9.1816 lr=7.32e-05
+step   1600/5000 loss=7.4678 lr=7.18e-05
+step   1650/5000 loss=8.0663 lr=7.04e-05
+step   1700/5000 loss=7.4675 lr=6.91e-05
+step   1750/5000 loss=8.8768 lr=6.76e-05
+step   1800/5000 loss=8.1740 lr=6.62e-05
+step   1850/5000 loss=8.3697 lr=6.48e-05
+step   1900/5000 loss=8.0738 lr=6.33e-05
+step   1950/5000 loss=9.3781 lr=6.18e-05
+step   2000/5000 loss=10.2369 lr=6.03e-05
+  EVAL 2000: model loss=7.3099 bits=10.546 top1=6.45% top5=18.75%
+        ema   loss=8.4233 bits=12.152 top1=4.20% top5=17.77%
+step   2050/5000 loss=10.1911 lr=5.57e-05
+[amp-skip] step 2083 scale 2048.0->1024.0
+step   2100/5000 loss=8.3916 lr=5.42e-05
+[amp-skip] step 2108 scale 1024.0->512.0
+[amp-skip] step 2149 scale 512.0->256.0
+step   2150/5000 loss=8.4689 lr=5.27e-05
+step   2200/5000 loss=10.9423 lr=5.12e-05
+step   2250/5000 loss=7.8744 lr=4.97e-05
+step   2300/5000 loss=8.6543 lr=4.82e-05
+step   2350/5000 loss=6.1576 lr=4.66e-05
+step   2400/5000 loss=7.5266 lr=4.51e-05
+step   2450/5000 loss=7.9407 lr=4.36e-05
+step   2500/5000 loss=7.4149 lr=4.21e-05
+  EVAL 2500: model loss=7.3120 bits=10.549 top1=5.96% top5=19.24%
+        ema   loss=7.6000 bits=10.964 top1=5.47% top5=18.36%
+step   2550/5000 loss=8.7343 lr=3.78e-05
+step   2600/5000 loss=8.9196 lr=3.63e-05
+step   2650/5000 loss=5.4471 lr=3.48e-05
+step   2700/5000 loss=7.1058 lr=3.34e-05
+step   2750/5000 loss=8.7207 lr=3.20e-05
+step   2800/5000 loss=9.4680 lr=3.05e-05
+step   2850/5000 loss=8.1374 lr=2.91e-05
+step   2900/5000 loss=8.3611 lr=2.78e-05
+step   2950/5000 loss=6.9248 lr=2.64e-05
+step   3000/5000 loss=9.2083 lr=2.51e-05
+  EVAL 3000: model loss=7.2926 bits=10.521 top1=6.64% top5=19.34%
+        ema   loss=7.3539 bits=10.609 top1=6.15% top5=18.55%
+step   3050/5000 loss=5.8728 lr=2.12e-05
+step   3100/5000 loss=7.7679 lr=1.99e-05
+step   3150/5000 loss=7.6684 lr=1.87e-05
+step   3200/5000 loss=9.0137 lr=1.75e-05
+step   3250/5000 loss=8.7674 lr=1.64e-05
+step   3300/5000 loss=7.2967 lr=1.53e-05
+step   3350/5000 loss=8.7302 lr=1.42e-05
+step   3400/5000 loss=8.0157 lr=1.32e-05
+step   3450/5000 loss=8.7639 lr=1.22e-05
+step   3500/5000 loss=9.1506 lr=1.12e-05
+  EVAL 3500: model loss=7.2653 bits=10.482 top1=6.93% top5=18.75%
+        ema   loss=7.2882 bits=10.515 top1=6.84% top5=18.75%
+step   3550/5000 loss=6.7711 lr=8.44e-06
+step   3600/5000 loss=9.6308 lr=7.62e-06
+step   3650/5000 loss=10.3116 lr=6.83e-06
+step   3700/5000 loss=7.6510 lr=6.08e-06
+step   3750/5000 loss=7.6721 lr=5.37e-06
+step   3800/5000 loss=7.9674 lr=4.71e-06
+step   3850/5000 loss=7.0153 lr=4.08e-06
+step   3900/5000 loss=7.3020 lr=3.50e-06
+step   3950/5000 loss=6.5522 lr=2.96e-06
+step   4000/5000 loss=9.8696 lr=2.46e-06
+  EVAL 4000: model loss=7.2534 bits=10.464 top1=6.84% top5=19.34%
+        ema   loss=7.2568 bits=10.469 top1=6.74% top5=19.43%
+step   4050/5000 loss=7.2314 lr=1.23e-06
+step   4100/5000 loss=8.1970 lr=9.14e-07
+step   4150/5000 loss=8.6295 lr=6.46e-07
+step   4200/5000 loss=7.6344 lr=4.26e-07
+step   4250/5000 loss=9.1455 lr=2.50e-07
+step   4300/5000 loss=9.8016 lr=1.22e-07
+step   4350/5000 loss=6.3527 lr=3.85e-08
+step   4400/5000 loss=9.4742 lr=1.90e-09
+[stop] max-seconds reached at step 4414
+{
+  "artifacts": {
+    "best_weights": "/kaggle/working/build/v2_newcorpus10/best.pt",
+    "config": "/kaggle/working/build/v2_newcorpus10/config.json",
+    "final_weights": "/kaggle/working/build/v2_newcorpus10/final.pt",
+    "history": "/kaggle/working/build/v2_newcorpus10/history.json",
+    "result": "/kaggle/working/build/v2_newcorpus10/result.json"
+  },
+  "best": {
+    "accuracy": 0.068359375,
+    "bits_per_token": 10.46442718034347,
+    "loss": 7.253388196229935,
+    "source": "model",
+    "step": 4000,
+    "tokens": 1024,
+    "top5": 0.193359375
+  },
+  "branch_temp": 0.986162006855011,
+  "centroid_delta": 0.05054430663585663,
+  "config": {
+    "amp": true,
+    "amp_init_scale": 1024.0,
+    "batch_size": 8,
+    "bpe_model": "/kaggle/working/build/bpe32k_new.json",
+    "branches": 32,
+    "corpus": "/kaggle/working/build/model_new_100m.txt",
+    "ctx": 512,
+    "d_hidden": 512,
+    "d_model": 256,
+    "device": "cuda",
+    "dropout": 0.1,
+    "ema_decay": 0.999,
+    "ema_start_frac": 0.3,
+    "eval_batches": 128,
+    "eval_every": 500,
+    "heads": 8,
+    "layers": 8,
+    "lr": 0.0001,
+    "lr_horizon": "time",
+    "max_bytes": 0,
+    "max_seconds": 600.0,
+    "memory_size": 1048576,
+    "memory_tokens": 10000000,
+    "min_lr_frac": 0.0,
+    "no_ema": false,
+    "no_memory": false,
+    "out": "/kaggle/working/build/v2_newcorpus10",
+    "pairs": 128,
+    "prev_weight": 0.1,
+    "recluster_every": 1000,
+    "seed": 3,
+    "steps": 5000,
+    "swiglu": 1024,
+    "threads": 4,
+    "tokenizer": "bpe",
+    "topk": 8,
+    "train_fraction": 0.95,
+    "weight_decay": 0.05
+  },
+  "curvature": -0.9968012571334839,
+  "elapsed": 612.1284432411194,
+  "final": {
+    "accuracy": 0.0703125,
+    "bits_per_token": 10.448396666707632,
+    "loss": 7.242276690900326,
+    "tokens": 1024,
+    "top5": 0.19140625
+  },
+  "final_ema": {
+    "accuracy": 0.068359375,
+    "bits_per_token": 10.45841761744666,
+    "loss": 7.249222684651613,
+    "tokens": 1024,
+    "top5": 0.19140625
+  },
+  "memory_alpha": 0.12111733853816986,
+  "memory_enabled": true,
+  "params": 84859523,
+  "steps": 5000,
+  "tokens": 22727320,
+  "train_tokens": 21590954,
+  "val_tokens": 1136366
+}
+{
+  "artifacts": {
+    "best_weights": "/kaggle/working/build/v2_newcorpus10/best.pt",
+    "config": "/kaggle/working/build/v2_newcorpus10/config.json",
+    "final_weights": "/kaggle/working/build/v2_newcorpus10/final.pt",
+    "history": "/kaggle/working/build/v2_newcorpus10/history.json",
+    "result": "/kaggle/working/build/v2_newcorpus10/result.json"
+  },
+  "best": {
+    "accuracy": 0.068359375,
+    "bits_per_token": 10.46442718034347,
+    "loss": 7.253388196229935,
+    "source": "model",
+    "step": 4000,
+    "tokens": 1024,
+    "top5": 0.193359375
+  },
+  "branch_temp": 0.986162006855011,
+  "centroid_delta": 0.05054430663585663,
+  "config": {
+    "amp": true,
+    "amp_init_scale": 1024.0,
+    "batch_size": 8,
+    "bpe_model": "/kaggle/working/build/bpe32k_new.json",
+    "branches": 32,
+    "corpus": "/kaggle/working/build/model_new_100m.txt",
+    "ctx": 512,
+    "d_hidden": 512,
+    "d_model": 256,
+    "device": "cuda",
+    "dropout": 0.1,
+    "ema_decay": 0.999,
+    "ema_start_frac": 0.3,
+    "eval_batches": 128,
+    "eval_every": 500,
+    "heads": 8,
+    "layers": 8,
+    "lr": 0.0001,
+    "lr_horizon": "time",
+    "max_bytes": 0,
+    "max_seconds": 600.0,
+    "memory_size": 1048576,
+    "memory_tokens": 10000000,
+    "min_lr_frac": 0.0,
+    "no_ema": false,
+    "no_memory": false,
+    "out": "/kaggle/working/build/v2_newcorpus10",
+    "pairs": 128,
+    "prev_weight": 0.1,
+    "recluster_every": 1000,
+    "seed": 3,
+    "steps": 5000,
+    "swiglu": 1024,
+    "threads": 4,
+    "tokenizer": "bpe",
+    "topk": 8,
+    "train_fraction": 0.95,
+    "weight_decay": 0.05
+  },
+  "curvature": -0.9968012571334839,
+  "elapsed": 612.1284432411194,
+  "final": {
+    "accuracy": 0.0703125,
+    "bits_per_token": 10.448396666707632,
+    "loss": 7.242276690900326,
+    "tokens": 1024,
+    "top5": 0.19140625
+  },
+  "final_ema": {
+    "accuracy": 0.068359375,
+    "bits_per_token": 10.45841761744666,
+    "loss": 7.249222684651613,
+    "tokens": 1024,
+    "top5": 0.19140625
+  },
+  "memory_alpha": 0.12111733853816986,
+  "memory_enabled": true,
+  "params": 84859523,
+  "steps": 5000,
+  "tokens": 22727320,
+  "train_tokens": 21590954,
+  "val_tokens": 1136366
+}
+
+/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+  cells[i][c] = re.sub('\\\\\|', '|', cell)
+/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+  text = re.sub(r'_', '\_', text) # Escape underscores in display text
+[NbConvertApp] Converting notebook __script__.ipynb to html
+[NbConvertApp] Writing 297881 bytes to __results__.html
