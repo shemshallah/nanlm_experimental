@@ -248,7 +248,8 @@ def train(args):
     books, manifest = read_books_cached(root / "nanrouter", comp, r6.vocab, 0)
     if not books["train"] or not books["dev"] or not books["test"]:
         raise RuntimeError("train/dev/test book splits missing")
-    train_chunks = split_chunks(books["train"], args.chunk_span, args.max_chunks)
+    train_books = books["train"][:args.train_books] if args.train_books else books["train"]
+    train_chunks = split_chunks(train_books, args.chunk_span, args.max_chunks)
     dev_books = books["dev"][:args.dev_books]
     test_books = books["test"][:args.test_books]
     dev_chunks = split_chunks(dev_books, args.chunk_span, args.dev_chunks)
@@ -261,7 +262,7 @@ def train(args):
                             "cross_query")
     sem_test = None  # Test never generated before development selection.
     cursor = [0 for _ in train_chunks]
-    carriers = [ContinuousPALState(book.book_id) for book in books["train"]]
+    carriers = [ContinuousPALState(book.book_id) for book in train_books]
     step0 = 0
     original_dev = None
     if args.resume:
@@ -274,7 +275,7 @@ def train(args):
                     "expert_topk", "max_chunks"):
             if same_config[key] != getattr(args, key):
                 raise RuntimeError("resume changed model/stream configuration: " + key)
-        if previous["book_ids"] != [x.book_id for x in books["train"]]:
+        if previous["book_ids"] != [x.book_id for x in train_books]:
             raise RuntimeError("resume corpus changed")
         state = previous["selected"]
         unified.load_state_dict(state["model"])
@@ -300,7 +301,7 @@ def train(args):
     for step in range(step0 + 1, args.steps + 1):
         unified.train()
         which = (step - 1) % len(train_chunks)
-        book = books["train"][which]
+        book = train_books[which]
         segments = train_chunks[which]
         if cursor[which] >= len(segments):
             cursor[which] = 0
@@ -386,7 +387,7 @@ def train(args):
     # cursors and RNG for genuine continuation; no separate-arm weights.
     checkpoint = {"format": "FA2_R24_UNIFIED_CANDIDATE_V1",
                   "parent": parent, "config": vars(args).copy(),
-                  "book_ids": [x.book_id for x in books["train"]],
+                  "book_ids": [x.book_id for x in train_books],
                   "selected": best, "initial_dev": original_dev,
                   "selected_dev": selected_dev, "gates": dev_gates,
                   "accepted_model_promoted": False}
@@ -417,7 +418,7 @@ def train(args):
               "selected_semantic": selected_semantic,
               "promotion_gates": dev_gates,
               "historical_test_nonblind": historical,
-              "train_books": [b.book_id for b in books["train"]],
+              "train_books": [b.book_id for b in train_books],
               "dev_books": [b.book_id for b in dev_books],
               "test_books": [b.book_id for b in test_books],
               "trace": trace, "elapsed_seconds": time.monotonic() - started,
@@ -442,6 +443,8 @@ if __name__ == "__main__":
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--resume", default="")
     p.add_argument("--threads", type=int, default=2)
+    p.add_argument("--train-books", type=int, default=0,
+                   help="0 uses all available training books; positive N limits a CPU reproduction")
     p.add_argument("--seed", type=int, default=24024)
     p.add_argument("--chunk-span", type=int, default=12)
     p.add_argument("--unroll", type=int, default=2)
@@ -475,6 +478,7 @@ if __name__ == "__main__":
     if not (args.steps >= 1 and args.unroll >= 1 and
             args.chunk_span >= 1 and args.max_chunks >= args.unroll and
             args.eval_every >= 1 and args.dev_books >= 1 and
-            args.test_books >= 1 and args.expert_width >= 128):
+            args.test_books >= 1 and args.expert_width >= 128 and
+            args.train_books >= 0):
         p.error("invalid CPU training configuration")
     train(args)
