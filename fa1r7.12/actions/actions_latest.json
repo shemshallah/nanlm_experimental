@@ -1,0 +1,204 @@
+{
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "accepted_model_modified": false,
+  "accepted_model_updates": 14416,
+  "after": {
+    "dev": {
+      "cross_entropy_nats": 0.28760580665278945,
+      "latest_exact_lookup_oracle_top1": 1.0,
+      "n": 230,
+      "top1": 0.9478260869565217,
+      "uniform_cross_entropy": 2.0794415416798357,
+      "uniform_top1_chance": 0.125
+    },
+    "test": {
+      "cross_entropy_nats": 0.2737373113504596,
+      "latest_exact_lookup_oracle_top1": 1.0,
+      "n": 270,
+      "top1": 0.9629629629629629,
+      "uniform_cross_entropy": 2.0794415416798357,
+      "uniform_top1_chance": 0.125
+    },
+    "train": {
+      "cross_entropy_nats": 0.27144816696672114,
+      "latest_exact_lookup_oracle_top1": 1.0,
+      "n": 1100,
+      "top1": 0.9472727272727273,
+      "uniform_cross_entropy": 2.0794415416798357,
+      "uniform_top1_chance": 0.125
+    }
+  },
+  "attempted_updates": 512,
+  "author_disjoint": false,
+  "before": {
+    "dev": {
+      "cross_entropy_nats": 2.210184225721261,
+      "latest_exact_lookup_oracle_top1": 1.0,
+      "n": 230,
+      "top1": 0.09565217391304348,
+      "uniform_cross_entropy": 2.0794415416798357,
+      "uniform_top1_chance": 0.125
+    },
+    "train": {
+      "cross_entropy_nats": 1.973186484537509,
+      "latest_exact_lookup_oracle_top1": 1.0,
+      "n": 1100,
+      "top1": 0.13818181818181818,
+      "uniform_cross_entropy": 2.0794415416798357,
+      "uniform_top1_chance": 0.125
+    }
+  },
+  "book_disjoint_by_source_path": true,
+  "books": {
+    "dev": 23,
+    "test": 27,
+    "train": 110
+  },
+  "codename": "FA1",
+  "context_tokens": 6144,
+  "data": "NaNROUTER Project Gutenberg short-stories release batch 0001",
+  "data_verified_sha256_from_workflow": true,
+  "embedding_type": "SURROGATE exact-key score; NOT FA1 learned embedding",
+  "errors": [],
+  "examples": {
+    "dev": 230,
+    "test": 270,
+    "train": 1100
+  },
+  "hard_negative": "same key, competing historical successor, multiple segments",
+  "initial_router": {
+    "adam": {
+      "m": [
+        -0.0008710847469046712,
+        -0.02336505986750126,
+        -0.00030618676100857556
+      ],
+      "step": 192,
+      "v": [
+        1.3692422271560645e-06,
+        0.0004919435596093535,
+        3.972450031142216e-06
+      ]
+    },
+    "weights": [
+      10.25741958618164,
+      6.584434509277344,
+      -0.07944551110267639
+    ]
+  },
+  "natural_language_loss_tested": false,
+  "promotion_gate_passed": false,
+  "round": "R7.14",
+  "seconds": 3.78,
+  "segment_tokens": 768,
+  "segments": 8,
+  "selected_update": 512,
+  "semantic_paraphrase_tested": false,
+  "surrogate_training_promoted": false,
+  "task": "auxiliary temporal conflict segment routing",
+  "trained_parameters": "3 scalar router weights, inherited R7.13 Adam moments",
+  "training_trace": [
+    {
+      "dev_ce": 2.203792541900783,
+      "dev_top1": 0.09565217391304348,
+      "train_step_nll": 1.1408164854085532,
+      "update": 1
+    },
+    {
+      "dev_ce": 1.613939819580837,
+      "dev_top1": 0.6347826086956522,
+      "train_step_nll": 4.4688149073536945,
+      "update": 32
+    },
+    {
+      "dev_ce": 1.3270902092360646,
+      "dev_top1": 0.6565217391304348,
+      "train_step_nll": 0.8276816662525878,
+      "update": 64
+    },
+    {
+      "dev_ce": 1.1481420720850195,
+      "dev_top1": 0.6608695652173913,
+      "train_step_nll": 3.3667027227720587,
+      "update": 96
+    },
+    {
+      "dev_ce": 0.9450690107945114,
+      "dev_top1": 0.7043478260869566,
+      "train_step_nll": 0.9845675481740086,
+      "update": 128
+    },
+    {
+      "dev_ce": 0.8265787990291412,
+      "dev_top1": 0.7478260869565218,
+      "train_step_nll": 0.03862041129874533,
+      "update": 160
+    },
+    {
+      "dev_ce": 0.7294371375141199,
+      "dev_top1": 0.7521739130434782,
+      "train_step_nll": 0.4599150450631562,
+      "update": 192
+    },
+    {
+      "dev_ce": 0.6352245097054982,
+      "dev_top1": 0.7695652173913043,
+      "train_step_nll": 0.27548241999961615,
+      "update": 224
+    },
+    {
+      "dev_ce": 0.5583384889470909,
+      "dev_top1": 0.8,
+      "train_step_nll": 0.234896658225323,
+      "update": 256
+    },
+    {
+      "dev_ce": 0.4995119511545397,
+      "dev_top1": 0.8,
+      "train_step_nll": 0.6183119245961723,
+      "update": 288
+    },
+    {
+      "dev_ce": 0.44847995464209717,
+      "dev_top1": 0.8217391304347826,
+      "train_step_nll": 0.024643816501113525,
+      "update": 320
+    },
+    {
+      "dev_ce": 0.4164698904762562,
+      "dev_top1": 0.8434782608695652,
+      "train_step_nll": 0.1641812137679723,
+      "update": 352
+    },
+    {
+      "dev_ce": 0.38630859697577086,
+      "dev_top1": 0.8478260869565217,
+      "train_step_nll": 0.835814882031872,
+      "update": 384
+    },
+    {
+      "dev_ce": 0.3531438707425654,
+      "dev_top1": 0.9217391304347826,
+      "train_step_nll": 0.8251164861943969,
+      "update": 416
+    },
+    {
+      "dev_ce": 0.32472708908637743,
+      "dev_top1": 0.9304347826086956,
+      "train_step_nll": 0.6021156342915808,
+      "update": 448
+    },
+    {
+      "dev_ce": 0.3044619232796834,
+      "dev_top1": 0.9478260869565217,
+      "train_step_nll": 0.3345887274145995,
+      "update": 480
+    },
+    {
+      "dev_ce": 0.28760580665278945,
+      "dev_top1": 0.9478260869565217,
+      "train_step_nll": 0.019724973992446965,
+      "update": 512
+    }
+  ]
+}
