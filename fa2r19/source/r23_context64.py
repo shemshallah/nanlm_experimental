@@ -148,15 +148,16 @@ class ContextualSpanMemory(nn.Module):
         nn.init.zeros_(self.gate[-1].weight)
         nn.init.zeros_(self.gate[-1].bias)
 
-    def encode(self, rows, query):
+    def encode(self, rows, query, *, piece_table=None):
         if rows.shape[-1] != 64:
             raise ValueError("context must be 64 tokens, left padded with -1")
         shape = rows.shape[:-1]
         rows = rows.reshape(-1, 64).long()
-        if bool((rows >= self.pieces.shape[0]).any()):
+        pieces = self.pieces if piece_table is None else piece_table
+        if bool((rows >= pieces.shape[0]).any()):
             raise ValueError("out-of-vocabulary memory token")
         valid = rows.ne(-1)
-        embedded = F.embedding(rows.clamp_min(0), self.pieces)
+        embedded = F.embedding(rows.clamp_min(0), pieces)
         att = self.q_attention if query else self.k_attention
         mix = F.softmax(self.q_mix if query else self.k_mix, dim=0)
         pooled = []
@@ -172,17 +173,17 @@ class ContextualSpanMemory(nn.Module):
         network = self.query_net if query else self.key_net
         return F.normalize(network(pooled), dim=-1, eps=1e-6).reshape(*shape, -1)
 
-    def score(self, memory):
-        q = self.encode(memory["query"], True)
-        k = self.encode(memory["keys"], False)
+    def score(self, memory, *, piece_table=None):
+        q = self.encode(memory["query"], True, piece_table=piece_table)
+        k = self.encode(memory["keys"], False, piece_table=piece_table)
         scores = (q[:, None, :] * k).sum(-1) * self.log_temperature.exp().clamp(0.1, 40)
         scores = scores - self.recency * torch.log1p(memory["distance"])
         scores = scores + self.tier_bias[memory["tier"]]
         return scores.masked_fill(~memory["mask"], -1e4)
 
-    def read(self, base_logits, memory, *, scores=None):
+    def read(self, base_logits, memory, *, scores=None, piece_table=None):
         if scores is None:
-            scores = self.score(memory)
+            scores = self.score(memory, piece_table=piece_table)
         T, vocab = base_logits.shape
         if memory["query"].shape[0] != T:
             raise ValueError("unaligned memory window")
@@ -225,8 +226,8 @@ class ContextualSpanMemory(nn.Module):
             "eligible": eligible,
         }
 
-    def forward(self, base_logits, memory):
-        return self.read(base_logits, memory)
+    def forward(self, base_logits, memory, *, piece_table=None):
+        return self.read(base_logits, memory, piece_table=piece_table)
 
 
 def multipositive_value_loss(scores, memory, targets, horizons=HORIZONS):

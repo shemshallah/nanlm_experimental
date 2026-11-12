@@ -30,11 +30,12 @@ class R22Residual(nn.Module):
         self.branches = nn.ModuleDict({name: RelevanceNoveltyGate(minimum_query_position)
                                        for name in BANDS})
 
-    def forward(self, r21_logits, proposals, features):
+    def forward(self, r21_logits, proposals, features, *, query_position_offset=0):
         result = r21_logits
         gate_values = {}
         for name in BANDS:
-            result, weights = self.branches[name](result, proposals[name], features[name])
+            result, weights = self.branches[name](result, proposals[name], features[name],
+                                                  query_position_offset=query_position_offset)
             gate_values[name] = weights
         return result, gate_values
 

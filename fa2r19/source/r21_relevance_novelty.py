@@ -29,7 +29,7 @@ class RelevanceNoveltyGate(nn.Module):
             self.features[-1].weight.zero_()
             self.features[-1].bias.zero_()
 
-    def forward(self,base_logits,delta,features):
+    def forward(self,base_logits,delta,features,*,query_position_offset=0):
         if (base_logits.shape!=delta.shape or features.shape!=(len(base_logits),len(FEATURE_NAMES))):
             raise ValueError('Gate shape mismatch')
         confidence=torch.sigmoid(self.features(features)).squeeze(-1)
@@ -39,7 +39,7 @@ class RelevanceNoveltyGate(nn.Module):
         # Allow memory to affect only sufficiently mature contexts. R20's
         # short-span regression motivated a fixed architectural restriction;
         # this cutoff is not inferred from the held-out test.
-        query_pos=torch.arange(len(base_logits),device=base_logits.device)
+        query_pos=torch.arange(len(base_logits),device=base_logits.device) + int(query_position_offset)
         gates=gates*(query_pos>=self.minimum_query_position).to(gates.dtype)
         return base_logits+gates[:,None]*delta, gates
 
