@@ -72,6 +72,11 @@ def main() -> int:
     p.add_argument("--out", default="/content/z2")
     p.add_argument("--checkpoint-url", default="",
                    help="Optional z1/nanlmv3 .pt checkpoint URL for continuation")
+    p.add_argument("--checkpoint-path", default="",
+                   help="Optional local .pt checkpoint (e.g. Drive best.pt)")
+    p.add_argument("--resume-best", action="store_true", default=True,
+                   help="Automatically use OUT/best.pt if present")
+    p.add_argument("--no-resume-best", dest="resume_best", action="store_false")
     p.add_argument("--eval-every", type=int, default=1000)
     p.add_argument("--eval-batches", type=int, default=64)
     args = p.parse_args()
@@ -168,9 +173,19 @@ def main() -> int:
         )
 
     init_from = ""
-    if args.checkpoint_url:
+    if args.checkpoint_path:
+        init_from = args.checkpoint_path
+    elif args.resume_best:
+        candidate = out / "best.pt"
+        if candidate.exists():
+            init_from = str(candidate)
+    if not init_from and args.checkpoint_url:
         init_from = str(build / "init.pt")
         download(args.checkpoint_url, pathlib.Path(init_from))
+    if init_from:
+        if not pathlib.Path(init_from).exists():
+            raise SystemExit(f"checkpoint not found: {init_from}")
+        print(f"[resume] {init_from}", flush=True)
 
     cmd = [
         sys.executable, str(REPO / "nanlmv3" / "unified_v2.py"),

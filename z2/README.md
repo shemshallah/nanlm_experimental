@@ -56,6 +56,40 @@ Tokenizer: the z1 32k BPE tokenizer. If it is missing, the script trains a new
 `result.json` contains best/final/EMA metrics, elapsed time, parameter count,
 and the geometry state.
 
+## Resume from `best.pt`
+
+The run cell now passes `--resume-best`. The script automatically checks:
+
+```text
+/content/drive/MyDrive/nanlmv3_z2/best.pt
+```
+
+If that file exists, it is loaded with `--init-from` and evaluated first
+(`--eval-before`), then training continues.
+
+Useful variants:
+
+```python
+# fresh run, ignore an existing best.pt
+!python .../train_colab.py --minutes 30 --out "$OUT" --no-resume-best
+
+# specific checkpoint file
+!python .../train_colab.py --minutes 30 --out "$OUT" \
+  --checkpoint-path /content/drive/MyDrive/nanlmv3_z2/best.pt
+
+# remote checkpoint
+!python .../train_colab.py --minutes 30 --out "$OUT" \
+  --checkpoint-url "https://github.com/.../best.pt"
+```
+
+Notes:
+
+- `best.pt` is written after the first validation eval. If the job died before
+  any eval, there is no checkpoint to recover.
+- The checkpoint must be the same 84.86M v2 architecture.
+- If a checkpoint is corrupt or from another configuration, delete/rename it
+  or rerun with `--no-resume-best`.
+
 ## Optional continuation
 
 Pass a checkpoint URL to start from an existing build:
