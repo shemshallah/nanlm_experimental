@@ -1,0 +1,123 @@
+name: FA2.1 - Verify, run CPU gates, optional one-checkpoint continuation
+
+on:
+  push:
+    paths:
+      - 'fa2r19/**'
+      - '.github/workflows/fa2r19-cpu.yml'
+  workflow_dispatch:
+    inputs:
+      archive_url:
+        description: 'HTTPS URL to the complete, unchanged PAL R19 release ZIP (required for model work)'
+        type: string
+        required: false
+        default: ''
+      train_steps:
+        description: 'Optional joint CPU continuation steps; 0 means audit only'
+        type: number
+        required: true
+        default: 0
+      publish_archive:
+        description: 'Publish verified original 103.9 MB archive as FA2.1 GitHub Release (never candidate weights)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa2r19-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-gates:
+    name: Local safety tests without checkpoint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify archive checker rejects unsafe archive entries
+        run: python3 fa2r19/verify_release.py --self-test
+      - name: Show current accepted release identity
+        run: cat fa2r19/RELEASE.json
+
+  run-with-model:
+    name: Trusted model verification and optional CPU continuation
+    needs: source-gates
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.archive_url != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      ARCHIVE_URL: ${{ inputs.archive_url }}
+      TRAIN_STEPS: ${{ inputs.train_steps }}
+      PUBLISH_ARCHIVE: ${{ inputs.publish_archive }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: fa2r19/requirements.txt
+      - name: Verify trusted HTTPS release location
+        run: |
+          python3 - <<'PY'
+          import os,urllib.parse
+          url=urllib.parse.urlsplit(os.environ['ARCHIVE_URL'])
+          if url.scheme != 'https' or not url.hostname or url.username or url.password:
+              raise SystemExit('Provide an HTTPS download URL with no embedded credentials')
+          print('Source host:',url.hostname)
+          PY
+      - name: Fetch original model release
+        run: |
+          mkdir -p incoming
+          curl --fail --location --retry 3 --connect-timeout 30 --max-time 1800 \
+            --output incoming/PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip "$ARCHIVE_URL"
+      - name: Validate hashes and release structure BEFORE deserializing
+        run: |
+          python3 fa2r19/verify_release.py incoming/PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip \
+            --extract work/release --report incoming/release_verification.json
+      - name: Install original PAL requirements
+        run: python -m pip install -r work/release/requirements.txt
+      - name: Verify inherited optimizer lineage, causal and semantic structure
+        run: |
+          cd work/release
+          python source/r18_verify_lineage.py --root .
+          python source/test_r18.py .
+          python source/test_r19.py --root .
+      - name: Optional CPU continuation, same one accepted checkpoint
+        if: ${{ inputs.train_steps > 0 }}
+        run: |
+          if ! [[ "$TRAIN_STEPS" =~ ^[0-9]+$ ]] || (( TRAIN_STEPS > 500 )); then
+            echo 'train_steps must be an integer from 0 to 500 per run' >&2; exit 1
+          fi
+          cd work/release
+          python source/r18_joint_continue.py --root . --threads 2 \
+            --steps "$TRAIN_STEPS" --span 96 --long-span 400 --promote \
+            | tee ../../incoming/continuation.log
+      - name: Publish verified INITIAL R19 archive to GitHub Releases
+        if: ${{ inputs.publish_archive && inputs.train_steps == 0 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create fa2.1-r19 \
+            incoming/PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip \
+            incoming/release_verification.json \
+            --title 'FA2.1: PAL R19 accepted unified checkpoint' \
+            --notes 'One accepted R18 PAL checkpoint with inherited Adam history, R19 semantic audit and corpus. SHA-256 is pinned in fa2r19/RELEASE.json. R19 semantic candidates were not promoted.' \
+            --target "${{ github.sha }}"
+      - name: Export reports only; never publish a rejected checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa2r19-run-${{ github.run_id }}
+          path: |
+            incoming/*.json
+            incoming/*.log
+            work/release/reports/*.json
+          if-no-files-found: warn
+          retention-days: 30
