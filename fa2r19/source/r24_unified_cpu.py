@@ -106,10 +106,19 @@ def initialize(root, args):
         raise RuntimeError("expected one optimizer with NINE inherited/new groups")
     for group, lr in zip(base_opt.param_groups, lrs):
         group["lr"] = lr
-    expected_ids = {id(p) for p in unified.parameters()}
     optimizer_ids = [id(p) for group in base_opt.param_groups for p in group["params"]]
-    if set(optimizer_ids) != expected_ids or len(optimizer_ids) != len(expected_ids):
-        raise RuntimeError("shared optimizer does not cover exactly all model parameters")
+    owned = set(optimizer_ids)
+    # The accepted PAL checkpoint contains unused legacy heads not owned by
+    # its Adam optimizer. Preserve them as frozen weights; never reset or
+    # silently add parameters that were not trained in the accepted lineage.
+    frozen_legacy = []
+    for name, parameter in unified.named_parameters():
+        if id(parameter) not in owned:
+            parameter.requires_grad_(False)
+            frozen_legacy.append(name)
+    expected_ids = {id(p) for p in unified.parameters() if p.requires_grad}
+    if owned != expected_ids or len(optimizer_ids) != len(owned):
+        raise RuntimeError("shared optimizer does not own every TRAINABLE parameter exactly once")
     provenance = {"accepted_sha256": ACCEPTED_SHA,
                   "r21_sha256": h21, "r22_sha256": h22,
                   "r18_optimizer_migration": history,
