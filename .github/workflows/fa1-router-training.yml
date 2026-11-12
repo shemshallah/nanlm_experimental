@@ -66,15 +66,22 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/fa1-prior"
           cp fa1r7.12/actions/router_seed.json "$RUNNER_TEMP/fa1-prior/input.json"
-          # Latest successful Actions artifact is an optional continuation.
+          # The latest committed state is durable even after Actions artifacts expire.
+          if test -s fa1r7.12/actions/router_resume.json; then
+            cp fa1r7.12/actions/router_resume.json "$RUNNER_TEMP/fa1-prior/input.json"
+          fi
+          # A newer successful Actions artifact is an optional continuation.
           for id in $(gh run list --repo "$GH_REPO" --workflow fa1-router-training.yml \
             --status success --limit 6 --json databaseId --jq '.[].databaseId' 2>/dev/null || true); do
             mkdir -p "$RUNNER_TEMP/fa1-resume-candidate"
             if gh run download "$id" --repo "$GH_REPO" \
                 --name fa1-router-state --dir "$RUNNER_TEMP/fa1-resume-candidate" >/dev/null 2>&1 \
                 && test -s "$RUNNER_TEMP/fa1-resume-candidate/router_state.json"; then
-              cp "$RUNNER_TEMP/fa1-resume-candidate/router_state.json" "$RUNNER_TEMP/fa1-prior/input.json"
-              echo "Resume from successful run $id"
+              if python -c 'import json,sys; old,new=[json.load(open(x)) for x in sys.argv[1:]]; assert new["accepted_checkpoint_sha256"]==old["accepted_checkpoint_sha256"] and new.get("surrogate_training_promoted") is False; sys.exit(0 if int(new["adam"]["step"])>int(old["adam"]["step"]) else 1)' \
+                  "$RUNNER_TEMP/fa1-prior/input.json" "$RUNNER_TEMP/fa1-resume-candidate/router_state.json"; then
+                cp "$RUNNER_TEMP/fa1-resume-candidate/router_state.json" "$RUNNER_TEMP/fa1-prior/input.json"
+                echo "Resume from successful run $id"
+              fi
               break
             fi
           done
