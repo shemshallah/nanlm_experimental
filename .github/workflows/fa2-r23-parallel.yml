@@ -20,6 +20,10 @@ on:
         description: 'Source-verified book windows per arm'
         type: number
         default: 24
+      stream_max_chunks:
+        description: 'Maximum consecutive word chunks per train/dev/test book'
+        type: number
+        default: 32
 permissions:
   contents: read
 jobs:
@@ -60,11 +64,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arm: [context, value, semantic, joint]
+        arm: [context, value, semantic, joint, stream]
     env:
       ARCHIVE_URL: ${{ inputs.archive_url }}
       STEPS: ${{ inputs.steps }}
       TRAIN_WINDOWS: ${{ inputs.train_windows }}
+      STREAM_MAX_CHUNKS: ${{ inputs.stream_max_chunks }}
       OMP_NUM_THREADS: '2'
       MKL_NUM_THREADS: '2'
       OPENBLAS_NUM_THREADS: '2'
@@ -83,6 +88,7 @@ jobs:
           assert u.scheme=='https' and u.hostname and not u.username and not u.password
           assert 1<=int(os.environ['STEPS'])<=10000
           assert 1<=int(os.environ['TRAIN_WINDOWS'])<=512
+          assert 2<=int(os.environ['STREAM_MAX_CHUNKS'])<=1024
           PY
       - name: Download and verify exact original full R19 archive
         run: |
@@ -96,6 +102,8 @@ jobs:
           cp fa2r19/source/r22_cpu_longmemory.py work/release/source/
           cp fa2r19/source/r23_context64.py work/release/source/
           cp fa2r19/source/r23_cpu_parallel.py work/release/source/
+          cp fa2r19/source/r23_stream_carry.py work/release/source/
+          cp fa2r19/source/r23_stream_cpu.py work/release/source/
           cp fa2r19/source/test_r22_multiscale_memory.py work/release/source/
           python - <<'PY'
           import base64
@@ -114,9 +122,15 @@ jobs:
           python source/test_r19.py --root .
           python source/test_r22_multiscale_memory.py .
       - name: Train one independent CPU candidate
+        if: ${{ matrix.arm != 'stream' }}
         run: |
           cd work/release
           python source/r23_cpu_parallel.py --root . --mode "${{ matrix.arm }}" --steps "$STEPS" --train-windows "$TRAIN_WINDOWS" --threads 2 | tee "../../incoming/r23-${{ matrix.arm }}.log"
+      - name: Train stream-persistent CPU candidate
+        if: ${{ matrix.arm == 'stream' }}
+        run: |
+          cd work/release
+          python source/r23_stream_cpu.py --root . --steps "$STEPS" --max-chunks "$STREAM_MAX_CHUNKS" --threads 2 | tee "../../incoming/r23-stream.log"
       - name: Verify checkpoint after candidate
         if: always()
         run: |
