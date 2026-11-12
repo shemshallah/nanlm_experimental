@@ -1,0 +1,250 @@
+{
+  "round": "FA1 R7.18",
+  "hypothesis": "Disjoint 32K-128K retrieval can improve a frozen 32K R7.16 candidate without wrong-memory shortcuts",
+  "accepted_parent_step": 14416,
+  "parent_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "r716_overlay_sha256": "436ff87fae69ef1f44b53e2ffde92313da408342f65a1897c6eaff1876f9c09c",
+  "original_five_optimizer_histories_preserved": true,
+  "accepted_weights_unmodified": true,
+  "r716_overlay_unmodified": true,
+  "r716_candidate_not_promoted": true,
+  "train_n": 1024,
+  "dev_n": 512,
+  "test_n": 512,
+  "training_steps": 240,
+  "selected_step": 48,
+  "selected": true,
+  "promoted": false,
+  "initial_dev": {
+    "n": 512,
+    "base_nll": 5.235428810119629,
+    "r716_near_nll": 5.146454811096191,
+    "r718_correct_nll": 5.143958568572998,
+    "r718_wrong_far_nll": 5.146783828735352,
+    "far_incremental_gain": 0.002496311441063881,
+    "correct_far_advantage": 0.00282488577067852,
+    "correct_far_advantage_train_donor": 0.0008875088533386588,
+    "total_vs_accepted_gain": 0.09147030860185623,
+    "average_far_gate": 0.0008067362941801548,
+    "far_coverage": 0.896484375
+  },
+  "selected_dev": {
+    "n": 512,
+    "base_nll": 5.235428810119629,
+    "r716_near_nll": 5.146454811096191,
+    "r718_correct_nll": 5.105531215667725,
+    "r718_wrong_far_nll": 5.236911773681641,
+    "far_incremental_gain": 0.04092417284846306,
+    "correct_far_advantage": 0.13138103485107422,
+    "correct_far_advantage_train_donor": 0.04619256407022476,
+    "total_vs_accepted_gain": 0.12989817559719086,
+    "average_far_gate": 0.136723130941391,
+    "far_coverage": 0.896484375
+  },
+  "historical_test": {
+    "n": 512,
+    "base_nll": 5.945565223693848,
+    "r716_near_nll": 5.757913112640381,
+    "r718_correct_nll": 5.516152381896973,
+    "r718_wrong_far_nll": 5.807130813598633,
+    "far_incremental_gain": 0.2417612373828888,
+    "correct_far_advantage": 0.29097825288772583,
+    "correct_far_advantage_train_donor": 0.26448625326156616,
+    "total_vs_accepted_gain": 0.42941275238990784,
+    "average_far_gate": 0.13456711173057556,
+    "far_coverage": 0.890625
+  },
+  "historical_test_reference_near": {
+    "r716_near_nll": 5.757913112640381,
+    "base_nll": 5.945565223693848,
+    "extra_far_contribution": 0.0
+  },
+  "all_dev_gates": [
+    {
+      "step": 1,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.143720626831055,
+        "r718_wrong_far_nll": 5.146820068359375,
+        "far_incremental_gain": 0.0027344361878931522,
+        "correct_far_advantage": 0.0030990145169198513,
+        "correct_far_advantage_train_donor": 0.0009844213491305709,
+        "total_vs_accepted_gain": 0.09170842170715332,
+        "average_far_gate": 0.0008978090481832623,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 24,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.123192310333252,
+        "r718_wrong_far_nll": 5.155311107635498,
+        "far_incremental_gain": 0.02326289936900139,
+        "correct_far_advantage": 0.03211857005953789,
+        "correct_far_advantage_train_donor": 0.013036277145147324,
+        "total_vs_accepted_gain": 0.11223690211772919,
+        "average_far_gate": 0.01859351433813572,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 48,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.105531215667725,
+        "r718_wrong_far_nll": 5.236911773681641,
+        "far_incremental_gain": 0.04092417284846306,
+        "correct_far_advantage": 0.13138103485107422,
+        "correct_far_advantage_train_donor": 0.04619256407022476,
+        "total_vs_accepted_gain": 0.12989817559719086,
+        "average_far_gate": 0.136723130941391,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 72,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.106470108032227,
+        "r718_wrong_far_nll": 5.243086814880371,
+        "far_incremental_gain": 0.03998531028628349,
+        "correct_far_advantage": 0.13661687076091766,
+        "correct_far_advantage_train_donor": 0.04727045074105263,
+        "total_vs_accepted_gain": 0.1289593130350113,
+        "average_far_gate": 0.14428703486919403,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 96,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.10955286026001,
+        "r718_wrong_far_nll": 5.241959095001221,
+        "far_incremental_gain": 0.03690270707011223,
+        "correct_far_advantage": 0.13240675628185272,
+        "correct_far_advantage_train_donor": 0.044863197952508926,
+        "total_vs_accepted_gain": 0.12587670981884003,
+        "average_far_gate": 0.13811291754245758,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 120,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.109869480133057,
+        "r718_wrong_far_nll": 5.242532730102539,
+        "far_incremental_gain": 0.03658575192093849,
+        "correct_far_advantage": 0.13266286253929138,
+        "correct_far_advantage_train_donor": 0.04516365006566048,
+        "total_vs_accepted_gain": 0.1255597323179245,
+        "average_far_gate": 0.14327850937843323,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 144,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.109890460968018,
+        "r718_wrong_far_nll": 5.246214866638184,
+        "far_incremental_gain": 0.03656452149152756,
+        "correct_far_advantage": 0.13632474839687347,
+        "correct_far_advantage_train_donor": 0.04331520199775696,
+        "total_vs_accepted_gain": 0.12553851306438446,
+        "average_far_gate": 0.14340153336524963,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 168,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.111498832702637,
+        "r718_wrong_far_nll": 5.247969150543213,
+        "far_incremental_gain": 0.03495645150542259,
+        "correct_far_advantage": 0.13647021353244781,
+        "correct_far_advantage_train_donor": 0.04541845619678497,
+        "total_vs_accepted_gain": 0.1239304393529892,
+        "average_far_gate": 0.14408206939697266,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 192,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.109658241271973,
+        "r718_wrong_far_nll": 5.237637519836426,
+        "far_incremental_gain": 0.03679677098989487,
+        "correct_far_advantage": 0.12797896564006805,
+        "correct_far_advantage_train_donor": 0.048242393881082535,
+        "total_vs_accepted_gain": 0.12577076256275177,
+        "average_far_gate": 0.13294237852096558,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 216,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.11108922958374,
+        "r718_wrong_far_nll": 5.246121883392334,
+        "far_incremental_gain": 0.035365551710128784,
+        "correct_far_advantage": 0.13503222167491913,
+        "correct_far_advantage_train_donor": 0.04680250957608223,
+        "total_vs_accepted_gain": 0.12433955073356628,
+        "average_far_gate": 0.1390981525182724,
+        "far_coverage": 0.896484375
+      }
+    },
+    {
+      "step": 240,
+      "dev": {
+        "n": 512,
+        "base_nll": 5.235428810119629,
+        "r716_near_nll": 5.146454811096191,
+        "r718_correct_nll": 5.109103679656982,
+        "r718_wrong_far_nll": 5.237797737121582,
+        "far_incremental_gain": 0.03735151141881943,
+        "correct_far_advantage": 0.12869402766227722,
+        "correct_far_advantage_train_donor": 0.05112633481621742,
+        "total_vs_accepted_gain": 0.12632550299167633,
+        "average_far_gate": 0.1335773915052414,
+        "far_coverage": 0.896484375
+      }
+    }
+  ],
+  "exact_horizon_groups": {
+    "near": "[2049,32768]",
+    "far": "[32769,131072]"
+  },
+  "history_controls": "order-shuffled far past and distinct-train-split far donors; original and 32K near unchanged",
+  "independent_book_evaluation": false,
+  "legacy_splits_reused": true,
+  "adapter_path": "/mnt/data/fa1_r718_work/adaptation/fa1_r718_full_candidate.pt",
+  "adapter_sha256": "f4d9175ff202d9ec1ff3a06dcddfd3d262cea25f8441fa5dab972a313309aa9f",
+  "seconds": 52.23
+}
