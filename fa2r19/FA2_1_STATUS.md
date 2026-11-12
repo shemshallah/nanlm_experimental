@@ -14,9 +14,13 @@ remain authoritative because R19 semantic candidates failed promotion.
 - Model status: inherited R18 accepted. Semantic adapter candidate: rejected.
 
 The complete archive exists in the owner's ChatGPT Library. **It has not yet
-been uploaded to GitHub Releases.** The connected GitHub integration supports
-text and Git objects, not a direct handoff of the local 103.9 MB artifact. No
-placeholder or randomly initialized model is substituted.
+been uploaded to GitHub Releases.** The original accepted checkpoint is now
+mirrored as **36 committed compressed binary parts** in `checkpoint_parts/`,
+with hash-pinned `MODEL_PARTS.json` and `restore_fa2_checkpoint.py`.
+[GitHub Actions run #6](https://github.com/shemshallah/nanlm_experimental/actions/runs/43308935437)
+successfully restored and SHA-verified every part. The original corpus and
+tokenizer are still not fully mirrored, so GitHub-hosted *training* requires the
+full archive via `archive_url`. No placeholder weights are substituted.
 
 ## Use GitHub Actions to publish the exact model
 
@@ -49,3 +53,47 @@ Its path-traversal rejection self-test also passed.
 The scientific next gate is held-out paraphrase and multi-hop downstream
 language-model improvement, not just indexed lexical retrieval. Claims about
 65K-token reasoning must use actual end-to-end document encoding.
+## CPU continuation and R20 soft admission — November 12, 2026
+
+Accepted weight SHA-256 remains `dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f`.
+The original four inherited optimizer groups and R18 memory optimizer moments
+were preserved. Both attempted conventional continuations failed promotion:
+
+| CPU candidate | Short BPB before → after | Long BPB before → after | Accepted? |
+|---|---|---|---|
+| 50 updates, original LR, 14,193 targets | 2.599446 → 2.599548 | 2.565997 → 2.568984 | No |
+| 100 updates, LR × 0.15, 28,585 targets | 2.599446 → 2.600335 | 2.565997 → 2.566477 | No |
+
+See `reports/fa2_1_cpu50.json` and `reports/fa2_1_cpu100_lr015.json`.
+The source continuation driver now accepts `--lr-scale`, and GitHub Actions
+exposes the corresponding manual-run input without resetting Adam moments.
+
+### R20: experimental causal, nonexact admission
+
+`source/r20_soft_admission.py` reuses PAL's **existing trained R18 Q/K
+projections**. It removes the exact two-token candidate-admission requirement
+and tests retrieval over older causal keys, in blocks. Its scalar gain is
+initialized at zero for exact prediction preservation. This is **not yet
+a trained or promoted semantic language-model extension**.
+
+Twelve local structural tests passed, including causal suffix invariance and
+gradients through the inherited query/key layers. Unrestricted copying hurt
+non-space loss. Restricting retrieved values to non-space content improved
+historical long-context development BPB **2.565997 → 2.563825** and historical
+book-disjoint test BPB **2.413332 → 2.411362**, using development-selected
+gain 1.0. Test non-space NLL improved **4.527414 → 4.522701**.
+The 32-window short-context historical test slightly regressed,
+BPB **2.398048 → 2.398177**.
+
+**Decision:** no promotion. This is a limited frozen-weight copy ablation,
+not paraphrase understanding, multi-hop reasoning, or independent new-book
+generalization. Historical test books have been used in previous rounds.
+The R20 code and reports are committed for reproducibility; only one
+original accepted checkpoint remains.
+
+Next acceptance gate: incorporate a trainable content/relevance/novelty gate
+in the *same* checkpoint, compare against exact-match and lexical baselines
+on genuinely unseen paraphrase keys, two-hop chains, and independently
+held-out prose, and require improvements across long and short BPB plus
+non-space NLL and inherited future/word anchors. Longer than 2K memory indexing
+does not by itself establish trained long-context language understanding.
