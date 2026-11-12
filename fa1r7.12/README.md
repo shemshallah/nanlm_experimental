@@ -41,3 +41,15 @@ Every future FA1 training round should update code, evaluation reports, provenan
 ## R7.14 fast CPU diagnostic (2026-11-12)
 
 Two CPU candidate adapters were tested on the unchanged step-14,416 checkpoint and failed the correct-vs-unrelated-memory LM promotion gate. The accepted FA1 weights and all five optimizer histories remain unchanged; FA2 is separate. See [FA1 R7.14 CPU results](FA1_R7p14_FAST_LOCAL_CPU.md). New scripts/reports are distributed in the conversation's 15.6 KB minimal source ZIP; they are not yet present in this GitHub subtree.
+
+## R7.15 query-conditioned mirror CPU experiment (2026-11-12)
+
+**Not promoted.** The original step **14,416** full checkpoint and five optimizer histories are unchanged (SHA256 `54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d`). R7.15 adds a candidate query-conditioned rank-64 S+/S- reader/writer trained from LM loss using a temporary extra group in the fifth optimizer; it does **not** jointly update the original trunk.
+
+- **Historical natural-language LM:** 128 CPU updates; no development NLL plus wrong-history-control gate passed. Baseline dev NLL 4.618318, unsuccessful step-128 candidate 4.845736. Reject candidate, zero out its gate.
+- **Historical contextual cache:** 256 development samples; all 20 tested trust settings lost to original LM and failed memory controls.
+- **Synthetic long-range key/value copy:** best step 112/128; on held-out random keys, NLL 1.0782 versus an explicitly **uniform** baseline 10.3735. Mirror-rail ablation NLL 1.1674. **This is not real-language LM gain.**
+- **Synthetic-to-natural transfer:** historic dev NLL rises from 5.0689 to 5.1561 despite correct-memory beating unrelated-memory by 0.0207. No promotion.
+- **Integrity:** five new structure and target-leakage tests pass. No independent new-book evaluation was performed; NaNROUTER corpus documents are GitHub **Release assets**, not committed directly under `corpora/`.
+
+See [full R7.15 CPU report](FA1_R7p15_CPU_REPORT.md), `source/fa1_r715_*.py`, `source/test_fa1_r715.py` and `reports/FA1_R7p15_*.json` for fully reproducible small CPU pilot. The accepted ~95-MB checkpoint is not in GitHub. The small cumulative R7.14/R7.15 source/reports ZIP resides in the conversation/Library, to use alongside the full accepted R7.13 archive. **FA2.2 remains separate.**
