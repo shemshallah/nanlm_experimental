@@ -174,17 +174,26 @@ def evaluate(unified, books, chunks):
     unified.eval()
     total = base = scrambled = other = other_base = 0.0
     nbytes = nnonspace = ntokens = selected = 0
+    donor_total = donor_main = donor_tokens = 0.0
     coverage = {"recent": 0, "middle": 0, "far": 0}
     furthest = {"recent": 0, "middle": 0, "far": 0}
-    for book, pieces in zip(books, chunks):
+    for bi, (book, pieces) in enumerate(zip(books, chunks)):
         state = ContinuousPALState(book.book_id)
+        donor = books[(bi + 1) % len(books)] if len(books) > 1 else None
         for segment in pieces:
-            row = unified.forward_chunk(book, segment, state, counterfactual=True)
+            row = unified.forward_chunk(
+                book, segment, state, counterfactual=True, donor_book=donor)
             y = row["target"]
             main = F.cross_entropy(row["logits"], y, reduction="none")
             old = F.cross_entropy(row["without_r23"], y, reduction="none")
             wrong = F.cross_entropy(row["scrambled_values"], y, reduction="none")
             nonspace = y.ne(32)
+            if row["unrelated_history"] is not None:
+                nll_donor = F.cross_entropy(
+                    row["unrelated_history"], y, reduction="sum")
+                donor_total += float(nll_donor)
+                donor_main += float(main.sum())
+                donor_tokens += len(y)
             total += float(main.sum())
             base += float(old.sum())
             scrambled += float(wrong.sum())
@@ -209,6 +218,9 @@ def evaluate(unified, books, chunks):
             "without_r23_bpb": base / nbytes / math.log(2),
             "scrambled_values_bpb": scrambled / nbytes / math.log(2),
             "correct_history_advantage_nats": (scrambled - total) / ntokens,
+            "unrelated_book_advantage_nats":
+                (donor_total - donor_main) / donor_tokens if donor_tokens else None,
+            "unrelated_book_evaluated_tokens": int(donor_tokens),
             "nonspace_nll": other / max(1, nnonspace),
             "without_r23_nonspace_nll": other_base / max(1, nnonspace),
             "tokens": ntokens, "bytes": nbytes,
@@ -355,6 +367,9 @@ def train(args):
         "correct_values_better_than_shuffled":
             selected_dev["correct_history_advantage_nats"] > 1e-6,
         "long_range_reached": selected_dev["max_read_distance"]["far"] >= 8192,
+        "correct_book_better_than_unrelated":
+            selected_dev["unrelated_book_evaluated_tokens"] > 0 and
+            selected_dev["unrelated_book_advantage_nats"] > 1e-6,
         "semantic_not_worse": selected_semantic["nll"] <=
                               initial_sem["nll"] + 1e-4,
     }
