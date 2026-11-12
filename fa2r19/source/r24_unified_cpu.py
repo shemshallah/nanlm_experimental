@@ -197,15 +197,11 @@ def evaluate(unified, books, chunks):
                 detail = row["memory_detail"]
                 selected += int(detail["eligible"].sum())
                 # The retrieval index is source-only and deterministic.
-                memory = row["start"]
-                if memory >= 64:
-                    # Distance reporting uses the same live source-index rule.
-                    from r23_context64 import build_index
-                    idx = build_index(book.tokens, memory, len(y))
-                    for tier in coverage:
-                        coverage[tier] += int(idx["coverage"][tier])
-                        furthest[tier] = max(furthest[tier],
-                                             int(idx["max_distance"][tier]))
+                idx = row["memory_index"]
+                for tier in coverage:
+                    coverage[tier] += int(idx["coverage"][tier])
+                    furthest[tier] = max(furthest[tier],
+                                         int(idx["max_distance"][tier]))
         state.detach()
     if nbytes <= 0 or ntokens <= 0:
         raise ValueError("no validation bytes")
@@ -300,8 +296,7 @@ def train(args):
             ce = F.cross_entropy(row["logits"], row["target"])
             extra = row["moe_balance"] * args.balance_weight
             if row["memory_detail"] is not None:
-                idx = __import__("r23_context64").build_index(
-                    book.tokens, row["start"], len(row["target"]))
+                idx = row["memory_index"]
                 span, counts = multipositive_value_loss(
                     row["memory_detail"]["scores"], idx, row["target"])
                 extra = extra + args.value_weight * span
