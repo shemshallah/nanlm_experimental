@@ -26,6 +26,8 @@ def test(root='.'):
     out,meta=soft_candidate_copy(net,logits,token,g,block=32)
     checks['nonexact_queries_admitted']=meta['enabled_positions']>50
     checks['memory_changes_prediction']=bool((out-logits).abs().sum()>0)
+    content_out,_=soft_candidate_copy(net,logits,token,g,block=32,content_only=True)
+    checks['content_only_memory_operational']=bool((content_out-logits).abs().sum()>0)
     changed=token.clone();changed[153:]=torch.randint(50,650,(len(token)-153,))
     altered,_=soft_candidate_copy(net,logits,changed,g,block=32)
     checks['future_targets_cannot_change_past_logits']=torch.equal(out[:153],altered[:153])
