@@ -1,0 +1,201 @@
+{
+  "experiment": "FA1 R7.15 synthetic long-range hidden key/value copy",
+  "source": "synthetic random token IDs; independent train/dev/test key ID bands",
+  "status": "diagnostic only, not full LM checkpoint promotion",
+  "accepted_parent": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "accepted_step": 14416,
+  "five_optimizer_histories_preserved": true,
+  "uniform_baseline_not_original_LM": true,
+  "history_distance_words": "older 2049..8192 tokens; one planted key-value pair",
+  "hard_negatives": "10 embedding-nearest incorrect keys from random 256-key pool",
+  "count": {
+    "train": 256,
+    "dev": 128,
+    "test": 128
+  },
+  "first_dev": {
+    "base_nll": 10.373490333557129,
+    "correct_nll": 8.638083457946777,
+    "wrong_nll": 10.374358177185059,
+    "correct_gain": 1.7354085445404053,
+    "correct_vs_wrong_advantage": 1.7362744808197021,
+    "gate_mean": 0.0008654180564917624,
+    "correct_memory_hit_rate": 1.0,
+    "wrong_memory_hit_rate": 0.0,
+    "n": 128
+  },
+  "best_step": 112,
+  "selected_dev": {
+    "base_nll": 10.373490333557129,
+    "correct_nll": 1.0710728168487549,
+    "wrong_nll": 10.800633430480957,
+    "correct_gain": 9.302417755126953,
+    "correct_vs_wrong_advantage": 9.729558944702148,
+    "gate_mean": 0.34850987792015076,
+    "correct_memory_hit_rate": 1.0,
+    "wrong_memory_hit_rate": 0.0,
+    "n": 128
+  },
+  "held_out_test": {
+    "base_nll": 10.373490333557129,
+    "correct_nll": 1.0781676769256592,
+    "wrong_nll": 10.800579071044922,
+    "correct_gain": 9.295323371887207,
+    "correct_vs_wrong_advantage": 9.722410202026367,
+    "gate_mean": 0.3485051691532135,
+    "correct_memory_hit_rate": 1.0,
+    "wrong_memory_hit_rate": 0.0,
+    "n": 128
+  },
+  "test_ablate_mirror_rails": {
+    "base_nll": 10.373490333557129,
+    "correct_nll": 1.167358636856079,
+    "wrong_nll": 10.800548553466797,
+    "correct_gain": 9.206131935119629,
+    "correct_vs_wrong_advantage": 9.633190155029297,
+    "gate_mean": 0.34851041436195374,
+    "correct_memory_hit_rate": 1.0,
+    "wrong_memory_hit_rate": 0.0,
+    "n": 128
+  },
+  "test_ablate_explicit_two_token_bonus": {
+    "base_nll": 10.373490333557129,
+    "correct_nll": 1.2100392580032349,
+    "wrong_nll": 10.800579071044922,
+    "correct_gain": 9.1634521484375,
+    "correct_vs_wrong_advantage": 9.590539932250977,
+    "gate_mean": 0.34849461913108826,
+    "correct_memory_hit_rate": 1.0,
+    "wrong_memory_hit_rate": 0.0,
+    "n": 128
+  },
+  "training_log": [
+    {
+      "step": 1,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 9.416061401367188,
+        "wrong_nll": 10.374388694763184,
+        "correct_gain": 0.9574296474456787,
+        "correct_vs_wrong_advantage": 0.9583257436752319,
+        "gate_mean": 0.0009145213407464325,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 16,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 6.399532794952393,
+        "wrong_nll": 10.378949165344238,
+        "correct_gain": 3.9739577770233154,
+        "correct_vs_wrong_advantage": 3.9794156551361084,
+        "gate_mean": 0.008491317741572857,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 32,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 3.1276187896728516,
+        "wrong_nll": 10.514667510986328,
+        "correct_gain": 7.245872497558594,
+        "correct_vs_wrong_advantage": 7.387046813964844,
+        "gate_mean": 0.17783577740192413,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 48,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 2.293989896774292,
+        "wrong_nll": 10.76689624786377,
+        "correct_gain": 8.079500198364258,
+        "correct_vs_wrong_advantage": 8.472906112670898,
+        "gate_mean": 0.33498415350914,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 64,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 1.6818203926086426,
+        "wrong_nll": 10.79578971862793,
+        "correct_gain": 8.691671371459961,
+        "correct_vs_wrong_advantage": 9.113969802856445,
+        "gate_mean": 0.34638112783432007,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 80,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 1.2076140642166138,
+        "wrong_nll": 10.79849910736084,
+        "correct_gain": 9.165878295898438,
+        "correct_vs_wrong_advantage": 9.590886116027832,
+        "gate_mean": 0.3477100133895874,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 96,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 1.085203766822815,
+        "wrong_nll": 10.79995346069336,
+        "correct_gain": 9.288288116455078,
+        "correct_vs_wrong_advantage": 9.714750289916992,
+        "gate_mean": 0.3482320308685303,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 112,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 1.0710728168487549,
+        "wrong_nll": 10.800633430480957,
+        "correct_gain": 9.302417755126953,
+        "correct_vs_wrong_advantage": 9.729558944702148,
+        "gate_mean": 0.34850987792015076,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    },
+    {
+      "step": 128,
+      "dev": {
+        "base_nll": 10.373490333557129,
+        "correct_nll": 1.0716965198516846,
+        "wrong_nll": 10.801129341125488,
+        "correct_gain": 9.301794052124023,
+        "correct_vs_wrong_advantage": 9.729433059692383,
+        "gate_mean": 0.34871068596839905,
+        "correct_memory_hit_rate": 1.0,
+        "wrong_memory_hit_rate": 0.0,
+        "n": 128
+      }
+    }
+  ],
+  "seconds": 4.87
+}
