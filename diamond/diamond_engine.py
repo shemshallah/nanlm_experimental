@@ -812,13 +812,20 @@ def append_history(rec):
         os.fsync(f.fileno())
 
 
+def optimizer_variables():
+    # Keras 3 exposes ``optimizer.variables`` as a property; older versions
+    # exposed it as a method. Accept both.
+    variables = opt.variables
+    return variables() if callable(variables) else variables
+
+
 def save_state(epochs_done):
     if not ARGS.checkpoint:
         return
     path = _norm(ARGS.checkpoint)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     arrays = {f"w{i}": v.numpy() for i, v in enumerate(model.trainable_variables)}
-    arrays.update({f"o{i}": v.numpy() for i, v in enumerate(opt.variables())})
+    arrays.update({f"o{i}": v.numpy() for i, v in enumerate(optimizer_variables())})
     arrays["__meta__"] = np.array(json.dumps({
         "signature": SIGNATURE,
         "epochs_done": int(epochs_done),
@@ -852,7 +859,7 @@ def load_state():
             if key not in data:
                 raise KeyError(key)
             v.assign(data[key])
-        for i, v in enumerate(opt.variables()):
+        for i, v in enumerate(optimizer_variables()):
             key = f"o{i}"
             if key in data:
                 v.assign(data[key])
