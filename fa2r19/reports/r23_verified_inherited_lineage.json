@@ -1,0 +1,37 @@
+{
+  "round": "FA2.4 R23",
+  "date_utc": "2026-11-12",
+  "origin": "local read-only verification of user Library R19 full archive",
+  "original_r19_archive": "PAL_R19_SEMANTIC_FRONTIER_AUDIT_ONE_CHECKPOINT_FULL.zip",
+  "archive_bytes": 103876485,
+  "archive_sha256": "0761209f51c7eef54e6e0cee6606d01ede4b2231b6dd1222e481e7dc7b20eef9",
+  "checkpoint_bytes": 121882910,
+  "checkpoint_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "verification": {
+    "inherited_optimizer_lineage": {
+      "passed": 11,
+      "exit_code": 0
+    },
+    "test_r18": {
+      "passed": 16,
+      "total": 16,
+      "exit_code": 0
+    },
+    "test_r19": {
+      "passed": 12,
+      "total": 12,
+      "exit_code": 0
+    },
+    "github_r23_source_gates": {
+      "status": "success",
+      "run_ids": [
+        43320756625,
+        43322509278,
+        43323248805
+      ]
+    }
+  },
+  "r23_checkpoint_promoted": false,
+  "r23_parallel_training_executed": false,
+  "limitation": "The full R19 archive is private in user Library; GitHub Actions CPU matrix is manual and requires a trusted HTTPS R19 archive URL. These results verify inherited lineage and R23 structural source only, not R23 trained BPB."
+}
