@@ -1,4 +1,4 @@
-name: Diamond 1000-epoch NaNROUTER CPU training
+name: Diamond NaNROUTER CPU training
 
 on:
   workflow_dispatch:
@@ -28,6 +28,11 @@ on:
         type: boolean
         required: true
         default: true
+      release_tag:
+        description: 'GitHub Release tag for the final weights (blank skips the release)'
+        type: string
+        required: false
+        default: 'diamond-weights'
 
 permissions:
   contents: write
@@ -39,7 +44,7 @@ concurrency:
 
 jobs:
   train:
-    name: Diamond 1000 epochs on NaNROUTER corpora
+    name: Diamond on NaNROUTER corpora
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -151,7 +156,7 @@ jobs:
             --byte-win 1024 --word-win 128 --sent-win 32 \
             --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
-            --test-size 512 --eval-every 20 --eval-batch 64 \
+            --test-size 512 --eval-every 10 --eval-batch 64 \
             --lr 0.0025 --lr-schedule cosine --warmup-epochs 20 \
             --grad-clip 1.0 --weight-decay 0.01 --dropout 0.1 \
             --save-every 25 --report-every-steps 20 \
@@ -159,6 +164,7 @@ jobs:
             --checkpoint diamond/state/diamond_state.npz \
             --history diamond/state/diamond_history.jsonl \
             --out diamond/state/diamond_metrics.json \
+            --save-weights \
             --self-loop-every 100 --self-streams 32 --self-steps 8 \
             --threads 4 --memory-limit-gb 0 \
             --seed 11
@@ -170,6 +176,7 @@ jobs:
           mkdir -p diamond/reports
           cp -f diamond/state/diamond_metrics.json diamond/reports/ 2>/dev/null || true
           cp -f diamond/state/diamond_history.jsonl diamond/reports/ 2>/dev/null || true
+          cp -f diamond_weights.weights.h5 diamond/state/ 2>/dev/null || true
           echo '--- latest epoch records ---'
           tail -20 diamond/state/diamond_history.jsonl 2>/dev/null || true
 
@@ -181,6 +188,36 @@ jobs:
           path: diamond/state/
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Publish weights to GitHub Release
+        if: ${{ always() && inputs.release_tag != '' }}
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          WEIGHTS="diamond/state/diamond_state.npz"
+          if [ ! -s "$WEIGHTS" ]; then
+            echo "No checkpoint weights found; skipping release"
+            exit 0
+          fi
+          if ! gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GH_REPO" \
+              --title "Diamond weights — $TAG" \
+              --notes "Diamond engine weights trained on the NaNROUTER corpora. diamond_state.npz is a resumable checkpoint (weights + AdamW state); diamond_weights.weights.h5 is inference weights."
+          fi
+          gh release upload "$TAG" --repo "$GH_REPO" --clobber "$WEIGHTS"
+          if [ -s diamond/state/diamond_weights.weights.h5 ]; then
+            gh release upload "$TAG" --repo "$GH_REPO" --clobber \
+              diamond/state/diamond_weights.weights.h5
+          fi
+          for f in diamond/state/diamond_metrics.json diamond/state/diamond_history.jsonl; do
+            if [ -s "$f" ]; then
+              gh release upload "$TAG" --repo "$GH_REPO" --clobber "$f" || true
+            fi
+          done
+          echo "Release: $(gh release view "$TAG" --repo "$GH_REPO" --json url --jq .url)"
 
       - name: Commit the per-epoch report
         if: always()

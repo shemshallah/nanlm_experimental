@@ -1218,5 +1218,10 @@ if ARGS.out:
         json.dump(out, f, indent=2)
     print(f"[out] wrote {out_path}", flush=True)
 if ARGS.save_weights:
-    model.save_weights("diamond_weights.weights.h5")
-    print("[out] wrote diamond_weights.weights.h5", flush=True)
+    try:
+        model.save_weights("diamond_weights.weights.h5")
+        print("[out] wrote diamond_weights.weights.h5", flush=True)
+    except Exception as e:
+        # The resumable .npz checkpoint above is authoritative; an H5 export
+        # failure must not discard a completed training run.
+        print(f"[warn] could not export H5 weights: {e}", flush=True)
