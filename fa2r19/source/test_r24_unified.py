@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from r18_long_memory import R18LongMemory
 from r21_relevance_novelty import RelevanceNoveltyGate
 from r22_multiscale_memory import R22Residual
-from r23_context64 import ContextualSpanMemory, multipositive_value_loss
+from r23_context64 import ContextualSpanMemory, multipositive_value_loss, build_index
 from r23_stream_carry import ContinuousPALState
 from r24_unified_model import CausalMirrorMoE, UnifiedFA2, scramble_completed_values
 from r24_unified_cpu import attach_historical_group
@@ -101,6 +101,16 @@ def run():
     checks["zero_moe_safe"] = float(unified.moe.amplitude) == 0
     checks["scrambled_control_exact_identity_at_zero"] = torch.equal(
         second["logits"], second["scrambled_values"])
+
+    donor = FakeBook("unrelated-book")
+    donor.tokens = np.roll(donor.tokens, 21)
+    alternate = build_index(
+        donor.tokens, 210, 90,
+        query_book_tokens=book.tokens, query_start=210)
+    checks["cross_book_control_uses_actual_query"] = torch.equal(
+        alternate["query"], second["memory_index"]["query"])
+    checks["cross_book_values_source_only"] = bool(
+        (alternate["positions"][alternate["mask"]] <= 210 - 8).all())
     checks["three_tier_metadata"] = set(
         second["memory_index"]["coverage"]) == {"recent", "middle", "far"}
     checks["finite_causal_logits"] = bool(
