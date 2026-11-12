@@ -1,0 +1,31 @@
+{
+  "method": "64bit_polynomial_fingerprint_exact_known_word_16gram",
+  "legacy_windows": {
+    "legacy_train_known_16grams": 3010806,
+    "legacy_dev_known_16grams": 179183,
+    "legacy_test_known_16grams": 244721
+  },
+  "unique_legacy_fingerprints": 3432487,
+  "new_books": {
+    "train": {
+      "known_token_16gram_windows": 12081,
+      "matched_to_legacy": 0,
+      "matched_fraction": 0.0,
+      "known_token_window_fraction": 1.0
+    },
+    "dev": {
+      "known_token_16gram_windows": 657,
+      "matched_to_legacy": 0,
+      "matched_fraction": 0.0,
+      "known_token_window_fraction": 1.0
+    },
+    "test": {
+      "known_token_16gram_windows": 657,
+      "matched_to_legacy": 0,
+      "matched_fraction": 0.0,
+      "known_token_window_fraction": 1.0
+    }
+  },
+  "test_overlap_screen_passed": true,
+  "not_a_proof_of_no_document_overlap": true
+}
