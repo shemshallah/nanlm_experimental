@@ -67,6 +67,7 @@ on:
           - base
           - wide
           - frontier
+          - frontier-sent
       byte_chunk:
         description: 'Bytes per byte-tower chunk (8 or 16)'
         type: string
@@ -131,7 +132,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-cache
+  group: diamond-1000-nanrouter-cachewide
   cancel-in-progress: false
 
 jobs:
@@ -269,16 +270,19 @@ jobs:
           [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
           [[ "$BATCH" =~ ^[0-9]+$ ]] || BATCH=32
           (( BATCH >= 1 && BATCH <= 64 )) || BATCH=32
-          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" || "$MODEL_SIZE" == "frontier" ]] || MODEL_SIZE=frontier
+          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" || "$MODEL_SIZE" == "frontier" || "$MODEL_SIZE" == "frontier-sent" ]] || MODEL_SIZE=frontier
           VOCAB=2000
           DEPTH=2
           BYTE_WIN=1024; WORD_WIN=128; SENT_WIN=32; SENT_LEN=1; SENT_WEIGHT=0.3; SENT_DEPTH=2
           CHUNK_CONV=0
-          if [ "$MODEL_SIZE" = "frontier" ]; then
+          if [ "$MODEL_SIZE" = "frontier" ] || [ "$MODEL_SIZE" = "frontier-sent" ]; then
             DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=192
             DEPTH=3
             BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=16; SENT_WEIGHT=0.8; SENT_DEPTH=4
             CHUNK_CONV=1
+            if [ "$MODEL_SIZE" = "frontier-sent" ]; then
+              DIM_S=96; FF_S=384; SENT_DEPTH=6
+            fi
           elif [ "$MODEL_SIZE" = "wide" ]; then
             DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
           else
