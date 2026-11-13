@@ -11,6 +11,7 @@ training/data integration, not a second architecture or training branch.
 - Baseline dev NLL **5.170198440551758** nats/word; zero-gated final NLL identical.
 - Dev short-semantic candidates available **224/256**; retrieved correct target **100/256**.
 - The gate closed, **zero selected updates**, no saved trained candidate, no promotion.
+- Two additional short controlled pilots (192 updates each, lower learning rate and stronger contrastive loss) also selected zero updates. A larger exploratory sweep did not complete and has no reportable result.
 - The source R7.22 checkpoint is unchanged. The 128K–1M long semantic gate was not trained.
 - These are *historical* splits, NOT independent NaNROUTER whole-book metrics.
 - Stop criterion triggered; simply continuing this gate-only optimization is not valuable.
@@ -28,6 +29,9 @@ https://github.com/shemshallah/nanlm_experimental/actions/runs/43338569192.
   contain the *exact* R7.22 checkpoint and the ancestor metadata bundle.
 - The source now accepts separate document-disjoint corpora without crossing
   source-book boundaries. Synthetic multi-book local integration smoke test passed.
+- The workflow now also triggers on publication of the exact seed release and
+  runs a sealed held-out book audit, book-cluster bootstrap confidence interval,
+  donor/frequency controls, and legacy overlap screen if any candidate is selected.
 - When seed assets exist, workflow runs staged 256/512/1024/2048/4096 updates,
   stopping as soon as development NLL or causal memory controls fail.
   No auto-promotion; outputs remain unpromoted Action artifacts.
@@ -46,7 +50,8 @@ These exist in ChatGPT Library, but were not available to the GitHub runner.
 Do **not** replace them with FA2 or random checkpoint tensors. Release binaries
 rather than committing them into source control.
 
-After uploading, run the R7.23 workflow via Actions -> Run workflow on master,
+Publishing the seed release automatically triggers the R7.23 workflow.
+Alternatively run it via Actions -> Run workflow on master,
 or `gh workflow run fa1-r723-nanrouter-continuation.yml -R shemshallah/nanlm_experimental`.
 
 ## Scientific gates
