@@ -1445,10 +1445,11 @@ def grow_checkpoint(args):
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
         cfg.gather_chunk = args.gather_chunk
-    if args.symbiotic_rank is not None:
-        if original.symbiotic_rank and args.symbiotic_rank != original.symbiotic_rank:
+    requested_symbiotic_rank = getattr(args, 'symbiotic_rank', None)
+    if requested_symbiotic_rank is not None:
+        if original.symbiotic_rank and requested_symbiotic_rank != original.symbiotic_rank:
             raise ValueError('Cannot resize trained geometric concepts')
-        cfg.symbiotic_rank = args.symbiotic_rank
+        cfg.symbiotic_rank = requested_symbiotic_rank
     cfg.check()
     expanded = any((cfg.dim != original.dim, cfg.layers != original.layers,
                     cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
