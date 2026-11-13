@@ -9,9 +9,11 @@ Architecture (all in this file, no other modules):
   256 points < 32640 < C(256,3) points > C(256,3)'s 256 points
 
   Three towers, all 2-layer microtransformers, all 256-expert MoE:
-    byte tower:     1024 bytes  = 64 chunks x 16  -> 24-dim
-    word tower:     128 words   = 16 chunks x 8   -> 32-dim
-    sentence tower: 32 first-words                -> 32-dim
+    byte tower:     1024 bytes  = 128 chunks x 8  -> 32-dim (wide preset)
+    word tower:     128 words   = 16 chunks x 8   -> 48-dim (wide preset)
+    sentence tower: 32 first-words                -> 48-dim (wide preset)
+  The tower widths, FF widths and byte chunk size are command-line options;
+  the original 24/32/32, 48/64/64, 16-byte-chunk layout is still the default.
 
   Cross-conditioning, staged:
     Epoch 1: bottom-up only   byte -> word -> sentence
@@ -70,7 +72,7 @@ def parse_args():
         description="Diamond C(256,2)/C(256,3) engine - NaNROUTER CPU training"
     )
     p.add_argument("--examples", type=int, default=4000,
-                   help="train examples per epoch (max 8000 on 6GB)")
+                   help="train examples per epoch (max 20000 on 6GB)")
     p.add_argument("--epochs", type=int, default=1000,
                    help="target epochs: 1=bottom-up, 2+=two-way")
     p.add_argument("--batch", type=int, default=64, help="batch, 64 max on 6GB")
@@ -79,6 +81,14 @@ def parse_args():
     p.add_argument("--word-win", type=int, default=128, help="word window")
     p.add_argument("--sent-win", type=int, default=32, help="sentence window")
     p.add_argument("--vocab", type=int, default=2000, help="top-N words")
+    p.add_argument("--dim-b", type=int, default=24, help="byte tower width")
+    p.add_argument("--dim-w", type=int, default=32, help="word tower width")
+    p.add_argument("--dim-s", type=int, default=32, help="sentence tower width")
+    p.add_argument("--ff-b", type=int, default=48, help="byte tower FF width")
+    p.add_argument("--ff-w", type=int, default=64, help="word tower FF width")
+    p.add_argument("--ff-s", type=int, default=64, help="sentence tower FF width")
+    p.add_argument("--byte-chunk", type=int, default=16, choices=[8, 16],
+                   help="bytes per byte-tower chunk; 8 gives finer byte order")
     p.add_argument("--corpus-chars", type=int, default=2000000,
                    help="corpus character cap (2M is comfortable on CPU)")
     p.add_argument("--corpus-dir", action="append", default=[],
@@ -105,6 +115,10 @@ def parse_args():
     p.add_argument("--memory-limit-gb", type=float, default=0.0,
                    help="RLIMIT_AS in GB, 0=disable")
     p.add_argument("--test-size", type=int, default=512, help="held-out examples")
+    p.add_argument("--split-mode", choices=["position", "document"], default="position",
+                   help="held-out split: contiguous position block or whole documents")
+    p.add_argument("--doc-holdout-frac", type=float, default=0.10,
+                   help="fraction of documents held out in document mode")
     p.add_argument("--eval-every", type=int, default=10,
                    help="evaluate held-out set every N epochs")
     p.add_argument("--eval-batch", type=int, default=64)
@@ -122,6 +136,8 @@ def parse_args():
                    help="ignore an existing checkpoint")
     p.add_argument("--self-loop-every", type=int, default=0,
                    help="run introspection self-loop every N epochs; 0=off")
+    p.add_argument("--self-loop-start-epoch", type=int, default=0,
+                   help="first epoch for the self-loop schedule (1-based); 0=from start")
     p.add_argument("--self-streams", type=int, default=64)
     p.add_argument("--self-steps", type=int, default=15)
     p.add_argument("--self-mix", action="store_true",
@@ -156,12 +172,14 @@ if ARGS.quick:
     ARGS.corpus_chars = min(ARGS.corpus_chars, 400000)
 if ARGS.no_self_loop:
     ARGS.self_loop_every = 0
-if ARGS.examples > 8000:
-    print(f"[warn] examples {ARGS.examples} > 8000 may exceed 6GB, clamping to 8000", flush=True)
-    ARGS.examples = 8000
+if ARGS.examples > 20000:
+    print(f"[warn] examples {ARGS.examples} > 20000 may exceed 6GB, clamping to 20000", flush=True)
+    ARGS.examples = 20000
 if ARGS.batch > 64:
     print(f"[warn] batch {ARGS.batch} > 64 may exceed 6GB, clamping to 64", flush=True)
     ARGS.batch = 64
+if ARGS.batch < 1:
+    ARGS.batch = 1
 if ARGS.eval_batch > 128:
     ARGS.eval_batch = 128
 if ARGS.label_smoothing < 0.0:
@@ -170,6 +188,31 @@ if ARGS.label_smoothing > 0.2:
     ARGS.label_smoothing = 0.2
 if ARGS.patience < 0:
     ARGS.patience = 0
+if ARGS.dropout < 0.0:
+    ARGS.dropout = 0.0
+if ARGS.dropout > 0.9:
+    ARGS.dropout = 0.9
+if ARGS.weight_decay < 0.0:
+    ARGS.weight_decay = 0.0
+if ARGS.self_loop_start_epoch < 0:
+    ARGS.self_loop_start_epoch = 0
+if ARGS.doc_holdout_frac < 0.01:
+    ARGS.doc_holdout_frac = 0.01
+if ARGS.doc_holdout_frac > 0.50:
+    ARGS.doc_holdout_frac = 0.50
+if ARGS.test_size < 64:
+    ARGS.test_size = 64
+if ARGS.test_size > 8192:
+    ARGS.test_size = 8192
+# Tower widths must be divisible by the four attention heads.
+for _name in ("dim_b", "dim_w", "dim_s"):
+    _v = max(8, min(256, int(getattr(ARGS, _name))))
+    setattr(ARGS, _name, (_v // 4) * 4)
+for _name in ("ff_b", "ff_w", "ff_s"):
+    _v = max(8, min(512, int(getattr(ARGS, _name))))
+    setattr(ARGS, _name, (_v // 4) * 4)
+if ARGS.byte_win % ARGS.byte_chunk != 0:
+    raise SystemExit("[args] --byte-chunk must divide --byte-win")
 
 # threads + memory limit, before TF work
 os.environ["OMP_NUM_THREADS"] = str(ARGS.threads)
@@ -467,7 +510,19 @@ def load_corpus(cap):
                 break
 
     wordlist_words = _load_wordlist_words(groups, ARGS.wordlist_words) if ARGS.use_wordlists else []
+    # Keep document boundaries so the whole-document split can hold out files,
+    # not just a contiguous block of positions from the same files.
+    doc_ranges = []
+    cursor = 0
+    for txt in texts:
+        if doc_ranges:
+            cursor += 2  # "\n\n" separator
+        start = cursor
+        cursor += len(txt)
+        doc_ranges.append([start, cursor])
     real_text = "\n\n".join(texts)[:cap]
+    if doc_ranges:
+        doc_ranges = [[s, min(e, len(real_text))] for s, e in doc_ranges if s < len(real_text)]
 
     if len(real_text.strip()) < 1000:
         if ARGS.require_real_corpus:
@@ -481,6 +536,7 @@ def load_corpus(cap):
             "the model reads the words and predicts the next byte from the context it has seen. "
         )
         real_text = (base * max(1, cap // len(base)))[:cap]
+        doc_ranges = [[0, len(real_text)]]
         print("[corpus] WARNING: using synthetic fallback text", flush=True)
 
     # A tiny amount of ASCII text keeps the tokenizer useful even for odd corpora.
@@ -489,12 +545,16 @@ def load_corpus(cap):
             "the story begins with a question and the answer is found in the next sentence. "
             "the model learns from the words and the context around each word. "
         )
+        start = len(real_text)
         real_text += "\n\n" + (base * 50)
+        doc_ranges.append([start, len(real_text)])
+    if not doc_ranges:
+        doc_ranges = [[0, len(real_text)]]
 
     corpus_sha = hashlib.sha256(real_text.encode("utf-8", errors="ignore")).hexdigest()
     print(
         f"[corpus] roots={roots} files={len(files)} used={len(used_files)} "
-        f"chars={len(real_text)} wordlist={len(wordlist_words)} "
+        f"chars={len(real_text)} docs={len(doc_ranges)} wordlist={len(wordlist_words)} "
         f"categories={dict(stats)} sha256={corpus_sha[:16]} "
         f"time={time.time() - T0:.1f}s",
         flush=True,
@@ -504,13 +564,14 @@ def load_corpus(cap):
         "files": len(files),
         "used_files": len(used_files),
         "chars": len(real_text),
+        "documents": len(doc_ranges),
         "wordlist_words": len(wordlist_words),
         "categories": dict(stats),
         "sha256": corpus_sha,
-    }
+    }, doc_ranges
 
 
-real_text, wordlist_words, corpus_stats = load_corpus(ARGS.corpus_chars)
+real_text, wordlist_words, corpus_stats, doc_ranges = load_corpus(ARGS.corpus_chars)
 byte_arr = np.frombuffer(real_text.encode("utf-8", errors="ignore"), dtype=np.uint8).astype(np.int32)
 raw_words = re.findall(r"[a-zA-Z']+", real_text.lower())
 cnt = Counter(raw_words)
@@ -530,78 +591,129 @@ if len(vocab_words) < 8:
 VOCAB = len(vocab_words) + 1
 w2i = {w: i + 1 for i, w in enumerate(vocab_words)}
 word_stream = np.array([w2i.get(w, 0) for w in raw_words], dtype=np.int32)
-sent_texts = re.split(r"[.!?\n]+", real_text)
+
+# Sentence rows keep their character start so sentence context can be
+# restricted to the same document as the target word.
+sent_texts = []
+sent_starts = []
+last = 0
+for m in re.finditer(r"[.!?\n]+", real_text):
+    seg = real_text[last:m.start()]
+    lead = len(seg) - len(seg.lstrip())
+    st = seg.strip()
+    if st:
+        sent_texts.append(st)
+        sent_starts.append(last + lead)
+    last = m.end()
+if last < len(real_text):
+    seg = real_text[last:]
+    lead = len(seg) - len(seg.lstrip())
+    st = seg.strip()
+    if st:
+        sent_texts.append(st)
+        sent_starts.append(last + lead)
+
 sentences = []
-for st in sent_texts:
+sent_chars = []
+for st, sc in zip(sent_texts, sent_starts):
     ws = re.findall(r"[a-zA-Z']+", st.lower())
     if len(ws) >= 3:
         sentences.append([w2i.get(w, 0) for w in ws])
+        sent_chars.append(sc)
 if not sentences and len(word_stream) >= 3:
     for i in range(0, len(word_stream), 8):
         chunk = word_stream[i:i + 8]
         if len(chunk) >= 3:
             sentences.append(chunk.tolist())
+            sent_chars.append(0)
 print(f"[corpus] words {len(raw_words)} sents {len(sentences)} vocab {VOCAB}", flush=True)
 
 spans = [m for m in re.finditer(r"[a-zA-Z']+", real_text.lower())]
 n_words = min(len(word_stream), len(spans))
 word_stream = word_stream[:n_words]
+word_char_start = np.array([spans[i].start() for i in range(n_words)], dtype=np.int64)
+
+# Map every word and sentence to a source document. This is the basis of the
+# whole-document held-out split and of document-local context windows.
+doc_char_start = np.array([s for s, _ in doc_ranges], dtype=np.int64)
+doc_char_end = np.array([e for _, e in doc_ranges], dtype=np.int64)
+nd = len(doc_ranges)
+word_doc = np.searchsorted(doc_char_end, word_char_start, side="right")
+word_doc = np.clip(word_doc, 0, max(0, nd - 1))
+doc_word_start = np.searchsorted(word_doc, np.arange(nd), side="left")
+doc_word_end = np.searchsorted(word_doc, np.arange(nd), side="right")
+
 sent_first = [s[0] for s in sentences if s]
+if not sent_first:
+    sent_first = [0]
 word_to_sent = np.zeros(n_words, dtype=np.int32)
-ptr = 0
-for si, sent in enumerate(sentences):
-    if ptr >= n_words:
-        break
-    for _ in sent:
-        if ptr < n_words:
-            word_to_sent[ptr] = si
-            ptr += 1
+if sent_chars:
+    sent_chars_arr = np.array(sent_chars, dtype=np.int64)
+    word_sent = np.searchsorted(sent_chars_arr, word_char_start, side="right") - 1
+    word_sent = np.clip(word_sent, 0, len(sent_chars_arr) - 1)
+    word_to_sent[:n_words] = word_sent.astype(np.int32)
+    sent_doc = np.searchsorted(doc_char_end, sent_chars_arr, side="right")
+    sent_doc = np.clip(sent_doc, 0, max(0, nd - 1)).astype(np.int32)
+else:
+    sent_doc = np.zeros(1, dtype=np.int32)
+doc_sent_start = np.searchsorted(sent_doc, np.arange(nd), side="left")
+doc_sent_end = np.searchsorted(sent_doc, np.arange(nd), side="right")
 
 WIN_B = ARGS.byte_win
 WIN_W = ARGS.word_win
 WIN_S = ARGS.sent_win
-BYTE_CHUNKS = WIN_B // 16
+BYTE_CHUNK = ARGS.byte_chunk
+BYTE_CHUNKS = WIN_B // BYTE_CHUNK
 WORD_CHUNKS = WIN_W // 8
 if not sent_first:
     sent_first = [0]
 
 
 def make_example(pos):
+    d = int(word_doc[pos])
+    dcs = int(doc_char_start[d])
+    dce = int(doc_char_end[d])
     char_start = spans[pos].start()
-    b_end = min(char_start, len(byte_arr))
-    b_start = max(0, b_end - WIN_B)
+    b_end = min(char_start, dce)
+    b_start = max(dcs, b_end - WIN_B)
     bwin = np.zeros(WIN_B, dtype=np.int32)
     seg = byte_arr[b_start:b_end]
     bwin[WIN_B - len(seg):] = seg
 
-    w_start = max(0, pos - WIN_W)
+    w_start = max(int(doc_word_start[d]), pos - WIN_W)
     wwin = np.zeros(WIN_W, dtype=np.int32)
     segw = word_stream[w_start:pos]
     wwin[WIN_W - len(segw):] = segw
 
-    si = int(word_to_sent[pos]) if pos < len(word_to_sent) else 0
-    si = min(max(si, 0), len(sent_first) - 1)
+    s_lo = int(doc_sent_start[d])
+    s_hi = int(doc_sent_end[d])
     swin = np.zeros(WIN_S, dtype=np.int32)
-    start = max(0, si - WIN_S)
-    seg = sent_first[start:si]
-    if len(seg) > 0:
-        swin[WIN_S - len(seg):] = np.array(seg, dtype=np.int32)
-    return bwin, wwin, swin
+    if s_hi > s_lo:
+        si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
+        si = min(max(si, s_lo), s_hi - 1)
+        start = max(s_lo, si - WIN_S)
+        seg = sent_first[start:si]
+        if len(seg) > 0:
+            swin[WIN_S - len(seg):] = np.array(seg, dtype=np.int32)
+        ys = int(sent_first[si + 1]) if si + 1 < s_hi else 0
+    else:
+        ys = 0
+
+    yb = int(byte_arr[min(char_start, len(byte_arr) - 1)])
+    yw = int(word_stream[pos])
+    return bwin, wwin, swin, yb, yw, ys
 
 
 def build(pos_list):
     B, W, S, yb, yw, ys = [], [], [], [], [], []
     for pos in pos_list:
-        bwin, wwin, swin = make_example(pos)
+        bwin, wwin, swin, target_b, target_w, target_s = make_example(pos)
         B.append(bwin)
         W.append(wwin)
         S.append(swin)
-        char_start = spans[pos].start()
-        yb.append(int(byte_arr[min(char_start, len(byte_arr) - 1)]))
-        yw.append(int(word_stream[pos]))
-        si = int(word_to_sent[pos]) if pos < len(word_to_sent) else 0
-        si = min(max(si, 0), len(sent_first) - 1)
-        ys.append(int(sent_first[si + 1]) if si + 1 < len(sent_first) else 0)
+        yb.append(target_b)
+        yw.append(target_w)
+        ys.append(target_s)
     return (
         np.array(B, dtype=np.int32), np.array(W, dtype=np.int32), np.array(S, dtype=np.int32),
         np.array(yb, dtype=np.int32), np.array(yw, dtype=np.int32), np.array(ys, dtype=np.int32),
@@ -610,28 +722,79 @@ def build(pos_list):
 
 if n_words < 200:
     raise SystemExit(f"[data] corpus is too small ({n_words} words); need at least 200")
-all_pos = np.arange(150, n_words - 1)
-test_size = min(ARGS.test_size, max(64, len(all_pos) // 10))
 
-# Hold out one contiguous block. The previous split shuffled positions and
-# trained on the interleaved neighbors of every test position; that leaks the
-# test distribution into training and produces a misleading early "improvement".
-# A gap larger than both the byte and word context windows keeps held-out
-# targets out of every training window.
-test_start = min(len(all_pos) // 2, len(all_pos) - test_size)
-test_start = max(0, test_start)
-test_pos = all_pos[test_start:test_start + test_size]
-gap = max(WIN_W, WIN_B) + 1
-train_pool = np.concatenate([
-    all_pos[:max(0, test_start - gap)],
-    all_pos[min(len(all_pos), test_start + test_size + gap):],
-])
+# Per-document context: keep 150 words of warm-up context inside each
+# document, and never use a target at the final word of a document.
+positions = np.arange(max(0, n_words - 1))
+pos_doc = word_doc[positions]
+eligible = (
+    (positions - doc_word_start[pos_doc] >= 150)
+    & (positions < doc_word_end[pos_doc] - 1)
+)
+all_pos = positions[eligible]
+if len(all_pos) < 200:
+    raise SystemExit(f"[data] only {len(all_pos)} eligible positions; need at least 200")
+test_size = min(ARGS.test_size, max(64, len(all_pos) // 10))
+split_name = "contiguous-block-v2"
+test_doc_sha = ""
+
+if ARGS.split_mode == "document":
+    # Hold out whole files. The held-out documents are chosen before sampling
+    # test positions, so no training window can come from a test document.
+    pos_doc_all = word_doc[all_pos]
+    doc_counts = np.bincount(pos_doc_all, minlength=nd)
+    rng = np.random.default_rng(ARGS.seed * 1000003 + 991)
+    order = rng.permutation(nd)
+    target_docs = max(1, int(round(nd * ARGS.doc_holdout_frac)))
+    test_docs = []
+    test_count = 0
+    for d in order:
+        if doc_counts[d] == 0:
+            continue
+        test_docs.append(int(d))
+        test_count += int(doc_counts[d])
+        if len(test_docs) >= target_docs and test_count >= test_size:
+            break
+    if not test_docs:
+        raise SystemExit("[data] document split could not find a held-out document")
+    test_docs = sorted(test_docs)
+    test_mask = np.isin(pos_doc_all, test_docs)
+    test_all = all_pos[test_mask]
+    train_pool = all_pos[~test_mask]
+    if len(test_all) > test_size:
+        rng2 = np.random.default_rng(ARGS.seed * 1000003 + 992)
+        test_pos = np.sort(rng2.choice(test_all, size=test_size, replace=False))
+    else:
+        test_pos = test_all
+    test_size = len(test_pos)
+    test_start = -1
+    gap = 0
+    split_name = "document-holdout-v1"
+    test_doc_sha = hashlib.sha256(
+        ",".join(str(d) for d in test_docs).encode("utf-8")
+    ).hexdigest()[:16]
+    print(
+        f"[data] held out {len(test_docs)}/{nd} documents "
+        f"({test_count} positions, sampled {test_size})",
+        flush=True,
+    )
+else:
+    # Contiguous position block with a gap larger than both context windows.
+    test_start = min(len(all_pos) // 2, len(all_pos) - test_size)
+    test_start = max(0, test_start)
+    test_pos = all_pos[test_start:test_start + test_size]
+    gap = max(WIN_W, WIN_B) + 1
+    train_pool = np.concatenate([
+        all_pos[:max(0, test_start - gap)],
+        all_pos[min(len(all_pos), test_start + test_size + gap):],
+    ])
+
 if len(train_pool) < 16:
     raise SystemExit("[data] corpus produced too few training positions")
 if len(train_pool) < ARGS.examples:
     print(
         f"[data] only {len(train_pool)} training positions outside the held-out "
-        f"block; reducing examples {ARGS.examples} -> {len(train_pool)}",
+        f"split; reducing examples {ARGS.examples} -> {len(train_pool)}",
         flush=True,
     )
     ARGS.examples = len(train_pool)
@@ -656,8 +819,8 @@ train_yb = np.empty((0,), dtype=np.int32)
 train_yw = np.empty((0,), dtype=np.int32)
 train_ys = np.empty((0,), dtype=np.int32)
 print(
-    f"[data] train_pool {len(train_pool)} test {test_B.shape[0]} "
-    f"block [{test_start}:{test_start + test_size}] gap {gap} "
+    f"[data] split={split_name} train_pool {len(train_pool)} test {test_B.shape[0]} "
+    f"test_start {test_start} gap {gap} docs {nd} "
     f"resample={ARGS.resample_train} time {time.time() - T0:.1f}s",
     flush=True,
 )
@@ -668,9 +831,12 @@ gc.collect()
 
 
 # ---------------------------------------------------------------- model
-DIM_B = 24
-DIM_W = 32
-DIM_S = 32
+DIM_B = ARGS.dim_b
+DIM_W = ARGS.dim_w
+DIM_S = ARGS.dim_s
+FF_B = ARGS.ff_b
+FF_W = ARGS.ff_w
+FF_S = ARGS.ff_s
 
 
 class MoE(tf.keras.layers.Layer):
@@ -733,22 +899,22 @@ class TripleStaged(tf.keras.Model):
         self.byte_emb = tf.keras.layers.Embedding(256, DIM_B)
         self.byte_pos = tf.keras.layers.Embedding(BYTE_CHUNKS, DIM_B)
         self.byte_moe = MoE(256, DIM_B, 2)
-        self.byte_m1 = Micro(DIM_B, 4, 48, ARGS.dropout)
-        self.byte_m2 = Micro(DIM_B, 4, 48, ARGS.dropout)
+        self.byte_m1 = Micro(DIM_B, 4, FF_B, ARGS.dropout)
+        self.byte_m2 = Micro(DIM_B, 4, FF_B, ARGS.dropout)
         self.byte_proj = tf.keras.layers.Dense(DIM_B)
 
         self.word_emb = tf.keras.layers.Embedding(vocab, DIM_W)
         self.word_pos = tf.keras.layers.Embedding(WORD_CHUNKS, DIM_W)
         self.word_moe = MoE(256, DIM_W, 2)
-        self.word_m1 = Micro(DIM_W, 4, 64, ARGS.dropout)
-        self.word_m2 = Micro(DIM_W, 4, 64, ARGS.dropout)
+        self.word_m1 = Micro(DIM_W, 4, FF_W, ARGS.dropout)
+        self.word_m2 = Micro(DIM_W, 4, FF_W, ARGS.dropout)
         self.word_proj = tf.keras.layers.Dense(DIM_W)
 
         self.sent_emb = tf.keras.layers.Embedding(vocab, DIM_S)
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
         self.sent_moe = MoE(256, DIM_S, 2)
-        self.sent_m1 = Micro(DIM_S, 4, 64, ARGS.dropout)
-        self.sent_m2 = Micro(DIM_S, 4, 64, ARGS.dropout)
+        self.sent_m1 = Micro(DIM_S, 4, FF_S, ARGS.dropout)
+        self.sent_m2 = Micro(DIM_S, 4, FF_S, ARGS.dropout)
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -763,7 +929,7 @@ class TripleStaged(tf.keras.Model):
     def call(self, inputs, training=False, two_way=True):
         b_in, w_in, s_in = inputs
 
-        b_r = tf.reshape(b_in, (-1, BYTE_CHUNKS, 16))
+        b_r = tf.reshape(b_in, (-1, BYTE_CHUNKS, BYTE_CHUNK))
         b_emb = self.byte_emb(b_r)
         b_chunk = tf.reduce_mean(b_emb, axis=2)
         b_chunk = self.byte_proj(b_chunk)
@@ -811,8 +977,9 @@ _ = model(
     two_way=True,
 )
 print(
-    f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x16 "
-    f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S}",
+    f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x{BYTE_CHUNK} "
+    f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S} "
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S}",
     flush=True,
 )
 opt = tf.keras.optimizers.AdamW(learning_rate=ARGS.lr, weight_decay=ARGS.weight_decay)
@@ -826,14 +993,21 @@ SIGNATURE = json.dumps({
     "byte_win": WIN_B,
     "word_win": WIN_W,
     "sent_win": WIN_S,
+    "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
     "dim_s": DIM_S,
+    "ff_b": FF_B,
+    "ff_w": FF_W,
+    "ff_s": FF_S,
     "corpus_sha256": corpus_stats["sha256"],
-    "split": "contiguous-block-v2",
+    "split": split_name,
+    "split_mode": ARGS.split_mode,
     "test_start": int(test_start),
     "test_size": int(test_size),
     "test_gap": int(gap),
+    "test_docs": test_doc_sha,
+    "doc_holdout_frac": float(ARGS.doc_holdout_frac),
     "resample_train": bool(ARGS.resample_train),
     "label_smoothing": float(ARGS.label_smoothing),
 }, sort_keys=True)
@@ -1296,7 +1470,12 @@ if start_epoch < ARGS.epochs:
             )
             break
 
-        if ARGS.self_loop_every > 0 and epoch_no % ARGS.self_loop_every == 0 and epoch < ARGS.epochs - 1:
+        if (
+            ARGS.self_loop_every > 0
+            and epoch < ARGS.epochs - 1
+            and epoch_no >= ARGS.self_loop_start_epoch
+            and (epoch_no - ARGS.self_loop_start_epoch) % ARGS.self_loop_every == 0
+        ):
             self_loop(epoch_no)
         if ARGS.save_every > 0 and epoch_no % ARGS.save_every == 0:
             save_state(epoch_no)
@@ -1348,6 +1527,7 @@ print(
 )
 print(
     f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S} "
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} byte_chunk {BYTE_CHUNK} split {split_name} "
     f"completed {completed_epochs}/{ARGS.epochs} epochs "
     f"CPU time {time.time() - T0:.1f}s",
     flush=True,

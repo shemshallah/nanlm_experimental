@@ -7,17 +7,17 @@ on:
         description: 'Target total epochs, including any resumed epochs (1-1000)'
         type: string
         required: true
-        default: '50'
+        default: '30'
       examples:
-        description: 'Training examples per epoch (256-8000)'
+        description: 'Training examples per epoch (256-20000)'
         type: string
         required: true
-        default: '8000'
+        default: '15000'
       corpus_chars:
         description: 'NaNROUTER corpus characters (500000-8000000); changing this invalidates resume'
         type: string
         required: true
-        default: '4000000'
+        default: '8000000'
       time_budget_minutes:
         description: 'Graceful stop after N minutes; 0 disables (0-330)'
         type: string
@@ -27,42 +27,125 @@ on:
         description: 'Peak learning rate for this run'
         type: string
         required: true
-        default: '0.0008'
+        default: '0.001'
       warmup_epochs:
         description: 'LR warmup epochs'
         type: string
         required: true
-        default: '5'
+        default: '1'
       patience:
         description: 'Early-stop after N evals without improvement; 0 disables'
         type: string
         required: true
-        default: '12'
+        default: '5'
       dropout:
         description: 'Dropout'
         type: string
         required: true
-        default: '0.2'
+        default: '0.05'
       weight_decay:
         description: 'AdamW weight decay'
         type: string
         required: true
-        default: '0.05'
+        default: '0.005'
       label_smoothing:
         description: 'Training label smoothing; must match the checkpoint when resuming'
         type: string
         required: true
         default: '0.05'
+      batch:
+        description: 'Batch size (1-64)'
+        type: string
+        required: true
+        default: '32'
+      dim_b:
+        description: 'Byte tower width; must be divisible by 4'
+        type: string
+        required: true
+        default: '32'
+      dim_w:
+        description: 'Word tower width; must be divisible by 4'
+        type: string
+        required: true
+        default: '48'
+      dim_s:
+        description: 'Sentence tower width; must be divisible by 4'
+        type: string
+        required: true
+        default: '48'
+      ff_b:
+        description: 'Byte tower FF width'
+        type: string
+        required: true
+        default: '64'
+      ff_w:
+        description: 'Word tower FF width'
+        type: string
+        required: true
+        default: '96'
+      ff_s:
+        description: 'Sentence tower FF width'
+        type: string
+        required: true
+        default: '96'
+      byte_chunk:
+        description: 'Bytes per byte-tower chunk (8 or 16)'
+        type: string
+        required: true
+        default: '8'
+      split_mode:
+        description: 'Held-out split: document or position'
+        type: choice
+        required: true
+        default: document
+        options:
+          - document
+          - position
+      doc_holdout_frac:
+        description: 'Fraction of documents held out in document mode'
+        type: string
+        required: true
+        default: '0.10'
+      test_size:
+        description: 'Held-out examples (64-8192)'
+        type: string
+        required: true
+        default: '1000'
+      self_loop_every:
+        description: 'Run filtered self-loop every N epochs; 0 disables'
+        type: string
+        required: true
+        default: '5'
+      self_loop_start_epoch:
+        description: 'First epoch for the self-loop schedule (1-based)'
+        type: string
+        required: true
+        default: '11'
+      quick:
+        description: 'Smoke test: 200 examples, 1 epoch, small corpus'
+        type: boolean
+        required: true
+        default: false
       resume:
         description: 'Resume from the latest diamond-state artifact if present'
         type: boolean
         required: true
-        default: true
+        default: false
       release_tag:
         description: 'GitHub Release tag for the final weights (blank skips the release)'
         type: string
         required: false
-        default: 'diamond-weights'
+        default: 'diamond-wide-8m-30e'
+      report_name:
+        description: 'Subdirectory under diamond/reports for this run'
+        type: string
+        required: true
+        default: 'wide-8m-30e'
+      commit_report:
+        description: 'Commit the per-epoch report back to the repository'
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: write
@@ -180,38 +263,69 @@ jobs:
           DROPOUT: ${{ inputs.dropout }}
           WEIGHT_DECAY: ${{ inputs.weight_decay }}
           LABEL_SMOOTHING: ${{ inputs.label_smoothing }}
+          BATCH: ${{ inputs.batch }}
+          DIM_B: ${{ inputs.dim_b }}
+          DIM_W: ${{ inputs.dim_w }}
+          DIM_S: ${{ inputs.dim_s }}
+          FF_B: ${{ inputs.ff_b }}
+          FF_W: ${{ inputs.ff_w }}
+          FF_S: ${{ inputs.ff_s }}
+          BYTE_CHUNK: ${{ inputs.byte_chunk }}
+          SPLIT_MODE: ${{ inputs.split_mode }}
+          DOC_HOLDOUT_FRAC: ${{ inputs.doc_holdout_frac }}
+          TEST_SIZE: ${{ inputs.test_size }}
+          SELF_LOOP_EVERY: ${{ inputs.self_loop_every }}
+          SELF_LOOP_START: ${{ inputs.self_loop_start_epoch }}
+          QUICK: ${{ inputs.quick }}
         run: |
           set -euo pipefail
-          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=50
-          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=50
-          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=8000
-          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=8000
-          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=4000000
-          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 8000000 )) || CORPUS_CHARS=4000000
+          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=30
+          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=30
+          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=15000
+          (( EXAMPLES >= 256 && EXAMPLES <= 20000 )) || EXAMPLES=15000
+          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=8000000
+          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 8000000 )) || CORPUS_CHARS=8000000
           [[ "$TIME_BUDGET" =~ ^[0-9]+$ ]] || TIME_BUDGET=330
           (( TIME_BUDGET >= 0 && TIME_BUDGET <= 330 )) || TIME_BUDGET=330
-          [[ "$LR" =~ ^[0-9]+([.][0-9]+)?$ ]] || LR=0.0008
-          [[ "$WARMUP_EPOCHS" =~ ^[0-9]+$ ]] || WARMUP_EPOCHS=5
-          [[ "$PATIENCE" =~ ^[0-9]+$ ]] || PATIENCE=12
-          [[ "$DROPOUT" =~ ^[0-9]*[.]?[0-9]+$ ]] || DROPOUT=0.2
-          [[ "$WEIGHT_DECAY" =~ ^[0-9]*[.]?[0-9]+$ ]] || WEIGHT_DECAY=0.05
+          [[ "$LR" =~ ^[0-9]+([.][0-9]+)?$ ]] || LR=0.001
+          [[ "$WARMUP_EPOCHS" =~ ^[0-9]+$ ]] || WARMUP_EPOCHS=1
+          [[ "$PATIENCE" =~ ^[0-9]+$ ]] || PATIENCE=5
+          [[ "$DROPOUT" =~ ^[0-9]*[.]?[0-9]+$ ]] || DROPOUT=0.05
+          [[ "$WEIGHT_DECAY" =~ ^[0-9]*[.]?[0-9]+$ ]] || WEIGHT_DECAY=0.005
           [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
+          [[ "$BATCH" =~ ^[0-9]+$ ]] || BATCH=32
+          (( BATCH >= 1 && BATCH <= 64 )) || BATCH=32
+          [[ "$SPLIT_MODE" == "document" || "$SPLIT_MODE" == "position" ]] || SPLIT_MODE=document
+          [[ "$BYTE_CHUNK" == "8" || "$BYTE_CHUNK" == "16" ]] || BYTE_CHUNK=8
+          [[ "$TEST_SIZE" =~ ^[0-9]+$ ]] || TEST_SIZE=1000
+          (( TEST_SIZE >= 64 && TEST_SIZE <= 8192 )) || TEST_SIZE=1000
+          [[ "$SELF_LOOP_EVERY" =~ ^[0-9]+$ ]] || SELF_LOOP_EVERY=5
+          [[ "$SELF_LOOP_START" =~ ^[0-9]+$ ]] || SELF_LOOP_START=11
+          [[ "$DOC_HOLDOUT_FRAC" =~ ^[0-9]*[.]?[0-9]+$ ]] || DOC_HOLDOUT_FRAC=0.10
+          QUICK_ARG=""
+          if [ "$QUICK" = "true" ]; then QUICK_ARG="--quick"; fi
 
           echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m lr=$LR warmup=$WARMUP_EPOCHS patience=$PATIENCE"
-          python diamond/diamond_engine.py \
+          echo "model: ${DIM_B}/${DIM_W}/${DIM_S} ff ${FF_B}/${FF_W}/${FF_S} byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
+          python diamond/diamond_engine.py $QUICK_ARG \
             --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
             --require-real-corpus \
             --epochs "$EPOCHS" \
             --examples "$EXAMPLES" \
-            --batch 64 \
+            --batch "$BATCH" \
             --byte-win 1024 --word-win 128 --sent-win 32 \
+            --dim-b "$DIM_B" --dim-w "$DIM_W" --dim-s "$DIM_S" \
+            --ff-b "$FF_B" --ff-w "$FF_W" --ff-s "$FF_S" \
+            --byte-chunk "$BYTE_CHUNK" \
             --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
-            --test-size 1024 --eval-every 1 --eval-batch 64 \
+            --test-size "$TEST_SIZE" --split-mode "$SPLIT_MODE" \
+            --doc-holdout-frac "$DOC_HOLDOUT_FRAC" \
+            --eval-every 1 --eval-batch 32 \
             --lr "$LR" --lr-schedule cosine --warmup-epochs "$WARMUP_EPOCHS" \
             --grad-clip 1.0 --weight-decay "$WEIGHT_DECAY" --dropout "$DROPOUT" \
             --label-smoothing "$LABEL_SMOOTHING" --patience "$PATIENCE" \
-            --save-every 10 --report-every-steps 25 \
+            --save-every 5 --report-every-steps 50 \
             --time-budget-minutes "$TIME_BUDGET" \
             --checkpoint diamond/state/diamond_state.npz \
             --best-checkpoint diamond/state/diamond_best.npz \
@@ -219,17 +333,22 @@ jobs:
             --history diamond/state/diamond_history.jsonl \
             --out diamond/state/diamond_metrics.json \
             --save-weights \
-            --self-loop-every 100 --self-streams 32 --self-steps 8 \
+            --self-loop-every "$SELF_LOOP_EVERY" --self-loop-start-epoch "$SELF_LOOP_START" \
+            --self-streams 32 --self-steps 8 \
             --threads 4 --memory-limit-gb 0 \
             --seed 11
 
       - name: Copy per-epoch reports
         if: always()
         shell: bash
+        env:
+          REPORT_NAME: ${{ inputs.report_name }}
         run: |
-          mkdir -p diamond/reports
-          cp -f diamond/state/diamond_metrics.json diamond/reports/ 2>/dev/null || true
-          cp -f diamond/state/diamond_history.jsonl diamond/reports/ 2>/dev/null || true
+          REPORT_NAME="${REPORT_NAME:-run}"
+          REPORT_NAME="${REPORT_NAME//[^A-Za-z0-9._-]/_}"
+          mkdir -p "diamond/reports/$REPORT_NAME"
+          cp -f diamond/state/diamond_metrics.json "diamond/reports/$REPORT_NAME/" 2>/dev/null || true
+          cp -f diamond/state/diamond_history.jsonl "diamond/reports/$REPORT_NAME/" 2>/dev/null || true
           cp -f diamond_weights.weights.h5 diamond/state/ 2>/dev/null || true
           echo '--- latest epoch records ---'
           tail -20 diamond/state/diamond_history.jsonl 2>/dev/null || true
@@ -278,11 +397,16 @@ jobs:
           echo "Release: $(gh release view "$TAG" --repo "$GH_REPO" --json url --jq .url)"
 
       - name: Commit the per-epoch report
-        if: always()
+        if: ${{ always() && (inputs.commit_report == true || inputs.commit_report == 'true') }}
         shell: bash
+        env:
+          REPORT_NAME: ${{ inputs.report_name }}
         run: |
           set -euo pipefail
-          if [ ! -s diamond/reports/diamond_metrics.json ]; then
+          REPORT_NAME="${REPORT_NAME:-run}"
+          REPORT_NAME="${REPORT_NAME//[^A-Za-z0-9._-]/_}"
+          REPORT_DIR="diamond/reports/$REPORT_NAME"
+          if [ ! -s "$REPORT_DIR/diamond_metrics.json" ]; then
             echo 'No metrics produced; nothing to commit'
             exit 0
           fi
@@ -293,8 +417,8 @@ jobs:
             echo 'Report unchanged'
             exit 0
           fi
-          EPOCH=$(python -c 'import json; d=json.load(open("diamond/reports/diamond_metrics.json")); print(d.get("completed_epochs",0))')
-          git commit -m "diamond: per-epoch NaNROUTER report through epoch $EPOCH"
+          EPOCH=$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("completed_epochs",0))' "$REPORT_DIR/diamond_metrics.json")
+          git commit -m "diamond: per-epoch NaNROUTER report through epoch $EPOCH ($REPORT_NAME)"
           for retry in 1 2 3; do
             git fetch origin master
             git rebase origin/master
