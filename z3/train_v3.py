@@ -663,6 +663,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="use a one-block t+1-conditioned MTP branch")
     model.add_argument("--mtp-block-experts", type=int, default=8)
     model.add_argument("--mtp-block-hidden", type=int, default=1024)
+    model.add_argument("--mtp-teacher-prob", type=float, default=1.0,
+                       help="fraction of MTP training batches using ground-truth t+1")
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -877,6 +879,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp-adapter-rank must be non-negative")
     if args.mtp_block_experts < 1 or args.mtp_block_hidden < 1:
         raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
+    if not 0.0 <= args.mtp_teacher_prob <= 1.0:
+        raise SystemExit("--mtp-teacher-prob must be in [0, 1]")
     if args.global_every < 1 or args.window < 1:
         raise SystemExit("--global-every and --window must be positive")
     if not 0.0 <= args.dropout < 1.0:
@@ -930,6 +934,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_block=bool(args.mtp_block),
         mtp_block_experts=int(args.mtp_block_experts),
         mtp_block_hidden=int(args.mtp_block_hidden),
+        mtp_teacher_prob=float(args.mtp_teacher_prob),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),
         max_ctx=int(args.max_ctx),

@@ -82,6 +82,7 @@ class V3Config:
     mtp_block: bool = False
     mtp_block_experts: int = 8
     mtp_block_hidden: int = 1024
+    mtp_teacher_prob: float = 1.0
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -369,7 +370,8 @@ class V3LM(nn.Module):
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-    def forward(self, tokens, mtp_teacher: bool = False):
+    def forward(self, tokens, mtp_teacher: bool = False,
+                mtp_teacher_prob: float | None = None):
         x = self.tok(tokens)
         lbs, zs = [], []
         for block in self.blocks:
@@ -390,7 +392,9 @@ class V3LM(nn.Module):
         if self.mtp_block is not None:
             # t+1 conditioning: ground truth during training, predicted t+1
             # soft embedding during evaluation.
-            if mtp_teacher:
+            prob = self.cfg.mtp_teacher_prob if mtp_teacher_prob is None else mtp_teacher_prob
+            use_teacher = mtp_teacher and (prob >= 1.0 or (prob > 0.0 and torch.rand(()).item() < prob))
+            if use_teacher:
                 next_ids = torch.cat(
                     [tokens[:, 1:], tokens[:, -1:]], dim=1
                 )
