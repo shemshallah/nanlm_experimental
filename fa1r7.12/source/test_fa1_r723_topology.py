@@ -54,6 +54,16 @@ def run():
     state,logits,vec=m(h,words,by,sen,verts,trunk,memory_features=mem,
                        modal_ids=modal_ids,modal_mask=modal_mask)
     with torch.no_grad():
+        # No direct apex/word-query bypass: if the downward pair route is
+        # ablated, its complete LM correction must vanish exactly.
+        without_pairs,_,_=m(h,words,by,sen,verts,trunk,memory_features=mem,
+                           modal_ids=modal_ids,modal_mask=modal_mask,
+                           without_pair=True)
+        assert torch.equal(without_pairs,h),'decoder bypasses descending pair-to-point diamond'
+        without_apex,_,_=m(h,words,by,sen,verts,trunk,memory_features=mem,
+                          modal_ids=modal_ids,modal_mask=modal_mask,
+                          without_apex=True)
+        assert not torch.equal(state,without_apex),'apex does not affect descending pair-to-point path'
         other,_,_=m(h,words,by,sen,verts,trunk,memory_features=torch.zeros_like(mem),
                     modal_ids=modal_ids,modal_mask=modal_mask)
         assert not torch.equal(state,other),'legacy causal reader feature path is disconnected'
@@ -76,6 +86,7 @@ def run():
         assert param.grad is not None and torch.isfinite(param.grad).all(),('gradient absent',name)
         assert float(param.grad.abs().sum())>0,('gradient zero',name)
     assert all(x.grad is None for x in (trunk.H,trunk.P,trunk.M,trunk.E))
+    print('PASS strict descending diamond: no pair route = no decoder correction; apex ablation changes prediction')
     print('PASS gradient reachability: indexed triples, 12 concrete old-memory tokens, specialist meta-mind, pair and point reconstruction')
     print('PASS exact 256 points / 32,640 inherited pairs / 2,763,520 triples / 256 apex sectors; 56->28 incidence consistent')
 
