@@ -636,7 +636,7 @@ sentences = []
 sent_chars = []
 for st, sc in zip(sent_texts, sent_starts):
     ws = re.findall(r"[a-zA-Z']+", st.lower())
-    if len(ws) >= 1:
+    if len(ws) >= 3:
         sentences.append([w2i.get(w, 0) for w in ws])
         sent_chars.append(sc)
 if not sentences and len(word_stream) >= 3:
