@@ -681,7 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--decay-frac", type=float, default=0.1,
                        help="fraction of a WSD run used for the final decay")
     train.add_argument("--max-seconds", type=float, default=0.0,
-                       help="wall-clock budget (LR horizon is --steps unless --lr-horizon time)")
+                       help="wall-clock budget per invocation (LR horizon is --steps unless --lr-horizon time)")
     train.add_argument("--ema-decay", type=float, default=0.999)
     train.add_argument("--ema-start-frac", type=float, default=0.3)
     train.add_argument("--no-ema", action="store_true")
@@ -1242,6 +1242,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ema_start_step = int(args.steps * args.ema_start_frac)
     t0 = time.time() - elapsed_before
+    run_start = time.time()
     total_start = time.time()
     last_step = start_step
     last_lr = 0.0
@@ -1340,11 +1341,12 @@ def main(argv: list[str] | None = None) -> int:
 
     for step in range(start_step, args.steps):
         elapsed = time.time() - t0
-        if args.max_seconds > 0 and elapsed >= args.max_seconds:
+        run_elapsed = time.time() - run_start
+        if args.max_seconds > 0 and run_elapsed >= args.max_seconds:
             status = "max_seconds"
             print(
                 f"[stop] max-seconds reached at step {step} "
-                f"({elapsed:.1f}s)",
+                f"({run_elapsed:.1f}s this invocation, {elapsed:.1f}s total)",
                 flush=True,
             )
             break
