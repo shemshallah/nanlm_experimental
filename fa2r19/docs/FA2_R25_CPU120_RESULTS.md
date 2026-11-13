@@ -45,3 +45,14 @@ The ZIP is the authoritative **exact locally executed R25 source** for numeric r
 ## Limitations and next frontier gates
 
 To advance beyond a document-local lexical cache, independently sequester unseen authors/books, do matched-frequency wrong-document and semantic-hard-negative tests, evaluate paraphrase and multi-hop questions, grow recurrent/attention/FFN capacity preserving inherited optimizer state, and benchmark generation quality and end-to-end throughput. Do not equate 32K retrieval-address distance with 32K gradient propagation. **The R25 adapter candidate should not replace the accepted R18 anchor without broader validation.**
+
+## Final ZIP verification and GitHub CI
+
+- Final release: `FA2_R25_UNIFIED_LATEST_RECOVERY.zip`
+- SHA-256: `1adebb11625ad7cf493d1b509b785efc1cbccc332134da933755e72fca5fed76`
+- Compressed bytes: **80,143,415**; archive members: **84** (82 SHA-256-verified data members).
+- Latest model: `reports/fa2_r25_unified_candidate.pth`, SHA-256 `fc5c4b815607c168aa2d86fc217d62a7cf749e570f0c10c87ed129c16a93fe74`.
+- Cold extraction with the original R19 ancestor and **without** the R24 binary recovered all **130 optimizer states**, **10 groups**, and **12 document stream snapshots**; eight causal tests passed.
+- Exact continuation driver and restore code are committed under `fa2r19/source/r25_*.py`, and the R25 output path is integrated into the existing unified R24 forward method.
+- GitHub Actions: [R25 causal source gate success](https://github.com/shemshallah/nanlm_experimental/actions/runs/43348320330) and [FA2 original-checkpoint source gate success](https://github.com/shemshallah/nanlm_experimental/actions/runs/43348320271).
+- The ZIP binary is intentionally **not** checked into GitHub; use the ChatGPT release archive plus original R19 archive to reproduce local full-weight results.
