@@ -82,6 +82,9 @@ class ContinuousPALState:
             # *observed* piece from the prior position, never targets[:,t].
             self.state = model.memory.subword_cell(
                 model.memory.piece_emb(self.previous), self.state)
+            refiner = getattr(self, "recurrent_refiner", None)
+            if refiner is not None:
+                self.state = refiner(self.state)
             out = self.state
             if adapter is not None:
                 if self.key_history:

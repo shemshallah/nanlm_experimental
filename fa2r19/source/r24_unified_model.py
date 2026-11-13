@@ -79,7 +79,7 @@ class UnifiedFA2(nn.Module):
                         alt['query_position_offset']=t0
                         unrelated,_=self.r23(post22,alt,piece_table=self.model.memory.piece_emb.weight)
         uncalibrated=actual
-        if apply_r25 and hasattr(self,'r25'):
+        if apply_r25 and t0>=3 and hasattr(self,'r25'):
             from r25_episodic_cache import CausalNGramIndex
             if not hasattr(self,'_r25_book_indexes'):
                 self._r25_book_indexes={}
@@ -90,7 +90,7 @@ class UnifiedFA2(nn.Module):
             samples,stat=cache.distributions(book.tokens,t0,len(y),actual.shape[-1])
             actual=self.r25(actual,torch.from_numpy(samples).to(actual.device),torch.from_numpy(stat).to(actual.device))
         before_r26=actual
-        if apply_r25 and apply_r26 and hasattr(self,'r26'):
+        if apply_r25 and apply_r26 and t0>=6 and hasattr(self,'r26'):
             from r26_span_memory import CausalHighOrderIndex
             if not hasattr(self,'_r26_book_indexes'):
                 self._r26_book_indexes={}
@@ -108,7 +108,7 @@ class UnifiedFA2(nn.Module):
             actual=self.r26(actual,torch.from_numpy(span).to(actual.device),
                 torch.from_numpy(features).to(actual.device))
         before_r27=actual
-        if apply_r25 and apply_r26 and apply_r27 and hasattr(self,'r27'):
+        if apply_r25 and apply_r26 and apply_r27 and t0>=6 and hasattr(self,'r27'):
             from r27_trust import near_only_full
             near=near_only_full(self.r26,before_r26,
                 torch.from_numpy(span).to(actual.device),
