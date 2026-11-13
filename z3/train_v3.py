@@ -699,6 +699,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="floor as a fraction of --lr (0 reaches zero)")
     train.add_argument("--lr-horizon", choices=("auto", "time", "steps", "wsd"), default="auto",
                        help="auto = step-based; time is explicit opt-in; wsd = warmup-stable-decay")
+    train.add_argument("--lr-total-steps", type=int, default=0,
+                       help="LR schedule denominator (0 = --steps); use for checkpoint reconstruction")
     train.add_argument("--decay-frac", type=float, default=0.1,
                        help="fraction of a WSD run used for the final decay")
     train.add_argument("--max-seconds", type=float, default=0.0,
@@ -818,6 +820,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--min-lr-frac must be in [0, 1]")
     if not 0.0 < args.decay_frac <= 1.0:
         raise SystemExit("--decay-frac must be in (0, 1]")
+    if args.lr_total_steps < 0:
+        raise SystemExit("--lr-total-steps must be non-negative")
     if not 0.0 <= args.warmup_frac < 1.0:
         raise SystemExit("--warmup-frac must be in [0, 1)")
     if args.warmup_steps < 0:
@@ -1295,11 +1299,13 @@ def main(argv: list[str] | None = None) -> int:
     status = "completed"
     steps_run = 0
 
+    lr_total_steps = int(args.lr_total_steps or args.steps)
+
     def current_lr(step: int, elapsed: float) -> float:
         if horizon == "time" and args.max_seconds > 0:
             progress = elapsed / args.max_seconds
         else:
-            progress = step / max(1, args.steps)
+            progress = step / max(1, lr_total_steps)
         scale = lr_scale(
             progress,
             effective_warmup_frac,
