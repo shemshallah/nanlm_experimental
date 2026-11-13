@@ -1,0 +1,57 @@
+name: FA1 R7.24 - full curved mirror diamond CPU tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r724-curved-diamond-cpu.yml'
+      - 'fa1r7.12/source/fa1_r724_*.py'
+      - 'fa1r7.12/source/test_fa1_r724*.py'
+      - 'fa1r7.12/source/fa1_r723_diamond.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r724-one-master-model
+  cancel-in-progress: false
+
+jobs:
+  topology:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU numerical packages
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify 256 / C(256,2) / C(256,3) / C(256,4) exact arithmetic
+        run: |
+          set -euo pipefail
+          python -m py_compile fa1r7.12/source/fa1_r724_curvature.py fa1r7.12/source/fa1_r724_unified.py fa1r7.12/source/fa1_r724_train.py fa1r7.12/source/fa1_r723_diamond.py
+          python fa1r7.12/source/test_fa1_r724_geometry.py
+      - name: Enforce older R7.23 and inherited R7.18-R7.22 tests
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r723_topology.py
+          python fa1r7.12/source/test_fa1_r718.py
+          python fa1r7.12/source/test_fa1_r719.py
+          python fa1r7.12/source/test_fa1_r720.py
+          python fa1r7.12/source/test_fa1_r721_synthetic.py
+          python fa1r7.12/source/test_fa1_r722.py
+      - name: Explicit source-only integrity status
+        run: |
+          echo 'R7.24 preserves one unified checkpoint, 5 inherited optimizers.'
+          echo 'C(256,4) is exact sparse addressability, not 174M dense trained experts.'
+          echo 'Actual CPU training requires the SHA-pinned R7.23 checkpoint from Library.'
+          echo 'No candidate promotion is performed by source-only tests.'
