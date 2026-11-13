@@ -1056,9 +1056,14 @@ class TripleStaged(tf.keras.Model):
         s_h = self.sent_moe(s_emb) + s_emb
         for block in self.sent_blocks:
             s_h = block(s_h, training=training)
-        s_attn = self.sent_word_attn(s_h, w_h, w_h)
+        # The sentence tower is trained only by the sentence objective. Word
+        # and byte representations are read as fixed features here, so the
+        # large byte/word losses cannot reshape the sentence representation.
+        w_feat = tf.stop_gradient(w_h)
+        b_feat = tf.stop_gradient(b_h)
+        s_attn = self.sent_word_attn(s_h, w_feat, w_feat)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
-        s_battn = self.sent_byte_attn(s_h, b_h, b_h)
+        s_battn = self.sent_byte_attn(s_h, b_feat, b_feat)
         s_h = self.sent_byte_ln(s_h + tf.sigmoid(self.sent_byte_gate(s_h)) * s_battn)
         # The final slot is the whole current sentence, used only by the
         # sentence head. The preceding slot is the completed previous sentence,
@@ -1066,14 +1071,17 @@ class TripleStaged(tf.keras.Model):
         # the current sentence out of the conditioning state.
         s_pred = s_h[:, -1, :] + self.sent_boundary
         s_cond = s_h[:, -2, :]
-        sent_word = self.word_to_sent(w_last)
+        sent_word = self.word_to_sent(tf.stop_gradient(w_last))
 
         w_up = w_last + self.byte_to_word(b_last)
         s_up = s_pred + sent_word
         s_cond_up = s_cond + sent_word
+        # Conditioning is detached: byte/word losses train their own towers and
+        # the sentence->word/byte adapters, but not the sentence tower.
+        s_cond_cond = tf.stop_gradient(s_cond_up)
         if two_way:
-            w_cond = w_up + self.sent_to_word(s_cond_up)
-            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_cond_up)
+            w_cond = w_up + self.sent_to_word(s_cond_cond)
+            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_cond_cond)
         else:
             w_cond = w_up
             b_cond = b_last
@@ -1113,6 +1121,7 @@ SIGNATURE = json.dumps({
     "sent_content": "attention_first_last_full_current",
     "sent_full_current": True,
     "sent_causal": True,
+    "sent_isolated": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
