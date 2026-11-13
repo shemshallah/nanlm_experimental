@@ -252,10 +252,11 @@ class MTPAdapter(nn.Module):
         self.down = nn.Linear(d_model, rank, bias=False)
         self.up = nn.Linear(rank, d_model, bias=False)
         nn.init.xavier_uniform_(self.down.weight)
-        nn.init.normal_(self.up.weight, mean=0.0, std=1e-3)
+        nn.init.xavier_uniform_(self.up.weight)
+        self.scale = nn.Parameter(torch.tensor(1e-3))
 
     def forward(self, x):
-        return x + self.up(F.silu(self.down(self.norm(x))))
+        return x + self.scale * self.up(F.silu(self.down(self.norm(x))))
 
 
 class V3LM(nn.Module):
