@@ -10,7 +10,8 @@ import torch
 from r710_checkpoint_integrity import sha256
 from fa1_r724_unified import load_geometric
 from fa1_r723_train import prepare,forward
-from fa1_r724_train import boot_books
+from fa1_r724_train import boot_books,GEOMETRY_GATES
+from fa1_r725_controls import unrelated_book_context
 
 @torch.no_grad()
 def run(a):
@@ -19,30 +20,35 @@ def run(a):
     m.eval()
     data=prepare(a,m,base,comp,a.split,a.targets,a.seed)
     g=m.diamond.geometry
-    original=[p.detach().clone() for p in (g.edge_gain,g.face_gain,g.tetra_gain)]
+    gates=[getattr(g,k) for k in GEOMETRY_GATES]
+    original=[p.detach().clone() for p in gates]
     full,trace=forward(m,data)
-    unrelated,_=forward(m,data,'unrelated')
+    foreign,donors=unrelated_book_context(data,a.seed+1)
+    unrelated,_=forward(m,foreign)
     no_pair,_=forward(m,data,'no_pair')
     no_apex,_=forward(m,data,'no_apex')
     results={}
-    for name,p,old in zip(['edges','triangles','tetrahedra'],
-                           [g.edge_gain,g.face_gain,g.tetra_gain],original):
+    for name,p,old in zip(['edges','triangles','tetrahedra','apex_specialists'],
+                           gates,original):
         p.zero_()
         ablated,_=forward(m,data)
         p.copy_(old)
         delta=ablated-full
         results[name]={'incremental_gain':float(delta.mean()),
             'books':boot_books(delta,data['book_ids'],a.seed+2) if 'book_ids' in data else None}
-    for p in (g.edge_gain,g.face_gain,g.tetra_gain):p.zero_()
+    for p in gates:p.zero_()
     old,_=forward(m,data)
-    for p,x in zip((g.edge_gain,g.face_gain,g.tetra_gain),original):p.copy_(x)
+    for p,x in zip(gates,original):p.copy_(x)
     gain=old-full
-    result={'format':'FA1_R7_24_GEOMETRY_INDEPENDENT_DEV_AUDIT',
+    result={'format':'FA1_R7_25_CORRECTED_FOUR_GATE_INDEPENDENT_DEV_AUDIT',
       'checkpoint_sha256':sha256(a.candidate),'candidate_promoted':False,
       'split':a.split,'new_positions_seed':a.seed,'n_vocab_word_targets':a.targets,
       'old_unpromoted_r723_nll_nats_per_vocab_word':float(old.mean()),
       'full_r724_nll_nats_per_vocab_word':float(full.mean()),
       'geometry_total_gain':float(gain.mean()),
+      'geometry_gates':{k:float(v) for k,v in zip(GEOMETRY_GATES,original)},
+      'history_control':'same-target foreign-book donor, all Diamond context swapped',
+      'foreign_book_donors':int(donors.numel()),
       'geometry_book_ci':boot_books(gain,data['book_ids'],a.seed) if 'book_ids' in data else None,
       'correct_history_advantage':float((unrelated-full).mean()),
       'down_pair_advantage':float((no_pair-full).mean()),

@@ -12,6 +12,73 @@ from fa1_r722_unified import UnifiedR722
 FORMAT='FA1_R7_24_ORIENTED_SIMPLICIAL_DIAMOND_V1'
 
 
+def _legacy_geometry_upgrade(obj,model,opts):
+    """Lossless 9->11 triangle-input migration for pre-meta R7.24 candidates.
+
+    Original triangle columns and their Adam moments remain byte-identical.
+    The two spherical columns start at zero, while the newly introduced apex
+    specialist gate remains exactly closed. No inherited R7 optimizer resets.
+    """
+    old_state=obj['model']
+    face='diamond.geometry.face_net.0.weight'
+    if 'diamond.geometry.meta_gate' in old_state:
+        return old_state,obj['optimizer_states']
+    if tuple(old_state[face].shape)!=(32,9):
+        raise ValueError('unknown geometric checkpoint layout; refusing migration')
+    new_state=dict(old_state)
+    current_state=model.state_dict()
+    def widen(value,target):
+        if value.shape!=(32,9) or target.shape!=(32,11):
+            raise ValueError('unexpected triangle projection shape')
+        result=value.new_zeros(target.shape)
+        result[:,:9].copy_(value)
+        return result
+    new_state[face]=widen(old_state[face],current_state[face])
+    added=[]
+    for name,value in current_state.items():
+        if name not in new_state:
+            if not name.startswith('diamond.geometry.'):
+                raise ValueError('missing inherited tensor '+name)
+            new_state[name]=value.clone()
+            added.append(name)
+    if set(added)!={
+        'diamond.geometry.meta_up','diamond.geometry.meta_down',
+        'diamond.geometry.meta_gate','diamond.geometry.tetra_meta.weight',
+        'diamond.geometry.tetra_meta.bias'}:
+        raise ValueError('unrecognized legacy geometry parameter inventory')
+    # Map the old final optimizer group by the exact ordered names shared
+    # between old and new modules; inserting new meta parameters changes the
+    # positional order and must NOT silently shift historical Adam moments.
+    states=copy.deepcopy(obj['optimizer_states'])
+    last=states[4]
+    previous_ids=last['param_groups'][-1]['params']
+    named=list(model.diamond.named_parameters())
+    old_names=[name for name,_ in named if 'diamond.'+name in old_state]
+    if len(previous_ids)!=len(old_names):
+        raise ValueError('legacy Adam group does not match learned Diamond')
+    mapping=dict(zip(old_names,previous_ids))
+    next_id=max(i for group in last['param_groups'] for i in group['params'])+1
+    remapped=[]
+    for name,_ in named:
+        if name in mapping:
+            remapped.append(mapping[name])
+        else:
+            remapped.append(next_id)
+            next_id+=1
+    face_name='geometry.face_net.0.weight'
+    face_id=mapping[face_name]
+    moment=last['state'].get(face_id,{})
+    for key,value in list(moment.items()):
+        if torch.is_tensor(value) and tuple(value.shape)==(32,9):
+            moment[key]=widen(value,current_state[face])
+    last['param_groups'][-1]['params']=remapped
+    obj['legacy_geometry_migration']={
+        'from_face_features':9,'to_face_features':11,
+        'added_meta_parameters':sorted(added),
+        'old_adam_ids_preserved':True,'accepted_parent_unchanged':True}
+    return new_state,states
+
+
 def _install(model,optimizers):
     old=model.diamond
     old_params=list(old.parameters())
@@ -87,7 +154,8 @@ def load_geometric(path,root,threads=2):
     opts[4].add_param_group({'params':list(old.semantic.parameters())+list(old.long_semantic.parameters()),'lr':5e-4,'weight_decay':0.})
     m=UnifiedR723Diamond(old.core,old.calibration,old.near,old.far,old.semantic,old.long_semantic,GeometricDiamond())
     opts[4].add_param_group({'params':list(m.diamond.parameters()),'lr':1e-3,'weight_decay':0.})
-    m.load_state_dict(obj['model'],strict=True)
-    for o,s in zip(opts,obj['optimizer_states']):o.load_state_dict(s)
+    weights,states=_legacy_geometry_upgrade(obj,m,opts)
+    m.load_state_dict(weights,strict=True)
+    for o,s in zip(opts,states):o.load_state_dict(s)
     assert len(opts)==5 and len(opts[4].param_groups)==8
     return m,opts,base,comp,obj

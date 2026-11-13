@@ -1,4 +1,4 @@
-name: FA1 R7.24 - signed geometric Diamond and tetrahedral boundary tests
+name: FA1 R7.25 - signed Diamond, causal controls and migration tests
 
 on:
   push:
@@ -8,6 +8,8 @@ on:
       - 'fa1r7.12/source/fa1_r723_diamond.py'
       - 'fa1r7.12/source/fa1_r724_*.py'
       - 'fa1r7.12/source/test_fa1_r724_geometry.py'
+      - 'fa1r7.12/source/fa1_r725_*.py'
+      - 'fa1r7.12/source/test_fa1_r725_*.py'
   workflow_dispatch:
 
 permissions:
@@ -34,11 +36,12 @@ jobs:
       - run: |
           python -m pip install numpy sentencepiece
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Verify signed S+/S- triangle and tetra geometry, gradients
+      - name: Verify signed geometry, apex gate accounting and book-disjoint controls
         run: |
           set -euo pipefail
-          python -m py_compile fa1r7.12/source/fa1_r724_geometry.py fa1r7.12/source/fa1_r724_unified.py fa1r7.12/source/fa1_r724_train.py fa1r7.12/source/fa1_r724_eval.py
+          python -m py_compile fa1r7.12/source/fa1_r724_geometry.py fa1r7.12/source/fa1_r724_unified.py fa1r7.12/source/fa1_r724_train.py fa1r7.12/source/fa1_r724_eval.py fa1r7.12/source/fa1_r725_controls.py
           python fa1r7.12/source/test_fa1_r724_geometry.py
+          python fa1r7.12/source/test_fa1_r725_controls.py
           python fa1r7.12/source/test_fa1_r723_topology.py
           python fa1r7.12/source/test_fa1_r722.py
       - run: echo 'Source-only structural tests; no weight promotion or new-book generalization claim.'

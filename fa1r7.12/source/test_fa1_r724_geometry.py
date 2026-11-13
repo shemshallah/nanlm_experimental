@@ -52,9 +52,23 @@ def test():
     assert len(t0['geometry'])>=6
     geo=mod.geometry
     with torch.no_grad():
-        geo.edge_gain.fill_(0.025);geo.face_gain.fill_(0.025);geo.tetra_gain.fill_(0.025)
+        geo.edge_gain.fill_(0.025);geo.face_gain.fill_(0.025)
+        geo.tetra_gain.fill_(0.025);geo.meta_gate.fill_(0.025)
     state1,logits,vec,trace=mod(*args,**opts,return_trace=True)
     assert not torch.equal(state0,state1),'geometry has no effect'
+    with torch.no_grad():
+        geo.edge_gain.zero_();geo.face_gain.zero_();geo.tetra_gain.zero_()
+    meta_only,_,_=mod(*args,**opts)
+    assert not torch.equal(meta_only,state0),'meta specialist must be part of geometry ablation'
+    with torch.no_grad():geo.meta_gate.zero_()
+    all_closed,_,_=mod(*args,**opts)
+    assert torch.equal(all_closed,state0),'all four zero geometry gates must restore exact parity'
+    with torch.no_grad():
+        geo.edge_gain.fill_(0.025);geo.face_gain.fill_(0.025)
+        geo.tetra_gain.fill_(0.025);geo.meta_gate.fill_(0.025)
+    # Recompute after in-place gate perturbations to keep autograd's saved
+    # parameter versions consistent for the subsequent gradient audit.
+    state1,logits,vec,trace=mod(*args,**opts,return_trace=True)
     ablated,_,_=mod(*args,**opts,without_pair=True)
     assert torch.equal(ablated,args[0]),'geometric apex bypassed pair/point descent'
     # Trainability of rank2+rank3 mirror and sparse tetra decisions.
@@ -65,12 +79,15 @@ def test():
               'geometry.edge_phase.weight','geometry.face_plus.weight',
               'geometry.face_minus.weight','geometry.tetra_net.0.weight',
               'geometry.point_coords.weight', 'geometry.edge_gain',
-              'geometry.face_gain','geometry.tetra_gain'):
+              'geometry.face_gain','geometry.tetra_gain',
+              'geometry.meta_gate','geometry.meta_up','geometry.meta_down',
+              'geometry.tetra_meta.weight'):
         grad=names[k].grad
         assert grad is not None and torch.isfinite(grad).all() and float(grad.abs().sum())>0,('no gradient',k)
     assert all(z.grad is None for z in (trunk.E,trunk.H,trunk.P,trunk.M))
     print('PASS: C(256,2)=32640 / C(256,3)=2763520 / C(256,4)=174792640; active 28/56/70')
     print('PASS: signed S+ orientation invariant / S- orientation odd; d²=0; trigonometric face holonomy')
     print('PASS: old R7 frozen / exact-downward no-bypass / differentiable tetra -> triangle -> pair -> point')
+    print('PASS: apex meta gate included in the four-gate geometry baseline and ablations')
 
 if __name__=='__main__':test()
