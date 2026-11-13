@@ -40,3 +40,17 @@ Measured 1,132 bytes / 638 target subword tokens over the two dev books. Changes
 5. Exact continuation snapshots, strict package manifest, and immutable SHA audit before a new latest recovery archive replaces R27.
 
 The original R19 and latest R27 recovery archives remain the recovery source of record. No promotion or Library cleanup is authorized by these limited measurements.
+
+## Compact exact recovery overlay
+
+`r28_pack_overlay.py` exported **497,239 bytes** of R28 weights, the R28 Adam group with all nine new Adam states, parent digest, and selected development metadata. This eliminates redundant R27 tensors from the experimental artifact. The full R28 candidate had occupied **129,492,981 bytes**; the overlay is about **99.62% smaller**.
+
+The overlay SHA-256 is `e29155c5bde6d33237f65d13b662e8ccebef3cd8adf89b075390993e20673fd2`.
+
+An independent cold restore using **original PAL R19 + original FA2 R27 recovery + this R28 overlay** produced a unified model whose **195 state tensors and all 153 optimizer states exactly equal** the full R28 candidate. This is exact tensor/Adam equivalence, not only matching loss. The R28 overlay still lacks transient R28 training-cursor snapshots: use it as an experimental model recovery and not an exact same-stream training restart. It is not an accepted R27 replacement.
+
+```bash
+# After extracting PAL R19, then FA2 R27 and the R28 overlay package:
+PYTHONPATH=source python source/r28_restore_unified.py --root .
+PYTHONPATH=source python source/test_r28_recurrent.py
+```
