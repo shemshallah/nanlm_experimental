@@ -58,36 +58,14 @@ on:
         type: string
         required: true
         default: '32'
-      dim_b:
-        description: 'Byte tower width; must be divisible by 4'
-        type: string
+      model_size:
+        description: 'Tower preset: base 24/32/32 or wide 32/48/48'
+        type: choice
         required: true
-        default: '32'
-      dim_w:
-        description: 'Word tower width; must be divisible by 4'
-        type: string
-        required: true
-        default: '48'
-      dim_s:
-        description: 'Sentence tower width; must be divisible by 4'
-        type: string
-        required: true
-        default: '48'
-      ff_b:
-        description: 'Byte tower FF width'
-        type: string
-        required: true
-        default: '64'
-      ff_w:
-        description: 'Word tower FF width'
-        type: string
-        required: true
-        default: '96'
-      ff_s:
-        description: 'Sentence tower FF width'
-        type: string
-        required: true
-        default: '96'
+        default: wide
+        options:
+          - base
+          - wide
       byte_chunk:
         description: 'Bytes per byte-tower chunk (8 or 16)'
         type: string
@@ -264,12 +242,7 @@ jobs:
           WEIGHT_DECAY: ${{ inputs.weight_decay }}
           LABEL_SMOOTHING: ${{ inputs.label_smoothing }}
           BATCH: ${{ inputs.batch }}
-          DIM_B: ${{ inputs.dim_b }}
-          DIM_W: ${{ inputs.dim_w }}
-          DIM_S: ${{ inputs.dim_s }}
-          FF_B: ${{ inputs.ff_b }}
-          FF_W: ${{ inputs.ff_w }}
-          FF_S: ${{ inputs.ff_s }}
+          MODEL_SIZE: ${{ inputs.model_size }}
           BYTE_CHUNK: ${{ inputs.byte_chunk }}
           SPLIT_MODE: ${{ inputs.split_mode }}
           DOC_HOLDOUT_FRAC: ${{ inputs.doc_holdout_frac }}
@@ -295,6 +268,12 @@ jobs:
           [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
           [[ "$BATCH" =~ ^[0-9]+$ ]] || BATCH=32
           (( BATCH >= 1 && BATCH <= 64 )) || BATCH=32
+          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" ]] || MODEL_SIZE=wide
+          if [ "$MODEL_SIZE" = "wide" ]; then
+            DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
+          else
+            DIM_B=24; DIM_W=32; DIM_S=32; FF_B=48; FF_W=64; FF_S=64
+          fi
           [[ "$SPLIT_MODE" == "document" || "$SPLIT_MODE" == "position" ]] || SPLIT_MODE=document
           [[ "$BYTE_CHUNK" == "8" || "$BYTE_CHUNK" == "16" ]] || BYTE_CHUNK=8
           [[ "$TEST_SIZE" =~ ^[0-9]+$ ]] || TEST_SIZE=1000
