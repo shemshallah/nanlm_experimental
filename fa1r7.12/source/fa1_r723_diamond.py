@@ -128,7 +128,7 @@ class CombinatorialDiamond(nn.Module):
 
     def forward(self,hidden,word_ids,byte_ids,sentence_ids,vertex_ids,trunk,
                 memory_features=None,modal_ids=None,modal_mask=None,
-                two_way=True,without_apex=False,without_pair=False,return_trace=False):
+                two_way=True,without_apex=False,without_pair=False,without_geometry=False,return_trace=False):
         if word_ids.shape[1]!=32 or byte_ids.shape[1]!=128 or sentence_ids.shape[1]!=8 or vertex_ids.shape[1]!=ACTIVE:
             raise ValueError('expected 32 past words / 128 past bytes / 8 previous sentence starts / 8 distinct points')
         if bool((vertex_ids<0).any()) or bool((vertex_ids>=256).any()):raise ValueError('invalid points')
@@ -177,9 +177,23 @@ class CombinatorialDiamond(nn.Module):
         t=self.triangles
         tri_ids=triple_rank(vertex_ids[:,t[:,0]],vertex_ids[:,t[:,1]],vertex_ids[:,t[:,2]])
         tri_code=self.triple_in(self.triple_code(tri_ids))
+        # R7.24: true oriented 1/2-simplex S+/S- geometry + sparse C(256,4)
+        # tetrahedral consistency. The new gate is exactly closed on migration,
+        # preserving every learned R7.23 prediction. The geometry is injected
+        # into the actual pair/triangle ascent, not into a late bypass head.
+        geo_info=None
+        geo_face=None
+        if hasattr(self,'geometry') and self.geometry is not None:
+            geo_edge,geo_face,geo_info=self.geometry(node,vertex_ids,pair_ix,
+                       tri_ids,tri_code,trunk,trace=return_trace)
+            geo_scale=torch.tanh(self.geometry.gate)
+            if without_geometry:geo_scale=geo_scale*0
+            pair=pair+geo_scale*geo_edge
         te=self.tri_edges
         tri=self.triangle_fuse(torch.cat([pair[:,te[:,0]],pair[:,te[:,1]],
                                pair[:,te[:,2]],tri_code],dim=-1))
+        if geo_face is not None:
+            tri=tri+geo_scale*geo_face
         logits=self.triangle_score(torch.tanh(tri+self.triangle_query(q).unsqueeze(1))).squeeze(-1)
         triangle_weights=F.softmax(logits,dim=1)
         apex_in=(triangle_weights.unsqueeze(-1)*tri).sum(1)
@@ -191,6 +205,11 @@ class CombinatorialDiamond(nn.Module):
         sector_prob=F.softmax(sectors*4,dim=-1)
         meta=(sector_prob.unsqueeze(-1)*chosen).sum(1)
         apex=self.apex(torch.cat([apex_in,meta,q],dim=-1))
+        if geo_info is not None:
+            # Actual curvature and tetra consistency specialize four of 256
+            # learned low-rank operators at the apex, then descend through
+            # the same inherited triangle->pair->point route.
+            apex=apex+geo_scale*self.geometry.specialize(apex,sector_ids,sector_prob,geo_info)
         if without_apex:apex=apex*0
         # C(256,3) -> C(256,2): send triangle judgments only to their 3 edges.
         down_tri=tri+self.triple_down(apex).unsqueeze(1) if two_way else tri
@@ -234,7 +253,8 @@ class CombinatorialDiamond(nn.Module):
                 'triangle_attention':triangle_weights.detach(),
                 'active_pair_addresses':pair_ix.detach(),
                 'apex_std':apex.detach().std(),
-                'gate':self.gate.detach().clone(),'trust_logit':trust_logit}
+                'gate':self.gate.detach().clone(),'trust_logit':trust_logit,
+                'geometry':geo_info}
         return new_hidden,byte_logits,target_vector
 
 
