@@ -370,9 +370,9 @@ class V3LM(nn.Module):
                 self.mtp_cond_proj.weight[:, : self.cfg.d_model].copy_(
                     torch.eye(self.cfg.d_model)
                 )
-                self.mtp_cond_proj.weight[:, self.cfg.d_model:].normal_(
-                    mean=0.0, std=0.5
-                )
+                # Keep the t+1 columns at zero so step 0 equals the old MTP
+                # head; their gradient is nonzero, so they learn immediately.
+                self.mtp_cond_proj.weight[:, self.cfg.d_model:].zero_()
             # Identity branch at step zero: the t+1-conditioned input reaches
             # the old MTP head unchanged, so any later gain is real.
             nn.init.zeros_(self.mtp_block.attn.out_proj.weight)
