@@ -100,3 +100,24 @@ is only about 70%, and the branch was not trained to be robust to that guess.
 Simply training longer with ground-truth t+1 will not fix it.
 
 No 200/1000-step follow-up was run because the gate was not met.
+
+## Soft t+1 + confidence gate (100 steps)
+
+The branch now receives a predicted t+1 distribution mixed with ground truth
+(1.0 -> 0.7 over 100 steps), uses a concat projection, and blends the
+t+1-conditioned logits with the old head through a confidence gate supervised
+by t+1 correctness.
+
+```text
+                         MTP loss   correct-t1   wrong-t1   acceptance
+baseline (old head)       1.5484      1.0769      2.6682      67.03%
+soft+gate best (100)      1.5543      1.0673      2.7124      67.03%
+soft+gate final           1.5682      1.0579      2.7813      66.85%
+```
+
+Teacher-forced sensitivity: correct 1.3779, random 1.5556, delta -0.1777.
+
+Interpretation: the branch still uses t+1 when it is correct, but it does not
+beat the old head on predicted t+1, and the gate did not lower the wrong-t1
+cost. Acceptance is already 67% for the old head; the branch does not improve
+it. Do not start the 5,000-step joint run.
