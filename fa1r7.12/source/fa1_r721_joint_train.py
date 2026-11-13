@@ -23,8 +23,8 @@ from fa1_r721_unified import load_candidate,trainable_memory_only,write_candidat
 
 
 @torch.no_grad()
-def gather_joint(root,model,base,comp,split,n,seed,batch=8):
-    corpus=Corpus(root,split);positions=np.sort(pick_positions(corpus,n,seed))
+def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None):
+    corpus=Corpus(root,split,corpus_dir=corpus_dir);positions=np.sort(pick_positions(corpus,n,seed))
     stream=DirectedStreaming(model.core)
     allb=[];nf=[];npb=[];nc=[];ff=[];fp=[];fc=[]
     for offset in range(0,n,batch):
