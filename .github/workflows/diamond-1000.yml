@@ -131,7 +131,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-dev
+  group: diamond-1000-nanrouter-deep
   cancel-in-progress: false
 
 jobs:
@@ -272,12 +272,12 @@ jobs:
           [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" || "$MODEL_SIZE" == "frontier" ]] || MODEL_SIZE=frontier
           VOCAB=2000
           DEPTH=2
-          BYTE_WIN=1024; WORD_WIN=128; SENT_WIN=32; SENT_LEN=1; SENT_WEIGHT=0.3
+          BYTE_WIN=1024; WORD_WIN=128; SENT_WIN=32; SENT_LEN=1; SENT_WEIGHT=0.3; SENT_DEPTH=2
           CHUNK_CONV=0
           if [ "$MODEL_SIZE" = "frontier" ]; then
-            DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=128
+            DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=192
             DEPTH=3
-            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=8; SENT_WEIGHT=0.6
+            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=16; SENT_WEIGHT=0.8; SENT_DEPTH=4
             CHUNK_CONV=1
           elif [ "$MODEL_SIZE" = "wide" ]; then
             DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
@@ -297,7 +297,7 @@ jobs:
           if [ "$QUICK" = "true" ]; then QUICK_ARG="--quick"; fi
 
           echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m lr=$LR warmup=$WARMUP_EPOCHS patience=$PATIENCE"
-          echo "model: preset=$MODEL_SIZE dims=${DIM_B}/${DIM_W}/${DIM_S} ff=${FF_B}/${FF_W}/${FF_S} depth=$DEPTH conv=$CHUNK_CONV ctx=${BYTE_WIN}/${WORD_WIN}/${SENT_WIN}x${SENT_LEN} sent_weight=$SENT_WEIGHT vocab=$VOCAB byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
+          echo "model: preset=$MODEL_SIZE dims=${DIM_B}/${DIM_W}/${DIM_S} ff=${FF_B}/${FF_W}/${FF_S} depth=$DEPTH sent_depth=$SENT_DEPTH conv=$CHUNK_CONV ctx=${BYTE_WIN}/${WORD_WIN}/${SENT_WIN}x${SENT_LEN} sent_weight=$SENT_WEIGHT vocab=$VOCAB byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
           python diamond/diamond_engine.py $QUICK_ARG \
             --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
             --require-real-corpus \
@@ -306,6 +306,7 @@ jobs:
             --batch "$BATCH" \
             --byte-win "$BYTE_WIN" --word-win "$WORD_WIN" --sent-win "$SENT_WIN" \
             --sent-len "$SENT_LEN" --sent-weight "$SENT_WEIGHT" \
+            --sent-depth "$SENT_DEPTH" \
             --dim-b "$DIM_B" --dim-w "$DIM_W" --dim-s "$DIM_S" \
             --ff-b "$FF_B" --ff-w "$FF_W" --ff-s "$FF_S" \
             --depth "$DEPTH" $CHUNK_CONV_ARG \

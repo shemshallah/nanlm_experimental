@@ -88,6 +88,8 @@ def parse_args():
                    help="words of content per sentence in the sentence tower (1 = first word only)")
     p.add_argument("--sent-weight", type=float, default=0.3,
                    help="training loss weight for the sentence head (combined metric stays 0.3)")
+    p.add_argument("--sent-depth", type=int, default=2,
+                   help="number of sentence-tower transformer blocks")
     p.add_argument("--depth", type=int, default=2,
                    help="transformer blocks per tower (1-6)")
     p.add_argument("--chunk-conv", action="store_true",
@@ -212,6 +214,7 @@ if ARGS.self_loop_start_epoch < 0:
 ARGS.depth = max(1, min(6, int(ARGS.depth)))
 SENT_LEN = max(1, min(32, int(ARGS.sent_len)))
 SENT_WEIGHT = max(0.0, min(2.0, float(ARGS.sent_weight)))
+SENT_DEPTH = max(1, min(6, int(ARGS.sent_depth)))
 if ARGS.doc_holdout_frac < 0.01:
     ARGS.doc_holdout_frac = 0.01
 if ARGS.doc_holdout_frac > 0.50:
@@ -994,14 +997,22 @@ class TripleStaged(tf.keras.Model):
 
         self.sent_emb = tf.keras.layers.Embedding(vocab, DIM_S)
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
-        self.sent_chunk_stem = ChunkConv(DIM_S, SENT_LEN)
+        self.sent_word_pos = tf.keras.layers.Embedding(SENT_LEN, DIM_S)
+        self.sent_content_attn = Micro(DIM_S, 4, FF_S, ARGS.dropout)
         self.sent_moe = MoE(256, DIM_S, 2)
-        self.sent_blocks = [Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(DEPTH)]
+        self.sent_blocks = [
+            Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(SENT_DEPTH)
+        ]
         self.sent_word_attn = tf.keras.layers.MultiHeadAttention(
             num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
         )
         self.sent_word_gate = tf.keras.layers.Dense(DIM_S)
         self.sent_word_ln = tf.keras.layers.LayerNormalization()
+        self.sent_byte_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
+        )
+        self.sent_byte_gate = tf.keras.layers.Dense(DIM_S)
+        self.sent_byte_ln = tf.keras.layers.LayerNormalization()
         self.sent_boundary = self.add_weight(
             shape=(DIM_S,), initializer="zeros", name="sent_boundary"
         )
@@ -1047,7 +1058,9 @@ class TripleStaged(tf.keras.Model):
 
         s_tok = self.sent_emb(s_in)
         s_flat = tf.reshape(s_tok, (-1, SENT_LEN, DIM_S))
-        s_emb = self.sent_chunk_stem(s_flat)
+        s_flat = s_flat + self.sent_word_pos(tf.range(SENT_LEN))[None, :, :]
+        s_flat = self.sent_content_attn(s_flat, training=training)
+        s_emb = tf.reduce_mean(s_flat, axis=1)
         s_emb = tf.reshape(s_emb, (-1, WIN_S, DIM_S))
         s_emb = s_emb + self.sent_pos(tf.range(WIN_S))[None, :, :]
         s_h = self.sent_moe(s_emb) + s_emb
@@ -1055,6 +1068,8 @@ class TripleStaged(tf.keras.Model):
             s_h = block(s_h, training=training)
         s_attn = self.sent_word_attn(s_h, w_h, w_h)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
+        s_battn = self.sent_byte_attn(s_h, b_h, b_h)
+        s_h = self.sent_byte_ln(s_h + tf.sigmoid(self.sent_byte_gate(s_h)) * s_battn)
         # The final slot is the current-sentence prefix, not a completed
         # sentence. A learned boundary vector tells the sentence head which
         # representation is being asked to predict the next sentence.
@@ -1085,7 +1100,7 @@ print(
     f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x{BYTE_CHUNK} "
     f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S}x{SENT_LEN} "
     f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S} "
-    f"depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
+    f"depth {DEPTH} sent_depth {SENT_DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
     flush=True,
 )
 opt = tf.keras.optimizers.AdamW(learning_rate=ARGS.lr, weight_decay=ARGS.weight_decay)
@@ -1101,7 +1116,8 @@ SIGNATURE = json.dumps({
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
     "sent_prefix": True,
-    "sent_content": "first_last",
+    "sent_content": "attention_first_last",
+    "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
@@ -1639,7 +1655,7 @@ print(
 )
 print(
     f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S}x{SENT_LEN} "
-    f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} sent_depth {SENT_DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
     f"byte_chunk {BYTE_CHUNK} split {split_name} "
     f"completed {completed_epochs}/{ARGS.epochs} epochs "
     f"CPU time {time.time() - T0:.1f}s",
