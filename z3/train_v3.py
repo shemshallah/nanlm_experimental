@@ -435,6 +435,8 @@ def lm_mtp_loss(
     tokens: torch.Tensor,
     valid_mask: torch.Tensor | None = None,
     mtp_weight: float = 0.3,
+    aux_logits: torch.Tensor | None = None,
+    aux_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Main next-token CE plus masked MTP CEs for t+2 ... t+k.
 
@@ -494,11 +496,26 @@ def lm_mtp_loss(
         mtp_ce = zero
         mtp_weighted = zero
 
-    total = main_ce + mtp_weighted
+    aux_ce = zero
+    if aux_logits is not None and aux_weight > 0.0:
+        target_len = seq_len - 2
+        if target_len > 0:
+            targets = tokens[:, 2:]
+            mask = valid_mask[:, :target_len] & valid_mask[:, 2:]
+            targets = targets.masked_fill(~mask, IGNORE_INDEX)
+            if mask.any():
+                aux_ce = F.cross_entropy(
+                    aux_logits[:, :target_len].reshape(-1, vocab),
+                    targets.reshape(-1),
+                    ignore_index=IGNORE_INDEX,
+                )
+
+    total = main_ce + mtp_weighted + aux_weight * aux_ce
     parts = {
         "ce": main_ce.detach(),
         "mtp": mtp_ce.detach(),
         "mtp_weighted": mtp_weighted.detach(),
+        "mtp_aux": aux_ce.detach(),
     }
     return total, parts
 
@@ -693,6 +710,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--mtp-block-hidden", type=int, default=1024)
     model.add_argument("--mtp-teacher-prob", type=float, default=1.0,
                        help="fraction of MTP training batches using ground-truth t+1")
+    model.add_argument("--mtp-aux-layer", type=int, default=-1,
+                       help="intermediate layer for deep-supervision MTP loss (-1 off)")
+    model.add_argument("--mtp-aux-weight", type=float, default=0.2)
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -919,6 +939,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
     if not 0.0 <= args.mtp_teacher_prob <= 1.0:
         raise SystemExit("--mtp-teacher-prob must be in [0, 1]")
+    if args.mtp_aux_layer >= args.n_layers:
+        raise SystemExit("--mtp-aux-layer must be < --n-layers")
+    if args.mtp_aux_weight < 0:
+        raise SystemExit("--mtp-aux-weight must be non-negative")
     if not 0.0 <= args.mtp_gt_mix_end <= args.mtp_gt_mix_start <= 1.0:
         raise SystemExit("MTP gt-mix must satisfy 0 <= end <= start <= 1")
     if args.mtp_gt_mix_steps < 0:
@@ -979,6 +1003,8 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_block_experts=int(args.mtp_block_experts),
         mtp_block_hidden=int(args.mtp_block_hidden),
         mtp_teacher_prob=float(args.mtp_teacher_prob),
+        mtp_aux_layer=int(args.mtp_aux_layer),
+        mtp_aux_weight=float(args.mtp_aux_weight),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),
         max_ctx=int(args.max_ctx),
@@ -1270,10 +1296,10 @@ def main(argv: list[str] | None = None) -> int:
             keep = (
                 name.startswith("mtp_heads.")
                 or name.startswith("mtp_adapters.")
-                or name.startswith("mtp_block.")
-                or name == "mtp_now"
+                or name.startswith("mtp_blocks.")
+                or name.startswith("mtp_now.")
                 or name == "mtp_next_norm.weight"
-                or name == "mtp_cond_proj.weight"
+                or name.startswith("mtp_cond_proj.")
                 or name.startswith("mtp_gate.")
             )
             if args.unfreeze_last_block and name.startswith(last_prefix):
@@ -1534,6 +1560,8 @@ def main(argv: list[str] | None = None) -> int:
                 mtp_logits,
                 xb,
                 mtp_weight=args.mtp_weight,
+                aux_logits=aux.get("mtp_aux_logits") if aux else None,
+                aux_weight=args.mtp_aux_weight if cfg.mtp_aux_layer >= 0 else 0.0,
             )
             load_balance = _aux_scalar(aux.get("load_balance")) if aux else None
             router_z = _aux_scalar(aux.get("router_z")) if aux else None

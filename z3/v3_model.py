@@ -52,8 +52,8 @@ class V3Config:
     # Optional memory path: learned global slots plus a sparse hashed
     # n-gram logit bias.  Off by default; build the n-gram store with
     # ``V3LM.build_memory(tokens)`` before training/evaluation.
-    use_memory: bool = False
-    use_ngram_memory: bool = True
+    use_memory: bool = True
+    use_ngram_memory: bool = False
     memory_slots: int = 256
     memory_heads: int = 4
     memory_dropout: float = 0.0
@@ -64,7 +64,7 @@ class V3Config:
     d_model: int = 384
     n_layers: int = 12
     n_heads: int = 12
-    n_kv_heads: int = 0  # 0 = full multi-head attention; otherwise GQA
+    n_kv_heads: int = 4  # GQA by default; 0 = full MHA
     swiglu: int = 1536
     window: int = 512
     global_every: int = 4
@@ -77,15 +77,17 @@ class V3Config:
     moe_max_rows: int = 512
     moe_dense_dispatch: bool = False
     force_manual_attention: bool = False
-    attn_gate: bool = False
+    attn_gate: bool = True
     mtp_adapter_rank: int = 0
-    mtp_block: bool = False
+    mtp_block: bool = True
     mtp_block_experts: int = 8
     mtp_block_hidden: int = 1024
     mtp_teacher_prob: float = 1.0
     mtp_gt_mix: float = 0.0
     mtp_gate: bool = True
     mtp_gate_hidden: int = 32
+    mtp_aux_layer: int = -1
+    mtp_aux_weight: float = 0.2
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -266,16 +268,66 @@ class MTPAdapter(nn.Module):
         return x + self.scale * self.up(F.silu(self.down(self.norm(x))))
 
 
+class MTPAttention(nn.Module):
+    """Trunk-grade causal attention for the MTP branch."""
+
+    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1,
+                 max_ctx: int = 8192):
+        super().__init__()
+        if d_model % n_heads:
+            raise ValueError("d_model must be divisible by n_heads")
+        self.h = n_heads
+        self.dh = d_model // n_heads
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model, bias=False)
+        self.q_norm = RMSNorm(self.dh)
+        self.k_norm = RMSNorm(self.dh)
+        self.rope = build_rope(
+            self.dh, max_context=max_ctx, original_context=1024,
+            scaling="none",
+        )
+        self.drop = dropout
+
+    def _manual(self, q, k, v):
+        scores = (q @ k.transpose(-2, -1)) * (self.dh ** -0.5)
+        t = q.shape[-2]
+        mask = torch.ones(t, t, device=q.device, dtype=torch.bool).tril()
+        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+        attn = F.dropout(
+            torch.softmax(scores, dim=-1), p=self.drop, training=self.training
+        )
+        return attn @ v
+
+    def forward(self, x):
+        b, t, d = x.shape
+        q, k, v = self.qkv(x).split(d, dim=2)
+        q = q.view(b, t, self.h, self.dh).transpose(1, 2)
+        k = k.view(b, t, self.h, self.dh).transpose(1, 2)
+        v = v.view(b, t, self.h, self.dh).transpose(1, 2)
+        q = self.rope(self.q_norm(q))
+        k = self.rope(self.k_norm(k))
+        if x.device.type == "xla":
+            y = self._manual(q, k, v)
+        else:
+            y = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p=self.drop if self.training else 0.0,
+                is_causal=True,
+            )
+        y = y.transpose(1, 2).contiguous().view(b, t, d)
+        return self.out(y)
+
+
 class MTPBlock(nn.Module):
-    """One-block future branch with its own attention and expert pool."""
+    """One-block future branch with trunk-grade attention and its own MoE."""
 
     def __init__(self, d_model: int, n_heads: int, hidden: int = 1024,
                  n_experts: int = 8, topk: int = 2, shared: int = 1,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1, max_ctx: int = 8192):
         super().__init__()
         self.norm1 = RMSNorm(d_model)
-        self.attn = nn.MultiheadAttention(
-            d_model, n_heads, dropout=dropout, batch_first=True
+        self.attn = MTPAttention(
+            d_model, n_heads, dropout=dropout, max_ctx=max_ctx
         )
         self.norm2 = RMSNorm(d_model)
         self.moe = VectorizedSparseMoE(
@@ -290,12 +342,9 @@ class MTPBlock(nn.Module):
         )
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, x, attn_mask=None):
-        h = self.norm1(x)
-        a, _ = self.attn(h, h, h, attn_mask=attn_mask, need_weights=False)
-        x = x + self.drop(a)
-        h = self.norm2(x)
-        y, aux = self.moe(h)
+    def forward(self, x):
+        x = x + self.drop(self.attn(self.norm1(x)))
+        y, aux = self.moe(self.norm2(x))
         x = x + self.drop(y)
         return x, aux
 
@@ -317,41 +366,57 @@ class V3LM(nn.Module):
              if cfg.mtp_adapter_rank > 0 else nn.Identity()
              for _ in range(max(0, cfg.mtp - 1))]
         )
-        self.mtp_block = (
-            MTPBlock(
-                cfg.d_model,
-                cfg.n_heads,
-                hidden=cfg.mtp_block_hidden,
-                n_experts=cfg.mtp_block_experts,
-                topk=2,
-                shared=1,
-                dropout=cfg.dropout,
-            )
-            if cfg.mtp_block else None
+        n_mtp = max(0, cfg.mtp - 1)
+        self.mtp_blocks = nn.ModuleList(
+            [
+                MTPBlock(
+                    cfg.d_model,
+                    cfg.n_heads,
+                    hidden=cfg.mtp_block_hidden,
+                    n_experts=cfg.mtp_block_experts,
+                    topk=2,
+                    shared=1,
+                    dropout=cfg.dropout,
+                    max_ctx=max(cfg.max_ctx, cfg.ctx),
+                )
+                for _ in range(n_mtp)
+            ]
+            if cfg.mtp_block else []
         )
-        self.mtp_now = (
-            nn.Parameter(torch.zeros(cfg.d_model)) if cfg.mtp_block else None
+        self.mtp_block = self.mtp_blocks[0] if self.mtp_blocks else None
+        self.mtp_now = nn.ParameterList(
+            [nn.Parameter(torch.zeros(cfg.d_model)) for _ in range(n_mtp)]
         )
         self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
-        self.mtp_cond_proj = (
-            nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
-            if cfg.mtp_block else None
+        self.mtp_cond_proj = nn.ModuleList(
+            [nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
+             for _ in range(n_mtp)]
+            if cfg.mtp_block else []
         )
-        self.mtp_gate = (
-            nn.Sequential(
-                nn.Linear(2, cfg.mtp_gate_hidden),
-                nn.SiLU(),
-                nn.Linear(cfg.mtp_gate_hidden, 1),
-            )
-            if cfg.mtp_block and cfg.mtp_gate else None
+        self.mtp_aux_norm = (
+            RMSNorm(cfg.d_model)
+            if 0 <= cfg.mtp_aux_layer < cfg.n_layers else None
+        )
+        self.mtp_gate = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(2, cfg.mtp_gate_hidden),
+                    nn.SiLU(),
+                    nn.Linear(cfg.mtp_gate_hidden, 1),
+                )
+                for _ in range(n_mtp)
+            ]
+            if cfg.mtp_block and cfg.mtp_gate else []
         )
         self.memory_path = None
         self.memory_cross = None
+        self.memory_scale = None
         if cfg.use_memory:
             mem_heads = cfg.memory_heads or cfg.n_heads
             if cfg.d_model % mem_heads != 0:
                 raise ValueError("d_model must be divisible by memory_heads")
             if cfg.use_ngram_memory:
+                self.memory_scale = nn.Parameter(torch.ones(1))
                 self.memory_path = V3MemoryPath(
                     cfg.d_model,
                     mem_heads,
@@ -372,25 +437,16 @@ class V3LM(nn.Module):
                 )
         self.apply(self._init)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
-        if self.mtp_block is not None:
-            # Preserve the trunk hidden on the x half of the conditioning
-            # projection, with a small nonzero t+1 half so conditioning is
-            # live and testable from step zero.
+        for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
-                self.mtp_cond_proj.weight.zero_()
-                self.mtp_cond_proj.weight[:, : self.cfg.d_model].copy_(
-                    torch.eye(self.cfg.d_model)
-                )
-                # Keep the t+1 columns at zero so step 0 equals the old MTP
-                # head; their gradient is nonzero, so they learn immediately.
-                self.mtp_cond_proj.weight[:, self.cfg.d_model:].zero_()
-            # Identity branch at step zero: the t+1-conditioned input reaches
-            # the old MTP head unchanged, so any later gain is real.
-            nn.init.zeros_(self.mtp_block.attn.out_proj.weight)
-            nn.init.zeros_(self.mtp_block.attn.out_proj.bias)
-            self.mtp_block.moe.down_w.data.zero_()
-            if self.mtp_block.moe.shared_down_w is not None:
-                self.mtp_block.moe.shared_down_w.data.zero_()
+                proj.weight.zero_()
+                proj.weight[:, : self.cfg.d_model].copy_(torch.eye(self.cfg.d_model))
+                proj.weight[:, self.cfg.d_model:].zero_()
+            # Identity branch at step zero.
+            nn.init.zeros_(block.attn.out.weight)
+            block.moe.down_w.data.zero_()
+            if block.moe.shared_down_w is not None:
+                block.moe.shared_down_w.data.zero_()
 
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
         """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
@@ -411,8 +467,11 @@ class V3LM(nn.Module):
                 mtp_gt_mix: float | None = None):
         x = self.tok(tokens)
         lbs, zs = [], []
-        for block in self.blocks:
+        aux_hidden = None
+        for layer_index, block in enumerate(self.blocks):
             x, lb, z = block(x)
+            if layer_index == self.cfg.mtp_aux_layer:
+                aux_hidden = x
             if lb is not None:
                 lbs.append(lb)
                 zs.append(z)
@@ -424,12 +483,16 @@ class V3LM(nn.Module):
         x = self.norm(x)
         main = x @ self.tok.weight.T
         if self.memory_path is not None:
-            # Sparse n-gram bias; empty until build_memory() is called.
-            self.memory_path.logit_bias(tokens).add_(main)
-        if self.mtp_block is not None:
-            # Predicted t+1 distribution, mixed with the ground-truth one-hot
-            # during training.  A distribution in both train and eval removes
-            # the hard-token exposure bias.
+            # Sparse n-gram bias with a learned global scale.
+            bias = self.memory_path.logit_bias(tokens)
+            bias.value = bias.value * self.memory_scale
+            bias.add_(main)
+        mtp_aux_logits = None
+        if self.mtp_aux_norm is not None and aux_hidden is not None and self.mtp_heads:
+            mtp_aux_logits = self.mtp_heads[0](self.mtp_aux_norm(aux_hidden))
+        if self.mtp_blocks:
+            # Predicted t+1 distribution, mixed with ground truth during
+            # training.  The same distribution is used at inference.
             pred_probs = F.softmax(main.detach(), dim=-1)
             gt_mix = self.cfg.mtp_gt_mix if mtp_gt_mix is None else mtp_gt_mix
             if mtp_next_tokens is not None:
@@ -445,45 +508,51 @@ class V3LM(nn.Module):
             else:
                 next_soft = pred_probs
             next_emb = self.mtp_next_norm(next_soft @ self.tok.weight)
-            t = x.shape[1]
-            causal = torch.triu(
-                torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1
+            ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
+                dim=-1, keepdim=True
             )
-            cond = self.mtp_cond_proj(torch.cat([x, next_emb], dim=-1)) + self.mtp_now
-            branch, _ = self.mtp_block(cond, attn_mask=causal)
-            gate_loss = None
-            if self.mtp_gate is not None:
-                ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
-                    dim=-1, keepdim=True
-                )
-                maxp = pred_probs.max(dim=-1, keepdim=True).values
-                gate_logits = self.mtp_gate(
-                    torch.cat([ent, maxp], dim=-1)
-                )
-                gate = torch.sigmoid(gate_logits)
-                t1_ok = (
-                    main.argmax(dim=-1)[:, :-1] == tokens[:, 1:]
-                ).to(dtype=pred_probs.dtype)
-                gate_loss = F.binary_cross_entropy_with_logits(
-                    gate_logits[:, :-1].squeeze(-1), t1_ok
-                )
-            else:
-                gate = 1.0
+            maxp = pred_probs.max(dim=-1, keepdim=True).values
+            gate_features = torch.cat([ent, maxp], dim=-1)
+            t1_ok = (
+                main.argmax(dim=-1)[:, :-1] == tokens[:, 1:]
+            ).to(dtype=pred_probs.dtype)
             mtp = []
-            for head in self.mtp_heads:
+            gate_losses = []
+            for idx, head in enumerate(self.mtp_heads):
+                cond = (
+                    self.mtp_cond_proj[idx](
+                        torch.cat([x, next_emb], dim=-1)
+                    )
+                    + self.mtp_now[idx]
+                )
+                branch, _ = self.mtp_blocks[idx](cond)
                 branch_logits = head(branch)
                 base_logits = head(x)
-                if self.mtp_gate is not None:
-                    mtp.append(gate * branch_logits + (1.0 - gate) * base_logits)
+                if self.mtp_gate:
+                    gate_logits = self.mtp_gate[idx](gate_features)
+                    gate = torch.sigmoid(gate_logits)
+                    mtp.append(
+                        gate * branch_logits + (1.0 - gate) * base_logits
+                    )
+                    gate_losses.append(
+                        F.binary_cross_entropy_with_logits(
+                            gate_logits[:, :-1].squeeze(-1), t1_ok
+                        )
+                    )
                 else:
                     mtp.append(branch_logits)
+            gate_loss = (
+                torch.stack(gate_losses).mean() if gate_losses else None
+            )
         else:
             mtp = [
                 head(adapter(x))
                 for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
             ]
         aux = dict(mem_aux)
-        if self.mtp_block is not None and gate_loss is not None:
+        if mtp_aux_logits is not None:
+            aux["mtp_aux_logits"] = mtp_aux_logits
+        if self.mtp_blocks and gate_loss is not None:
             aux["mtp_gate_loss"] = gate_loss
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()
