@@ -114,7 +114,7 @@ class V3IntegrationTest(unittest.TestCase):
             global_every=1, moe_layers=0, n_experts=4, topk=2,
             shared_experts=0, expert_hidden=128, mtp=1, dropout=0.0,
         )
-        plain = V3LM(V3Config(**base))
+        plain = V3LM(V3Config(**base, attn_gate=False))
         gated = V3LM(V3Config(**base, attn_gate=True))
         self.assertGreater(gated.parameter_count(), plain.parameter_count())
         x = torch.randint(0, 64, (2, 32))
