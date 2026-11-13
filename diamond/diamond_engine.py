@@ -726,10 +726,18 @@ def make_example(pos):
 
     s_lo = int(doc_sent_start[d])
     s_hi = int(doc_sent_end[d])
+    cache = np.zeros(VOCAB, dtype=np.float32)
     swin = np.zeros((WIN_S, SENT_LEN), dtype=np.int32)
     if s_hi > s_lo:
         si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
         si = min(max(si, s_lo), s_hi - 1)
+        # Full-document causal cache of sentence-first words. Unlike the
+        # 128-row transformer window, this retains names from the beginning
+        # of the document.
+        for j in range(s_lo, si + 1):
+            fw = int(sent_first[j])
+            if fw > 0:
+                cache[fw] += 1.0
         # The sentence head is a next-sentence task: it may read the whole
         # current sentence, because every word in it precedes the target. The
         # word/byte heads use the preceding sentence slot instead, so this
@@ -748,21 +756,23 @@ def make_example(pos):
 
     yb = int(byte_arr[min(char_start, len(byte_arr) - 1)])
     yw = int(word_stream[pos])
-    return bwin, wwin, swin, yb, yw, ys
+    return bwin, wwin, swin, cache, yb, yw, ys
 
 
 def build(pos_list):
-    B, W, S, yb, yw, ys = [], [], [], [], [], []
+    B, W, S, C, yb, yw, ys = [], [], [], [], [], [], []
     for pos in pos_list:
-        bwin, wwin, swin, target_b, target_w, target_s = make_example(pos)
+        bwin, wwin, swin, cache, target_b, target_w, target_s = make_example(pos)
         B.append(bwin)
         W.append(wwin)
         S.append(swin)
+        C.append(cache)
         yb.append(target_b)
         yw.append(target_w)
         ys.append(target_s)
     return (
         np.array(B, dtype=np.int32), np.array(W, dtype=np.int32), np.array(S, dtype=np.int32),
+        np.array(C, dtype=np.float32),
         np.array(yb, dtype=np.int32), np.array(yw, dtype=np.int32), np.array(ys, dtype=np.int32),
     )
 
@@ -856,12 +866,13 @@ def sample_train_positions(epoch_no):
     return train_pool[:n]
 
 
-test_B, test_W, test_S, test_yb, test_yw, test_ys = build(test_pos)
+test_B, test_W, test_S, test_C, test_yb, test_yw, test_ys = build(test_pos)
 # Training arrays are built lazily at the start of every epoch. This keeps
 # memory flat and lets each epoch see different positions from the corpus.
 train_B = np.empty((0, WIN_B), dtype=np.int32)
 train_W = np.empty((0, WIN_W), dtype=np.int32)
 train_S = np.empty((0, WIN_S, SENT_LEN), dtype=np.int32)
+train_C = np.empty((0, VOCAB), dtype=np.float32)
 train_yb = np.empty((0,), dtype=np.int32)
 train_yw = np.empty((0,), dtype=np.int32)
 train_ys = np.empty((0,), dtype=np.int32)
@@ -1025,7 +1036,7 @@ class TripleStaged(tf.keras.Model):
         self.intro = tf.keras.layers.Dense(1)
 
     def call(self, inputs, training=False, two_way=True):
-        b_in, w_in, s_in = inputs
+        b_in, w_in, s_in, c_in = inputs
 
         b_flat = tf.reshape(b_in, (-1, WIN_B))
         b_emb = self.byte_emb(b_flat)
@@ -1094,24 +1105,11 @@ class TripleStaged(tf.keras.Model):
             b_cond = b_last
 
         sent_logits = self.sent_head(s_up)
-        # First-word cache: count the first token of every visible sentence
-        # (previous rows plus the current sentence). This is the causal
-        # document-level prior that the per-document entropy analysis showed
-        # is highly informative for the next sentence's first word.
-        first = tf.cast(s_in[:, :, 0], tf.int32)
-        visible = tf.cast(first > 0, tf.float32)
-        B = tf.shape(first)[0]
-        flat = tf.reshape(first, (-1,))
-        batch_idx = tf.repeat(tf.range(B), tf.shape(first)[1])
-        valid = tf.reshape(visible, (-1,)) > 0.0
-        cache_idx = tf.boolean_mask(tf.stack([batch_idx, flat], axis=1), valid)
-        ones = tf.ones((tf.shape(cache_idx)[0],), dtype=tf.float32)
-        counts = tf.math.unsorted_segment_sum(
-            ones, cache_idx[:, 0] * VOCAB + cache_idx[:, 1], B * VOCAB
-        )
-        counts = tf.reshape(counts, (B, VOCAB))
-        total = tf.reduce_sum(counts, axis=-1, keepdims=True)
-        cache_prob = counts / tf.maximum(total, 1.0)
+        # Full-document causal first-word cache, supplied by make_example.
+        # This is the document-level prior that the per-document entropy
+        # analysis showed is highly informative for the next sentence.
+        total = tf.reduce_sum(c_in, axis=-1, keepdims=True)
+        cache_prob = c_in / tf.maximum(total, 1.0)
         has_cache = tf.cast(total > 0.0, tf.float32)
         cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
         sent_prob = tf.nn.softmax(sent_logits, axis=-1)
@@ -1127,6 +1125,7 @@ _ = model(
         tf.zeros((2, WIN_B), dtype=tf.int32),
         tf.zeros((2, WIN_W), dtype=tf.int32),
         tf.zeros((2, WIN_S, SENT_LEN), dtype=tf.int32),
+        tf.zeros((2, VOCAB), dtype=tf.float32),
     ),
     training=False,
     two_way=True,
@@ -1155,7 +1154,7 @@ SIGNATURE = json.dumps({
     "sent_full_current": True,
     "sent_causal": True,
     "sent_isolated": True,
-    "sent_cache": "first_word_document_cache",
+    "sent_cache": "full_document_first_word_cache",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
@@ -1311,9 +1310,9 @@ def cross_entropy_per_example(y, logits):
 
 
 @tf.function
-def train_step(b, w, s, yb, yw, ys, two_way):
+def train_step(b, w, s, c, yb, yw, ys, two_way):
     with tf.GradientTape() as tape:
-        bl, wl, sl, intro = model((b, w, s), training=True, two_way=two_way)
+        bl, wl, sl, intro = model((b, w, s, c), training=True, two_way=two_way)
         per_b = cross_entropy_per_example(yb, bl)
         per_w = cross_entropy_per_example(yw, wl)
         per_s = cross_entropy_per_example(ys, sl)
@@ -1335,7 +1334,7 @@ def train_step(b, w, s, yb, yw, ys, two_way):
     return total
 
 
-def evaluate(B, W, S, yb, yw, ys, two_way=True):
+def evaluate(B, W, S, C, yb, yw, ys, two_way=True):
     n = len(B)
     if n == 0:
         return {k: 0.0 for k in (
@@ -1347,7 +1346,7 @@ def evaluate(B, W, S, yb, yw, ys, two_way=True):
     t1b = t5b = t1w = t5w = t1s = t5s = 0
     for i in range(0, n, ARGS.eval_batch):
         j = min(i + ARGS.eval_batch, n)
-        bl, wl, sl, _ = model((B[i:j], W[i:j], S[i:j]), training=False, two_way=two_way)
+        bl, wl, sl, _ = model((B[i:j], W[i:j], S[i:j], C[i:j]), training=False, two_way=two_way)
         pb = tf.nn.softmax(bl, axis=-1).numpy()
         pw = tf.nn.softmax(wl, axis=-1).numpy()
         ps = tf.nn.softmax(sl, axis=-1).numpy()
@@ -1392,11 +1391,12 @@ def self_loop(epoch_no):
     cur_w = test_W[:NS].copy()
     cur_b = test_B[:NS].copy()
     cur_s = test_S[:NS].copy()
+    cur_c = test_C[:NS].copy()
     gen_words = []
     gen_intro = []
     gen_ent = []
     for _ in range(ARGS.self_steps):
-        _, wl, _, intro = model((cur_b, cur_w, cur_s), training=False, two_way=True)
+        _, wl, _, intro = model((cur_b, cur_w, cur_s, cur_c), training=False, two_way=True)
         p = tf.nn.softmax(wl / 0.9, axis=-1).numpy()
         ent = -np.sum(p * np.log(np.maximum(p, 1e-12)), axis=-1)
         pred = tf.squeeze(intro, -1).numpy()
@@ -1473,7 +1473,7 @@ budget_s = ARGS.time_budget_minutes * 60.0 if ARGS.time_budget_minutes and ARGS.
 
 if start_epoch == 0:
     print("[eval] init...", flush=True)
-    res = evaluate(test_B, test_W, test_S, test_yb, test_yw, test_ys, two_way=True)
+    res = evaluate(test_B, test_W, test_S, test_C, test_yb, test_yw, test_ys, two_way=True)
     init_rec = {"stage": "init", "epoch": 0, "ts": datetime.now(timezone.utc).isoformat(), **res}
     append_history(init_rec)
     history.append(init_rec)
@@ -1522,7 +1522,7 @@ if start_epoch < ARGS.epochs:
         if len(train_B) == 0 or ARGS.resample_train:
             t_sample = time.time()
             pos = sample_train_positions(epoch_no)
-            train_B, train_W, train_S, train_yb, train_yw, train_ys = build(pos)
+            train_B, train_W, train_S, train_C, train_yb, train_yw, train_ys = build(pos)
             print(
                 f"  data {len(pos)} positions sampled from {len(train_pool)} "
                 f"in {time.time() - t_sample:.1f}s",
@@ -1533,12 +1533,14 @@ if start_epoch < ARGS.epochs:
         rng = np.random.default_rng(ARGS.seed * 1000003 + 7 + epoch_no)
         perm = rng.permutation(len(train_B))
         Bs, Ws, Ss = train_B[perm], train_W[perm], train_S[perm]
+        Cs = train_C[perm]
         ybs, yws, yss = train_yb[perm], train_yw[perm], train_ys[perm]
         tot = 0.0
         steps = 0
         for i in range(0, len(Bs), ARGS.batch):
             loss = train_step(
                 Bs[i:i + ARGS.batch], Ws[i:i + ARGS.batch], Ss[i:i + ARGS.batch],
+                Cs[i:i + ARGS.batch],
                 ybs[i:i + ARGS.batch], yws[i:i + ARGS.batch], yss[i:i + ARGS.batch],
                 two_way,
             )
@@ -1560,7 +1562,7 @@ if start_epoch < ARGS.epochs:
             or (ARGS.eval_every > 0 and epoch_no % ARGS.eval_every == 0)
         )
         if do_eval:
-            res = evaluate(test_B, test_W, test_S, test_yb, test_yw, test_ys, two_way=True)
+            res = evaluate(test_B, test_W, test_S, test_C, test_yb, test_yw, test_ys, two_way=True)
             eval_loss = res["byte_loss"] + 0.5 * res["word_loss"] + 0.3 * res["sent_loss"]
             res["eval_loss"] = eval_loss
             if eval_loss < best_eval_loss - 1e-9:
@@ -1664,7 +1666,7 @@ if completed_epochs < ARGS.epochs:
     )
 
 print("FINAL full eval (latest weights)", flush=True)
-res = evaluate(test_B, test_W, test_S, test_yb, test_yw, test_ys, two_way=True)
+res = evaluate(test_B, test_W, test_S, test_C, test_yb, test_yw, test_ys, two_way=True)
 res["eval_loss"] = res["byte_loss"] + 0.5 * res["word_loss"] + 0.3 * res["sent_loss"]
 final_rec = {
     "stage": "final",
