@@ -1,0 +1,17 @@
+{
+  "format": "FA1_R7_29_FULL_CHECKPOINT_INTEGRITY_V1",
+  "parent_sha256": "91e3220f9167984bf6d529b348bea610fadc05c5d4950ccdf8fe63911e2aae5b",
+  "candidate_sha256": "25b97bfb482211affd2a04306d8893b381ed7b263316c983caa7365995c2fbcd",
+  "non_diamond_weight_tensors_verified": 105,
+  "pre_diamond_adam_state_entries_verified": 95,
+  "legacy_accumulator_bitwise_preserved": true,
+  "old_optimizer_group_membership_preserved": true,
+  "new_contextual_gate_optimizer_state_saved": true,
+  "new_registered_parameters": [
+    "diamond.geometry.context_read_gain"
+  ],
+  "single_optimizer_groups": 14,
+  "full_checkpoint_reload": true,
+  "accepted_parent_untouched": true,
+  "candidate_promoted": false
+}

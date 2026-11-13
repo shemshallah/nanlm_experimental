@@ -1,6 +1,6 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.28 (one unified optimizer plus causal geometric-storage training and fixed book benchmarks).**
+**Current source architecture: R7.29 (context-addressed signed geometric read; one unified optimizer).**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
@@ -44,6 +44,17 @@ research candidate has passed the independent-book promotion gates.
   NLL regressed 5.440382 -> 5.444346, first-byte top-5 improved 37.70% ->
   42.77%, first-byte top-1 fell 13.09% -> 11.33%. Geometry alone failed its
   DEV gate. **R7.28 rejected; accepted parent unchanged.**
+- R7.29 extends the SAME Diamond with top-8 sparse context-addressed reads
+  over the 56 active triangles. It adds only one zero-initialized trainable
+  scalar as optimizer group 14; actual-weight migration preserved all 231
+  existing parameter identities/tensors and exact word predictions. The
+  corrected operator repaired a self-cancelling message and gave the gate
+  ~24.6x stronger next-word gradient. Training used 300 previously unused
+  NaNROUTER books, SHA-disjoint from the 240 used for R7.28. In fixed 512 DEV
+  positions, total word NLL improved 5.151152 -> 5.150056, but the isolated
+  new context readout harmed word NLL by 0.00002942 nats/word with a strictly
+  negative four-book interval. First-byte top-5 fell 43.55% -> 42.58%.
+  **R7.29 rejected and fresh TEST left sealed.**
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -59,6 +70,9 @@ the unified suite and the honest byte/word measurement protocol.
 Read `FA1_R7p28_GEOMETRIC_MEMORY.md` for the new causal training objective,
 the saved rejected candidate, matched independent-book results, and the
 next required context-dependent geometry readout.
+Read `FA1_R7p29_CONTEXTUAL_GEOMETRY.md` for context-addressed read equations,
+zero-gain and optimizer restoration checks, book-hash reservation protocol,
+and the failed new-memory causal ablation.
 Read `FA1_R7p25_CAUSAL_GEOMETRY_CONTINUATION.md` for checkpoint lineage and
 `FA1_R7p26_FACTOR_ABLATION_PROTOCOL.md` for the new diagnostics. The implementation
 is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,

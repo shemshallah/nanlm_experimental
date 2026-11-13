@@ -1,0 +1,181 @@
+{
+  "format": "FA1_R7_28_FIXED_BOOK_COMPARISON_V1",
+  "split": "dev",
+  "checkpoint_promoted": false,
+  "training_or_calibration_on_this_split": false,
+  "model_weights_identical_outside_diamond": true,
+  "parent_sha256": "91e3220f9167984bf6d529b348bea610fadc05c5d4950ccdf8fe63911e2aae5b",
+  "candidate_sha256": "25b97bfb482211affd2a04306d8893b381ed7b263316c983caa7365995c2fbcd",
+  "candidate_training_step": 80,
+  "single_optimizer_restored": true,
+  "corpus_inventory": {
+    "train": {
+      "books": 270,
+      "word_targets": 10256390
+    },
+    "dev": {
+      "books": 15,
+      "word_targets": 423249
+    },
+    "test": {
+      "books": 15,
+      "word_targets": 1003048
+    }
+  },
+  "n_positions": 512,
+  "baseline": {
+    "vocabulary_word_loss_nats_per_word": 5.151151657104492,
+    "first_byte_nll_nats_per_next_word": 3.4228439331054688,
+    "first_byte_cross_entropy_bits_per_next_word": 4.938119888305664,
+    "first_byte_top1": 0.1171875,
+    "first_byte_top5": 0.435546875,
+    "first_byte_softmax_normalization_verified": true,
+    "raw_byte_bits_per_byte": null,
+    "raw_byte_top1": null,
+    "raw_byte_top5": null,
+    "raw_byte_metric_reason": "auxiliary head predicts only first byte of each next vocabulary word",
+    "n_word_targets": 512,
+    "trunk_vocabulary_size": 32000,
+    "trunk_word_loss_nats_per_word": 5.296059608459473,
+    "trunk_next_word_top1": 0.173828125,
+    "trunk_next_word_top5": 0.37109375,
+    "trunk_normalization_verified": true,
+    "full_model_word_top1": null,
+    "full_model_word_top5": null,
+    "full_model_word_accuracy_reason": "full near/far/Diamond mixture exposes target-conditioned NLL, not all-word normalized ranking",
+    "diamond_correct_history_advantage_nats_per_word": -0.000735147506929934,
+    "different_book_donors": 512,
+    "sampled_books": 4
+  },
+  "baseline_geometry": {
+    "full_word_nll": 5.151151657104492,
+    "inherited_word_nll": 5.1521501541137695,
+    "geometry_off_word_nll": 5.152230262756348,
+    "geometry_word_gain": 0.0010783106554299593,
+    "diamond_word_gain": 0.0009978192392736673,
+    "correct_book_advantage_nats_per_word": -0.0006411804351955652,
+    "apex_word_gain": -0.00039522419683635235,
+    "pair_word_gain": 0.00022392231039702892,
+    "branch_word_nll": 5.401894569396973,
+    "branch_geometry_gain": 0.049425169825553894,
+    "branch_correct_book_advantage": 0.02480308711528778,
+    "branch_apex_gain": -0.10881287604570389,
+    "branch_pair_gain": -0.10583506524562836,
+    "geometry_gate_values": {
+      "edge_gain": 0.09173384308815002,
+      "face_gain": 0.07737314701080322,
+      "tetra_gain": 0.07821213454008102,
+      "meta_gate": 0.15219548344612122
+    },
+    "diamond_bridge_gate": 0.3672628402709961,
+    "mean_bridge_weight": 0.06055019795894623,
+    "unique_triangle_addresses": 24390,
+    "unique_routed_apex_specialists": 148,
+    "foreign_book_donors": 512,
+    "book_geometry_gain": {
+      "books": 4,
+      "book_average": 0.0010783106554299593,
+      "book_bootstrap_ci95": [
+        0.0006919077131897211,
+        0.0015356275835074484
+      ]
+    },
+    "book_correct_history": {
+      "books": 4,
+      "book_average": -0.0006411804351955652,
+      "book_bootstrap_ci95": [
+        -0.0038422541692852974,
+        0.002559893298894167
+      ]
+    }
+  },
+  "candidate": {
+    "vocabulary_word_loss_nats_per_word": 5.1500563621521,
+    "first_byte_nll_nats_per_next_word": 3.3115017414093018,
+    "first_byte_cross_entropy_bits_per_next_word": 4.777487277984619,
+    "first_byte_top1": 0.10546875,
+    "first_byte_top5": 0.42578125,
+    "first_byte_softmax_normalization_verified": true,
+    "raw_byte_bits_per_byte": null,
+    "raw_byte_top1": null,
+    "raw_byte_top5": null,
+    "raw_byte_metric_reason": "auxiliary head predicts only first byte of each next vocabulary word",
+    "n_word_targets": 512,
+    "trunk_vocabulary_size": 32000,
+    "trunk_word_loss_nats_per_word": 5.296059608459473,
+    "trunk_next_word_top1": 0.173828125,
+    "trunk_next_word_top5": 0.37109375,
+    "trunk_normalization_verified": true,
+    "full_model_word_top1": null,
+    "full_model_word_top5": null,
+    "full_model_word_accuracy_reason": "full near/far/Diamond mixture exposes target-conditioned NLL, not all-word normalized ranking",
+    "diamond_correct_history_advantage_nats_per_word": -0.0011179354041814804,
+    "different_book_donors": 512,
+    "sampled_books": 4
+  },
+  "candidate_geometry": {
+    "full_word_nll": 5.1500563621521,
+    "inherited_word_nll": 5.1521501541137695,
+    "geometry_off_word_nll": 5.15054178237915,
+    "geometry_word_gain": 0.0004850610566791147,
+    "diamond_word_gain": 0.002093552378937602,
+    "correct_book_advantage_nats_per_word": -0.0008248548256233335,
+    "apex_word_gain": 0.0007654596120119095,
+    "pair_word_gain": 0.001320724142715335,
+    "branch_word_nll": 5.321569919586182,
+    "branch_geometry_gain": 0.01129801943898201,
+    "branch_correct_book_advantage": 0.0035237239208072424,
+    "branch_apex_gain": -0.02939678356051445,
+    "branch_pair_gain": -0.025510180741548538,
+    "geometry_gate_values": {
+      "edge_gain": 0.09145240485668182,
+      "face_gain": 0.07693905383348465,
+      "tetra_gain": 0.07854577153921127,
+      "meta_gate": 0.1554298847913742
+    },
+    "diamond_bridge_gate": 0.3662118911743164,
+    "mean_bridge_weight": 0.061705686151981354,
+    "unique_triangle_addresses": 24390,
+    "unique_routed_apex_specialists": 160,
+    "foreign_book_donors": 512,
+    "contextual_read_gate": 0.14685969054698944,
+    "contextual_read_word_gain": -2.941669663414359e-05,
+    "contextual_read_branch_gain": -0.00042558793211355805,
+    "contextual_read_book_gain": {
+      "books": 4,
+      "book_average": -2.941669663414359e-05,
+      "book_bootstrap_ci95": [
+        -3.8655532989650965e-05,
+        -2.0567909814417362e-05
+      ]
+    },
+    "book_geometry_gain": {
+      "books": 4,
+      "book_average": 0.0004850610566791147,
+      "book_bootstrap_ci95": [
+        3.895480767823756e-05,
+        0.0009285792475566268
+      ]
+    },
+    "book_correct_history": {
+      "books": 4,
+      "book_average": -0.0008248548256233335,
+      "book_bootstrap_ci95": [
+        -0.0026275464333593845,
+        0.0006841516587883234
+      ]
+    }
+  },
+  "paired_full_nll_gain_nats_per_word": 0.0010957327904179692,
+  "paired_book_gain": {
+    "books": 4,
+    "book_average": 0.0010957327904179692,
+    "book_bootstrap_ci95": [
+      -0.0010344883194193244,
+      0.0034009668161161244
+    ]
+  },
+  "complete_raw_byte_bpb_measured": false,
+  "full_mixture_top5_available": false,
+  "historical_ancestor_book_overlap": "not independently established"
+}

@@ -1,0 +1,15 @@
+{
+  "round": "FA1 R7.29 function-preserving geometric read migration",
+  "checkpoint_sha256": "91e3220f9167984bf6d529b348bea610fadc05c5d4950ccdf8fe63911e2aae5b",
+  "parity_exact": true,
+  "inherited_parameter_ids_preserved": 231,
+  "inherited_tensor_values_preserved": true,
+  "optimizer_groups_before": 13,
+  "optimizer_groups_after": 14,
+  "single_optimizer": true,
+  "context_read_gain_initial": 0.0,
+  "new_gate_parameter": "diamond.geometry.context_read_gain",
+  "new_gate_branch_gradient": -0.0183746125549078,
+  "n_dev_samples": 16,
+  "checkpoint_promoted": false
+}

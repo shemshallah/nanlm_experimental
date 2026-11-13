@@ -26,7 +26,7 @@ def run(args):
     torch.set_num_threads(args.threads)
     inventory=validate_book_corpus(args.corpus_dir,args.split)
     parent,_,base,comp,parent_meta=load_unified(args.parent,args.root,args.threads)
-    if parent_meta.get('candidate_trained'):
+    if parent_meta.get('candidate_trained') and not args.allow_trained_parent:
         raise ValueError('reference checkpoint must be the untrained R7.27 conversion')
     inputs=prepare(args,parent,base,comp,args.split,args.targets,args.seed)
     parent.eval()
@@ -85,4 +85,6 @@ if __name__=='__main__':
     p.add_argument('--batch',type=int,default=8)
     p.add_argument('--seed',type=int,default=7288)
     p.add_argument('--threads',type=int,default=2)
+    p.add_argument('--allow-trained-parent',action='store_true',
+                   help='compare a later architectural extension with its trained predecessor')
     run(p.parse_args())

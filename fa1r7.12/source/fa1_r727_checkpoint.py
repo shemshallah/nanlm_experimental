@@ -38,7 +38,7 @@ def corpus_digests(root):
 
 def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=None,
                     candidate_trained=False, training_round='', training_updates=0,
-                    development_gate_passed=False):
+                    development_gate_passed=False, architecture_round=''):
     path = Path(path).resolve()
     if path == Path(source_path).resolve() or path == (Path(root) / 'checkpoint/pal_active.pt').resolve():
         raise ValueError('cannot overwrite protected accepted/candidate checkpoint')
@@ -59,6 +59,7 @@ def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=N
         'training_round':str(training_round),
         'candidate_training_updates':int(training_updates),
         'development_gate_passed':bool(development_gate_passed),
+        'architecture_round':str(architecture_round),
         'source_checkpoint_sha256': digest(source_path),
         'corpus_metadata_sha256': corpus_digests(root),
         'parent_candidate_format': (source_metadata or {}).get('format'),
@@ -102,7 +103,17 @@ def load_unified(path, root, threads=2):
                                old.semantic, old.long_semantic, GeometricDiamond())
     old_optimizers[4].add_param_group({
         'params': list(model.diamond.parameters()), 'lr': 1e-3, 'weight_decay': 0.})
+    if obj.get('architecture_round') == 'FA1_R7_29_CONTEXTUAL_GEOMETRY_V1':
+        # The only new trainable state is an R7-attached scalar read gate.
+        # Build the 13-group inherited optimizer first, then append one group
+        # without recreating any learned historical Parameter or Adam moment.
+        from fa1_r729_contextual_geometry import attach_contextual
+        unified = UnifiedR7Optimizer(model, old_optimizers, allow_empty_inherited=True)
+        attach_contextual(model, unified)
+    else:
+        unified = None
     model.load_state_dict(obj['model'], strict=True)
-    unified = UnifiedR7Optimizer(model, old_optimizers, allow_empty_inherited=True)
+    if unified is None:
+        unified = UnifiedR7Optimizer(model, old_optimizers, allow_empty_inherited=True)
     unified.load_state_dict(obj['optimizer'])
     return model, unified, base, compositor, obj
