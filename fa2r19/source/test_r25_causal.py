@@ -1,42 +1,51 @@
-"""Deterministic adversarial checks for the R25 causal episodic cache."""
-import numpy as np
-import torch
-from r25_episodic_cache import AdaptiveNGramMixer, CausalNGramIndex
+"""Deterministic adversarial invariants for FA2 R25's causal cache."""
+import numpy as np,torch
+from r25_episodic_cache import AdaptiveNGramMixer,CausalNGramIndex
 
-def main():
-    torch.manual_seed(25)
+def test():
+    torch.manual_seed(25);np.random.seed(25)
     source=np.asarray([1,3,5,7,1,3,5,8,1,3,5,4,2,4,2,4,2,3,5,6,2,4,2,4,2,4,2,4],dtype=np.int64)
-    ix=CausalNGramIndex(source, memory=8192)
-    c,feat=ix.distributions(source,11,6,16)
+    original=CausalNGramIndex(source,memory=8192)
+    a,fa=original.distributions(source,11,6,16)
+    # Two arbitrary mutations in the future must have zero influence on earlier queries.
     changed=source.copy();changed[18:]=0
-    alt,a_feat=CausalNGramIndex(changed,memory=8192).distributions(changed,11,6,16)
-    assert np.array_equal(c,alt) and np.array_equal(feat,a_feat), "future leakage"
-    assert c[0,3,7]>0 and c[0,3,8]>0 and c[0,3,4]==0, "target admitted"
+    modified=CausalNGramIndex(changed,memory=8192)
+    b,fb=modified.distributions(changed,11,6,16)
+    assert np.array_equal(a,b) and np.array_equal(fa,fb),'future-token leakage'
+    # Correct next-token retrieval from identical 3-token past [1,3,5].
+    assert a[0,3,7]>0 and a[0,3,8]>0
+    assert a[0,3,4]==0,'admitted current target'
+    # Correct ngram inclusion across positions must only use previous completed tokens.
     for t in range(3,len(source)):
-        probs,_=ix.distributions(source,t,1,16)
+        p,_=original.distributions(source,t,1,16)
         for n in (1,2,3):
-            key=tuple(source[t-n:t])
+            key=tuple(source[t-n:t]);old=[int(source[j]) for j in range(n,max(n,t-8192),1) if tuple(source[j-n:j])==key]
+            # Recheck using the full valid range.
             old=[int(source[j]) for j in range(n,t) if tuple(source[j-n:j])==key]
-            if not old:assert probs[0,n].sum()==0
+            if not old:assert p[0,n].sum()==0
             else:
-                assert probs[0,n].sum()>0
-                assert all(probs[0,n,k]==0 for k in range(16) if k not in old)
-    donor=CausalNGramIndex(np.asarray([5,4,3,2,1]*7,dtype=np.int64),memory=8192)
-    d,df=donor.distributions(source,11,6,16,source_cutoff=11)
-    suffix=source.copy();suffix[11:]=12
-    e,ef=donor.distributions(suffix,11,6,16,source_cutoff=11)
-    assert np.array_equal(d[0],e[0]) and np.array_equal(df[0],ef[0])
-    # Prefix-only construction: no future tokens even allocated in source.
-    prefix_ix=CausalNGramIndex(source[:11],memory=8192)
-    prefix,_=prefix_ix.distributions(np.r_[source[:11],0],11,1,16)
-    assert np.array_equal(prefix[0],c[0])
-    mix=AdaptiveNGramMixer()
+                assert p[0,n].sum()>0
+                assert all(p[0,n,k]==0 for k in range(16) if k not in old)
+    # Separate unrelated document cannot use query target or future query suffix.
+    donor=np.asarray([5,4,3,2,1]*7,dtype=np.int64)
+    donorindex=CausalNGramIndex(donor,memory=8192)
+    c,fc=donorindex.distributions(source,11,6,16,source_cutoff=11)
+    source_edit=source.copy();source_edit[11:]=12
+    d,fd=donorindex.distributions(source_edit,11,6,16,source_cutoff=11)
+    assert np.array_equal(c[0],d[0]) and np.array_equal(fc[0],fd[0])
+    # Build an index from the *available prefix only* and feed a dummy unknown
+    # target; results must equal indexing the complete book at that position.
+    partial=CausalNGramIndex(source[:11],memory=8192)
+    pre,pr=partial.distributions(np.r_[source[:11],0],11,1,16)
+    assert np.array_equal(pre[0],a[0]) and np.array_equal(pr[0],fa[0])
+    # R25 starts as exact probability identity and has nonzero first-step gradient.
+    model=AdaptiveNGramMixer()
     logits=torch.randn(6,16)
-    out=mix(logits,torch.from_numpy(c),torch.from_numpy(feat))
-    assert torch.allclose(out.softmax(-1),logits.softmax(-1),atol=1e-7)
-    torch.nn.functional.nll_loss(out,torch.tensor([7,6,5,4,3,2])).backward()
-    assert mix.amplitude.grad is not None and torch.isfinite(mix.amplitude.grad)
-    print("R25 causal / identity checks PASS")
+    got=model(logits,torch.tensor(a),torch.tensor(fa))
+    assert torch.allclose(torch.softmax(got,-1),torch.softmax(logits,-1),atol=1e-7)
+    loss=torch.nn.functional.nll_loss(got,torch.tensor([7,6,5,4,3,2]))
+    loss.backward()
+    assert model.amplitude.grad is not None and torch.isfinite(model.amplitude.grad)
+    print('R25 8/8 causal tests PASS')
 
-if __name__=="__main__":
-    main()
+if __name__=='__main__':test()
