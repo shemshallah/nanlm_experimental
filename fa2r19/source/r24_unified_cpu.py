@@ -272,16 +272,27 @@ def train(args):
                 raise RuntimeError("resume lineage mismatch on " + key)
         same_config = previous["config"]
         for key in ("chunk_span", "local_history", "expert_width", "experts",
-                    "expert_topk", "max_chunks"):
+                    "expert_topk"):
             if same_config[key] != getattr(args, key):
                 raise RuntimeError("resume changed model/stream configuration: " + key)
-        if previous["book_ids"] != [x.book_id for x in train_books]:
-            raise RuntimeError("resume corpus changed")
+        if previous["book_ids"] != [x.book_id for x in train_books[:len(previous["book_ids"])]]:
+            raise RuntimeError("resume corpus order or identity changed")
+        if args.max_chunks < same_config["max_chunks"]:
+            raise RuntimeError("cannot shrink available contiguous training history")
         state = previous["selected"]
         unified.load_state_dict(state["model"])
         optimizer.load_state_dict(state["optimizer"])
-        cursor = list(state["cursor"])
+        if args.resume_lr_scale != 1:
+            for group in optimizer.param_groups:
+                group["lr"] *= args.resume_lr_scale
+        cursor = list(state["cursor"]) + [0] * (len(train_books) - len(state["cursor"]))
         carriers = [restore_carry(c) for c in state["carry"]]
+        carriers.extend(ContinuousPALState(book.book_id) for book in train_books[len(carriers):])
+        for i, old_carry in enumerate(carriers[:len(state["cursor"])]):
+            if cursor[i] >= len(train_chunks[i]):
+                raise RuntimeError("resume cursor beyond available training history")
+            if old_carry.cursor != train_chunks[i][cursor[i]][2]:
+                raise RuntimeError("resume requires exact next-token stream parity")
         torch.set_rng_state(state["torch_rng"])
         np.random.set_state(state["numpy_rng"])
         random.setstate(state["python_rng"])
@@ -297,6 +308,39 @@ def train(args):
     best_score = initial["bpb"] + .03 * max(0.0,
                     initial["nonspace_nll"] - original_dev["nonspace_nll"])
     trace = []
+    if args.reader_only and args.warmup_target_tokens:
+        with torch.no_grad():
+            for i, book in enumerate(train_books):
+                pieces = train_chunks[i]
+                state = carriers[i]
+                while cursor[i] < len(pieces) and pieces[cursor[i]][2] < args.warmup_target_tokens:
+                    begin, end, t0, t1 = pieces[cursor[i]]
+                    ex = torch.as_tensor(book.examples[begin:end].astype(np.int64))[None]
+                    lexical = torch.as_tensor(book.context[begin:end].astype(np.float32))[None]
+                    tags = torch.as_tensor(book.token_tag[t0:t1].astype(np.int64))[None] - begin
+                    tokens = torch.as_tensor(book.tokens[t0:t1].astype(np.int64))[None]
+                    hidden = unified.model.core.hidden(
+                        ex.reshape(-1, 7), lexical.reshape(-1, 72)
+                    ).reshape(1, end-begin, -1)
+                    state.forward_chunk(
+                        unified.model, unified.bridge, unified.adapter, hidden, tokens, tags,
+                        book_id=book.book_id, token_offset=t0, chunk_tag_offset=begin,
+                        detach_after=True)
+                    cursor[i] += 1
+                if cursor[i] == len(pieces):
+                    raise RuntimeError("book too short for long-memory training warmup: " + book.book_id)
+                if state.cursor != pieces[cursor[i]][2]:
+                    raise RuntimeError("causal warmup did not preserve contiguous token cursor")
+                print(json.dumps({"phase":"WARMUP", "book":book.book_id,
+                                  "token_cursor":state.cursor}), flush=True)
+    if args.reader_only:
+        for name, parameter in unified.named_parameters():
+            if not name.startswith("r23."):
+                parameter.requires_grad_(False)
+        assert any(p.requires_grad for p in unified.r23.parameters())
+        print(json.dumps({"phase":"READER_ONLY", "optimizer_groups":len(optimizer.param_groups),
+                          "trainable_tensors":sum(p.requires_grad for p in unified.parameters())}),
+              flush=True)
 
     for step in range(step0 + 1, args.steps + 1):
         unified.train()
@@ -314,7 +358,11 @@ def train(args):
             if cursor[which] >= len(segments):
                 break
             piece = segments[cursor[which]]
-            row = unified.forward_chunk(book, piece, carrier)
+            donor = (train_books[(which + 1) % len(train_books)]
+                     if args.reader_only and len(train_books) > 1 else None)
+            row = unified.forward_chunk(book, piece, carrier,
+                                        counterfactual=args.reader_only,
+                                        donor_book=donor)
             ce = F.cross_entropy(row["logits"], row["target"])
             extra = row["moe_balance"] * args.balance_weight
             if row["memory_detail"] is not None:
@@ -323,6 +371,23 @@ def train(args):
                     row["memory_detail"]["scores"], idx, row["target"])
                 extra = extra + args.value_weight * span
                 positive_counts = counts
+                if args.reader_only and args.margin_weight > 0 and row["unrelated_history"] is not None:
+                    positives = (idx["mask"] &
+                                 idx["values"][:, :, 0].eq(row["target"][:, None])).any(-1)
+                    if bool(positives.any()):
+                        targets = row["target"][positives]
+                        actual_ce = F.cross_entropy(row["logits"][positives], targets,
+                                                    reduction="none")
+                        shuffled_ce = F.cross_entropy(row["scrambled_values"][positives],
+                                                      targets, reduction="none")
+                        donor_ce = F.cross_entropy(row["unrelated_history"][positives],
+                                                   targets, reduction="none")
+                        margin = args.pairwise_margin
+                        # The true target is used ONLY to shape the training loss,
+                        # never for memory index admission or inference ranking.
+                        extra = extra + args.margin_weight * (
+                            F.softplus(6 * (margin + actual_ce - shuffled_ce)).mean() / 6 +
+                            F.softplus(6 * (margin + actual_ce - donor_ce)).mean() / 6)
             length = len(row["target"])
             terms.append((ce + extra) * length)
             n += length
@@ -442,6 +507,14 @@ if __name__ == "__main__":
     p.add_argument("--root", default=".")
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--resume", default="")
+    p.add_argument("--resume-lr-scale", type=float, default=1.0,
+                   help="multiplicatively reduce restored nine-group LR without resetting moments")
+    p.add_argument("--reader-only", action="store_true",
+                   help="one-model phase: freeze inherited trunk and train existing R23 reader only")
+    p.add_argument("--warmup-target-tokens", type=int, default=0,
+                   help="causally advance live book state to this token before reader training")
+    p.add_argument("--pairwise-margin", type=float, default=0.02)
+    p.add_argument("--margin-weight", type=float, default=0.25)
     p.add_argument("--threads", type=int, default=2)
     p.add_argument("--train-books", type=int, default=0,
                    help="0 uses all available training books; positive N limits a CPU reproduction")
@@ -479,6 +552,8 @@ if __name__ == "__main__":
             args.chunk_span >= 1 and args.max_chunks >= args.unroll and
             args.eval_every >= 1 and args.dev_books >= 1 and
             args.test_books >= 1 and args.expert_width >= 128 and
-            args.train_books >= 0):
+            args.train_books >= 0 and 0 < args.resume_lr_scale <= 1 and
+            args.warmup_target_tokens >= 0 and args.pairwise_margin >= 0 and
+            args.margin_weight >= 0):
         p.error("invalid CPU training configuration")
     train(args)
