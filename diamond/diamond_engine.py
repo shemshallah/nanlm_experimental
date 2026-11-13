@@ -1117,12 +1117,16 @@ class TripleStaged(tf.keras.Model):
         total = tf.reduce_sum(c_in, axis=-1, keepdims=True)
         cache_prob = c_in / tf.maximum(total, 1.0)
         has_cache = tf.cast(total > 0.0, tf.float32)
-        cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
+        # Fixed prior/cache blend for the next-sentence head. The sentence
+        # head keeps a small residual weight so it can still add context.
+        cache_gate = 0.3 * has_cache
+        prior_gate = 0.65
         sent_prob = tf.nn.softmax(sent_logits, axis=-1)
-        cache_mix = (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob
-        prior_gate = tf.sigmoid(self.sent_prior_gain)
         sent_logits = tf.math.log(
-            (1.0 - prior_gate) * cache_mix + prior_gate * self.sent_prior[None, :] + 1e-9
+            (1.0 - prior_gate - cache_gate) * sent_prob
+            + cache_gate * cache_prob
+            + prior_gate * self.sent_prior[None, :]
+            + 1e-9
         )
         return self.byte_head(b_cond), self.word_head(w_cond), sent_logits, self.intro(b_cond)
 
