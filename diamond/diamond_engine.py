@@ -975,8 +975,9 @@ class ChunkConv(tf.keras.layers.Layer):
 
 
 class TripleStaged(tf.keras.Model):
-    def __init__(self, vocab):
+    def __init__(self, vocab, sent_prior):
         super().__init__()
+        self.sent_prior = tf.constant(sent_prior, dtype=tf.float32)
         self.byte_emb = tf.keras.layers.Embedding(256, DIM_B)
         self.byte_pos = tf.keras.layers.Embedding(BYTE_CHUNKS, DIM_B)
         self.byte_moe = MoE(256, DIM_B, 2)
@@ -1023,6 +1024,10 @@ class TripleStaged(tf.keras.Model):
         self.sent_cache_gain = self.add_weight(
             shape=(), initializer=tf.keras.initializers.Constant(-0.85),
             name="sent_cache_gain",
+        )
+        self.sent_prior_gain = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(0.0),
+            name="sent_prior_gain",
         )
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
@@ -1113,13 +1118,35 @@ class TripleStaged(tf.keras.Model):
         has_cache = tf.cast(total > 0.0, tf.float32)
         cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
         sent_prob = tf.nn.softmax(sent_logits, axis=-1)
+        cache_mix = (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob
+        prior_gate = tf.sigmoid(self.sent_prior_gain)
         sent_logits = tf.math.log(
-            (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob + 1e-9
+            (1.0 - prior_gate) * cache_mix + prior_gate * self.sent_prior[None, :] + 1e-9
         )
         return self.byte_head(b_cond), self.word_head(w_cond), sent_logits, self.intro(b_cond)
 
 
-model = TripleStaged(VOCAB)
+# Fixed global prior over next-sentence first words, estimated only from
+# training documents and weighted by sentence length.
+prior_counts = np.zeros(VOCAB, dtype=np.float64)
+if ARGS.split_mode == "document":
+    train_doc_mask = np.ones(nd, dtype=bool)
+    train_doc_mask[np.asarray(test_docs, dtype=np.int64)] = False
+else:
+    train_doc_mask = np.ones(nd, dtype=bool)
+for j, sent in enumerate(sentences):
+    d = int(sent_doc[j])
+    if not train_doc_mask[d]:
+        continue
+    if j + 1 < int(doc_sent_end[d]):
+        target = int(sent_first[j + 1])
+    else:
+        target = 0
+    prior_counts[target] += len(sent)
+prior_counts += 0.1
+sent_prior = (prior_counts / prior_counts.sum()).astype(np.float32)
+
+model = TripleStaged(VOCAB, sent_prior)
 _ = model(
     (
         tf.zeros((2, WIN_B), dtype=tf.int32),
@@ -1155,6 +1182,7 @@ SIGNATURE = json.dumps({
     "sent_causal": True,
     "sent_isolated": True,
     "sent_cache": "full_document_first_word_cache",
+    "sent_prior": "train_document_sentence_first_unigram",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
