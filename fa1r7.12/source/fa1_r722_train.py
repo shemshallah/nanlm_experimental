@@ -11,16 +11,19 @@ import numpy as np,torch
 import torch.nn.functional as F
 from r7_core import Corpus
 from fa1_r721_joint_train import gather_joint
+from fa1_r718_far_residual import pick_positions
 from fa1_r722_unified import load_unified,memory_trainable,save_unified
 from fa1_r722_semantic import CausalSemanticIndex,HORIZON,EXCLUSION
 from r710_checkpoint_integrity import deep_equal,sha256
 
-def gather_sem(root,base,split,positions,seed,train_donor=False):
-    c=Corpus(root,split);src=Corpus(root,'train') if train_donor else c
+def gather_sem(root,base,split,positions,seed,train_donor=False,corpus_dir=None):
+    c=Corpus(root,split,corpus_dir=corpus_dir)
+    src=Corpus(root,'train',corpus_dir=corpus_dir) if train_donor else c
     rng=np.random.default_rng(seed)
     pos=np.asarray(positions,dtype=np.int64)
     feats=[];prob=[];count=[];freq=[]
-    donor_indices=rng.integers(HORIZON+1,len(src.seq),len(pos),dtype=np.int64) if train_donor else pos
+    donor_indices=(pick_positions(src,len(pos),seed+1) if corpus_dir else
+                   rng.integers(HORIZON+1,len(src.seq),len(pos),dtype=np.int64)) if train_donor else pos
     ix=None;lastdoc=None
     for source_pos,actual_pos in zip(donor_indices,pos):
         source_pos=int(source_pos);actual_pos=int(actual_pos)
@@ -64,13 +67,13 @@ def main(args):
     m,opts,base,comp,blob=load_unified(args.candidate,args.root)
     memory_trainable(m,semantic_only=True)
     inherited=copy.deepcopy([o.state_dict() for o in opts]);core=copy.deepcopy(m.state_dict())
-    tr=gather_joint(args.root,m,base,comp,'train',args.train,args.seed+10,args.batch)
-    dv=gather_joint(args.root,m,base,comp,'dev',args.dev,args.seed+20,args.batch)
+    tr=gather_joint(args.root,m,base,comp,'train',args.train,args.seed+10,args.batch,args.corpus_dir)
+    dv=gather_joint(args.root,m,base,comp,'dev',args.dev,args.seed+20,args.batch,args.corpus_dir)
     prior_train=m.joint_nll(tr,semantic_enabled=False)[0].detach()
     prior_dev=m.joint_nll(dv,semantic_enabled=False)[0].detach()
-    trsem=gather_sem(args.root,base,'train',tr['positions'],args.seed+30)
-    dvsem=gather_sem(args.root,base,'dev',dv['positions'],args.seed+40)
-    donor=gather_sem(args.root,base,'dev',dv['positions'],args.seed+50,train_donor=True)
+    trsem=gather_sem(args.root,base,'train',tr['positions'],args.seed+30,corpus_dir=args.corpus_dir)
+    dvsem=gather_sem(args.root,base,'dev',dv['positions'],args.seed+40,corpus_dir=args.corpus_dir)
+    donor=gather_sem(args.root,base,'dev',dv['positions'],args.seed+50,train_donor=True,corpus_dir=args.corpus_dir)
     m.semantic.eval()
     initial=evaluation(m.semantic,prior_dev,dvsem,donor)
     rng=np.random.default_rng(args.seed+60)
@@ -121,7 +124,7 @@ def main(args):
         'initial_dev':initial,'selected_dev':best,'history':hist,
         'candidate_saved':save,'fifth_optimizer_continuity':True,
         'correct_history_frequency_control':True,'independent_train_donor_control':True,
-        'checkpoint_seed_unchanged':True,'full_new_book_evaluation':False,
+        'checkpoint_seed_unchanged':True,'full_new_book_evaluation':False,'new_book_dev_training':bool(args.corpus_dir),
         'historical_splits_only':True,'promoted':False,
         'elapsed_s':round(time.monotonic()-t,2)}
     pathlib.Path(args.output).parent.mkdir(parents=True,exist_ok=True)
@@ -131,6 +134,7 @@ def main(args):
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--root',default='/mnt/data/fa1_full')
+    p.add_argument('--corpus-dir',default=None,help='Independent document-disjoint NaNROUTER corpus from prepare_document_corpus.py')
     p.add_argument('--candidate',default='/mnt/data/fa1r722/checkpoint/r7_unified_candidate.pt')
     p.add_argument('--train',type=int,default=128);p.add_argument('--dev',type=int,default=96)
     p.add_argument('--batch',type=int,default=8);p.add_argument('--batch-train',type=int,default=32)
