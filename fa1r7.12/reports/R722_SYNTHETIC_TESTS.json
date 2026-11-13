@@ -1,0 +1,25 @@
+{
+  "round": "FA1 R7.22",
+  "tests_passed": 15,
+  "tests_total": 15,
+  "checks": {
+    "candidate_in_old_far_band": true,
+    "paraphrase_like_embedding_has_support": true,
+    "target_free_routing": true,
+    "future_token_mutation_cannot_change_retrieval": true,
+    "incremental_same_as_full_build": true,
+    "document_boundary_excludes_earlier_history": true,
+    "near_band_excluded": true,
+    "backward_seeks_fail_closed": true,
+    "one_megatoken_far_band_reachable": true,
+    "one_megatoken_future_safe": true,
+    "one_megatoken_incremental_parity": true,
+    "identity_parity_exact": true,
+    "joint_gate_gradient": true,
+    "bounded_nonnegative_gate": true,
+    "mixture_matches_closed_form": true
+  },
+  "synthetic_only": true,
+  "natural_language_semantic_gain_proven": false,
+  "promoted": false
+}
