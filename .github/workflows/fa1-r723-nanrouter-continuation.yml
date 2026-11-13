@@ -1,0 +1,142 @@
+name: FA1 R7.23 - verified NaNROUTER CPU continuation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r723-nanrouter-continuation.yml'
+  workflow_dispatch:
+    inputs:
+      max_updates:
+        description: 'Stop as soon as new-book dev gates fail'
+        default: '4096'
+        type: string
+      books:
+        description: 'Number of NaNROUTER whole Gutenberg documents'
+        default: '800'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r723-one-checkpoint
+  cancel-in-progress: false
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      seed_ready: ${{ steps.seed.outputs.ready }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify SHA-pinned NaNROUTER book release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/books"
+          gh release download corpora-short-stories-0001 -R shemshallah/NaNROUTER -p short_stories-0001.tar.zst -D "$RUNNER_TEMP/books"
+          echo "bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5  $RUNNER_TEMP/books/short_stories-0001.tar.zst" | sha256sum -c -
+          echo "NaNROUTER corpus verified. Bytes: $(stat -c %s "$RUNNER_TEMP/books/short_stories-0001.tar.zst")"
+      - name: Check for immutable R7.22 checkpoint release
+        id: seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          if gh release view fa1-r722-cpu-seed -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            assets="$(gh release view fa1-r722-cpu-seed -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            if grep -qx FA1_R7p22_UNIFIED_CANDIDATE.pt <<< "$assets" && grep -qx FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip <<< "$assets"; then ready=true; fi
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [[ $ready != true ]]; then
+            echo "Training skipped: exact R7.22 checkpoint not yet hosted in GitHub Releases."
+            echo "Never start a replacement model or reset inherited Adam histories."
+          fi
+
+  training:
+    needs: corpus
+    if: needs.corpus.outputs.seed_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONPATH: ${{ github.workspace }}/fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      BOOKS: ${{ inputs.books || '800' }}
+      MAX_UPDATES: ${{ inputs.max_updates || '4096' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: CPU requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Restore SHA-verified R7.22 single model + original tokenizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/seed"
+          gh release download fa1-r722-cpu-seed -R "$GITHUB_REPOSITORY" -p FA1_R7p22_UNIFIED_CANDIDATE.pt -p FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip -D "$RUNNER_TEMP/seed"
+          cd "$RUNNER_TEMP/seed"
+          echo 'eb0b7f0505f027095af23bc85ef00f2c036f3d2d5fb160ee0c45e60fb02e3455  FA1_R7p22_UNIFIED_CANDIDATE.pt' | sha256sum -c -
+          echo '99f25e5ff604492c6c043335eddbf638415a423f43d94f5c9a426f5a283a2728  FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip' | sha256sum -c -
+          mkdir full && unzip -q FA1_R7p13_HIERARCHICAL_SINGLE_CHECKPOINT_FULL.zip -d full
+          echo '54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d  full/checkpoint/pal_active.pt' | sha256sum -c -
+          echo "FA1_ROOT=$RUNNER_TEMP/seed/full" >> "$GITHUB_ENV"
+          echo "FA1_INPUT=$RUNNER_TEMP/seed/FA1_R7p22_UNIFIED_CANDIDATE.pt" >> "$GITHUB_ENV"
+      - name: Prepare disjoint books using original R7 tokenizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $BOOKS =~ ^[0-9]+$ ]] && (( BOOKS >= 200 && BOOKS <= 1000 ))
+          [[ $MAX_UPDATES =~ ^[0-9]+$ ]] && (( MAX_UPDATES >= 256 && MAX_UPDATES <= 10000 ))
+          mkdir -p "$RUNNER_TEMP/newbooks"
+          gh release download corpora-short-stories-0001 -R shemshallah/NaNROUTER -p short_stories-0001.tar.zst -D "$RUNNER_TEMP/newbooks"
+          python fa1r7.12/source/fetch_nanrouter_release.py --skip-download --output "$RUNNER_TEMP/newbooks"
+          python fa1r7.12/source/prepare_document_corpus.py --root "$FA1_ROOT" --input "$RUNNER_TEMP/newbooks/books" --out "$RUNNER_TEMP/processed" --limit "$BOOKS"
+          echo "FA1_CORPUS=$RUNNER_TEMP/processed" >> "$GITHUB_ENV"
+      - name: Stop-on-failure continuation of the same five optimizer histories
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reports" "$RUNNER_TEMP/candidates"
+          total=0
+          index=0
+          current="$FA1_INPUT"
+          for updates in 256 512 1024 2048 4096; do
+            if (( total + updates > MAX_UPDATES )); then break; fi
+            index=$((index+1))
+            report="$RUNNER_TEMP/reports/stage-$index.json"
+            output="$RUNNER_TEMP/candidates/stage-$index.pt"
+            python fa1r7.12/source/fa1_r722_train.py --root "$FA1_ROOT" --corpus-dir "$FA1_CORPUS" --candidate "$current" --train 512 --dev 256 --batch 8 --batch-train 64 --steps "$updates" --every 64 --seed "$((72300+index*1000))" --lr 0.001 --min-gain 0.0002 --min-adv 0.0002 --output "$report" --output-checkpoint "$output"
+            total=$((total+updates))
+            if python -c 'import json,sys; d=json.load(open(sys.argv[1])); e=d.get("selected_dev") or {}; sys.exit(0 if d.get("status")=="selected-unpromoted" and e.get("gain",0)>0.0002 and e.get("correct_vs_old_freq_advantage",0)>0.0002 and e.get("correct_vs_train_donor_advantage",0)>0.0002 else 1)' "$report"; then
+              current="$output"
+              echo "Stage $index selected for further UNPROMOTED continuation"
+            else
+              echo "No new-book dev gain or failed causal controls. Stop."
+              break
+            fi
+          done
+          printf 'Executed attempted updates: %s\nSelected checkpoint: %s\nNo accepted promotion.\n' "$total" "$current" > "$RUNNER_TEMP/reports/summary.txt"
+          if [[ "$current" != "$FA1_INPUT" ]]; then cp "$current" "$RUNNER_TEMP/candidates/FA1_R7_SELECTED_UNPROMOTED.pt"; fi
+      - name: Upload stage reports and selected unpromoted candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r723-nanrouter-cpu
+          path: |
+            ${{ runner.temp }}/reports/
+            ${{ runner.temp }}/candidates/FA1_R7_SELECTED_UNPROMOTED.pt
+          if-no-files-found: warn
+          retention-days: 90
