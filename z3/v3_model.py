@@ -79,6 +79,9 @@ class V3Config:
     force_manual_attention: bool = False
     attn_gate: bool = False
     mtp_adapter_rank: int = 0
+    mtp_block: bool = False
+    mtp_block_experts: int = 8
+    mtp_block_hidden: int = 1024
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -259,6 +262,40 @@ class MTPAdapter(nn.Module):
         return x + self.scale * self.up(F.silu(self.down(self.norm(x))))
 
 
+class MTPBlock(nn.Module):
+    """One-block future branch with its own attention and expert pool."""
+
+    def __init__(self, d_model: int, n_heads: int, hidden: int = 1024,
+                 n_experts: int = 8, topk: int = 2, shared: int = 1,
+                 dropout: float = 0.1):
+        super().__init__()
+        self.norm1 = RMSNorm(d_model)
+        self.attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True
+        )
+        self.norm2 = RMSNorm(d_model)
+        self.moe = VectorizedSparseMoE(
+            d_model=d_model,
+            n_experts=n_experts,
+            topk=topk,
+            shared_experts=shared,
+            expert_hidden=hidden,
+            dropout=dropout,
+            group_size=4,
+            max_rows=512,
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x, attn_mask=None):
+        h = self.norm1(x)
+        a, _ = self.attn(h, h, h, attn_mask=attn_mask, need_weights=False)
+        x = x + self.drop(a)
+        h = self.norm2(x)
+        y, aux = self.moe(h)
+        x = x + self.drop(y)
+        return x, aux
+
+
 class V3LM(nn.Module):
     def __init__(self, cfg: V3Config):
         super().__init__()
@@ -275,6 +312,21 @@ class V3LM(nn.Module):
             [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)
              if cfg.mtp_adapter_rank > 0 else nn.Identity()
              for _ in range(max(0, cfg.mtp - 1))]
+        )
+        self.mtp_block = (
+            MTPBlock(
+                cfg.d_model,
+                cfg.n_heads,
+                hidden=cfg.mtp_block_hidden,
+                n_experts=cfg.mtp_block_experts,
+                topk=2,
+                shared=1,
+                dropout=cfg.dropout,
+            )
+            if cfg.mtp_block else None
+        )
+        self.mtp_now = (
+            nn.Parameter(torch.zeros(cfg.d_model)) if cfg.mtp_block else None
         )
         self.memory_path = None
         self.memory_cross = None
@@ -317,7 +369,7 @@ class V3LM(nn.Module):
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-    def forward(self, tokens):
+    def forward(self, tokens, mtp_teacher: bool = False):
         x = self.tok(tokens)
         lbs, zs = [], []
         for block in self.blocks:
@@ -335,10 +387,27 @@ class V3LM(nn.Module):
         if self.memory_path is not None:
             # Sparse n-gram bias; empty until build_memory() is called.
             self.memory_path.logit_bias(tokens).add_(main)
-        mtp = [
-            head(adapter(x))
-            for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
-        ]
+        if self.mtp_block is not None:
+            # t+1 conditioning: ground truth during training, predicted t+1
+            # soft embedding during evaluation.
+            if mtp_teacher:
+                next_ids = torch.cat(
+                    [tokens[:, 1:], tokens[:, -1:]], dim=1
+                )
+                next_emb = self.tok(next_ids)
+            else:
+                next_emb = F.softmax(main.detach(), dim=-1) @ self.tok.weight
+            t = x.shape[1]
+            causal = torch.triu(
+                torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1
+            )
+            branch, _ = self.mtp_block(x + next_emb + self.mtp_now, attn_mask=causal)
+            mtp = [head(branch) for head in self.mtp_heads]
+        else:
+            mtp = [
+                head(adapter(x))
+                for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
+            ]
         aux = dict(mem_aux)
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()

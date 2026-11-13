@@ -659,6 +659,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=0,
                        help="low-rank MTP adapter width; 0 disables")
+    model.add_argument("--mtp-block", action="store_true",
+                       help="use a one-block t+1-conditioned MTP branch")
+    model.add_argument("--mtp-block-experts", type=int, default=8)
+    model.add_argument("--mtp-block-hidden", type=int, default=1024)
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -871,6 +875,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp must be at least 1")
     if args.mtp_adapter_rank < 0:
         raise SystemExit("--mtp-adapter-rank must be non-negative")
+    if args.mtp_block_experts < 1 or args.mtp_block_hidden < 1:
+        raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
     if args.global_every < 1 or args.window < 1:
         raise SystemExit("--global-every and --window must be positive")
     if not 0.0 <= args.dropout < 1.0:
@@ -921,6 +927,9 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_max_rows=int(args.moe_max_rows),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
+        mtp_block=bool(args.mtp_block),
+        mtp_block_experts=int(args.mtp_block_experts),
+        mtp_block_hidden=int(args.mtp_block_hidden),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),
         max_ctx=int(args.max_ctx),
@@ -1208,7 +1217,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.freeze_trunk:
         last_prefix = f"blocks.{cfg.n_layers - 1}."
         for name, param in model.named_parameters():
-            keep = name.startswith("mtp_heads.") or name.startswith("mtp_adapters.")
+            keep = (
+                name.startswith("mtp_heads.")
+                or name.startswith("mtp_adapters.")
+                or name.startswith("mtp_block.")
+                or name == "mtp_now"
+            )
             if args.unfreeze_last_block and name.startswith(last_prefix):
                 keep = True
             if not keep:
@@ -1447,7 +1461,7 @@ def main(argv: list[str] | None = None) -> int:
         xb = source.train_batch().to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
-            logits, mtp_logits, aux = model(xb)
+            logits, mtp_logits, aux = model(xb, mtp_teacher=True)
             loss, parts = lm_mtp_loss(
                 logits,
                 mtp_logits,
