@@ -75,6 +75,14 @@ class CombinatorialDiamond(nn.Module):
         self.sent_projection=nn.Linear(96,d)
         self.sent_tower=MicroTower(d)
         self.hidden_projection=nn.Linear(96,d)
+        # R7 near/far retriever confidence is computed from strictly causal
+        # old histories and target-independent modal candidates. These 92
+        # feature channels physically condition triangle addressing and the
+        # apex specialists; target probabilities are NEVER supplied here.
+        self.legacy_memory_norm=nn.LayerNorm(92)
+        self.legacy_memory_in=nn.Linear(92,d)
+        nn.init.normal_(self.legacy_memory_in.weight,std=0.005)
+        nn.init.zeros_(self.legacy_memory_in.bias)
         self.bottom_up=nn.Linear(d*4,d)
         self.point_offset=nn.Embedding(VERTICES,d)
         self.point_in=nn.Linear(96,d)
@@ -115,7 +123,7 @@ class CombinatorialDiamond(nn.Module):
         self.register_buffer('tri_edges',torch.tensor(TRI_EDGES,dtype=torch.long),persistent=False)
 
     def forward(self,hidden,word_ids,byte_ids,sentence_ids,vertex_ids,trunk,
-                two_way=True,without_apex=False,without_pair=False,return_trace=False):
+                memory_features=None,two_way=True,without_apex=False,without_pair=False,return_trace=False):
         if word_ids.shape[1]!=32 or byte_ids.shape[1]!=128 or sentence_ids.shape[1]!=8 or vertex_ids.shape[1]!=ACTIVE:
             raise ValueError('expected 32 past words / 128 past bytes / 8 previous sentence starts / 8 distinct points')
         if bool((vertex_ids<0).any()) or bool((vertex_ids>=256).any()):raise ValueError('invalid points')
@@ -129,6 +137,10 @@ class CombinatorialDiamond(nn.Module):
         word=self.word_tower(self.word_projection(words))
         sent=self.sent_tower(self.sent_projection(F.embedding(sentence_ids.long(),trunk.E.detach())))
         q=self.bottom_up(torch.cat([self.hidden_projection(hidden),byte,word,sent],-1))
+        if memory_features is not None:
+            if memory_features.shape!=(batch,92):
+                raise ValueError('near/far memory must supply 60+32 target-free channels')
+            q=q+self.legacy_memory_in(self.legacy_memory_norm(memory_features.float()))
         # 256 -> C(256,2): READ the exact original H and P/M, not new replacements.
         node=self.point_in(F.embedding(vertex_ids.long(),trunk.H.detach()))+self.point_offset(vertex_ids.long())
         e=self.edges
@@ -206,9 +218,13 @@ class UnifiedR723Diamond(UnifiedR722):
         # tree-only likelihood (which would discard earlier R7 learned paths).
         old_nll,close=super().joint_nll(data,near_enabled,far_enabled,semantic_enabled)
         if not diamond_enabled:return old_nll,close
+        # Features are causal and target-free. Never pass near_prob or far_prob
+        # to the Diamond because those arrays encode the current gold target.
+        memory_features=torch.cat([data['near_features'],data['far_features']],dim=-1)
         h,b_logits,w_vec,trace=self.diamond(data['hidden'],data['word_ids'],
                  data['byte_ids'],data['sentence_ids'],data['vertex_ids'],
-                 self.core.trunk,two_way=two_way,return_trace=True,**ablations)
+                 self.core.trunk,memory_features=memory_features,
+                 two_way=two_way,return_trace=True,**ablations)
         # Two normalized word distributions: inherited R7.22 distribution and
         # context-conditioned 32K-word hierarchical tree. Their probabilistic
         # mixture stays normalized for all vocabulary targets and is exactly
