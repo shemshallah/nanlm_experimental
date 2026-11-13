@@ -1,0 +1,30 @@
+name: FA2 R26 - causal 128K phrase memory verification
+on:
+  push:
+    paths:
+      - 'fa2r19/source/r26_*'
+      - 'fa2r19/source/test_r26_causal.py'
+      - 'fa2r19/source/r24_unified_model.py'
+      - '.github/workflows/fa2-r26-causal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  causal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify all local PAL source syntax
+        run: python -m compileall -q fa2r19/source
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify causal prefix, no target/future access, 8K/128K mixtures and identity initialization
+        run: python fa2r19/source/test_r26_causal.py
