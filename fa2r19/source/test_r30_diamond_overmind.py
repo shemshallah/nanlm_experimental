@@ -8,6 +8,7 @@ from r30_diamond_overmind import (
     HEADS, PAIR_COUNT, TRIPLE_COUNT, SparseDiamondOvermind,
     attach_r30, pair_address, triple_address,
 )
+from r23_stream_carry import ContinuousPALState
 
 
 def check_lattice():
@@ -38,13 +39,14 @@ def check_overmind():
                                    triple_buckets=4096)
     states = torch.randn(2, 4, 48)
     pristine = states.clone()
-    delta, detail = module(states, return_detail=True)
+    delta, detail, memory = module(states, return_detail=True, return_apex=True)
     assert torch.equal(states, pristine), "Overmind mutated inherited PAL states"
     assert torch.equal(delta, torch.zeros_like(delta)), "not exact zero-output migration"
     assert detail["base_heads"].shape == (2, 4, 8)
     assert detail["pair_addresses"].shape == (2, 4, 12)
     assert detail["triangle_addresses"].shape == (2, 4, 10)
     assert detail["apex_heads"].shape == (2, 4, 6)
+    assert memory.shape == (2, HEADS, 32)
     assert int(detail["pair_addresses"].max()) < PAIR_COUNT
     assert int(detail["triangle_addresses"].max()) < TRIPLE_COUNT
     assert bool((detail["active_pair_edges"] <= math.comb(8, 2)).all())
@@ -59,11 +61,26 @@ def check_overmind():
     for key in details_a:
         assert torch.equal(details_a[key][:, :-1], details_b[key][:, :-1]), key
 
+    # Streaming all four tokens and two consecutive chunks should agree.
+    all_delta, all_apex = module(states, return_apex=True)
+    left, history = module(states[:, :2], return_apex=True)
+    right, history = module(states[:, 2:], prior_apex=history, return_apex=True)
+    assert torch.allclose(torch.cat((left, right), 1), all_delta, atol=1e-6, rtol=1e-6)
+    assert torch.allclose(history, all_apex, atol=1e-6, rtol=1e-6)
+
+    stream = ContinuousPALState("book-A")
+    stream.r30_apex = history
+    stream.detach()
+    assert stream.r30_apex.grad_fn is None
+    stream.reset("book-B")
+    assert stream.r30_apex is None
+
     loss = initial.square().mean()
     loss.backward()
     for key in ("head_router.weight", "pair_addresses.weight", "triple_hash.weight",
                 "apex_heads", "apex_router.weight", "triple_feedback.weight",
-                "down_plus.weight", "output_gain"):
+                "down_plus.weight", "apex_memory_update.weight",
+                "temporal_feedback.weight", "output_gain"):
         param = dict(module.named_parameters())[key]
         assert param.grad is not None, f"missing backward path: {key}"
         assert bool(torch.isfinite(param.grad).all()), f"nonfinite gradient: {key}"

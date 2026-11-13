@@ -59,7 +59,9 @@ class UnifiedFA2(nn.Module):
         # the latter path remains trainable even when the MoE gate is zero.
         r30_detail=None
         if hasattr(self,'r30'):
-            r30_delta,r30_detail=self.r30(states,return_detail=True)
+            r30_delta,r30_detail,carry.r30_apex=self.r30(
+                states,prior_apex=getattr(carry,'r30_apex',None),
+                return_detail=True,return_apex=True)
             deep,balance=self.moe(states+r30_delta)
             logits=logits[0]+torch.tanh(self.moe.amplitude)*self.model.memory.subword_out(deep)[0]
             logits=logits+F.linear(r30_delta,self.model.memory.subword_out.weight)[0]

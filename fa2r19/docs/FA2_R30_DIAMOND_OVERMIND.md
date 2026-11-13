@@ -32,15 +32,18 @@ receive different factorized signals from their constituent heads/edges.
    curvature/area from the three head phases. A sparse selection ascends.
 4. Eight of 256 apex heads attend to those selected triangles. Two iterative
    attention/feedback passes mix top-down instructions with bottom-up evidence.
+   Each apex head additionally maintains an individually addressed recurrent
+   document-state updated at each token and carried across adjacent chunks.
 5. Triangle feedback is scattered through actual pair incidence; each pair
    returns **S+ + S−** to its first head and **S+ − S−** to its second head.
 6. The resulting head readout returns to PAL's inherited MoE hidden features
    and to its existing output projection, without replacing either component.
 
-This is an *instantaneous within-token feedback loop*, not a claim of
-persistent, cross-token Overmind state. Each token remains causally isolated
-from later inputs. The next design stage may explicitly attach a document-bound
-recurrent apex carry; it must pass reset, stream and future-isolation tests.
+The Overmind now has **both** within-token feedback and causal cross-token
+recurrent memory. The 256 apex states are carried by the existing document
+stream, detached with its truncated-BPTT boundary, and cleared upon book reset.
+Future-token and chunk-equivalence tests guard causal isolation. Long-book
+performance and effective semantic memory have not yet been established.
 
 ## Checkpoint and optimization invariants
 

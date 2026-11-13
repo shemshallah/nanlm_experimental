@@ -5,6 +5,7 @@ on:
       - 'fa2r19/source/r30_*'
       - 'fa2r19/source/test_r30_*'
       - 'fa2r19/source/r24_unified_model.py'
+      - 'fa2r19/source/r23_stream_carry.py'
       - 'fa2r19/docs/FA2_R30_DIAMOND_OVERMIND.md'
       - '.github/workflows/fa2-r30-diamond.yml'
   workflow_dispatch:

@@ -48,8 +48,8 @@ class SparseDiamondOvermind(nn.Module):
     triangle concepts -> apex heads. Downward: apex attention -> triangles ->
     paired S+/S- edges -> base heads -> original PAL hidden state and decoder.
 
-    Each token is processed independently. This protects causal isolation, but
-    persistent across-token apex memory is intentionally *not* claimed yet.
+    Each apex head can also keep a document-bound recurrent state, updated
+    causally across tokens and returned to the caller for cross-chunk carry.
     """
 
     def __init__(
@@ -115,6 +115,9 @@ class SparseDiamondOvermind(nn.Module):
         self.apex_heads = nn.Parameter(torch.randn(HEADS, width) / math.sqrt(width))
         self.apex_router = nn.Linear(2 * width, HEADS)
         self.apex_update = nn.Linear(2 * width, width)
+        self.apex_memory_update = nn.Linear(2 * width, width)
+        self.apex_memory_gate = nn.Parameter(torch.tensor(-2.))
+        self.temporal_feedback = nn.Linear(width, width, bias=False)
         self.triple_feedback = nn.Linear(width, width, bias=False)
         self.apex_feedback = nn.Linear(width, width, bias=False)
         self.down_plus = nn.Linear(width, width, bias=False)
@@ -122,10 +125,13 @@ class SparseDiamondOvermind(nn.Module):
         self.readout = nn.Linear(2 * width, dim, bias=False)
         self.output_gain = nn.Parameter(torch.zeros(()))
 
-    def forward(self, states: torch.Tensor, *, return_detail: bool = False):
-        if states.ndim != 3 or states.shape[-1] != self.dim:
+    def forward(self, states: torch.Tensor, *, prior_apex: torch.Tensor | None = None,
+                return_detail: bool = False, return_apex: bool = False):
+        if states.ndim != 3 or states.shape[-1] != self.dim or states.shape[1] == 0:
             raise ValueError("expected PAL states [batch, time, hidden_dim]")
         batch, steps, _ = states.shape
+        if prior_apex is not None and prior_apex.shape != (batch, HEADS, self.width):
+            raise ValueError("apex carry must be [batch, 256, overmind_width]")
         x = self.project_in(self.input_norm(states)).reshape(-1, self.width)
         n, w = x.shape
 
@@ -198,6 +204,27 @@ class SparseDiamondOvermind(nn.Module):
             tri_state = tri_state + .25 * self.triple_feedback(downward @ apex)
             apex = apex + .25 * self.apex_feedback(apex_context)
 
+        # Document-bound recurrent Overmind: each selected apex head retains
+        # its own previous concept state. No future token can affect an earlier
+        # token's carry. Inactive apex heads retain their previous values.
+        recurrent = (states.new_zeros((batch, HEADS, w)) if prior_apex is None
+                     else prior_apex)
+        memory_mix = torch.sigmoid(self.apex_memory_gate)
+        apex_trajectory = apex.reshape(batch, steps, self.active_apex, w)
+        apex_indices = apex_choice.indices.reshape(batch, steps, self.active_apex)
+        apex_weights = apex_probs.reshape(batch, steps, self.active_apex)
+        summaries = []
+        for token in range(steps):
+            chosen = apex_indices[:, token]
+            old = recurrent.gather(1, chosen[..., None].expand(-1, -1, w))
+            proposed = torch.tanh(self.apex_memory_update(torch.cat(
+                (apex_trajectory[:, token], old), dim=-1)))
+            updated = (1 - memory_mix) * old + memory_mix * proposed
+            recurrent = recurrent.scatter(1, chosen[..., None].expand(-1, -1, w), updated)
+            summaries.append((updated * apex_weights[:, token, :, None]).sum(dim=1))
+        history = torch.stack(summaries, dim=1).reshape(n, w)
+        tri_state = tri_state + .25 * self.temporal_feedback(history)[:, None, :]
+
         # Triple-to-pair incidence, then orientation-aware S+/S- messages.
         pair_fb = torch.zeros(n, len(self.pair_slots), w, device=x.device, dtype=x.dtype)
         pair_count = torch.zeros(n, len(self.pair_slots), 1, device=x.device, dtype=x.dtype)
@@ -221,7 +248,7 @@ class SparseDiamondOvermind(nn.Module):
         feedback = self.readout(torch.cat((head_context + abstract, seed), dim=-1))
         delta = torch.tanh(self.output_gain) * feedback.reshape(batch, steps, self.dim)
         if not return_detail:
-            return delta
+            return (delta, recurrent) if return_apex else delta
         details = {
             "base_heads": head_ids.reshape(batch, steps, -1).detach(),
             "abstract_nodes": abstract_top.indices.reshape(batch, steps, -1).detach(),
@@ -230,7 +257,7 @@ class SparseDiamondOvermind(nn.Module):
             "apex_heads": apex_choice.indices.reshape(batch, steps, -1).detach(),
             "active_pair_edges": pair_act.sum(dim=-1).reshape(batch, steps).detach(),
         }
-        return delta, details
+        return (delta, details, recurrent) if return_apex else (delta, details)
 
 
 def attach_r30(model: nn.Module, optimizer=None, *, learning_rate: float = 0.0003, **kwargs):
