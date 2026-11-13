@@ -194,19 +194,32 @@ class CombinatorialDiamond(nn.Module):
         if without_apex:apex=apex*0
         # C(256,3) -> C(256,2): send triangle judgments only to their 3 edges.
         down_tri=tri+self.triple_down(apex).unsqueeze(1) if two_way else tri
+        # Each pair has six incident triangles among eight chosen vertices.
+        # Normalize by *received attention mass* rather than dividing a
+        # softmax-weighted message by another arbitrary small constant.
         pair_mail=torch.zeros_like(pair)
+        pair_mass=triangle_weights.new_zeros(batch,len(e))
         for j in range(3):
             pair_mail.index_add_(1,te[:,j],down_tri*triangle_weights.unsqueeze(-1))
+            pair_mass.index_add_(1,te[:,j],triangle_weights)
+        pair_mail=pair_mail/pair_mass.unsqueeze(-1).clamp_min(1e-6)
         pair_back=self.pair_down(torch.cat([pair,pair_mail],dim=-1))
         if without_pair:pair_back=pair_back*0
-        # C(256,2) -> 256: edges reconstruct active point messages.
+        # C(256,2) -> 256: every output correction MUST traverse the
+        # descending pair->point route. Subtract the node-only response:
+        # eliminating pair messages then produces exactly zero correction.
         point_mail=torch.zeros_like(node)
         point_mail.index_add_(1,e[:,0],pair_back)
         point_mail.index_add_(1,e[:,1],pair_back)
-        point_back=self.point_down(torch.cat([node,point_mail/7],dim=-1))
+        point_baseline=self.point_down(torch.cat([node,torch.zeros_like(point_mail)],dim=-1))
+        point_back=self.point_down(torch.cat([node,point_mail/7],dim=-1))-point_baseline
         point_summary=point_back.mean(1)
-        assembled=torch.cat([point_summary,apex,q],dim=-1)
-        correction=0.125*self.output(assembled)
+        # Apex/old-context channels modulate the descending point message;
+        # they can no longer bypass C(256,2) -> 256 to write to the decoder.
+        tone=torch.tanh(point_summary)
+        assembled=torch.cat([point_summary,apex*tone,q*tone],dim=-1)
+        raw=self.output(assembled)
+        correction=0.125*(raw-self.output(torch.zeros_like(assembled)))
         trust_logit=self.trust(assembled).squeeze(-1)
         # Native inherited R7 word tree receives a context-modified state.
         # This distribution becomes active ONLY via a zero-init normalized
