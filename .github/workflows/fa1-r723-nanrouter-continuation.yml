@@ -5,6 +5,9 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/fa1-r723-nanrouter-continuation.yml'
+      - 'fa1r7.12/source/fa1_r723_newbook_eval.py'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       max_updates:
@@ -25,6 +28,7 @@ concurrency:
 
 jobs:
   corpus:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'fa1-r722-cpu-seed'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -129,7 +133,16 @@ jobs:
             fi
           done
           printf 'Executed attempted updates: %s\nSelected checkpoint: %s\nNo accepted promotion.\n' "$total" "$current" > "$RUNNER_TEMP/reports/summary.txt"
+          echo "SELECTED_CHECKPOINT=$current" >> "$GITHUB_ENV"
           if [[ "$current" != "$FA1_INPUT" ]]; then cp "$current" "$RUNNER_TEMP/candidates/FA1_R7_SELECTED_UNPROMOTED.pt"; fi
+      - name: Sealed independent-book test and contamination screen
+        if: env.SELECTED_CHECKPOINT != env.FA1_INPUT
+        shell: bash
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/fa1_r723_newbook_eval.py --root "$FA1_ROOT" --corpus-dir "$FA1_CORPUS" --parent "$FA1_INPUT" --candidate "$SELECTED_CHECKPOINT" --source-release shemshallah/NaNROUTER:corpora-short-stories-0001 --test 256 --output "$RUNNER_TEMP/reports/sealed_newbook_test.json"
+          python fa1r7.12/source/fa1_r716_overlap.py --root "$FA1_ROOT" --corpus-dir "$FA1_CORPUS" --output "$RUNNER_TEMP/reports/legacy_overlap.json"
+          echo 'These are read-only test metrics. No automatic accepted checkpoint promotion.'
       - name: Upload stage reports and selected unpromoted candidate
         if: always()
         uses: actions/upload-artifact@v4
