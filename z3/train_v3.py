@@ -1133,7 +1133,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[model] params={parameter_count:,} layers={cfg.n_layers} "
         f"d_model={cfg.d_model} heads={cfg.n_heads} ctx={cfg.ctx} "
-        f"mtp_heads={len(model.mtp_heads)} moe_layers={cfg.moe_layers}",
+        f"mtp_heads={len(_model_core(model).mtp_heads)} moe_layers={cfg.moe_layers}",
         flush=True,
     )
 
@@ -1262,7 +1262,7 @@ def main(argv: list[str] | None = None) -> int:
         "params": parameter_count,
         "device": str(device),
         "amp": amp,
-        "mtp_heads": len(model.mtp_heads),
+        "mtp_heads": len(_model_core(model).mtp_heads),
         "mtp_max_lag": cfg.mtp,
         "lr_horizon": horizon,
         "warmup_steps": warmup_steps,
@@ -1625,14 +1625,14 @@ def main(argv: list[str] | None = None) -> int:
         "objective": {
             "main_ce_weight": 1.0,
             "mtp_weight": args.mtp_weight,
-            "mtp_heads": len(model.mtp_heads),
-            "mtp_lags": [2 + i for i in range(len(model.mtp_heads))],
+            "mtp_heads": len(_model_core(model).mtp_heads),
+            "mtp_lags": [2 + i for i in range(len(_model_core(model).mtp_heads))],
             "load_balance_coef": args.load_balance_coef,
             "router_z_coef": args.router_z_coef,
         },
         "mtp": {
-            "enabled": bool(model.mtp_heads),
-            "heads": len(model.mtp_heads),
+            "enabled": bool(_model_core(model).mtp_heads),
+            "heads": len(_model_core(model).mtp_heads),
             "max_lag": cfg.mtp,
             "weight": args.mtp_weight,
         },
