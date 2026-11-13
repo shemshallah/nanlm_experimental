@@ -1,0 +1,98 @@
+name: Mechanized UTM equivalence
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Parallel Coq jobs'
+        default: '2'
+        type: string
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/mechanized-utm.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mechanized-utm
+  cancel-in-progress: false
+
+jobs:
+  coq-utm:
+    runs-on: ubuntu-latest
+    container: coqorg/coq:8.20
+    timeout-minutes: 360
+    env:
+      LIB_COMMIT: 70dfc56f33a6e4835281044e68aa68279989047e
+      JOBS: ${{ inputs.jobs || '2' }}
+    steps:
+      - name: Check out NaNLMind proof source
+        uses: actions/checkout@v4
+        with:
+          repository: shemshallah/NaNLMind
+          path: NaNLMind
+          token: ${{ github.token }}
+
+      - name: Install git
+        run: |
+          if ! command -v git >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq git
+          fi
+
+      - name: Cache Coq library
+        uses: actions/cache@v4
+        with:
+          path: coq-library-undecidability
+          key: coq-utm-${{ env.LIB_COMMIT }}-coq-8.20
+
+      - name: Fetch pinned undecidability library
+        run: |
+          set -euo pipefail
+          if [ ! -f coq-library-undecidability/theories/_CoqProject ]; then
+            rm -rf coq-library-undecidability
+            git clone --depth 1 --branch coq-8.20 \
+              https://github.com/uds-psl/coq-library-undecidability.git \
+              coq-library-undecidability
+          fi
+          cd coq-library-undecidability
+          test "$(git rev-parse HEAD)" = "$LIB_COMMIT" || {
+            echo "library commit mismatch: $(git rev-parse HEAD) != $LIB_COMMIT" >&2
+            exit 2
+          }
+
+      - name: Build fixed-UTM dependency cone
+        run: |
+          set -euo pipefail
+          cd coq-library-undecidability/theories
+          if [ ! -f Makefile.rocq ]; then
+            coq_makefile -f _CoqProject -o Makefile.rocq
+          fi
+          make -f Makefile.rocq -j"$JOBS" \
+            TM/UTM.vo \
+            TM/UTM_undec.vo \
+            TM/Reductions/KrivineMclosed_HALT_to_HaltUTM.vo
+
+      - name: Check the mechanized equivalence theorem
+        run: |
+          set -euo pipefail
+          cd NaNLMind
+          coqc -Q ../coq-library-undecidability/theories Undecidability \
+            -w -notation-overridden,-stdlib-vector,-notation-incompatible-prefix \
+            formal/utm/UTMEquivalence.v
+          coqchk -Q ../coq-library-undecidability/theories Undecidability \
+            formal/utm/UTMEquivalence.vo
+          echo "MECHANIZED UTM THEOREM PASS"
+
+      - name: Upload checked proof and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mechanized-utm-${{ github.run_id }}
+          path: |
+            NaNLMind/formal/utm/UTMEquivalence.v
+            NaNLMind/formal/utm/UTMEquivalence.vo
+            NaNLMind/formal/utm/UTMEquivalence.glob
+          if-no-files-found: warn
+          retention-days: 90
