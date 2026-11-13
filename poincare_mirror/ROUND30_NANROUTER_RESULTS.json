@@ -1,0 +1,230 @@
+{
+  "lineage": "Poincare Mirror LM; one model, one Adam history; recovered source checkpoint step 1761",
+  "warning": "Historical R29 step 2280 logs exist, but the latest recoverable weight file at continuation start was step 1761. These updates do not reproduce the historical R29 weights.",
+  "start_step": 1761,
+  "end_step": 2801,
+  "new_optimizer_updates": 1040,
+  "starting_seen_tokens": 376368,
+  "ending_seen_tokens": 1128496,
+  "new_trained_byte_positions": 752128,
+  "checkpoint_sha256": "9ad6a368a9e68f4c1ccff366bee88047f7475f93ccb4d1da1c999db7bddee902",
+  "checkpoint_size_bytes": 255749067,
+  "optimizer_state_count": 63,
+  "architecture": {
+    "vocab_size": 257,
+    "dim": 192,
+    "layers": 6,
+    "heads": 16,
+    "pairs": 32,
+    "topk_pairs": 2,
+    "expert_hidden": 256,
+    "context": 4096,
+    "moe_every": 2,
+    "hyperbolic_strength": 0.2,
+    "balance_weight": 0.01,
+    "future2_weight": 0.3,
+    "future3_weight": 0.15,
+    "future_mode": "rollout",
+    "future_block_index": 1,
+    "norm_divisor": 48,
+    "dispatch_mode": "grouped",
+    "gather_chunk": 32
+  },
+  "parameters": 21304992,
+  "corpus": {
+    "source": "pal-r11-nanrouter-raw-prose-books",
+    "source_archive_sha256": "29ee56e59f00d90e47a0597490ef7af81dc1bb4a7f3e980af6dd7c047c4b8e24",
+    "books": {
+      "train": 12,
+      "development": 12,
+      "test": 14
+    },
+    "token_positions": {
+      "train": 1998359,
+      "development": 1982895,
+      "test": 1988223
+    },
+    "train_sha256": "7e368e4a8b4260400b859146404673f1013293794f79f0af9386c6f5312e703f",
+    "valid_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
+    "test_sha256": "bc01dfa8ecb632833114d34c6cfc9c1efc153c1e5236b13a754e58f8fbb78805",
+    "split_manifest_sha256": "a7bb4406b1606def1be2aefdce0c2a6962999459eced6bc19b460d7ce55e96fc"
+  },
+  "fixed_development_256": [
+    {
+      "checkpoint_step": 1761,
+      "split": "valid",
+      "checkpoint_context": 2048,
+      "evaluation_context": 256,
+      "future_mode": "rollout",
+      "evaluated_tokens": 4096,
+      "ablations_use_same_weights": true,
+      "results": {
+        "base": {
+          "ce_1": 2.933254,
+          "ce_2": 3.283473,
+          "ce_3": 3.329689,
+          "acc_1": 0.274658,
+          "acc_2": 0.177734,
+          "acc_3": 0.145508,
+          "ppl_1": 18.7887,
+          "bits_per_token_1": 4.23179
+        }
+      }
+    },
+    {
+      "checkpoint_step": 2081,
+      "split": "valid",
+      "checkpoint_context": 2048,
+      "evaluation_context": 256,
+      "future_mode": "rollout",
+      "evaluated_tokens": 4096,
+      "ablations_use_same_weights": true,
+      "results": {
+        "base": {
+          "ce_1": 2.391618,
+          "ce_2": 2.923138,
+          "ce_3": 3.075756,
+          "acc_1": 0.339844,
+          "acc_2": 0.220703,
+          "acc_3": 0.174316,
+          "ppl_1": 10.9312,
+          "bits_per_token_1": 3.450375
+        }
+      }
+    },
+    {
+      "checkpoint_step": 2401,
+      "split": "valid",
+      "checkpoint_context": 4096,
+      "evaluation_context": 256,
+      "future_mode": "rollout",
+      "evaluated_tokens": 4096,
+      "ablations_use_same_weights": true,
+      "results": {
+        "base": {
+          "ce_1": 2.295426,
+          "ce_2": 2.865426,
+          "ce_3": 3.050496,
+          "acc_1": 0.361084,
+          "acc_2": 0.227051,
+          "acc_3": 0.180908,
+          "ppl_1": 9.9287,
+          "bits_per_token_1": 3.311599
+        }
+      }
+    },
+    {
+      "checkpoint_step": 2801,
+      "split": "valid",
+      "checkpoint_context": 4096,
+      "evaluation_context": 256,
+      "future_mode": "rollout",
+      "evaluated_tokens": 4096,
+      "ablations_use_same_weights": true,
+      "results": {
+        "base": {
+          "ce_1": 2.231998,
+          "ce_2": 2.833584,
+          "ce_3": 3.044931,
+          "acc_1": 0.379639,
+          "acc_2": 0.239746,
+          "acc_3": 0.181396,
+          "ppl_1": 9.3185,
+          "bits_per_token_1": 3.220093
+        }
+      }
+    }
+  ],
+  "final_development_4096": {
+    "checkpoint_step": 2801,
+    "split": "valid",
+    "checkpoint_context": 4096,
+    "evaluation_context": 4096,
+    "future_mode": "rollout",
+    "evaluated_tokens": 8192,
+    "ablations_use_same_weights": true,
+    "results": {
+      "base": {
+        "ce_1": 2.506936,
+        "ce_2": 2.992944,
+        "ce_3": 3.157347,
+        "acc_1": 0.324341,
+        "acc_2": 0.204468,
+        "acc_3": 0.171021,
+        "ppl_1": 12.2673,
+        "bits_per_token_1": 3.616744
+      }
+    }
+  },
+  "final_test_256": {
+    "checkpoint_step": 2801,
+    "split": "test",
+    "checkpoint_context": 4096,
+    "evaluation_context": 256,
+    "future_mode": "rollout",
+    "evaluated_tokens": 8192,
+    "ablations_use_same_weights": true,
+    "results": {
+      "base": {
+        "ce_1": 2.224048,
+        "ce_2": 2.808576,
+        "ce_3": 3.033572,
+        "acc_1": 0.384644,
+        "acc_2": 0.234375,
+        "acc_3": 0.184204,
+        "ppl_1": 9.2447,
+        "bits_per_token_1": 3.208623
+      },
+      "unigram_prior": {
+        "ce_1": 3.128174,
+        "ppl_1": 22.8322
+      }
+    }
+  },
+  "final_test_4096": {
+    "checkpoint_step": 2801,
+    "split": "test",
+    "checkpoint_context": 4096,
+    "evaluation_context": 4096,
+    "future_mode": "rollout",
+    "evaluated_tokens": 8192,
+    "ablations_use_same_weights": true,
+    "results": {
+      "base": {
+        "ce_1": 2.38965,
+        "ce_2": 2.913636,
+        "ce_3": 3.090828,
+        "acc_1": 0.333496,
+        "acc_2": 0.220947,
+        "acc_3": 0.171143,
+        "ppl_1": 10.9097,
+        "bits_per_token_1": 3.447536
+      }
+    }
+  },
+  "aligned_same_target_development_context_comparison": {
+    "step": 2801,
+    "split": "valid",
+    "same_target_positions": 4096,
+    "windows": 16,
+    "context_comparison": {
+      "256": {
+        "ce_nats_byte": 2.437552,
+        "bpb": 3.516644,
+        "accuracy": 0.342529
+      },
+      "4096": {
+        "ce_nats_byte": 2.654094,
+        "bpb": 3.829048,
+        "accuracy": 0.282227
+      }
+    },
+    "long_minus_short_bpb": 0.312404
+  },
+  "evaluation_warning": "All normal 256 vs 4096 evaluations use distinct sampled target positions; only aligned_context explicitly holds target bytes identical.",
+  "tests": {
+    "status": "PASS",
+    "count": 20,
+    "log": "logs/R30_ALL_TESTS.log"
+  }
+}

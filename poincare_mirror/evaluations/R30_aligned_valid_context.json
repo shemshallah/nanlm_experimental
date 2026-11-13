@@ -1,0 +1,19 @@
+{
+  "step": 2801,
+  "split": "valid",
+  "same_target_positions": 4096,
+  "windows": 16,
+  "context_comparison": {
+    "256": {
+      "ce_nats_byte": 2.437552,
+      "bpb": 3.516644,
+      "accuracy": 0.342529
+    },
+    "4096": {
+      "ce_nats_byte": 2.654094,
+      "bpb": 3.829048,
+      "accuracy": 0.282227
+    }
+  },
+  "long_minus_short_bpb": 0.312404
+}

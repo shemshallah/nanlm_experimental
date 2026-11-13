@@ -1,0 +1,25 @@
+{
+  "checkpoint_step": 2801,
+  "split": "test",
+  "checkpoint_context": 4096,
+  "evaluation_context": 256,
+  "future_mode": "rollout",
+  "evaluated_tokens": 8192,
+  "ablations_use_same_weights": true,
+  "results": {
+    "base": {
+      "ce_1": 2.224048,
+      "ce_2": 2.808576,
+      "ce_3": 3.033572,
+      "acc_1": 0.384644,
+      "acc_2": 0.234375,
+      "acc_3": 0.184204,
+      "ppl_1": 9.2447,
+      "bits_per_token_1": 3.208623
+    },
+    "unigram_prior": {
+      "ce_1": 3.128174,
+      "ppl_1": 22.8322
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "checkpoint_step": 2801,
+  "split": "valid",
+  "checkpoint_context": 4096,
+  "evaluation_context": 256,
+  "future_mode": "rollout",
+  "evaluated_tokens": 4096,
+  "ablations_use_same_weights": true,
+  "results": {
+    "base": {
+      "ce_1": 2.231998,
+      "ce_2": 2.833584,
+      "ce_3": 3.044931,
+      "acc_1": 0.379639,
+      "acc_2": 0.239746,
+      "acc_3": 0.181396,
+      "ppl_1": 9.3185,
+      "bits_per_token_1": 3.220093
+    }
+  }
+}

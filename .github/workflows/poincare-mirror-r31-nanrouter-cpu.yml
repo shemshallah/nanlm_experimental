@@ -1,0 +1,226 @@
+name: Poincare Mirror R31 NaNROUTER CPU continuation
+
+on:
+  push:
+    paths:
+      - 'poincare_mirror/**'
+      - '.github/workflows/poincare-mirror-r31-nanrouter-cpu.yml'
+  workflow_dispatch:
+    inputs:
+      checkpoint_tag:
+        description: 'Release tag containing the verified R30 step-2801 checkpoint'
+        required: true
+        default: 'poincare-r30-step2801-canonical'
+      corpus_tag:
+        description: 'NaNROUTER short-story batch release'
+        required: true
+        default: 'corpora-short-stories-0004'
+      updates:
+        description: 'Additional Adam updates, 1..128'
+        required: true
+        default: '64'
+      cpu_threads:
+        description: 'CPU threads, 1..4'
+        required: true
+        default: '4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: poincare-mirror-r31-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poincare_mirror/requirements.txt
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'torch==2.6.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy>=1.26,<3'
+      - name: All R27-R31 regression tests
+        working-directory: poincare_mirror
+        env:
+          OMP_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: |
+          python -m unittest discover -s tests -q
+          python poincare_frontier.py smoke
+
+  cpu-continuation:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODEL_ROOT: poincare_mirror
+      EXPECTED_R30_SHA256: 9ad6a368a9e68f4c1ccff366bee88047f7475f93ccb4d1da1c999db7bddee902
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poincare_mirror/requirements.txt
+      - name: Install reproducible CPU requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zstd
+          python -m pip install --upgrade pip
+          python -m pip install 'torch==2.6.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy>=1.26,<3'
+      - name: Validate safe bounded workload
+        env:
+          UPDATES: ${{ inputs.updates }}
+          THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          [[ "$UPDATES" =~ ^[0-9]+$ && "$UPDATES" -ge 1 && "$UPDATES" -le 128 ]] || exit 2
+          [[ "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 && "$THREADS" -le 4 ]] || exit 2
+      - name: Recover exact R30 optimizer checkpoint (never reinitialize)
+        env:
+          SOURCE_TAG: ${{ inputs.checkpoint_tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p poincare_mirror/run poincare_mirror/reports
+          gh release download "$SOURCE_TAG" -R "$GITHUB_REPOSITORY" -p 'poincare_mirror_latest.pt' -D poincare_mirror/run --clobber
+          mv poincare_mirror/run/poincare_mirror_latest.pt poincare_mirror/run/latest.pt
+          python poincare_mirror/scripts/verify_lineage.py \
+            --checkpoint poincare_mirror/run/latest.pt \
+            --expected-sha256 "$EXPECTED_R30_SHA256" \
+            --expected-step 2801 --minimum-adam-states 63 \
+            --report poincare_mirror/reports/recovered_r30.json
+      - name: Download real 615-book batch and create book-disjoint 80/10/10 splits
+        env:
+          CORPUS_TAG: ${{ inputs.corpus_tag }}
+        run: |
+          mkdir -p poincare_mirror/cache poincare_mirror/books poincare_mirror/data
+          gh release download "$CORPUS_TAG" -R shemshallah/NaNROUTER \
+            -p '*.tar.zst' -p '*.tar.zst.part-*' -p '*SHA256SUMS' \
+            -D poincare_mirror/cache --clobber
+          (cd poincare_mirror/cache && sha256sum --strict --check *SHA256SUMS)
+          shopt -s nullglob
+          parts=(poincare_mirror/cache/*.tar.zst.part-*)
+          archives=(poincare_mirror/cache/*.tar.zst)
+          if (( ${#parts[@]} )); then
+            cat "${parts[@]}" | tar --zstd -xf - -C poincare_mirror/books
+          elif (( ${#archives[@]} == 1 )); then
+            tar --zstd -xf "${archives[0]}" -C poincare_mirror/books
+          else
+            echo 'Missing unambiguous, checksum-verified NaNROUTER archive' >&2
+            exit 3
+          fi
+          python poincare_mirror/poincare_frontier.py prepare-books \
+            --source-dir poincare_mirror/books --out-dir poincare_mirror/data \
+            --valid-fraction 0.10 --test-fraction 0.10 --seed 2026 \
+            --exclude-gutenberg-ids poincare_mirror/old_r30_book_ids.json \
+            > poincare_mirror/reports/data_meta.json
+      - name: Explicitly adopt new books with ZERO weight updates
+        env:
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+          MKL_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          python poincare_mirror/poincare_frontier.py train \
+            --run-dir poincare_mirror/run --data-dir poincare_mirror/data \
+            --adopt-data --steps 0 --train-context 256 --eval-context 256 \
+            --batch 1 --eval-batches 4 --cpu --cpu-threads "$OMP_NUM_THREADS" \
+            | tee poincare_mirror/reports/adopt_zero_updates.log
+          python poincare_mirror/scripts/verify_lineage.py \
+            --checkpoint poincare_mirror/run/latest.pt --expected-step 2801 \
+            --minimum-adam-states 63 \
+            --report poincare_mirror/reports/adopted_r30.json
+      - name: Baseline on new held-out development books
+        env:
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+          MKL_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          python poincare_mirror/poincare_frontier.py evaluate \
+            --data-dir poincare_mirror/data --run-dir poincare_mirror/run \
+            --split valid --context-override 256 --batch 1 \
+            --exhaustive --max-eval-batches 16 --cpu \
+            > poincare_mirror/reports/before_valid256.json
+      - name: Continue same weights and Adam history
+        env:
+          UPDATES: ${{ inputs.updates }}
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+          MKL_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          python poincare_mirror/poincare_frontier.py train \
+            --run-dir poincare_mirror/run --data-dir poincare_mirror/data \
+            --steps "$UPDATES" --context-mix '256:8,512:3,1024:1' \
+            --eval-context 256 --batch 1 --eval-every 32 --eval-batches 4 \
+            --save-every 16 --cpu --cpu-threads "$OMP_NUM_THREADS" \
+            | tee poincare_mirror/reports/train.log
+          python poincare_mirror/scripts/verify_lineage.py \
+            --checkpoint poincare_mirror/run/latest.pt \
+            --expected-step "$((2801 + UPDATES))" --minimum-adam-states 63 \
+            --report poincare_mirror/reports/candidate.json
+      - name: Independent same-position development comparison
+        env:
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+          MKL_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          python poincare_mirror/poincare_frontier.py evaluate \
+            --data-dir poincare_mirror/data --run-dir poincare_mirror/run \
+            --split valid --context-override 256 --batch 1 \
+            --exhaustive --max-eval-batches 16 --cpu \
+            > poincare_mirror/reports/after_valid256.json
+          python poincare_mirror/scripts/compare_r31.py \
+            --before poincare_mirror/reports/before_valid256.json \
+            --after poincare_mirror/reports/after_valid256.json \
+            --output poincare_mirror/reports/development_gate.json
+      - name: Evaluate fresh test books only if development gate passes
+        env:
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+          MKL_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          passed="$(python -c 'import json; print(str(json.load(open("poincare_mirror/reports/development_gate.json"))["promotable_on_development"]).lower())')"
+          if [[ "$passed" == true ]]; then
+            python poincare_mirror/poincare_frontier.py evaluate \
+              --data-dir poincare_mirror/data --run-dir poincare_mirror/run \
+              --split test --context-override 256 --batch 1 \
+              --exhaustive --max-eval-batches 32 --cpu \
+              > poincare_mirror/reports/test256.json
+          fi
+      - name: Preserve exact candidate and metrics, without replacing R30
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poincare-mirror-r31-candidate-${{ github.run_id }}
+          path: |
+            poincare_mirror/run/latest.pt
+            poincare_mirror/reports/
+            poincare_mirror/data/meta.json
+            poincare_mirror/data/split_manifest.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+      - name: Publish passing candidate as unpromoted prerelease
+        if: success()
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          passed="$(python -c 'import json; print(str(json.load(open("poincare_mirror/reports/development_gate.json"))["promotable_on_development"]).lower())')"
+          if [[ "$passed" == true ]]; then
+            cp poincare_mirror/run/latest.pt poincare_mirror_latest.pt
+            tag="poincare-r31-unpromoted-${GITHUB_RUN_ID}"
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" \
+              --title "Poincare Mirror R31 CPU candidate (unpromoted)" \
+              --notes 'One-checkpoint R30 continuation; development eligibility only; previous accepted weights untouched.' \
+              --prerelease \
+              poincare_mirror_latest.pt \
+              poincare_mirror/reports/development_gate.json \
+              poincare_mirror/reports/candidate.json \
+              poincare_mirror/reports/test256.json
+          fi
