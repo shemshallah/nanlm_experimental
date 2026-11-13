@@ -67,6 +67,8 @@ class Config:
     legacy_attention_dim: int = 0
     legacy_attention_heads: int = 0
     hierarchy_rank: int = 0  # opt-in byte/pair/word/sentence causal feedback
+    attention_window: int = 0  # 0 = inherited dense attention; nonzero bounds long-context work
+    geometry_memory_chunk: int = 0  # 0 = inherited geometry; nonzero enables causal apex-memory loops
 
     def check(self):
         if self.legacy_attention_dim:
@@ -88,6 +90,9 @@ class Config:
         assert self.dispatch_mode in ('grouped', 'gather') and self.gather_chunk > 0
         assert self.symbiotic_rank == 0 or 8 <= self.symbiotic_rank <= 64
         assert self.hierarchy_rank == 0 or 8 <= self.hierarchy_rank <= 128
+        assert self.attention_window == 0 or self.attention_window >= 4
+        assert self.geometry_memory_chunk == 0 or self.geometry_memory_chunk >= 4
+        assert not self.geometry_memory_chunk or self.symbiotic_rank
 
 
 class RMSNorm(nn.Module):
@@ -125,11 +130,12 @@ def apply_rope(x):
 
 
 class CausalAttention(nn.Module):
-    def __init__(self, dim, heads, legacy_dim=0, legacy_heads=0):
+    def __init__(self, dim, heads, legacy_dim=0, legacy_heads=0, window=0):
         super().__init__()
         self.heads = heads
         self.legacy_dim = legacy_dim
         self.legacy_heads = legacy_heads
+        self.window = window
         self.qkv = nn.Linear(dim, dim * 3, bias=False)
         self.out = nn.Linear(dim, dim, bias=False)
 
@@ -142,7 +148,26 @@ class CausalAttention(nn.Module):
             q0 = apply_rope(q0.reshape(b, t, heads, width // heads).transpose(1, 2))
             k0 = apply_rope(k0.reshape(b, t, heads, width // heads).transpose(1, 2))
             v0 = v0.reshape(b, t, heads, width // heads).transpose(1, 2)
-            a = F.scaled_dot_product_attention(q0, k0, v0, is_causal=True, dropout_p=0.)
+            if not self.window or t <= self.window:
+                # The inherited short-context operation is bit-for-bit intact.
+                a = F.scaled_dot_product_attention(q0, k0, v0, is_causal=True, dropout_p=0.)
+            else:
+                # Query tiling bounds peak score memory and avoids materializing
+                # a quadratic [time,time] mask at 32K+ bytes. RoPE coordinates
+                # remain absolute; both the window and causality are explicit.
+                pieces = []
+                chunk = min(128, self.window)
+                for start in range(0, t, chunk):
+                    end = min(t, start + chunk)
+                    left = max(0, start - self.window + 1)
+                    qi = torch.arange(start, end, device=x.device)
+                    ki = torch.arange(left, end, device=x.device)
+                    allowed = (ki[None, :] <= qi[:, None]) & (
+                        ki[None, :] > qi[:, None] - self.window)
+                    pieces.append(F.scaled_dot_product_attention(
+                        q0[:, :, start:end], k0[:, :, left:end], v0[:, :, left:end],
+                        attn_mask=allowed, is_causal=False, dropout_p=0.))
+                a = torch.cat(pieces, dim=-2)
             return a.transpose(1, 2).contiguous().view(b, t, width)
 
         if self.legacy_dim:
@@ -214,6 +239,50 @@ class SwiGLU(nn.Module):
         return self.down(F.silu(a) * b)
 
 
+class CausalGeometricMemory(nn.Module):
+    """Two shared attention loops from token apex states to completed chunks.
+
+    Memory keys/values come from the same geometric trajectory, not a second
+    predictor. A position can read only chunks that ended *before* its current
+    chunk. This creates content-addressed long-range retrieval with no labels,
+    future tokens, or partially completed chunks entering a memory value.
+    The zero-initialized residual gate preserves inherited logits on migration.
+    """
+    def __init__(self, rank, chunk):
+        super().__init__()
+        self.rank, self.chunk = rank, chunk
+        self.query = nn.Linear(rank, rank, bias=False)
+        self.key = nn.Linear(rank, rank, bias=False)
+        self.value = nn.Linear(rank, rank, bias=False)
+        self.feedback = nn.Linear(rank, rank, bias=False)
+        self.gate = nn.Parameter(torch.zeros(()))
+
+    def forward(self, states):
+        b, t, r = states.shape
+        count = t // self.chunk
+        if not count:
+            return states
+        # All bank entries have exactly chunk tokens. Trailing incomplete
+        # chunks are absent; per-query masking excludes the *current* chunk.
+        completed = states[:, :count*self.chunk].reshape(
+            b, count, self.chunk, r).mean(2)
+        keys, values = self.key(completed), self.value(completed)
+        current_chunk = torch.arange(t, device=states.device) // self.chunk
+        allowed = (torch.arange(count, device=states.device)[None, :] <
+                   current_chunk[:, None])
+        memory = states
+        for _ in range(2):
+            scores = self.query(memory) @ keys.transpose(1, 2) / math.sqrt(r)
+            # Finite masking makes rows with no eligible chunks safe. Those
+            # rows are explicitly zeroed after softmax.
+            scores = scores.masked_fill(~allowed[None], torch.finfo(scores.dtype).min)
+            weights = scores.softmax(-1) * allowed.any(-1)[None, :, None]
+            message = self.feedback(weights @ values)
+            refined = F.layer_norm(memory + message, (r,))
+            memory = torch.where(allowed.any(-1)[None, :, None], refined, memory)
+        return states + torch.tanh(self.gate) * (memory - states)
+
+
 class SymbioticGeometry(nn.Module):
     """Causal, sparsely addressed point/pair/triangle/tetra/apex feedback.
 
@@ -225,7 +294,7 @@ class SymbioticGeometry(nn.Module):
     POINTS = 256
     ACTIVE = 8
 
-    def __init__(self, dim, rank):
+    def __init__(self, dim, rank, memory_chunk=0):
         super().__init__()
         self.rank = rank
         self.point_query = nn.Linear(dim, rank, bias=False)
@@ -237,6 +306,7 @@ class SymbioticGeometry(nn.Module):
         self.level_logits = nn.Parameter(torch.zeros(4))
         self.feedback_query = nn.Linear(rank, rank, bias=False)
         self.to_hidden = nn.Linear(rank, dim, bias=False)
+        self.memory = CausalGeometricMemory(rank, memory_chunk) if memory_chunk else None
         for order in (2, 3, 4):
             self.register_buffer('choose'+str(order),
                                  torch.combinations(torch.arange(8), r=order), persistent=False)
@@ -296,6 +366,9 @@ class SymbioticGeometry(nn.Module):
             apex = (self.apex_values[selected]*score.softmax(-1).unsqueeze(-1)).sum(-2)
             state = F.layer_norm(state+apex+prefix,(rank,))
 
+        if self.memory is not None:
+            state = self.memory(state)
+
         # Downward apex -> triangle -> mirror pair -> point closure.
         down = state.reshape(-1,rank)
         def read(values):
@@ -332,7 +405,8 @@ class MirrorPairMoE(nn.Module):
         self.out_shared = nn.Parameter(torch.randn(p, f, d) * (0.45 / math.sqrt(f)))
         self.out_anti = nn.Parameter(torch.randn(p, f, d) * (0.15 / math.sqrt(f)))
         self.normalizer = RMSNorm(d, cfg.norm_divisor or d)
-        self.symbiotic = SymbioticGeometry(d, cfg.symbiotic_rank) if cfg.symbiotic_rank else None
+        self.symbiotic = (SymbioticGeometry(d, cfg.symbiotic_rank, cfg.geometry_memory_chunk)
+                         if cfg.symbiotic_rank else None)
 
     @staticmethod
     def to_ball(z):
@@ -416,7 +490,8 @@ class Block(nn.Module):
         super().__init__()
         self.n1 = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.att = CausalAttention(cfg.dim, cfg.heads,
-                                   cfg.legacy_attention_dim, cfg.legacy_attention_heads)
+                                   cfg.legacy_attention_dim, cfg.legacy_attention_heads,
+                                   cfg.attention_window)
         self.n2 = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.ff = MirrorPairMoE(cfg) if use_moe else SwiGLU(cfg.dim, 4 * cfg.dim)
         self.use_moe = use_moe
@@ -897,10 +972,14 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.dim == previous_cfg.dim
             and model.cfg.expert_hidden == previous_cfg.expert_hidden
             and model.cfg.symbiotic_rank == previous_cfg.symbiotic_rank
-            and model.cfg.hierarchy_rank == previous_cfg.hierarchy_rank):
+            and model.cfg.hierarchy_rank == previous_cfg.hierarchy_rank
+            and model.cfg.geometry_memory_chunk == previous_cfg.geometry_memory_chunk):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
         raise ValueError('Cannot reshape an already trained Diamond')
+    if (previous_cfg.geometry_memory_chunk and
+            model.cfg.geometry_memory_chunk != previous_cfg.geometry_memory_chunk):
+        raise ValueError('Cannot reshape an already trained geometric memory')
     if previous_cfg.hierarchy_rank and model.cfg.hierarchy_rank != previous_cfg.hierarchy_rank:
         raise ValueError('Cannot reshape a trained token hierarchy')
     if model.cfg.moe_every != previous_cfg.moe_every:
@@ -946,6 +1025,7 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
                 if name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
                     not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
+                    not previous_cfg.geometry_memory_chunk and '.ff.symbiotic.memory.' in name) or (
                     not previous_cfg.hierarchy_rank and name.startswith('hierarchy.')):
                     continue
                 raise ValueError('Unknown new state entry: ' + name)
@@ -1040,6 +1120,8 @@ def configure(args, vocab_size):
                   moe_every=args.moe_every, hyperbolic_strength=args.geo,
                   balance_weight=args.balance, symbiotic_rank=args.symbiotic_rank or 0,
                   hierarchy_rank=getattr(args, 'hierarchy_rank', None) or 0,
+                  attention_window=getattr(args, 'attention_window', None) or 0,
+                  geometry_memory_chunk=getattr(args, 'geometry_memory_chunk', None) or 0,
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
 
@@ -1124,8 +1206,24 @@ def train(args):
         if cfg.hierarchy_rank or requested_hierarchy_rank == 0:
             raise ValueError('Token hierarchy can only be enabled once')
         cfg.hierarchy_rank = requested_hierarchy_rank
-    growth = saved.get('growth') if saved else None
+    new_memory_chunk = getattr(args, 'geometry_memory_chunk', None)
+    enable_geometry_memory = bool(saved and new_memory_chunk is not None and
+                                  new_memory_chunk != cfg.geometry_memory_chunk)
+    if enable_geometry_memory:
+        if cfg.geometry_memory_chunk or new_memory_chunk == 0:
+            raise ValueError('Already trained geometric memory cannot be resized or disabled')
+        cfg.geometry_memory_chunk = new_memory_chunk
     history = list(saved.get('growth_history', [])) if saved else []
+    new_attention_window = getattr(args, 'attention_window', None)
+    if new_attention_window is not None and new_attention_window != cfg.attention_window:
+        if saved and old_cfg.attention_window:
+            raise ValueError('Cannot change a trained attention window')
+        if saved and new_attention_window and new_attention_window < old_cfg.context:
+            raise ValueError('Attention window must cover inherited context for logit-preserving migration')
+        history.append({'kind':'local_causal_attention','step':saved['step'] if saved else 0,
+                        'from':cfg.attention_window,'to':new_attention_window})
+        cfg.attention_window = new_attention_window
+    growth = saved.get('growth') if saved else None
     if enable_symbiotic:
         history.append({'kind':'symbiotic_diamond','step':saved['step'],
                         'rank':cfg.symbiotic_rank,'points':256,'active_points':8,
@@ -1136,6 +1234,10 @@ def train(args):
         history.append({'kind':'causal_token_hierarchy','step':saved['step'],
                         'rank':cfg.hierarchy_rank,'scales':['byte','byte_pair_proxy','word','sentence'],
                         'cross_scale_attention_passes':2,'output_initialized_to_zero':True})
+    if enable_geometry_memory:
+        history.append({'kind':'causal_geometric_memory','step':saved['step'],
+                        'chunk_size':cfg.geometry_memory_chunk,
+                        'apex_memory_attention_passes':2,'gate_initialized_to_zero':True})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -1225,7 +1327,8 @@ def train(args):
                               foreach=False if device.type == 'cpu' else None)
     rng = np.random.default_rng(args.seed)
     if saved:
-        if growing or deepen or widening or expert_growing or enable_symbiotic or enable_hierarchy:
+        if (growing or deepen or widening or expert_growing or enable_symbiotic or
+                enable_hierarchy or enable_geometry_memory):
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -1453,6 +1556,15 @@ def evaluate(args):
             model.hierarchy = None
             results['no_token_hierarchy'] = measure()
             model.hierarchy = original_hierarchy
+        geometric_memories = [m.symbiotic.memory for m in moes
+                              if m.symbiotic is not None and m.symbiotic.memory is not None]
+        if geometric_memories:
+            saved_gates = [memory.gate.detach().clone() for memory in geometric_memories]
+            for memory in geometric_memories:
+                memory.gate.zero_()
+            results['no_geometric_temporal_memory'] = measure()
+            for memory, value in zip(geometric_memories, saved_gates):
+                memory.gate.copy_(value)
         original_geometry = [m.symbiotic for m in moes]
         if any(g is not None for g in original_geometry):
             for m in moes:
@@ -1502,6 +1614,8 @@ def count_parameters_exact(cfg):
             if cfg.symbiotic_rank:
                 r = cfg.symbiotic_rank
                 total += 3*d*r + 1024*r + r*r + 4
+                if cfg.geometry_memory_chunk:
+                    total += 4*r*r + 1
         else:
             total += 16*d*d + 2*d
     if cfg.hierarchy_rank:
@@ -1597,6 +1711,16 @@ def grow_checkpoint(args):
         if args.set_context < cfg.context:
             raise ValueError('Cannot shrink trained context')
         cfg.context = args.set_context
+    if getattr(args, 'attention_window', None) is not None:
+        if original.attention_window and args.attention_window != original.attention_window:
+            raise ValueError('Cannot change a trained attention window')
+        if args.attention_window and args.attention_window < original.context:
+            raise ValueError('Attention window must preserve inherited context')
+        cfg.attention_window = args.attention_window
+    if getattr(args, 'geometry_memory_chunk', None) is not None:
+        if original.geometry_memory_chunk and args.geometry_memory_chunk != original.geometry_memory_chunk:
+            raise ValueError('Cannot resize already trained geometric memory')
+        cfg.geometry_memory_chunk = args.geometry_memory_chunk
     if args.dispatch_mode is not None:
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
@@ -1615,8 +1739,11 @@ def grow_checkpoint(args):
     expanded = any((cfg.dim != original.dim, cfg.layers != original.layers,
                     cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
                     cfg.symbiotic_rank != original.symbiotic_rank,
-                    cfg.hierarchy_rank != original.hierarchy_rank))
-    changed = expanded or cfg.context != original.context or cfg.dispatch_mode != original.dispatch_mode
+                    cfg.hierarchy_rank != original.hierarchy_rank,
+                    cfg.geometry_memory_chunk != original.geometry_memory_chunk))
+    changed = (expanded or cfg.context != original.context or
+               cfg.dispatch_mode != original.dispatch_mode or
+               cfg.attention_window != original.attention_window)
     if not changed:
         raise ValueError('No capacity/context/dispatch change requested')
     if expanded and saved.get('growth'):
@@ -1711,6 +1838,8 @@ def grow_checkpoint(args):
               'new_layers':cfg.layers, 'new_expert_hidden':cfg.expert_hidden,
               'new_symbiotic_rank':cfg.symbiotic_rank,
               'new_hierarchy_rank':cfg.hierarchy_rank,
+              'new_attention_window':cfg.attention_window,
+              'new_geometry_memory_chunk':cfg.geometry_memory_chunk,
               'new_attention_heads':cfg.heads,
               'legacy_attention_heads':cfg.legacy_attention_heads,
               'max_abs_logit_drift_h1_h2_h3':differences,
@@ -1747,6 +1876,10 @@ def main():
     gr.add_argument('--hierarchy-rank',type=int,
                     help='enable causal byte/pair/word/sentence attention feedback without changing prior logits')
     gr.add_argument('--set-context',type=int)
+    gr.add_argument('--attention-window',type=int,
+                    help='bounded causal attention; >= inherited context retains old logits')
+    gr.add_argument('--geometry-memory-chunk',type=int,
+                    help='two causal geometric apex-memory loops over completed chunks')
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
     gr.add_argument('--widen-noise',type=float,default=1e-4)
@@ -1802,6 +1935,10 @@ def main():
     tr.add_argument('--lr', type=float, default=None, help='initial or explicitly overridden optimizer LR')
     tr.add_argument('--grow-pairs', type=int, default=None, help='increase pair capacity within the same checkpoint')
     tr.add_argument('--set-context', type=int, default=None, help='expand causal context with the same learned weights')
+    tr.add_argument('--attention-window', type=int, default=None,
+                    help='limit attention to a sliding window (>= inherited context on migration)')
+    tr.add_argument('--geometry-memory-chunk', type=int, default=None,
+                    help='two loops of causal apex self-attention over completed memory blocks')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None,
                     help='expand width without changing learned head geometry, including 192D to 256D')

@@ -30,13 +30,20 @@ def digest(path):
 
 
 @torch.no_grad()
-def benchmark(model, data, context=256, positions=2048, batch_size=8, seed=2026):
+def benchmark(model, data, context=256, positions=2048, batch_size=8, seed=2026,
+              locations=None):
     """Evaluate fixed targets with no look-ahead in any model input."""
-    if len(data) < context + 3 + positions:
-        raise ValueError('Insufficient raw held-out bytes for the requested positions')
-    candidates = np.arange(context, len(data) - 2)
-    rng = np.random.default_rng(seed)
-    locations = np.sort(rng.choice(candidates, size=positions, replace=False))
+    if locations is None:
+        if len(data) < context + 3 + positions:
+            raise ValueError('Insufficient raw held-out bytes for the requested positions')
+        candidates = np.arange(context, len(data) - 2)
+        rng = np.random.default_rng(seed)
+        locations = np.sort(rng.choice(candidates, size=positions, replace=False))
+    else:
+        locations = np.asarray(locations, dtype=np.int64)
+        if (locations.ndim != 1 or len(locations) != positions or
+                np.any(locations < context) or np.any(locations + 2 >= len(data))):
+            raise ValueError('Aligned target positions outside available context/labels')
     positions_sha256 = hashlib.sha256(locations.astype('<i8').tobytes()).hexdigest()
     sums = np.zeros((3, 3), dtype=np.float64)  # nats CE, top1, top5
     elapsed = 0.0
