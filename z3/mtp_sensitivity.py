@@ -43,7 +43,8 @@ def main():
     starts = np.linspace(args.ctx, len(ids) - args.ctx - 3, args.batch_size, dtype=np.int64)
     x = torch.from_numpy(np.stack([ids[s - args.ctx:s] for s in starts]).astype(np.int64))
     next_ids = torch.cat([x[:, 1:], x[:, -1:]], dim=1)
-    wrong_ids = torch.roll(next_ids, shifts=1, dims=1)
+    torch.manual_seed(7)
+    wrong_ids = torch.randint_like(next_ids, low=0, high=cfg.vocab_size)
     result = {}
     with torch.no_grad():
         for name, nxt in (("correct", next_ids), ("wrong", wrong_ids)):
