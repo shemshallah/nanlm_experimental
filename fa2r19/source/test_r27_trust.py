@@ -57,7 +57,9 @@ def run():
     gate.zero_grad(set_to_none=True)
     with torch.no_grad():
         gate.reversion.zero_()
-    loss=-gate(r26_y,r26_near_y,feats).mean()
+    # Force distinct counterfactual outcomes: the repeated toy text can otherwise
+    # make near and far proposals exactly equal, yielding a legitimate zero gradient.
+    loss=-gate(r26_y,r26_near_y + .25,feats).mean()
     loss.backward()
     assert gate.reversion.grad is not None
     assert torch.isfinite(gate.reversion.grad)
