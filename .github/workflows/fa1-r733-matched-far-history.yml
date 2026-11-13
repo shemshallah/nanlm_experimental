@@ -1,0 +1,56 @@
+name: FA1 R7.33 - matched far-history causal controls
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r733-matched-far-history.yml'
+      - 'fa1r7.12/source/fa1_r733_far_history.py'
+      - 'fa1r7.12/source/test_fa1_r733_far_history.py'
+      - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
+      - 'fa1r7.12/FA1_R7p33_MATCHED_FAR_HISTORY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r733-master-source
+  cancel-in-progress: false
+
+jobs:
+  causal-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Run source and migration regressions
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r728_geometric_memory.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r733_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r732_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r730_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r729_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r728_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r727_*.py' -q
+      - name: Protect inherited optimizer contract
+        run: python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r733_optimizer_suite.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r733-source-regression
+          path: ${{ runner.temp }}/r733_optimizer_suite.json
+          retention-days: 30
+      - name: No automatic promotion
+        run: echo 'The accepted step-14,416 checkpoint and sealed TEST books are never touched by source CI.'

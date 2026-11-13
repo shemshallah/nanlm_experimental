@@ -30,6 +30,7 @@ from fa1_r727_eval import evaluate as vocabulary_evaluate, validate_book_corpus
 from fa1_r732_matched_history import (matched_history_context,
                                        geometry_specific_history_gain,
                                        context_specific_margin)
+from fa1_r733_far_history import HORIZONS, matched_far_history
 
 
 @contextlib.contextmanager
@@ -148,7 +149,8 @@ def factor_read_disabled(model):
 
 
 @torch.no_grad()
-def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
+def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
+                        with_matched_far=False):
     model.eval()
     correct, extra = forward(model, data)
     # Hold the latest local context fixed: only older words/bytes, distant
@@ -181,6 +183,15 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
     foreign_nll, foreign_extra = forward(model, foreign)
     no_apex, no_apex_extra = forward(model, data, 'no_apex')
     no_pair, no_pair_extra = forward(model, data, 'no_pair')
+    far_horizons=[]
+    if with_matched_far:
+        for horizon,(nw,nb,ns) in enumerate(HORIZONS):
+            counterfactual, far_donors = matched_far_history(data,seed+19+horizon,horizon)
+            far_word, far_extra = forward(model,counterfactual)
+            with geometry_disabled(model):
+                far_geometry_off, far_off_extra = forward(model,counterfactual)
+            far_horizons.append((horizon,nw,nb,ns,far_donors,far_word,
+                                 far_extra,far_geometry_off,far_off_extra))
     old = model.joint_nll(data, diamond_enabled=False)[0]
     gain = without_geometry - correct
     history = foreign_nll - correct
@@ -281,6 +292,57 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
                 'layered_language_context_byte_gain_nats_per_byte':float((context_ce-full_bytes).sum()/counts.sum()),
                 'layered_language_context_byte_gain_nats_per_word_normalized':float((context_per_word-full_per_word)[valid].mean()),
             })
+        if with_matched_far:
+            byte_advantages=[]
+            byte_specificities=[]
+            result['matched_far_horizons']=[{} for _ in HORIZONS]
+            for horizon,nw,nb,ns,far_donors,far_word,far_extra,far_geometry_off,far_off_extra in far_horizons:
+                far_per_word,_,far_bytes,_,_=layered_byte_losses(far_extra,data)
+                far_off_per_word,_,far_off_bytes,_,_=layered_byte_losses(far_off_extra,data)
+                byte_adv=far_per_word-full_per_word
+                byte_specific=(no_geo_per_word-full_per_word)-(far_off_per_word-far_per_word)
+                byte_advantages.append(byte_adv)
+                byte_specificities.append(byte_specific)
+                result['matched_far_horizons'][horizon].update({
+                    'byte_advantage_nats_per_byte':float((far_bytes-full_bytes).sum()/counts.sum()),
+                    'byte_geometry_specificity_nats_per_byte':float(((no_geo_bytes-full_bytes)-(far_off_bytes-far_bytes)).sum()/counts.sum()),
+                })
+            # Per-example worst horizon: an easy donor/horizon cannot hide a
+            # negative geometry contribution on another distant-history scale.
+            byte_advantage=torch.stack(byte_advantages).min(0).values
+            geo_specific=torch.stack(byte_specificities).min(0).values
+            result.update({
+                'matched_far_byte_history_advantage_nats_per_byte':float((byte_advantage*counts).sum()/counts.sum()),
+                'matched_far_byte_geometry_specificity_nats_per_byte':float((geo_specific*counts).sum()/counts.sum()),
+                'matched_far_byte_history_bootstrap':boot_books(byte_advantage[valid],data['book_ids'][valid],seed+23),
+                'matched_far_byte_geometry_bootstrap':boot_books(geo_specific[valid],data['book_ids'][valid],seed+24),
+            })
+    if with_matched_far:
+        word_advantages=[]
+        word_specificities=[]
+        horizon_stats=[]
+        for horizon,nw,nb,ns,far_donors,far_word,far_extra,far_geometry_off,far_off_extra in far_horizons:
+            word_adv=far_word-correct
+            word_specific=(without_geometry-correct)-(far_geometry_off-far_word)
+            word_advantages.append(word_adv)
+            word_specificities.append(word_specific)
+            horizon_stat=(result['matched_far_horizons'][horizon]
+                          if 'matched_far_horizons' in result else {})
+            horizon_stat.update({'horizon':horizon,'recent_words':nw,'recent_bytes':nb,
+                'recent_sentences':ns,'word_advantage_nats_per_word':float(word_adv.mean()),
+                'geometry_specificity_nats_per_word':float(word_specific.mean()),
+                'donors':int(len(far_donors))})
+            horizon_stats.append(horizon_stat)
+        far_history_advantage=torch.stack(word_advantages).min(0).values
+        far_geom_specific=torch.stack(word_specificities).min(0).values
+        result.update({
+            'matched_far_history_advantage_nats_per_word':float(far_history_advantage.mean()),
+            'matched_far_geometry_specificity_nats_per_word':float(far_geom_specific.mean()),
+            'matched_far_history_bootstrap':boot_books(far_history_advantage,data['book_ids'],seed+21),
+            'matched_far_geometry_bootstrap':boot_books(far_geom_specific,data['book_ids'],seed+22),
+            'matched_far_donor_count':sum(int(len(h[4])) for h in far_horizons),
+            'matched_far_horizons':horizon_stats,
+        })
     if 'book_ids' in data:
         result['book_geometry_gain'] = boot_books(gain, data['book_ids'], seed)
         result['book_correct_history'] = boot_books(history, data['book_ids'], seed+1)
@@ -343,6 +405,13 @@ def train_step(model, optimizer, sample, step, args):
     if (getattr(args,'layered',False) and step % args.ablate_every == 0 and
             (args.matched_geometry_weight or args.matched_byte_weight)):
         matched,_=matched_history_context(sample,args.seed+step+101)
+    far_matched = None
+    far_horizon_index = -1
+    far_no_geo_branch = None
+    far_no_geo_bytes = None
+    if getattr(args,'matched_far_weight',0.) > 0:
+        far_horizon_index=(step-1)//max(1,args.ablate_every)%len(HORIZONS)
+        far_matched, _ = matched_far_history(sample,args.seed+step+13,far_horizon_index)
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):
@@ -354,6 +423,11 @@ def train_step(model, optimizer, sample, step, args):
                     no_geo_matched_branch=no_matched['branch_nll'].detach()
                     if 'byte_ar_logits' in no_matched:
                         no_geo_matched_bytes=layered_byte_losses(no_matched,sample)[0].detach()
+                if far_matched is not None:
+                    _, far_no_geo = forward(model,far_matched)
+                    far_no_geo_branch=far_no_geo['branch_nll'].detach()
+                    if 'byte_ar_logits' in far_no_geo:
+                        far_no_geo_bytes=layered_byte_losses(far_no_geo,sample)[0].detach()
             if hasattr(model.diamond.geometry,'context_read_gain'):
                 with contextual_read_disabled(model):
                     _, no_read = forward(model,sample)
@@ -392,6 +466,27 @@ def train_step(model, optimizer, sample, step, args):
             valid=counts>0
             if bool(valid.any()):
                 matched_byte_penalty=context_specific_margin(byte_gain[valid],args.matched_margin)
+    matched_word_loss=correct.new_zeros(())
+    matched_byte_loss=correct.new_zeros(())
+    matched_geo_specificity=correct.new_zeros(())
+    matched_byte_specificity=correct.new_zeros(())
+    if far_matched is not None:
+        _, far_extra = forward(model,far_matched)
+        matched_word_loss=soft_margin(extra['branch_nll'],far_extra['branch_nll'],args.history_margin)
+        if 'byte_ar_logits' in far_extra:
+            far_per_word=layered_byte_losses(far_extra,sample)[0]
+            matched_byte_loss=soft_margin(per_word[counts>0],far_per_word[counts>0],args.history_margin)
+        if far_no_geo_branch is not None:
+            # Difference-in-differences: geometry must help *more* with the
+            # true old history than with the swapped foreign-book history.
+            correct_gain=no_geo_branch-extra['branch_nll']
+            wrong_gain=far_no_geo_branch-far_extra['branch_nll']
+            matched_geo_specificity=soft_margin(wrong_gain,correct_gain,args.geometry_margin)
+            if far_no_geo_bytes is not None:
+                byte_correct_gain=no_geo_bytes-per_word
+                byte_wrong_gain=far_no_geo_bytes-far_per_word
+                valid=counts>0
+                matched_byte_specificity=soft_margin(byte_wrong_gain[valid],byte_correct_gain[valid],args.geometry_margin)
     # The two full-signal ablations force the memory to be stored in geometric
     # faces and used by the apex -> pair -> point read path.  The counterfactual
     # never modifies the target or the inherited R7 hidden state.
@@ -418,7 +513,11 @@ def train_step(model, optimizer, sample, step, args):
                  getattr(args,'byte_ar_weight',0.) * byte_ar +
                  getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty +
                  getattr(args,'matched_geometry_weight',0.) * matched_geo_penalty +
-                 getattr(args,'matched_byte_weight',0.) * matched_byte_penalty)
+                 getattr(args,'matched_byte_weight',0.) * matched_byte_penalty +
+                 getattr(args,'matched_far_weight',0.) * matched_word_loss +
+                 getattr(args,'matched_far_byte_weight',0.) * matched_byte_loss +
+                 getattr(args,'matched_far_geometry_weight',0.) * matched_geo_specificity +
+                 getattr(args,'matched_far_byte_geometry_weight',0.) * matched_byte_specificity)
     optimizer.zero_grad(set_to_none=True)
     objective.backward()
     face_grad = model.diamond.geometry.face_plus.weight.grad
@@ -433,6 +532,11 @@ def train_step(model, optimizer, sample, step, args):
             'train_layered_byte_geometry_contrast':float(byte_geo_penalty.detach()),
             'train_matched_geometry_contrast':float(matched_geo_penalty.detach()),
             'train_matched_byte_contrast':float(matched_byte_penalty.detach()),
+            'train_matched_far_word_contrast':float(matched_word_loss.detach()),
+            'train_matched_far_byte_contrast':float(matched_byte_loss.detach()),
+            'train_matched_far_geometry_specificity':float(matched_geo_specificity.detach()),
+            'train_matched_far_byte_specificity':float(matched_byte_specificity.detach()),
+            'train_matched_far_horizon':far_horizon_index,
             'train_face_plus_addresses_with_gradient': addressed}
 
 
@@ -479,6 +583,22 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['matched_geometry_byte_advantage_nats_per_byte']<=0 or
                 candidate['matched_geometry_byte_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
             return False
+    if 'matched_far_history_advantage_nats_per_word' in candidate:
+        for key in ('matched_far_history_advantage_nats_per_word',
+                    'matched_far_geometry_specificity_nats_per_word'):
+            if candidate[key] <= 0:
+                return False
+        for key in ('matched_far_history_bootstrap','matched_far_geometry_bootstrap'):
+            if candidate[key]['book_bootstrap_ci95'][0] <= 0:
+                return False
+        if 'matched_far_byte_history_advantage_nats_per_byte' in candidate:
+            for key in ('matched_far_byte_history_advantage_nats_per_byte',
+                        'matched_far_byte_geometry_specificity_nats_per_byte'):
+                if candidate[key] <= 0:
+                    return False
+            for key in ('matched_far_byte_history_bootstrap','matched_far_byte_geometry_bootstrap'):
+                if candidate[key]['book_bootstrap_ci95'][0] <= 0:
+                    return False
     return True
 
 
@@ -509,6 +629,12 @@ def candidate_priority(reference, candidate, min_gain):
             'matched_geometry_word_advantage',
             'matched_geometry_branch_advantage',
             'matched_geometry_byte_advantage_nats_per_byte'))
+    if 'matched_far_history_advantage_nats_per_word' in candidate:
+        geometry_ready = geometry_ready and all(candidate[k] > 0 for k in (
+            'matched_far_history_advantage_nats_per_word',
+            'matched_far_geometry_specificity_nats_per_word',
+            'matched_far_byte_history_advantage_nats_per_byte',
+            'matched_far_byte_geometry_specificity_nats_per_byte'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))
@@ -516,6 +642,16 @@ def candidate_priority(reference, candidate, min_gain):
 
 def run(args):
     t0 = time.monotonic()
+    if any(getattr(args, n, 0.) > 0 for n in (
+        'matched_far_weight','matched_far_byte_weight',
+        'matched_far_geometry_weight','matched_far_byte_geometry_weight')):
+        args.matched_far_history=True
+    if getattr(args,'matched_far_history',False) and not getattr(args,'calibrated',False):
+        raise ValueError('R7.33 matched far-history controls require --calibrated')
+    if getattr(args,'matched_far_history',False) and any(getattr(args,n,0.)>0 for n in (
+            'matched_far_byte_weight','matched_far_geometry_weight',
+            'matched_far_byte_geometry_weight')) and getattr(args,'matched_far_weight',0.)<=0:
+        raise ValueError('matched-far auxiliary weights require positive --matched-far-weight')
     if getattr(args, 'calibrated', False):
         args.layered = True  # same layered byte/sentence/geometry supervision
     if args.split != 'dev':
@@ -543,7 +679,8 @@ def run(args):
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
     if getattr(args,'layered',False):dev['layered_byte_supervision']=True
-    original = geometry_diagnostic(model, dev, args.seed+3, True, base)
+    original = geometry_diagnostic(model, dev, args.seed+3, True, base,
+                                   with_matched_far=getattr(args,'matched_far_history',False))
     print('PARENT', json.dumps(original), flush=True)
     train = prepare(args, model, base, compositor, 'train', args.train, args.seed+1)
     if getattr(args,'layered',False):train['layered_byte_supervision']=True
@@ -563,7 +700,8 @@ def run(args):
     # Source-migrated candidates get the initial gate warm-start. Fully trained
     # R7.31/R7.32 candidates retain the learned gates and Adam moments.
     preserve_learned_gates = not warm_start_only_if_migrated(model,args,parent_meta)
-    opened = geometry_diagnostic(model, dev, args.seed+3)
+    opened = geometry_diagnostic(model, dev, args.seed+3,
+                                 with_matched_far=getattr(args,'matched_far_history',False))
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
     rng = np.random.default_rng(args.seed+9)
     history = []
@@ -579,7 +717,8 @@ def run(args):
             sampled = take(train, ids)
         train_result = train_step(model, optimizer, sampled, step, args)
         if step == 1 or step % args.eval_every == 0 or step == args.steps:
-            diagnostics = geometry_diagnostic(model, dev, args.seed+3)
+            diagnostics = geometry_diagnostic(model, dev, args.seed+3,
+                                               with_matched_far=getattr(args,'matched_far_history',False))
             diagnostics.update({'step':step,**train_result})
             diagnostics['development_gate_passed'] = passes_gate(original, diagnostics, args.min_gain)
             rank = candidate_priority(original, diagnostics, args.min_gain)
@@ -597,7 +736,8 @@ def run(args):
     if best_state is not None:
         model.diamond.load_state_dict(best_state[0])
         optimizer.load_state_dict(best_state[1])
-    last = geometry_diagnostic(model, dev, args.seed+3, True, base)
+    last = geometry_diagnostic(model, dev, args.seed+3, True, base,
+                               with_matched_far=getattr(args,'matched_far_history',False))
     with torch.no_grad():
         plus_changed = (model.diamond.geometry.face_plus.weight != face_plus_start).any(dim=-1)
         minus_changed = (model.diamond.geometry.face_minus.weight != face_minus_start).any(dim=-1)
@@ -612,7 +752,8 @@ def run(args):
     # This is a scientific probe, not a checkpoint promotion. Its full result
     # stays in JSON, and future rounds may choose to save a guarded candidate.
     report = {
-        'format':('FA1_R7_32_CALIBRATED_DIAMOND_DEV_PROBE_V1' if getattr(args,'calibrated',False) else
+        'format':('FA1_R7_33_MATCHED_FAR_HISTORY_DEV_PROBE_V1' if getattr(args,'matched_far_history',False) else
+                  'FA1_R7_32_CALIBRATED_DIAMOND_DEV_PROBE_V1' if getattr(args,'calibrated',False) else
                   'FA1_R7_31_LAYERED_DIAMOND_DEV_PROBE_V1' if getattr(args,'layered',False) else
                   'FA1_R7_30_FACTORIZED_GEOMETRY_DEV_PROBE_V1' if getattr(args,'factorized',False) else
                   'FA1_R7_29_CONTEXTUAL_GEOMETRY_DEV_PROBE_V1' if args.contextual
@@ -625,6 +766,7 @@ def run(args):
         'resumed_learned_gates_unchanged':preserve_learned_gates,
         'matched_history_contrast':bool(getattr(args,'layered',False)),
         'calibrated_geometric_trust':bool(getattr(args,'calibrated',False)),
+        'matched_far_history_controls':bool(getattr(args,'matched_far_history',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -651,7 +793,9 @@ def run(args):
         report['unpromoted_candidate_checkpoint'] = save_unpromoted(
             args.candidate_checkpoint, model, optimizer, args.root, args.checkpoint,
             source_metadata={'format':'FA1_R7_27_SINGLE_MODEL_SINGLE_HYBRID_OPTIMIZER_V1'},
-            candidate_trained=True, training_round=('FA1 R7.32 calibrated geometric trust decoder'
+            candidate_trained=True, training_round=('FA1 R7.33 matched old-history geometry contrast'
+                                                     if getattr(args,'matched_far_history',False) else
+                                                     'FA1 R7.32 calibrated geometric trust decoder'
                                                      if getattr(args,'calibrated',False) else
                                                      'FA1 R7.31 layered geometric autoregressive decoder'
                                                      if getattr(args,'layered',False) else
@@ -687,6 +831,11 @@ def parse_args():
     p.add_argument('--factorized',action='store_true',help='R7.30 continuation with point-factorized readout')
     p.add_argument('--layered',action='store_true',help='R7.31 continuation with full-word byte AR')
     p.add_argument('--calibrated',action='store_true',help='R7.32 continuation with identity-initialized word/byte geometric trust')
+    p.add_argument('--matched-far-history',action='store_true',help='R7.33 matched recent-context/far-history DEV controls')
+    p.add_argument('--matched-far-weight',type=float,default=0.,help='TRAIN correct-vs-foreign far-history word contrast')
+    p.add_argument('--matched-far-byte-weight',type=float,default=0.,help='TRAIN conditional byte far-history contrast')
+    p.add_argument('--matched-far-geometry-weight',type=float,default=0.,help='TRAIN word geometric difference-in-differences')
+    p.add_argument('--matched-far-byte-geometry-weight',type=float,default=0.,help='TRAIN byte geometric difference-in-differences')
     p.add_argument('--layered-gate-init',type=float,default=.12)
     p.add_argument('--byte-ar-weight',type=float,default=.35)
     p.add_argument('--byte-geometry-weight',type=float,default=.2)
