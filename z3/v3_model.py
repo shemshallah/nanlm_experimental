@@ -78,6 +78,7 @@ class V3Config:
     moe_dense_dispatch: bool = False
     force_manual_attention: bool = False
     attn_gate: bool = False
+    mtp_adapter_rank: int = 0
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -240,6 +241,23 @@ class Block(nn.Module):
         return x + self.mlp(h), None, None
 
 
+class MTPAdapter(nn.Module):
+    """Small residual adapter that specializes frozen-trunk features for MTP."""
+
+    def __init__(self, d_model: int, rank: int):
+        super().__init__()
+        if rank <= 0:
+            raise ValueError("MTP adapter rank must be positive")
+        self.norm = RMSNorm(d_model)
+        self.down = nn.Linear(d_model, rank, bias=False)
+        self.up = nn.Linear(rank, d_model, bias=False)
+        nn.init.xavier_uniform_(self.down.weight)
+        nn.init.normal_(self.up.weight, mean=0.0, std=1e-3)
+
+    def forward(self, x):
+        return x + self.up(F.silu(self.down(self.norm(x))))
+
+
 class V3LM(nn.Module):
     def __init__(self, cfg: V3Config):
         super().__init__()
@@ -250,6 +268,11 @@ class V3LM(nn.Module):
         # Tied main head; separate MTP heads.
         self.mtp_heads = nn.ModuleList(
             [nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
+             for _ in range(max(0, cfg.mtp - 1))]
+        )
+        self.mtp_adapters = nn.ModuleList(
+            [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)
+             if cfg.mtp_adapter_rank > 0 else nn.Identity()
              for _ in range(max(0, cfg.mtp - 1))]
         )
         self.memory_path = None
@@ -311,7 +334,10 @@ class V3LM(nn.Module):
         if self.memory_path is not None:
             # Sparse n-gram bias; empty until build_memory() is called.
             self.memory_path.logit_bias(tokens).add_(main)
-        mtp = [head(x) for head in self.mtp_heads]
+        mtp = [
+            head(adapter(x))
+            for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
+        ]
         aux = dict(mem_aux)
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()

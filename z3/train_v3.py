@@ -657,6 +657,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="token-row chunk size for MoE peak memory")
     model.add_argument("--mtp", type=int, default=2,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
+    model.add_argument("--mtp-adapter-rank", type=int, default=0,
+                       help="low-rank MTP adapter width; 0 disables")
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -732,6 +734,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="write best.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--init-from", default="",
                      help="checkpoint weights to initialize from")
+    run.add_argument("--allow-new-params", action="store_true",
+                     help="allow missing keys when initializing a model with new adapter parameters")
     run.add_argument("--resume", default="", metavar="PATH",
                      help="last.pt/checkpoint to resume; 'last' means OUT/last.pt")
     run.add_argument("--out", default="runs/v3")
@@ -863,6 +867,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--moe-max-rows must be positive")
     if args.mtp < 1:
         raise SystemExit("--mtp must be at least 1")
+    if args.mtp_adapter_rank < 0:
+        raise SystemExit("--mtp-adapter-rank must be non-negative")
     if args.global_every < 1 or args.window < 1:
         raise SystemExit("--global-every and --window must be positive")
     if not 0.0 <= args.dropout < 1.0:
@@ -912,6 +918,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_group_size=int(args.moe_group_size),
         moe_max_rows=int(args.moe_max_rows),
         mtp=int(args.mtp),
+        mtp_adapter_rank=int(args.mtp_adapter_rank),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),
         max_ctx=int(args.max_ctx),
@@ -1182,7 +1189,14 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"init checkpoint not found: {init_path}")
         init_state = _extract_state_dict(_torch_load(init_path))
         try:
-            model.load_state_dict(init_state, strict=True)
+            if args.allow_new_params:
+                missing, unexpected = model.load_state_dict(init_state, strict=False)
+                if missing:
+                    print(f"[init] new parameters: {', '.join(missing)}", flush=True)
+                if unexpected:
+                    print(f"[init] ignored checkpoint keys: {', '.join(unexpected)}", flush=True)
+            else:
+                model.load_state_dict(init_state, strict=True)
         except RuntimeError as exc:
             raise SystemExit(
                 f"init-from checkpoint is incompatible with this model: {exc}"
@@ -1191,7 +1205,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.freeze_trunk:
         for name, param in model.named_parameters():
-            if not name.startswith("mtp_heads."):
+            if not (name.startswith("mtp_heads.") or name.startswith("mtp_adapters.")):
                 param.requires_grad_(False)
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"[freeze] trunk frozen; trainable MTP params={trainable:,}", flush=True)
