@@ -113,8 +113,8 @@ def main(args):
     save=None
     if best is not None:
         save=save_unified(args.output_checkpoint,m,opts,args.candidate,
-             train_updates=best['step'],selection={'status':'historical dev selected; unpromoted',
-                                                    'metrics':best,'new_books':False})
+             train_updates=best['step'],selection={'status':('external book-disjoint dev selected; unpromoted' if args.corpus_dir else 'historical dev selected; unpromoted'),
+                                                    'metrics':best,'separate_corpus_dir_supplied':bool(args.corpus_dir),'new_books_tested':False})
         recovered,_,_,_,_=load_unified(args.output_checkpoint,args.root)
         assert all(torch.equal(v,recovered.state_dict()[k]) for k,v in m.state_dict().items())
     assert sha256(args.candidate)==base_digest
