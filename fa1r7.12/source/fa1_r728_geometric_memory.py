@@ -39,8 +39,14 @@ def geometry_disabled(model):
         names.extend(('factor_up_gain','factor_decoder_gain'))
     gates = [getattr(model.diamond.geometry, n) for n in names]
     before = [p.detach().clone() for p in gates]
+    layer_gates=[]
+    if hasattr(model.diamond,'hierarchy'):
+        h=model.diamond.hierarchy
+        layer_gates=[getattr(h,n) for n in ('context_gain','point_gain','pair_gain',
+                            'triangle_gain','word_gain','byte_geometry_gain')]
+    original_layers=[p.detach().clone() for p in layer_gates]
     with torch.no_grad():
-        for param in gates:
+        for param in gates+layer_gates:
             param.zero_()
     try:
         yield
@@ -48,6 +54,43 @@ def geometry_disabled(model):
         with torch.no_grad():
             for p, value in zip(gates, before):
                 p.copy_(value)
+            for p, value in zip(layer_gates, original_layers):
+                p.copy_(value)
+
+
+def layered_byte_losses(extra, data):
+    """Per-word mean byte loss and true byte counts, excluding EOW from BPB."""
+    logits=extra['byte_ar_logits']
+    labels=data['byte_target_sequence']
+    ce=F.cross_entropy(logits.transpose(1,2),labels,ignore_index=-100,reduction='none')
+    valid=(labels>=0)&(labels<256)
+    counts=valid.sum(-1)
+    # Exclude EOW from the literal UTF-8 byte denominator, but score it
+    # separately in the total conditional word likelihood.
+    ce_bytes=(ce*valid).sum(-1)
+    per_word=ce_bytes/counts.clamp_min(1)
+    eos=(ce*(labels==256)).sum(-1)
+    return per_word,counts,ce_bytes,eos,valid
+
+
+def layered_byte_metrics(extra, data):
+    per_word,counts,ce_bytes,eos,valid=layered_byte_losses(extra,data)
+    scored=counts>0
+    if not bool(scored.any()):
+        raise ValueError('no valid UTF-8 bytes for R7.31 diagnostics')
+    pred=extra['byte_ar_logits'].topk(5,dim=-1).indices
+    labels=data['byte_target_sequence']
+    correct=(pred[:,:,0]==labels)&valid
+    top5=(pred==labels.unsqueeze(-1)).any(-1)&valid
+    nbytes=int(counts.sum())
+    return {'conditional_spelling_bits_per_byte':float(ce_bytes.sum()/counts.sum()/math.log(2)),
+            'conditional_spelling_top1':float(correct.sum()/counts.sum()),
+            'conditional_spelling_top5':float(top5.sum()/counts.sum()),
+            'conditional_spelling_eow_nll_per_word':float(eos[scored].mean()),
+            'conditional_spelling_bytes':nbytes,
+            'conditional_spelling_words':int(scored.sum()),
+            'raw_contiguous_text_bits_per_byte':None,
+            'metric_scope':'autoregressive UTF-8 spelling conditioned on past word context, EOW excluded from BPB'}
 
 
 @contextlib.contextmanager
@@ -149,6 +192,21 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
           'branch_vs_mixture_gap':float((extra['branch_nll']-correct).mean()),
           'branch_beats_inherited_fraction':float((extra['branch_nll']<old).float().mean()),
         })
+    if 'byte_ar_logits' in extra:
+        metrics=layered_byte_metrics(extra,data)
+        full_per_word,counts,_,_,_=layered_byte_losses(extra,data)
+        no_geo_per_word,*_=layered_byte_losses(no_geo_extra,data)
+        no_apex_per_word,*_=layered_byte_losses(no_apex_extra,data)
+        no_pair_per_word,*_=layered_byte_losses(no_pair_extra,data)
+        delta=no_geo_per_word-full_per_word
+        valid=counts>0
+        metrics.update({
+            'conditional_byte_geometry_gain_nats_per_byte':float(delta[valid].mean()),
+            'conditional_byte_apex_gain_nats_per_byte':float((no_apex_per_word-full_per_word)[valid].mean()),
+            'conditional_byte_pair_gain_nats_per_byte':float((no_pair_per_word-full_per_word)[valid].mean()),
+            'conditional_byte_geometry_gain_book_bootstrap':boot_books(delta[valid],data['book_ids'][valid],seed+7),
+        })
+        result.update(metrics)
     if 'book_ids' in data:
         result['book_geometry_gain'] = boot_books(gain, data['book_ids'], seed)
         result['book_correct_history'] = boot_books(history, data['book_ids'], seed+1)
@@ -186,10 +244,13 @@ def train_step(model, optimizer, sample, step, args):
     no_geo_branch = None
     no_read_branch = None
     no_factor_branch = None
+    no_geo_bytes = None
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):
                 _, no_geo = forward(model, sample)
+                if 'byte_ar_logits' in no_geo:
+                    no_geo_bytes=layered_byte_losses(no_geo,sample)[0].detach()
             if hasattr(model.diamond.geometry,'context_read_gain'):
                 with contextual_read_disabled(model):
                     _, no_read = forward(model,sample)
@@ -202,6 +263,14 @@ def train_step(model, optimizer, sample, step, args):
     correct, extra = forward(model, sample)
     branch = extra['branch_nll'].mean()
     byte = F.cross_entropy(extra['byte_logits'], sample['first_byte_target'])
+    byte_ar=correct.new_zeros(())
+    byte_geo_penalty=correct.new_zeros(())
+    if 'byte_ar_logits' in extra:
+        per_word,counts,ce_bytes,eos,_=layered_byte_losses(extra,sample)
+        byte_ar=(ce_bytes+eos).sum()/((sample['byte_target_sequence']!=-100).sum().clamp_min(1))
+        if no_geo_bytes is not None:
+            valid=counts>0
+            byte_geo_penalty=soft_margin(per_word[valid],no_geo_bytes[valid],args.geometry_margin)
     foreign, _ = unrelated_book_context(sample, args.seed + step)
     _, wrong_extra = forward(model, foreign)
     different_book = soft_margin(extra['branch_nll'], wrong_extra['branch_nll'], args.history_margin)
@@ -227,7 +296,9 @@ def train_step(model, optimizer, sample, step, args):
                  args.byte_weight * byte + args.history_weight * different_book +
                  args.geometry_weight * geo_loss + args.apex_weight * apex_loss +
                  args.pair_weight * pair_loss + args.contextual_weight * read_loss +
-                 getattr(args,'factor_weight',0.) * factor_loss)
+                 getattr(args,'factor_weight',0.) * factor_loss +
+                 getattr(args,'byte_ar_weight',0.) * byte_ar +
+                 getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty)
     optimizer.zero_grad(set_to_none=True)
     objective.backward()
     face_grad = model.diamond.geometry.face_plus.weight.grad
@@ -238,6 +309,8 @@ def train_step(model, optimizer, sample, step, args):
             'train_branch_nll': float(branch.detach()), 'train_first_byte_nll': float(byte.detach()),
             'train_different_book_penalty': float(different_book.detach()),
             'train_factor_contrast':float(factor_loss.detach()),
+            'train_layered_byte_ar_nll':float(byte_ar.detach()),
+            'train_layered_byte_geometry_contrast':float(byte_geo_penalty.detach()),
             'train_face_plus_addresses_with_gradient': addressed}
 
 
@@ -265,6 +338,12 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['factor_word_gain_bootstrap']['book_bootstrap_ci95'][0]<=0 or
                 candidate['factor_branch_gain_bootstrap']['book_bootstrap_ci95'][0]<=0):
             return False
+    if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
+        if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
+                candidate['conditional_byte_apex_gain_nats_per_byte']<=0 or
+                candidate['conditional_byte_pair_gain_nats_per_byte']<=0 or
+                candidate['conditional_byte_geometry_gain_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
+            return False
     return True
 
 
@@ -278,7 +357,10 @@ def run(args):
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     parent_hash = digest(args.checkpoint)
-    if getattr(args,'factorized',False):
+    if getattr(args,'layered',False):
+        from fa1_r731_layered_decoder import load_layered
+        model, optimizer, base, compositor, _ = load_layered(args.checkpoint,args.root,args.threads)
+    elif getattr(args,'factorized',False):
         from fa1_r730_factorized_geometry import load_factorized
         model, optimizer, base, compositor, _ = load_factorized(args.checkpoint,args.root,args.threads)
     elif args.contextual:
@@ -288,9 +370,11 @@ def run(args):
         model, optimizer, base, compositor, _ = load_unified(args.checkpoint, args.root, args.threads)
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
+    if getattr(args,'layered',False):dev['layered_byte_supervision']=True
     original = geometry_diagnostic(model, dev, args.seed+3, True, base)
     print('PARENT', json.dumps(original), flush=True)
     train = prepare(args, model, base, compositor, 'train', args.train, args.seed+1)
+    if getattr(args,'layered',False):train['layered_byte_supervision']=True
     if len(torch.unique(train['book_ids'])) < 2:
         raise ValueError('training positions must span two or more books')
     # Preserve all non-Diamond weights/moments: only the already-present joint
@@ -306,6 +390,11 @@ def run(args):
     triangle_code_start = model.diamond.triple_code.weight.detach().clone()
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
                          getattr(args,'factor_up_init',0.),getattr(args,'factor_decoder_init',0.))
+    if getattr(args,'layered',False):
+        with torch.no_grad():
+            for name in ('context_gain','point_gain','pair_gain','triangle_gain',
+                         'word_gain','byte_geometry_gain'):
+                getattr(model.diamond.hierarchy,name).fill_(math.atanh(args.layered_gate_init))
     opened = geometry_diagnostic(model, dev, args.seed+3)
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
     rng = np.random.default_rng(args.seed+9)
@@ -351,13 +440,15 @@ def run(args):
     # This is a scientific probe, not a checkpoint promotion. Its full result
     # stays in JSON, and future rounds may choose to save a guarded candidate.
     report = {
-        'format':('FA1_R7_30_FACTORIZED_GEOMETRY_DEV_PROBE_V1' if getattr(args,'factorized',False) else
+        'format':('FA1_R7_31_LAYERED_DIAMOND_DEV_PROBE_V1' if getattr(args,'layered',False) else
+                  'FA1_R7_30_FACTORIZED_GEOMETRY_DEV_PROBE_V1' if getattr(args,'factorized',False) else
                   'FA1_R7_29_CONTEXTUAL_GEOMETRY_DEV_PROBE_V1' if args.contextual
                   else 'FA1_R7_28_GEOMETRIC_MEMORY_DEV_PROBE_V1'),
         'source_checkpoint_sha256':parent_hash,
         'branch':'master',
         'contextual_geometric_read':bool(args.contextual or getattr(args,'factorized',False)),
         'factorized_geometric_read':bool(getattr(args,'factorized',False)),
+        'layered_autoregressive_decoder':bool(getattr(args,'layered',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -377,12 +468,16 @@ def run(args):
         report['unpromoted_candidate_checkpoint'] = save_unpromoted(
             args.candidate_checkpoint, model, optimizer, args.root, args.checkpoint,
             source_metadata={'format':'FA1_R7_27_SINGLE_MODEL_SINGLE_HYBRID_OPTIMIZER_V1'},
-            candidate_trained=True, training_round=('FA1 R7.30 factorized geometric memory'
+            candidate_trained=True, training_round=('FA1 R7.31 layered geometric autoregressive decoder'
+                                                     if getattr(args,'layered',False) else
+                                                     'FA1 R7.30 factorized geometric memory'
                                                      if getattr(args,'factorized',False) else
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_30_FACTORIZED_GEOMETRY_V1'
+            architecture_round=('FA1_R7_31_LAYERED_DIAMOND_V1'
+                                if getattr(args,'layered',False) else
+                                'FA1_R7_30_FACTORIZED_GEOMETRY_V1'
                                 if getattr(args,'factorized',False) else
                                 'FA1_R7_29_CONTEXTUAL_GEOMETRY_V1' if args.contextual else ''))
     else:
@@ -403,6 +498,10 @@ def parse_args():
     p.add_argument('--candidate-checkpoint',default='',help='separate unpromoted successor; never accepted parent')
     p.add_argument('--contextual',action='store_true',help='R7.29 context-addressed signed triangle read')
     p.add_argument('--factorized',action='store_true',help='R7.30 continuation with point-factorized readout')
+    p.add_argument('--layered',action='store_true',help='R7.31 continuation with full-word byte AR')
+    p.add_argument('--layered-gate-init',type=float,default=.12)
+    p.add_argument('--byte-ar-weight',type=float,default=.35)
+    p.add_argument('--byte-geometry-weight',type=float,default=.2)
     p.add_argument('--factor-up-init',type=float,default=0.20)
     p.add_argument('--factor-decoder-init',type=float,default=0.35)
     p.add_argument('--factor-weight',type=float,default=0.75)

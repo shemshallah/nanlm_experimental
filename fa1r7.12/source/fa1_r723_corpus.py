@@ -9,7 +9,7 @@ def diamond_context(root,base,split,positions,hidden,corpus_dir=None):
     # Every retrieved token has index strictly before the current target.
     hist=c.get(positions,context=128)[0].astype(np.int64)
     word=hist[:,-32:].copy()
-    vertices=[];bytes_in=[];sent_in=[];byte_target=[]
+    vertices=[];bytes_in=[];sent_in=[];byte_target=[];byte_sequences=[]
     # Only targets for auxiliary loss, never for the model's feature path.
     point_emb=base.H
     for ix,p in enumerate(positions):
@@ -49,10 +49,20 @@ def diamond_context(root,base,split,positions,hidden,corpus_dir=None):
         # sidecar: use it for the *label*, or byte accuracy is falsified by
         # predicting the literal '<unk>' spelling for every unknown word.
         tw=c.spelling(int(p),base.vocab)
-        first=tw.encode('utf-8')[:1]
+        spelling=tw.encode('utf-8')
+        first=spelling[:1]
         byte_target.append(int(first[0]) if first else 0)
+        # Complete next-word byte supervision: 0..255 are literal UTF-8
+        # bytes, 256 marks the end of the word, -100 is ignored padding.
+        # Words longer than 64 bytes are skipped, never silently truncated.
+        labels=np.full(65,-100,dtype=np.int64)
+        if len(spelling)<=64:
+            labels[:len(spelling)]=np.frombuffer(spelling,dtype=np.uint8)
+            labels[len(spelling)]=256
+        byte_sequences.append(labels)
     return {'word_ids':torch.from_numpy(word).long(),
             'byte_ids':torch.from_numpy(np.stack(bytes_in)).long(),
             'sentence_ids':torch.tensor(sent_in,dtype=torch.long),
             'vertex_ids':torch.tensor(vertices,dtype=torch.long),
+            'byte_target_sequence':torch.from_numpy(np.stack(byte_sequences)).long(),
             'first_byte_target':torch.tensor(byte_target,dtype=torch.long)}

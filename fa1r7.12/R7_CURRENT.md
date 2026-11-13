@@ -1,6 +1,6 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.30 (factorized geometric branch readout; one unified optimizer).**
+**Current source architecture: R7.31 (layered causal byte/word Diamond decoder; one unified optimizer).**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
@@ -63,6 +63,14 @@ research candidate has passed the independent-book promotion gates.
   advantage was negative. That pilot's recoverable checkpoint is not on GitHub
   master. The new source exposes factor-off branch and final-mixture gains with
   whole-book CIs; **no new full-checkpoint result or promotion is claimed**.
+- R7.31 source integrates causal byte/subword-pattern/token/word/sentence
+  attention loops into that same R7.30 Diamond, plus sparse point/pair/triangle
+  attention and descending geometry into both word and autoregressive spelling
+  logits. Six zero-initialized gates guarantee source migration parity; group
+  16 appends without resetting optimizer moments. Conditional next-word UTF-8
+  bytes and EOW can now be scored without gold-byte leakage, with top-1/top-5,
+  conditional bits/byte and book-level geometry ablations. This does **not**
+  establish raw text BPB, full-mixture word top-5 or a held-out gain yet.
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -83,6 +91,9 @@ zero-gain and optimizer restoration checks, book-hash reservation protocol,
 and the failed new-memory causal ablation.
 Read `FA1_R7p30_FACTORIZED_GEOMETRY.md` for the factorized read, direct branch
 diagnostic, source-only CI coverage, and strict DEV-before-TEST promotion gate.
+Read `FA1_R7p31_LAYERED_DIAMOND.md` for the integrated multiscale attention
+loops, autoregressive spelling head, migration parity and conditional-byte
+metrics versus raw byte BPB.
 Read `FA1_R7p25_CAUSAL_GEOMETRY_CONTINUATION.md` for checkpoint lineage and
 `FA1_R7p26_FACTOR_ABLATION_PROTOCOL.md` for the new diagnostics. The implementation
 is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,

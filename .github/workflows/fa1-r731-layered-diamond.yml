@@ -1,0 +1,63 @@
+name: FA1 R7.31 - layered Diamond source regression
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r731-layered-diamond.yml'
+      - 'fa1r7.12/source/fa1_r731_*.py'
+      - 'fa1r7.12/source/test_fa1_r731_*.py'
+      - 'fa1r7.12/source/fa1_r723_diamond.py'
+      - 'fa1r7.12/source/fa1_r723_corpus.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
+      - 'fa1r7.12/FA1_R7p31_LAYERED_DIAMOND.md'
+      - 'fa1r7.12/R7_CURRENT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r731-master-source
+  cancel-in-progress: false
+
+jobs:
+  layered-source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile and test new layered and inherited Diamond modules
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r731_*.py
+          python -m py_compile fa1r7.12/source/fa1_r723_diamond.py
+          python -m py_compile fa1r7.12/source/fa1_r723_corpus.py
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
+          python -m py_compile fa1r7.12/source/fa1_r728_geometric_memory.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r730_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r729_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r728_*.py' -q
+      - name: Unified optimizer structural regressions
+        run: |
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r727_*.py' -q
+          python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r731_r727_suite.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r731-source-regression
+          path: ${{ runner.temp }}/r731_r727_suite.json
+          retention-days: 30
+      - name: Keep selection sealed
+        run: echo 'Source tests only. No held-out training metric, automatic candidate promotion or TEST tuning.'

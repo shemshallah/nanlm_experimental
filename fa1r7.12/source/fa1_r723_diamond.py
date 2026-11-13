@@ -162,8 +162,14 @@ class CombinatorialDiamond(nn.Module):
             probs=probs/probs.sum(-1,keepdim=True).clamp_min(1e-12)
             retrieved=(probs.unsqueeze(-1)*values).sum(1)
             q=q+self.modal_fuse(torch.cat([q,retrieved],dim=-1))
+        if hasattr(self,'hierarchy'):
+            # Attention over past bytes, learned subword n-grams, original
+            # word-token IDs and sentence heads. Migration gain starts at 0.
+            q=q+self.hierarchy.context_update(byte_ids,word_ids,sentence_ids,trunk)
         # 256 -> C(256,2): READ the exact original H and P/M, not new replacements.
         node=self.point_in(F.embedding(vertex_ids.long(),trunk.H.detach()))+self.point_offset(vertex_ids.long())
+        if hasattr(self,'hierarchy'):
+            node=self.hierarchy.concept_update('point',node)
         e=self.edges
         ids_i=vertex_ids[:,e[:,0]]; ids_j=vertex_ids[:,e[:,1]]
         pair_ix=pair_rank(ids_i,ids_j)
@@ -172,6 +178,8 @@ class CombinatorialDiamond(nn.Module):
         old_pair=sign*old_pair
         pair=self.pair_fuse(torch.cat([node[:,e[:,0]],node[:,e[:,1]],
                      self.pair_in(old_pair)],dim=-1))
+        if hasattr(self,'hierarchy'):
+            pair=self.hierarchy.concept_update('pair',pair)
         # Optional R7.24 oriented-simplicial path. No geometry parameters are
         # inserted into historical R7.23 objects, so old checkpoints load
         # unchanged. New gates initialize to zero for exact score parity.
@@ -190,6 +198,8 @@ class CombinatorialDiamond(nn.Module):
         if geometric is not None:
             tri,geometric=self.geometry.triangles_up(vertex_ids,tri_ids,tri,
                                                        geometric)
+        if hasattr(self,'hierarchy'):
+            tri=self.hierarchy.concept_update('triangle',tri)
         logits=self.triangle_score(torch.tanh(tri+self.triangle_query(q).unsqueeze(1))).squeeze(-1)
         triangle_weights=F.softmax(logits,dim=1)
         apex_in=(triangle_weights.unsqueeze(-1)*tri).sum(1)
@@ -245,6 +255,10 @@ class CombinatorialDiamond(nn.Module):
         if geometric is not None and hasattr(self.geometry,'decoder_residual'):
             new_hidden=new_hidden+self.geometry.decoder_residual(
                 geometric,point_summary,apex,q)
+        layered_condition=None
+        if hasattr(self,'hierarchy'):
+            layered_word,layered_condition=self.hierarchy.descend(point_summary,apex,q)
+            new_hidden=new_hidden+layered_word
         byte_logits=self.head_byte(point_summary+apex)
         target_vector=self.head_word(point_summary+apex)
         if return_trace:
@@ -252,6 +266,8 @@ class CombinatorialDiamond(nn.Module):
             # but no target is used to construct it during causal inference.
             memory_aux=({'factor_retrieved':geometric['factor_retrieved']}
                         if geometric is not None and 'factor_retrieved' in geometric else {})
+            layered_aux=({'layered_byte_condition':layered_condition}
+                         if layered_condition is not None else {})
             return new_hidden,byte_logits,target_vector,{
                 'selected_sectors':sector_ids.detach(),
                 'triangle_addresses':tri_ids.detach(),
@@ -260,7 +276,7 @@ class CombinatorialDiamond(nn.Module):
                 'apex_std':apex.detach().std(),
                 'gate':self.gate.detach().clone(),'trust_logit':trust_logit,
                 'geometry':({k:v.detach() for k,v in geometric['metrics'].items()}
-                            if geometric is not None else {}),**memory_aux}
+                            if geometric is not None else {}),**memory_aux,**layered_aux}
         return new_hidden,byte_logits,target_vector
 
 
@@ -303,8 +319,17 @@ class UnifiedR723Diamond(UnifiedR722):
                                   torch.log(bridge.clamp_min(1e-30))-new_nll)
         # Avoid 1e-30 numerical parity error when gate is exactly closed.
         corrected=torch.where(bridge==0,old_nll,corrected)
-        if return_extras:return corrected,close,{'byte_logits':b_logits,'word_vector':w_vec,
-                    'trace':trace,'bridge_weight':bridge,'branch_nll':new_nll}
+        if return_extras:
+            extra={'byte_logits':b_logits,'word_vector':w_vec,
+                   'trace':trace,'bridge_weight':bridge,'branch_nll':new_nll}
+            # Teacher forcing is confined to the auxiliary byte head and
+            # cannot flow into the word likelihood computed above.
+            if (hasattr(self.diamond,'hierarchy') and
+                    data.get('layered_byte_supervision',False) and
+                    'byte_target_sequence' in data):
+                extra['byte_ar_logits']=self.diamond.hierarchy.autoregressive(
+                    data['byte_target_sequence'],trace['layered_byte_condition'])
+            return corrected,close,extra
         return corrected,close
 
 
