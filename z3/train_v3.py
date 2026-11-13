@@ -714,6 +714,14 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--n-heads", type=int, default=12)
     model.add_argument("--n-kv-heads", type=int, default=4,
                        help="KV heads for GQA; 0 = full MHA")
+    model.add_argument("--factorized-embedding", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="low-rank token embedding for large vocabularies")
+    model.add_argument("--embedding-rank", type=int, default=128,
+                       help="rank for --factorized-embedding")
+    model.add_argument("--mtp-tie-heads", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="tie MTP output to the main token geometry")
     model.add_argument("--attn-gate", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="sigmoid-gate the attention output (default: on)")
@@ -963,6 +971,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("use either --resume or --init-from, not both")
     if args.d_model % args.n_heads != 0:
         raise SystemExit("--d-model must be divisible by --n-heads")
+    if args.factorized_embedding and args.embedding_rank < 1:
+        raise SystemExit("--embedding-rank must be positive")
     if args.n_layers < 1 or args.n_heads < 1:
         raise SystemExit("--n-layers and --n-heads must be positive")
     if args.n_kv_heads < 0 or args.n_kv_heads > args.n_heads:
@@ -1034,6 +1044,9 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         n_layers=int(args.n_layers),
         n_heads=int(args.n_heads),
         n_kv_heads=int(args.n_kv_heads),
+        factorized_embedding=bool(args.factorized_embedding),
+        embedding_rank=int(args.embedding_rank),
+        mtp_tie_heads=bool(args.mtp_tie_heads),
         attn_gate=bool(args.attn_gate),
         swiglu=int(args.swiglu),
         window=int(args.window),
@@ -1298,7 +1311,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[model] params={parameter_count:,} layers={cfg.n_layers} "
         f"d_model={cfg.d_model} heads={cfg.n_heads} ctx={cfg.ctx} "
-        f"mtp_heads={len(_model_core(model).mtp_heads)} moe_layers={cfg.moe_layers}",
+        f"mtp_heads={_model_core(model).n_mtp_heads} moe_layers={cfg.moe_layers}",
         flush=True,
     )
 
@@ -1454,7 +1467,7 @@ def main(argv: list[str] | None = None) -> int:
         "params": parameter_count,
         "device": str(device),
         "amp": amp,
-        "mtp_heads": len(_model_core(model).mtp_heads),
+        "mtp_heads": _model_core(model).n_mtp_heads,
         "mtp_max_lag": cfg.mtp,
         "lr_horizon": horizon,
         "warmup_steps": warmup_steps,
@@ -1840,14 +1853,14 @@ def main(argv: list[str] | None = None) -> int:
         "objective": {
             "main_ce_weight": 1.0,
             "mtp_weight": args.mtp_weight,
-            "mtp_heads": len(_model_core(model).mtp_heads),
-            "mtp_lags": [2 + i for i in range(len(_model_core(model).mtp_heads))],
+            "mtp_heads": _model_core(model).n_mtp_heads,
+            "mtp_lags": [2 + i for i in range(_model_core(model).n_mtp_heads)],
             "load_balance_coef": args.load_balance_coef,
             "router_z_coef": args.router_z_coef,
         },
         "mtp": {
-            "enabled": bool(_model_core(model).mtp_heads),
-            "heads": len(_model_core(model).mtp_heads),
+            "enabled": _model_core(model).n_mtp_heads > 0,
+            "heads": _model_core(model).n_mtp_heads,
             "max_lag": cfg.mtp,
             "weight": args.mtp_weight,
         },

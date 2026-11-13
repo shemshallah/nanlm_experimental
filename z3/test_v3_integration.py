@@ -65,6 +65,49 @@ class V3IntegrationTest(unittest.TestCase):
         model = V3LM(cfg)
         self.assertEqual(model.blocks[0].attn.rope.scaling, "ntk")
 
+    def test_factorized_tied_embedding_reduces_params_and_runs(self):
+        base = dict(
+            vocab_size=512, ctx=32, max_ctx=32, d_model=64,
+            n_layers=4, n_heads=8, swiglu=128, window=16,
+            global_every=2, moe_layers=2, n_experts=4, topk=2,
+            shared_experts=1, expert_hidden=128, mtp=3,
+            mtp_block=True, mtp_block_experts=4,
+            mtp_block_hidden=64, mtp_aux_layers=(3,),
+            dropout=0.0, use_memory=False,
+        )
+        full = V3LM(V3Config(**base))
+        compact = V3LM(
+            V3Config(
+                **base,
+                factorized_embedding=True,
+                embedding_rank=16,
+                mtp_tie_heads=True,
+            )
+        )
+        self.assertLess(compact.parameter_count(), full.parameter_count())
+        self.assertIsNotNone(compact.tok_up)
+        self.assertEqual(compact.n_mtp_heads, 2)
+        self.assertEqual(len(compact.mtp_heads), 0)
+
+        tokens = torch.randint(0, 512, (2, 32))
+        logits, mtp, aux = compact(tokens)
+        self.assertEqual(tuple(logits.shape), (2, 32, 512))
+        self.assertEqual(len(mtp), 2)
+        self.assertEqual(tuple(mtp[0].shape), (2, 32, 512))
+        self.assertIn("mtp_aux_logits", aux)
+        self.assertTrue(torch.isfinite(logits).all())
+
+        loss = logits.float().log_softmax(-1).gather(
+            -1, tokens[..., None]
+        ).mean()
+        for branch_logits in mtp:
+            loss = loss + branch_logits.float().log_softmax(-1).gather(
+                -1, tokens[..., None]
+            ).mean()
+        loss.backward()
+        self.assertIsNotNone(compact.tok_up.weight.grad)
+        self.assertTrue(torch.isfinite(compact.tok_up.weight.grad).all())
+
     def test_sparse_moe_uses_vectorized_inner(self):
         cfg = V3Config(
             vocab_size=64, ctx=32, max_ctx=32, d_model=32,

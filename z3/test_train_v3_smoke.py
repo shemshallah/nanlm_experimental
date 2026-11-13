@@ -82,6 +82,30 @@ class TrainV3SmokeTest(unittest.TestCase):
         ):
             self.assertIn(flag, proc.stdout)
 
+    def test_factorized_tied_mtp_smoke(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="v3_tied_smoke_") as tmp:
+            out = Path(tmp) / "run"
+            proc = self.run_cli(
+                "--random-smoke",
+                *TINY_CONFIG,
+                "--factorized-embedding",
+                "--embedding-rank", "16",
+                "--mtp-tie-heads",
+                "--steps", "1",
+                "--threads", "1",
+                "--device", "cpu",
+                "--out", str(out),
+            )
+            self.assert_ok(proc)
+            result = json.loads((out / "result.json").read_text(encoding="utf-8"))
+            config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "completed")
+            self.assertTrue(result["mtp"]["enabled"])
+            self.assertEqual(result["mtp"]["heads"], 2)
+            self.assertEqual(config["resolved"]["mtp_heads"], 2)
+            self.assertTrue(config["factorized_embedding"])
+            self.assertTrue(config["mtp_tie_heads"])
+
     def test_lr_horizon_uses_total_steps_for_warmup(self) -> None:
         """A short smoke must stay on the long run's warmup curve."""
         with tempfile.TemporaryDirectory(prefix="v3_lr_horizon_") as tmp:

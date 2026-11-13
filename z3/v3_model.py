@@ -11,7 +11,8 @@ Architecture changes over v2:
   * multi-token prediction (MTP) heads for better data efficiency
   * optional learned memory cross-attention + sparse hashed n-gram bias
   * pre-LN / RMSNorm / SwiGLU throughout
-  * tied main output embedding; separate small MTP heads
+  * tied main output embedding; optional factorized 64k embedding
+  * optional MTP output tied to the main token geometry (64k-friendly)
 
 This is an architecture prototype, not a frontier-scale training claim.
 """
@@ -62,6 +63,13 @@ class V3Config:
     memory_min_count: int = 5
     memory_alpha_init: float = 0.1
     d_model: int = 384
+    # A 64k vocabulary makes a full-rank tied embedding (and one full output
+    # head per MTP lag) expensive.  These options keep a 64k model near the
+    # byte-model parameter budget without changing the trunk.  They default
+    # off so existing checkpoints keep their exact architecture.
+    factorized_embedding: bool = False
+    embedding_rank: int = 128
+    mtp_tie_heads: bool = False
     n_layers: int = 12
     n_heads: int = 12
     n_kv_heads: int = 4  # GQA by default; 0 = full MHA
@@ -459,13 +467,29 @@ class V3LM(nn.Module):
     def __init__(self, cfg: V3Config):
         super().__init__()
         self.cfg = cfg
-        self.tok = nn.Embedding(cfg.vocab_size, cfg.d_model)
+        self.factorized_embedding = bool(cfg.factorized_embedding)
+        if self.factorized_embedding:
+            self.embedding_rank = int(cfg.embedding_rank)
+            if self.embedding_rank < 1:
+                raise ValueError("embedding_rank must be positive")
+            self.tok = nn.Embedding(cfg.vocab_size, self.embedding_rank)
+            self.tok_up = nn.Linear(
+                self.embedding_rank, cfg.d_model, bias=False
+            )
+        else:
+            self.embedding_rank = cfg.d_model
+            self.tok = nn.Embedding(cfg.vocab_size, cfg.d_model)
+            self.tok_up = None
         self.blocks = nn.ModuleList([Block(cfg, i) for i in range(cfg.n_layers)])
         self.norm = RMSNorm(cfg.d_model)
-        # Tied main head; separate MTP heads.
+        # Tied main head.  MTP heads are either separate full-vocab
+        # projections or, for 64k vocabularies, tied to the main token
+        # geometry through project_logits().
+        self.mtp_tie_heads = bool(cfg.mtp_tie_heads)
         self.mtp_heads = nn.ModuleList(
             [nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
              for _ in range(max(0, cfg.mtp - 1))]
+            if not self.mtp_tie_heads else []
         )
         self.mtp_adapters = nn.ModuleList(
             [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)
@@ -578,6 +602,14 @@ class V3LM(nn.Module):
                 )
         self.apply(self._init)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
+        if self.tok_up is not None:
+            # tok @ tok_up must have variance near the full-rank 0.02
+            # embedding initialisation.
+            nn.init.normal_(
+                self.tok_up.weight,
+                mean=0.0,
+                std=1.0 / math.sqrt(self.embedding_rank),
+            )
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
@@ -597,6 +629,26 @@ class V3LM(nn.Module):
             with torch.no_grad():
                 gate[-1].bias.fill_(prior_logit)
 
+    @property
+    def n_mtp_heads(self) -> int:
+        """Number of future lags, independent of whether heads are tied."""
+        return max(0, int(self.cfg.mtp) - 1)
+
+    def embed(self, tokens: torch.Tensor) -> torch.Tensor:
+        x = self.tok(tokens)
+        return self.tok_up(x) if self.tok_up is not None else x
+
+    def embed_distribution(self, probs: torch.Tensor) -> torch.Tensor:
+        """Map a vocabulary distribution back into d_model space."""
+        rank = probs @ self.tok.weight
+        return self.tok_up(rank) if self.tok_up is not None else rank
+
+    def project_logits(self, hidden: torch.Tensor) -> torch.Tensor:
+        """Project hidden states to vocabulary logits through the token basis."""
+        if self.tok_up is not None:
+            hidden = hidden @ self.tok_up.weight
+        return hidden @ self.tok.weight.T
+
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
         """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
         if self.memory_path is not None:
@@ -614,7 +666,7 @@ class V3LM(nn.Module):
                 mtp_teacher_prob: float | None = None,
                 mtp_next_tokens=None,
                 mtp_gt_mix: float | None = None):
-        x = self.tok(tokens)
+        x = self.embed(tokens)
         lbs, zs = [], []
         aux_hidden: dict[int, torch.Tensor] = {}
         for layer_index, block in enumerate(self.blocks):
@@ -630,7 +682,7 @@ class V3LM(nn.Module):
         elif self.memory_cross is not None:
             x, mem_aux = self.memory_cross(x)
         x = self.norm(x)
-        main = x @ self.tok.weight.T
+        main = self.project_logits(x)
         if self.memory_path is not None:
             # Sparse n-gram bias with a learned global scale.
             bias = self.memory_path.logit_bias(tokens)
@@ -641,12 +693,16 @@ class V3LM(nn.Module):
         # through the same small MTP head.  The residual stream is causal, so
         # no future token can leak into an earlier position.
         mtp_aux_logits: list[torch.Tensor] = []
-        if self.mtp_heads and self.mtp_aux_norms:
-            aux_head = self.mtp_heads[0]
+        if self.mtp_aux_norms:
+            aux_head = self.mtp_heads[0] if self.mtp_heads else None
             for layer, norm in zip(self.mtp_aux_layers, self.mtp_aux_norms):
                 hidden = aux_hidden.get(layer)
                 if hidden is not None:
-                    mtp_aux_logits.append(aux_head(norm(hidden)))
+                    projected = norm(hidden)
+                    mtp_aux_logits.append(
+                        aux_head(projected) if aux_head is not None
+                        else self.project_logits(projected)
+                    )
 
         mtp_block_lb: list[torch.Tensor] = []
         mtp_block_rz: list[torch.Tensor] = []
@@ -690,7 +746,7 @@ class V3LM(nn.Module):
                 next_soft = (1.0 - mix) * pred_probs + mix * gt
             else:
                 next_soft = pred_probs
-            next_emb = self.mtp_next_norm(next_soft @ self.tok.weight)
+            next_emb = self.mtp_next_norm(self.embed_distribution(next_soft))
 
             ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
                 dim=-1, keepdim=True
@@ -713,7 +769,8 @@ class V3LM(nn.Module):
             )
             mtp = []
             gate_losses = []
-            for idx, head in enumerate(self.mtp_heads):
+            for idx in range(self.n_mtp_heads):
+                head = self.mtp_heads[idx] if self.mtp_heads else None
                 cond = (
                     self.mtp_cond_proj[idx](
                         torch.cat([x, next_emb], dim=-1)
@@ -727,8 +784,13 @@ class V3LM(nn.Module):
                         mtp_block_lb.append(block_aux["load_balance"])
                     if block_aux.get("router_z") is not None:
                         mtp_block_rz.append(block_aux["router_z"])
-                branch_logits = head(branch)
-                base_logits = head(x)
+                if head is not None:
+                    branch_logits = head(branch)
+                    base_logits = head(x)
+                else:
+                    branch_logits = self.project_logits(branch)
+                    # Tied fallback is exactly the main prediction.
+                    base_logits = main
                 if self.mtp_gate:
                     gate_logits = self.mtp_gate[idx](gate_features)
                     gate = torch.sigmoid(gate_logits)
@@ -750,10 +812,14 @@ class V3LM(nn.Module):
                 torch.stack(gate_losses).mean() if gate_losses else None
             )
         else:
-            mtp = [
-                head(adapter(x))
-                for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
-            ]
+            mtp = []
+            for idx, adapter in enumerate(self.mtp_adapters):
+                hidden = adapter(x)
+                head = self.mtp_heads[idx] if self.mtp_heads else None
+                mtp.append(
+                    head(hidden) if head is not None
+                    else self.project_logits(hidden)
+                )
             gate_loss = None
         aux = dict(mem_aux)
         if mtp_aux_logits:
