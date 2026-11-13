@@ -45,7 +45,7 @@ class UnifiedFA2(nn.Module):
         if not 65<=local_history<=2048:raise ValueError('bad local history')
         self.model=model;self.bridge=bridge;self.adapter=adapter;self.r18=r18;self.r21=r21;self.r22=r22;self.r23=r23
         dim=model.memory.subword_out.in_features;self.moe=CausalMirrorMoE(dim,expert_width,expert_count,expert_topk);self.local_history=local_history
-    def forward_chunk(self,book,segment,carry,*,counterfactual=False,donor_book=None,apply_r25=True,apply_r26=True):
+    def forward_chunk(self,book,segment,carry,*,counterfactual=False,donor_book=None,apply_r25=True,apply_r26=True,apply_r27=True):
         begin,end,t0,t1=segment
         examples=torch.as_tensor(book.examples[begin:end].astype(np.int64))[None]
         lexical=torch.as_tensor(book.context[begin:end].astype(np.float32))[None]
@@ -107,6 +107,14 @@ class UnifiedFA2(nn.Module):
             span=high.full_distributions(book.tokens,t0,len(y),actual.shape[-1])
             actual=self.r26(actual,torch.from_numpy(span).to(actual.device),
                 torch.from_numpy(features).to(actual.device))
+        before_r27=actual
+        if apply_r25 and apply_r26 and apply_r27 and hasattr(self,'r27'):
+            from r27_trust import near_only_full
+            near=near_only_full(self.r26,before_r26,
+                torch.from_numpy(span).to(actual.device),
+                torch.from_numpy(features).to(actual.device))
+            actual=self.r27(before_r27,near,
+                torch.from_numpy(features).to(actual.device))
         byte_start=int(book.byte_starts[begin]);byte_end=int(book.byte_starts[end]) if end<len(book.byte_starts) else int(book.raw_len)
         if byte_end<=byte_start:raise ValueError('invalid byte span')
-        return {'logits':actual,'without_r26':before_r26,'without_r25':uncalibrated,'without_r23':post22,'scrambled_values':permuted,'unrelated_history':unrelated,'target':y,'bytes':byte_end-byte_start,'memory_detail':detail,'memory_index':index,'moe_balance':balance,'start':t0}
+        return {'logits':actual,'without_r26':before_r26,'without_r27':before_r27,'without_r25':uncalibrated,'without_r23':post22,'scrambled_values':permuted,'unrelated_history':unrelated,'target':y,'bytes':byte_end-byte_start,'memory_detail':detail,'memory_index':index,'moe_balance':balance,'start':t0}

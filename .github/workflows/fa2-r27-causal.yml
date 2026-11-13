@@ -1,0 +1,32 @@
+name: FA2 R27 - counterfactual trust gate causal tests
+on:
+  push:
+    paths:
+      - 'fa2r19/source/r27_*'
+      - 'fa2r19/source/test_r27_trust.py'
+      - 'fa2r19/source/r24_unified_model.py'
+      - '.github/workflows/fa2-r27-causal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r27-causal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify all PAL source syntax
+        run: python -m compileall -q fa2r19/source
+      - name: Install CPU PyTorch and NumPy
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: R26 inherited causal suite
+        run: python fa2r19/source/test_r26_causal.py
+      - name: R27 counterfactual trust and inheritance suite
+        run: python fa2r19/source/test_r27_trust.py
