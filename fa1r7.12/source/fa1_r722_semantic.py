@@ -188,11 +188,18 @@ class SemanticGate(nn.Module):
         self.open_fraction=nn.Parameter(torch.zeros(()))
 
     def forward(self,prior_nll,features,prob,count):
-        if not self.training and float(self.open_fraction.detach()) == 0.:
+        if not self.training and float(self.open_fraction.detach()) <= 0.:
             return prior_nll,torch.zeros_like(prior_nll)
         old=torch.exp(-prior_nll)
         raw=self.trust(features).squeeze(-1)
-        weight=.125*torch.clamp(self.open_fraction,0,1)*torch.sigmoid(raw)
+        # Straight-through clamp: the *forward* mixture remains exactly in
+        # [0, .125], but the derivative at the zero boundary is nonzero on
+        # CPU torch versions that choose a zero clamp subgradient. This lets
+        # one initially closed gate learn without violating identity parity.
+        fraction=torch.clamp(self.open_fraction,0,1)
+        if self.training:
+            fraction=fraction+(self.open_fraction-self.open_fraction.detach())
+        weight=.125*fraction*torch.sigmoid(raw)
         weight=weight*(count>0).to(weight.dtype)
         out=-torch.log(torch.clamp((1-weight)*old+weight*prob,min=1e-30))
         return out,weight
