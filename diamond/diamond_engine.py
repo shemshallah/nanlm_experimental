@@ -8,12 +8,15 @@ Architecture (all in this file, no other modules):
   256 bytes  ->  32640 pair experts (MoE)  ->  C(256,3) triple layer (overmind)
   256 points < 32640 < C(256,3) points > C(256,3)'s 256 points
 
-  Three towers, all 2-layer microtransformers, all 256-expert MoE:
-    byte tower:     1024 bytes  = 128 chunks x 8  -> 32-dim (wide preset)
-    word tower:     128 words   = 16 chunks x 8   -> 48-dim (wide preset)
-    sentence tower: 32 first-words                -> 48-dim (wide preset)
-  The tower widths, FF widths and byte chunk size are command-line options;
-  the original 24/32/32, 48/64/64, 16-byte-chunk layout is still the default.
+  Three towers, each a stack of microtransformer blocks with 256-expert MoE:
+    byte tower:     1024-4096 bytes -> 32-48 dim, 128-512 chunks
+    word tower:     128-256 words   -> 48-64 dim, 16-32 chunks
+    sentence tower: 32-64 first-words -> 48-64 dim
+  The original 24/32/32, 48/64/64, 16-byte-chunk layout is still the default.
+  ``--chunk-conv`` replaces mean-pooling inside each byte/word chunk with an
+  order-preserving strided convolution, and ``--depth`` stacks more blocks.
+  The frontier preset is 2048 bytes / 256 words / 64 sentences, 48/64/64
+  dims, 96/128/128 FF, depth 3, and convolutional chunk stems.
 
   Cross-conditioning, staged:
     Epoch 1: bottom-up only   byte -> word -> sentence
@@ -76,10 +79,15 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=1000,
                    help="target epochs: 1=bottom-up, 2+=two-way")
     p.add_argument("--batch", type=int, default=64, help="batch, 64 max on 6GB")
-    p.add_argument("--byte-win", type=int, default=1024, choices=[512, 1024],
+    p.add_argument("--byte-win", type=int, default=1024, choices=[512, 1024, 2048, 4096],
                    help="byte window")
     p.add_argument("--word-win", type=int, default=128, help="word window")
     p.add_argument("--sent-win", type=int, default=32, help="sentence window")
+    p.add_argument("--depth", type=int, default=2,
+                   help="transformer blocks per tower (1-6)")
+    p.add_argument("--chunk-conv", action="store_true",
+                   help="use an order-preserving strided conv as the byte/word chunk stem "
+                        "instead of mean-pooling each chunk")
     p.add_argument("--vocab", type=int, default=2000, help="top-N words")
     p.add_argument("--dim-b", type=int, default=24, help="byte tower width")
     p.add_argument("--dim-w", type=int, default=32, help="word tower width")
@@ -196,6 +204,7 @@ if ARGS.weight_decay < 0.0:
     ARGS.weight_decay = 0.0
 if ARGS.self_loop_start_epoch < 0:
     ARGS.self_loop_start_epoch = 0
+ARGS.depth = max(1, min(6, int(ARGS.depth)))
 if ARGS.doc_holdout_frac < 0.01:
     ARGS.doc_holdout_frac = 0.01
 if ARGS.doc_holdout_frac > 0.50:
@@ -837,6 +846,8 @@ DIM_S = ARGS.dim_s
 FF_B = ARGS.ff_b
 FF_W = ARGS.ff_w
 FF_S = ARGS.ff_s
+DEPTH = ARGS.depth
+USE_CHUNK_CONV = bool(ARGS.chunk_conv)
 
 
 class MoE(tf.keras.layers.Layer):
@@ -869,7 +880,7 @@ class MoE(tf.keras.layers.Layer):
 
 
 class Micro(tf.keras.layers.Layer):
-    """Tiny 2-layer transformer block, 4 heads."""
+    """One tiny transformer block, 4 heads. Stack DEPTH of these per tower."""
 
     def __init__(self, dim, heads, ff, drop=0.1):
         super().__init__()
@@ -893,28 +904,51 @@ class Micro(tf.keras.layers.Layer):
         return x
 
 
+class ChunkConv(tf.keras.layers.Layer):
+    """Order-preserving chunk stem.
+
+    Mean-pooling a chunk of eight byte/word embeddings throws away the order
+    inside the chunk.  A strided convolution with kernel == stride learns a
+    separate weight for each position in the chunk, so the transformer sees
+    ``the cat`` differently from ``cat the``.
+    """
+
+    def __init__(self, dim, chunk):
+        super().__init__()
+        self.conv = tf.keras.layers.Conv1D(
+            dim, chunk, strides=chunk, padding="valid", activation="gelu"
+        )
+        self.norm = tf.keras.layers.LayerNormalization()
+
+    def call(self, x):
+        return self.norm(self.conv(x))
+
+
 class TripleStaged(tf.keras.Model):
     def __init__(self, vocab):
         super().__init__()
         self.byte_emb = tf.keras.layers.Embedding(256, DIM_B)
         self.byte_pos = tf.keras.layers.Embedding(BYTE_CHUNKS, DIM_B)
         self.byte_moe = MoE(256, DIM_B, 2)
-        self.byte_m1 = Micro(DIM_B, 4, FF_B, ARGS.dropout)
-        self.byte_m2 = Micro(DIM_B, 4, FF_B, ARGS.dropout)
-        self.byte_proj = tf.keras.layers.Dense(DIM_B)
+        if USE_CHUNK_CONV:
+            self.byte_chunk_stem = ChunkConv(DIM_B, BYTE_CHUNK)
+        else:
+            self.byte_proj = tf.keras.layers.Dense(DIM_B)
+        self.byte_blocks = [Micro(DIM_B, 4, FF_B, ARGS.dropout) for _ in range(DEPTH)]
 
         self.word_emb = tf.keras.layers.Embedding(vocab, DIM_W)
         self.word_pos = tf.keras.layers.Embedding(WORD_CHUNKS, DIM_W)
         self.word_moe = MoE(256, DIM_W, 2)
-        self.word_m1 = Micro(DIM_W, 4, FF_W, ARGS.dropout)
-        self.word_m2 = Micro(DIM_W, 4, FF_W, ARGS.dropout)
-        self.word_proj = tf.keras.layers.Dense(DIM_W)
+        if USE_CHUNK_CONV:
+            self.word_chunk_stem = ChunkConv(DIM_W, 8)
+        else:
+            self.word_proj = tf.keras.layers.Dense(DIM_W)
+        self.word_blocks = [Micro(DIM_W, 4, FF_W, ARGS.dropout) for _ in range(DEPTH)]
 
         self.sent_emb = tf.keras.layers.Embedding(vocab, DIM_S)
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
         self.sent_moe = MoE(256, DIM_S, 2)
-        self.sent_m1 = Micro(DIM_S, 4, FF_S, ARGS.dropout)
-        self.sent_m2 = Micro(DIM_S, 4, FF_S, ARGS.dropout)
+        self.sent_blocks = [Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(DEPTH)]
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -931,28 +965,32 @@ class TripleStaged(tf.keras.Model):
 
         b_r = tf.reshape(b_in, (-1, BYTE_CHUNKS, BYTE_CHUNK))
         b_emb = self.byte_emb(b_r)
-        b_chunk = tf.reduce_mean(b_emb, axis=2)
-        b_chunk = self.byte_proj(b_chunk)
+        if USE_CHUNK_CONV:
+            b_chunk = self.byte_chunk_stem(b_emb)
+        else:
+            b_chunk = self.byte_proj(tf.reduce_mean(b_emb, axis=2))
         b_chunk = b_chunk + self.byte_pos(tf.range(BYTE_CHUNKS))[None, :, :]
         b_h = self.byte_moe(b_chunk) + b_chunk
-        b_h = self.byte_m1(b_h, training=training)
-        b_h = self.byte_m2(b_h, training=training)
+        for block in self.byte_blocks:
+            b_h = block(b_h, training=training)
         b_last = b_h[:, -1, :]
 
         w_r = tf.reshape(w_in, (-1, WORD_CHUNKS, 8))
         w_emb = self.word_emb(w_r)
-        w_chunk = tf.reduce_mean(w_emb, axis=2)
-        w_chunk = self.word_proj(w_chunk)
+        if USE_CHUNK_CONV:
+            w_chunk = self.word_chunk_stem(w_emb)
+        else:
+            w_chunk = self.word_proj(tf.reduce_mean(w_emb, axis=2))
         w_chunk = w_chunk + self.word_pos(tf.range(WORD_CHUNKS))[None, :, :]
         w_h = self.word_moe(w_chunk) + w_chunk
-        w_h = self.word_m1(w_h, training=training)
-        w_h = self.word_m2(w_h, training=training)
+        for block in self.word_blocks:
+            w_h = block(w_h, training=training)
         w_last = w_h[:, -1, :]
 
         s_emb = self.sent_emb(s_in) + self.sent_pos(tf.range(WIN_S))[None, :, :]
         s_h = self.sent_moe(s_emb) + s_emb
-        s_h = self.sent_m1(s_h, training=training)
-        s_h = self.sent_m2(s_h, training=training)
+        for block in self.sent_blocks:
+            s_h = block(s_h, training=training)
         s_last = s_h[:, -1, :]
 
         w_up = w_last + self.byte_to_word(b_last)
@@ -979,7 +1017,8 @@ _ = model(
 print(
     f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x{BYTE_CHUNK} "
     f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S} "
-    f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S}",
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S} "
+    f"depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
     flush=True,
 )
 opt = tf.keras.optimizers.AdamW(learning_rate=ARGS.lr, weight_decay=ARGS.weight_decay)
@@ -1000,6 +1039,8 @@ SIGNATURE = json.dumps({
     "ff_b": FF_B,
     "ff_w": FF_W,
     "ff_s": FF_S,
+    "depth": DEPTH,
+    "chunk_conv": bool(USE_CHUNK_CONV),
     "corpus_sha256": corpus_stats["sha256"],
     "split": split_name,
     "split_mode": ARGS.split_mode,
@@ -1527,7 +1568,8 @@ print(
 )
 print(
     f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S} "
-    f"dims {DIM_B}/{DIM_W}/{DIM_S} byte_chunk {BYTE_CHUNK} split {split_name} "
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
+    f"byte_chunk {BYTE_CHUNK} split {split_name} "
     f"completed {completed_epochs}/{ARGS.epochs} epochs "
     f"CPU time {time.time() - T0:.1f}s",
     flush=True,

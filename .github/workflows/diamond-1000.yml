@@ -7,7 +7,7 @@ on:
         description: 'Target total epochs, including any resumed epochs (1-1000)'
         type: string
         required: true
-        default: '30'
+        default: '40'
       examples:
         description: 'Training examples per epoch (256-20000)'
         type: string
@@ -59,13 +59,14 @@ on:
         required: true
         default: '32'
       model_size:
-        description: 'Tower preset: base 24/32/32 or wide 32/48/48'
+        description: 'Tower preset: base, wide, or frontier (conv chunk stems, depth 3, long context)'
         type: choice
         required: true
-        default: wide
+        default: frontier
         options:
           - base
           - wide
+          - frontier
       byte_chunk:
         description: 'Bytes per byte-tower chunk (8 or 16)'
         type: string
@@ -113,12 +114,12 @@ on:
         description: 'GitHub Release tag for the final weights (blank skips the release)'
         type: string
         required: false
-        default: 'diamond-wide-8m-30e'
+        default: 'diamond-frontier-8m-40e'
       report_name:
         description: 'Subdirectory under diamond/reports for this run'
         type: string
         required: true
-        default: 'wide-8m-30e'
+        default: 'frontier-8m-40e'
       commit_report:
         description: 'Commit the per-epoch report back to the repository'
         type: boolean
@@ -268,12 +269,23 @@ jobs:
           [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
           [[ "$BATCH" =~ ^[0-9]+$ ]] || BATCH=32
           (( BATCH >= 1 && BATCH <= 64 )) || BATCH=32
-          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" ]] || MODEL_SIZE=wide
-          if [ "$MODEL_SIZE" = "wide" ]; then
+          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" || "$MODEL_SIZE" == "frontier" ]] || MODEL_SIZE=frontier
+          VOCAB=2000
+          DEPTH=2
+          BYTE_WIN=1024; WORD_WIN=128; SENT_WIN=32
+          CHUNK_CONV=0
+          if [ "$MODEL_SIZE" = "frontier" ]; then
+            DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=128
+            DEPTH=3
+            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=64
+            CHUNK_CONV=1
+          elif [ "$MODEL_SIZE" = "wide" ]; then
             DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
           else
             DIM_B=24; DIM_W=32; DIM_S=32; FF_B=48; FF_W=64; FF_S=64
           fi
+          CHUNK_CONV_ARG=""
+          if [ "$CHUNK_CONV" = "1" ]; then CHUNK_CONV_ARG="--chunk-conv"; fi
           [[ "$SPLIT_MODE" == "document" || "$SPLIT_MODE" == "position" ]] || SPLIT_MODE=document
           [[ "$BYTE_CHUNK" == "8" || "$BYTE_CHUNK" == "16" ]] || BYTE_CHUNK=8
           [[ "$TEST_SIZE" =~ ^[0-9]+$ ]] || TEST_SIZE=1000
@@ -285,18 +297,19 @@ jobs:
           if [ "$QUICK" = "true" ]; then QUICK_ARG="--quick"; fi
 
           echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m lr=$LR warmup=$WARMUP_EPOCHS patience=$PATIENCE"
-          echo "model: ${DIM_B}/${DIM_W}/${DIM_S} ff ${FF_B}/${FF_W}/${FF_S} byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
+          echo "model: preset=$MODEL_SIZE dims=${DIM_B}/${DIM_W}/${DIM_S} ff=${FF_B}/${FF_W}/${FF_S} depth=$DEPTH conv=$CHUNK_CONV ctx=${BYTE_WIN}/${WORD_WIN}/${SENT_WIN} vocab=$VOCAB byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
           python diamond/diamond_engine.py $QUICK_ARG \
             --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
             --require-real-corpus \
             --epochs "$EPOCHS" \
             --examples "$EXAMPLES" \
             --batch "$BATCH" \
-            --byte-win 1024 --word-win 128 --sent-win 32 \
+            --byte-win "$BYTE_WIN" --word-win "$WORD_WIN" --sent-win "$SENT_WIN" \
             --dim-b "$DIM_B" --dim-w "$DIM_W" --dim-s "$DIM_S" \
             --ff-b "$FF_B" --ff-w "$FF_W" --ff-s "$FF_S" \
+            --depth "$DEPTH" $CHUNK_CONV_ARG \
             --byte-chunk "$BYTE_CHUNK" \
-            --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
+            --vocab "$VOCAB" --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
             --test-size "$TEST_SIZE" --split-mode "$SPLIT_MODE" \
             --doc-holdout-frac "$DOC_HOLDOUT_FRAC" \
