@@ -726,6 +726,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="evaluate once after init/restore, before training")
     run.add_argument("--save-every", type=int, default=0,
                      help="write last.pt every N steps (0 = only final/early-stop)")
+    run.add_argument("--freeze-trunk", action="store_true",
+                     help="freeze everything except the MTP heads (MTP-only repair)")
     run.add_argument("--best-every", type=int, default=0,
                      help="write best.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--init-from", default="",
@@ -1187,6 +1189,13 @@ def main(argv: list[str] | None = None) -> int:
             ) from exc
         print(f"[init] loaded weights from {init_path}", flush=True)
 
+    if args.freeze_trunk:
+        for name, param in model.named_parameters():
+            if not name.startswith("mtp_heads."):
+                param.requires_grad_(False)
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"[freeze] trunk frozen; trainable MTP params={trainable:,}", flush=True)
+
     if args.data_parallel and device.type == "cuda" and torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model)
         print(
@@ -1195,7 +1204,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        [p for p in model.parameters() if p.requires_grad],
         lr=args.lr,
         weight_decay=args.weight_decay,
         fused=(device.type == "cuda" and not amp),
