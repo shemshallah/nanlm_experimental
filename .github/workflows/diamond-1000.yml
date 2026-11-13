@@ -131,7 +131,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-fullsent
+  group: diamond-1000-nanrouter-allsent
   cancel-in-progress: false
 
 jobs:
