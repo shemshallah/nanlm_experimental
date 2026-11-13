@@ -28,7 +28,7 @@ A separate spherical projection of the contextual point vectors gives an *orient
     Omega_ijk = 2 atan2(det(u_i,u_j,u_k),
                        1 + u_i·u_j + u_j·u_k + u_k·u_i).
 
-The face also has an independently learned alternating curvature 2-form `beta_ijk`, using its existing exact indexed triple code. Trigonometric features use sine/cosine, avoiding discontinuous raw angle wrapping in the forward path.
+The face also has **independent 2,763,520-entry even and odd trainable mirror codes**, in addition to the inherited exact indexed triple code, allowing an independently learned alternating curvature 2-form `beta_ijk`. Trigonometric features use sine/cosine, avoiding discontinuous raw angle wrapping in the forward path.
 
 ## Tetrahedral closure and the subtle d²=0 trap
 
@@ -46,7 +46,7 @@ The original 256 apex sectors choose top-4 operators per causal query. R7.24 giv
 
 Signal path: original R7 causal near/far modal tokens + byte/word/sentence towers + point geometry -> 28 mirror edges -> 56 oriented curved triangles -> 70 tetra closure feedback -> top-4 of 256 specialized apex processors -> 56 faces -> 28 mirror pairs -> 8 points -> inherited R7 hierarchical decoder. The correction is mathematically blocked when the down-pair ablation is enabled: no independent shortcut writes to the LM output.
 
-The new geometric integration gate starts at **exactly zero**. All inherited R7.23 predictions match bit for bit before new training, while the inherited R7.22 model weights and five Adam optimizers are preserved without resets. The geometry parameters append a ninth group *inside the existing fifth optimizer*, not a sixth optimizer.
+The new edge, face, tetrahedral and specialist geometric gates start at **exactly zero**. The canonical `GeometricDiamond` migration copies every learned R7.23 parameter into an expanded module and remaps the existing fifth Adam optimizer's final parameter group **without resetting inherited optimizer moments**. It retains five optimizers and eight groups within the fifth, rather than introducing a replacement model.
 
 ## Verified local checks
 
@@ -56,7 +56,8 @@ The new geometric integration gate starts at **exactly zero**. All inherited R7.
 - `d²(theta)=0` for connection-derived holonomy; independent learned 2-form has a **nonzero, differentiable** tetra closure.
 - Gradient reachability through original frozen `P/M`, learned phase, triple curvature, tetra feedback and sparse apex specialists.
 - No-pair ablation produces exactly the inherited hidden state, even with nonzero geometric gate.
-- Earlier 128-update geometry-only CPU pilot: closure loss 0.3626 -> 0.00625, but no qualifying LM/history gains. **Rejected**.
+- Exploratory 128-update geometry-only pilot (a noncanonical variant): closure loss 0.3626 -> 0.00625, but no qualifying LM/history gains. **Rejected**, not a promoted checkpoint.
+- Exploratory 160-update joint pilot and 192-update causal-pressure pilot (same noncanonical variant) also failed the combined development gates. The canonical even/odd mirror-table implementation must be tested separately; these numbers do not establish its quality.
 
 ## Evaluation and GPU decision
 
