@@ -289,9 +289,12 @@ def train(args):
         carriers = [restore_carry(c) for c in state["carry"]]
         carriers.extend(ContinuousPALState(book.book_id) for book in train_books[len(carriers):])
         for i, old_carry in enumerate(carriers[:len(state["cursor"])]):
-            if cursor[i] >= len(train_chunks[i]):
+            if cursor[i] > len(train_chunks[i]):
                 raise RuntimeError("resume cursor beyond available training history")
-            if old_carry.cursor != train_chunks[i][cursor[i]][2]:
+            if cursor[i] == len(train_chunks[i]):
+                if old_carry.cursor != len(train_books[i].tokens):
+                    raise RuntimeError("terminal resume cursor must equal source book end")
+            elif old_carry.cursor != train_chunks[i][cursor[i]][2]:
                 raise RuntimeError("resume requires exact next-token stream parity")
         torch.set_rng_state(state["torch_rng"])
         np.random.set_state(state["numpy_rng"])
@@ -308,7 +311,9 @@ def train(args):
     best_score = initial["bpb"] + .03 * max(0.0,
                     initial["nonspace_nll"] - original_dev["nonspace_nll"])
     trace = []
+    active_indices = list(range(len(train_books)))
     if args.reader_only and args.warmup_target_tokens:
+        active_indices = []
         with torch.no_grad():
             for i, book in enumerate(train_books):
                 pieces = train_chunks[i]
@@ -328,11 +333,18 @@ def train(args):
                         detach_after=True)
                     cursor[i] += 1
                 if cursor[i] == len(pieces):
-                    raise RuntimeError("book too short for long-memory training warmup: " + book.book_id)
+                    if not args.warmup_allow_short:
+                        raise RuntimeError("book too short for long-memory training warmup: " + book.book_id)
+                    print(json.dumps({"phase":"SKIP_SHORT", "book":book.book_id,
+                                      "book_tokens":len(book.tokens)}), flush=True)
+                    continue
                 if state.cursor != pieces[cursor[i]][2]:
                     raise RuntimeError("causal warmup did not preserve contiguous token cursor")
+                active_indices.append(i)
                 print(json.dumps({"phase":"WARMUP", "book":book.book_id,
                                   "token_cursor":state.cursor}), flush=True)
+        if not active_indices:
+            raise RuntimeError("no sufficiently long training books")
     if args.reader_only:
         for name, parameter in unified.named_parameters():
             if not name.startswith("r23."):
@@ -344,7 +356,7 @@ def train(args):
 
     for step in range(step0 + 1, args.steps + 1):
         unified.train()
-        which = (step - 1) % len(train_chunks)
+        which = active_indices[(step - 1) % len(active_indices)]
         book = train_books[which]
         segments = train_chunks[which]
         if cursor[which] >= len(segments):
@@ -358,8 +370,9 @@ def train(args):
             if cursor[which] >= len(segments):
                 break
             piece = segments[cursor[which]]
-            donor = (train_books[(which + 1) % len(train_books)]
-                     if args.reader_only and len(train_books) > 1 else None)
+            donor = (train_books[active_indices[
+                         (active_indices.index(which) + 1) % len(active_indices)]]
+                     if args.reader_only and len(active_indices) > 1 else None)
             row = unified.forward_chunk(book, piece, carrier,
                                         counterfactual=args.reader_only,
                                         donor_book=donor)
@@ -511,6 +524,8 @@ if __name__ == "__main__":
                    help="multiplicatively reduce restored nine-group LR without resetting moments")
     p.add_argument("--reader-only", action="store_true",
                    help="one-model phase: freeze inherited trunk and train existing R23 reader only")
+    p.add_argument("--warmup-allow-short", action="store_true",
+                   help="exclude books shorter than the requested causal warmup, without resetting them")
     p.add_argument("--warmup-target-tokens", type=int, default=0,
                    help="causally advance live book state to this token before reader training")
     p.add_argument("--pairwise-margin", type=float, default=0.02)
