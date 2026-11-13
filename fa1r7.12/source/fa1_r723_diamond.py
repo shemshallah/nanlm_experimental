@@ -81,6 +81,10 @@ class CombinatorialDiamond(nn.Module):
         # apex specialists; target probabilities are NEVER supplied here.
         self.legacy_memory_norm=nn.LayerNorm(92)
         self.legacy_memory_in=nn.Linear(92,d)
+        self.modal_key=nn.Linear(96,d,bias=False)
+        self.modal_value=nn.Linear(96,d,bias=False)
+        self.modal_query=nn.Linear(d,d,bias=False)
+        self.modal_fuse=nn.Sequential(nn.Linear(d*2,d),nn.Tanh(),nn.Linear(d,d))
         nn.init.normal_(self.legacy_memory_in.weight,std=0.005)
         nn.init.zeros_(self.legacy_memory_in.bias)
         self.bottom_up=nn.Linear(d*4,d)
@@ -123,7 +127,8 @@ class CombinatorialDiamond(nn.Module):
         self.register_buffer('tri_edges',torch.tensor(TRI_EDGES,dtype=torch.long),persistent=False)
 
     def forward(self,hidden,word_ids,byte_ids,sentence_ids,vertex_ids,trunk,
-                memory_features=None,two_way=True,without_apex=False,without_pair=False,return_trace=False):
+                memory_features=None,modal_ids=None,modal_mask=None,
+                two_way=True,without_apex=False,without_pair=False,return_trace=False):
         if word_ids.shape[1]!=32 or byte_ids.shape[1]!=128 or sentence_ids.shape[1]!=8 or vertex_ids.shape[1]!=ACTIVE:
             raise ValueError('expected 32 past words / 128 past bytes / 8 previous sentence starts / 8 distinct points')
         if bool((vertex_ids<0).any()) or bool((vertex_ids>=256).any()):raise ValueError('invalid points')
@@ -141,6 +146,22 @@ class CombinatorialDiamond(nn.Module):
             if memory_features.shape!=(batch,92):
                 raise ValueError('near/far memory must supply 60+32 target-free channels')
             q=q+self.legacy_memory_in(self.legacy_memory_norm(memory_features.float()))
+        if modal_ids is not None:
+            # Concrete old-memory values enter the apex with 12 causal modes:
+            # 8 near (8K/32K) + 4 far (32K-128K). Query-conditioned soft
+            # attention is over retrieved tokens, never ground-truth labels.
+            if modal_ids.shape!=(batch,12) or modal_mask is None or modal_mask.shape!=(batch,12):
+                raise ValueError('expected 12 causal modal token IDs and eligibility masks')
+            modal_vectors=F.embedding(modal_ids.long(),trunk.E.detach())
+            keys=self.modal_key(modal_vectors)
+            values=self.modal_value(modal_vectors)
+            scores=(keys*self.modal_query(q).unsqueeze(1)).sum(-1)/(d**.5)
+            eligible=modal_mask.bool()
+            scores=scores.masked_fill(~eligible,-1e4)
+            probs=torch.softmax(scores,dim=-1)*eligible.float()
+            probs=probs/probs.sum(-1,keepdim=True).clamp_min(1e-12)
+            retrieved=(probs.unsqueeze(-1)*values).sum(1)
+            q=q+self.modal_fuse(torch.cat([q,retrieved],dim=-1))
         # 256 -> C(256,2): READ the exact original H and P/M, not new replacements.
         node=self.point_in(F.embedding(vertex_ids.long(),trunk.H.detach()))+self.point_offset(vertex_ids.long())
         e=self.edges
@@ -223,9 +244,12 @@ class UnifiedR723Diamond(UnifiedR722):
         memory_features=data.get('diamond_memory_features')
         if memory_features is None:
             memory_features=torch.cat([data['near_features'],data['far_features']],dim=-1)
+        modal_ids=data.get('diamond_modal_ids',data.get('memory_modal_ids'))
+        modal_mask=data.get('diamond_modal_mask',data.get('memory_modal_mask'))
         h,b_logits,w_vec,trace=self.diamond(data['hidden'],data['word_ids'],
                  data['byte_ids'],data['sentence_ids'],data['vertex_ids'],
                  self.core.trunk,memory_features=memory_features,
+                 modal_ids=modal_ids,modal_mask=modal_mask,
                  two_way=two_way,return_trace=True,**ablations)
         # Two normalized word distributions: inherited R7.22 distribution and
         # context-conditioned 32K-word hierarchical tree. Their probabilistic
