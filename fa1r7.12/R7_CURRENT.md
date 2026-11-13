@@ -1,6 +1,6 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.31 (layered causal byte/word Diamond decoder; one unified optimizer).**
+**Current source architecture: R7.32 calibrated layered Diamond with matched-history training/evaluation; one unified optimizer.**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
@@ -71,6 +71,24 @@ research candidate has passed the independent-book promotion gates.
   bytes and EOW can now be scored without gold-byte leakage, with top-1/top-5,
   conditional bits/byte and book-level geometry ablations. This does **not**
   establish raw text BPB, full-mixture word top-5 or a held-out gain yet.
+- R7.32 adds a *training/evaluation objective*, not another replacement model:
+  latest eight word IDs, 32 literal bytes, two sentence heads, all eight
+  active geometric vertices, inherited hidden state, near retrieval, and
+  targets stay unchanged, while another book supplies older history and far
+  memory. A difference-of-differences tests whether geometric *gain* is larger
+  for the true older history than for the foreign one, separately for word
+  branch, final mixture and conditional spelling bytes. Book-level lower
+  confidence bounds must all be positive for promotion. Full R7.31 resume now
+  preserves learned gates rather than reapplying migration initialization.
+  The matched-history-only R7.31 continuation retains 16 optimizer groups.
+- The parallel R7.32 calibration change adds identity-initialized per-example
+  geometric trust for word and byte predictions, preserving all inherited
+  outputs and optimizer moments at migration while adding group 17 to the
+  *same* unified optimizer. Geometry-off diagnostics now preserve the separate
+  language-context loop, and candidate selection prioritizes strict DEV
+  admissibility over raw word-loss gains. The two R7.32 changes are integrated:
+  matched-history constraints also apply to calibrated candidates.
+  **No new accepted checkpoint or measured integrated R7.32 training result.**
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -94,6 +112,10 @@ diagnostic, source-only CI coverage, and strict DEV-before-TEST promotion gate.
 Read `FA1_R7p31_LAYERED_DIAMOND.md` for the integrated multiscale attention
 loops, autoregressive spelling head, migration parity and conditional-byte
 metrics versus raw byte BPB.
+Read `FA1_R7p32_MATCHED_HISTORY.md` for the matched-history counterfactual,
+the new loss, resume protections and the next candidate-only CPU protocol.
+Read `FA1_R7p32_CALIBRATED_GEOMETRY.md` for the two trust routers,
+unconfounded geometry ablation and strict DEV checkpoint selection.
 Read `FA1_R7p25_CAUSAL_GEOMETRY_CONTINUATION.md` for checkpoint lineage and
 `FA1_R7p26_FACTOR_ABLATION_PROTOCOL.md` for the new diagnostics. The implementation
 is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,

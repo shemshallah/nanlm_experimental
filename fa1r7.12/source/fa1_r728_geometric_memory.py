@@ -27,6 +27,9 @@ from fa1_r724_train import GEOMETRY_GATES, boot_books
 from fa1_r725_controls import unrelated_book_context
 from fa1_r727_checkpoint import digest, load_unified, save_unpromoted
 from fa1_r727_eval import evaluate as vocabulary_evaluate, validate_book_corpus
+from fa1_r732_matched_history import (matched_history_context,
+                                       geometry_specific_history_gain,
+                                       context_specific_margin)
 
 
 @contextlib.contextmanager
@@ -148,8 +151,17 @@ def factor_read_disabled(model):
 def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
     model.eval()
     correct, extra = forward(model, data)
+    # Hold the latest local context fixed: only older words/bytes, distant
+    # sentence heads and far-memory channels are replaced by another book.
+    # This is intentionally harder than a total-history replacement.
+    matched = None
+    if hasattr(model.diamond, 'hierarchy'):
+        matched, matched_donors = matched_history_context(data, seed+101)
+        matched_nll, matched_extra = forward(model, matched)
     with geometry_disabled(model):
         without_geometry, no_geo_extra = forward(model, data)
+        if matched is not None:
+            matched_off_nll, matched_off_extra = forward(model, matched)
     if hasattr(model.diamond, 'hierarchy'):
         with layered_language_context_disabled(model):
             no_layer_context, no_layer_context_extra = forward(model, data)
@@ -215,6 +227,20 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
           'branch_vs_mixture_gap':float((extra['branch_nll']-correct).mean()),
           'branch_beats_inherited_fraction':float((extra['branch_nll']<old).float().mean()),
         })
+    if matched is not None:
+        matched_geo = geometry_specific_history_gain(
+            correct, matched_nll, without_geometry, matched_off_nll)
+        matched_branch_geo = geometry_specific_history_gain(
+            extra['branch_nll'], matched_extra['branch_nll'],
+            no_geo_extra['branch_nll'], matched_off_extra['branch_nll'])
+        result.update({
+            'matched_recent_history_word_advantage':float((matched_nll-correct).mean()),
+            'matched_geometry_word_advantage':float(matched_geo.mean()),
+            'matched_geometry_branch_advantage':float(matched_branch_geo.mean()),
+            'matched_geometry_word_book_bootstrap':boot_books(matched_geo,data['book_ids'],seed+111),
+            'matched_geometry_branch_book_bootstrap':boot_books(matched_branch_geo,data['book_ids'],seed+112),
+            'matched_foreign_book_donors':int(len(matched_donors)),
+        })
     if 'byte_ar_logits' in extra:
         metrics=layered_byte_metrics(extra,data)
         full_per_word,counts,full_bytes,_,_=layered_byte_losses(extra,data)
@@ -232,6 +258,21 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
             'conditional_byte_geometry_gain_nats_per_word_normalized':float(delta[valid].mean()),
             'conditional_byte_geometry_gain_book_bootstrap':boot_books(delta[valid],data['book_ids'][valid],seed+7),
         })
+        if matched is not None:
+            matched_byte,_,matched_ce,_,_=layered_byte_losses(matched_extra,data)
+            matched_off_byte,_,matched_off_ce,_,_=layered_byte_losses(matched_off_extra,data)
+            matched_byte_gain=geometry_specific_history_gain(
+                full_per_word,matched_byte,no_geo_per_word,matched_off_byte)
+            matched_byte_gain_total=geometry_specific_history_gain(
+                full_bytes,matched_ce,no_geo_bytes,matched_off_ce)
+            metrics.update({
+                'matched_history_byte_advantage_nats_per_byte':float(
+                    (matched_ce-full_bytes).sum()/counts.sum()),
+                'matched_geometry_byte_advantage_nats_per_byte':float(
+                    matched_byte_gain_total.sum()/counts.sum()),
+                'matched_geometry_byte_book_bootstrap':boot_books(
+                    matched_byte_gain[valid],data['book_ids'][valid],seed+113),
+            })
         result.update(metrics)
         if hasattr(model.diamond, 'hierarchy'):
             context_per_word,_,context_ce,_,_=layered_byte_losses(no_layer_context_extra,data)
@@ -269,6 +310,24 @@ def open_candidate_gates(model, bridge, meta, contextual_init=0.,
             geometry.factor_decoder_gain.fill_(math.atanh(factor_decoder_init))
 
 
+def warm_start_only_if_migrated(model, args, loaded_meta):
+    """Never reset learned gate values when resuming R7.31/R7.32."""
+    resuming = (getattr(args, 'layered', False) and loaded_meta.get(
+        'architecture_round') in ('FA1_R7_31_LAYERED_DIAMOND_V1',
+                                  'FA1_R7_32_CALIBRATED_DIAMOND_V1'))
+    if resuming:
+        return False
+    open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
+                         getattr(args,'factor_up_init',0.),
+                         getattr(args,'factor_decoder_init',0.))
+    if getattr(args,'layered',False):
+        with torch.no_grad():
+            for name in ('context_gain','point_gain','pair_gain','triangle_gain',
+                         'word_gain','byte_geometry_gain'):
+                getattr(model.diamond.hierarchy,name).fill_(math.atanh(args.layered_gate_init))
+    return True
+
+
 def train_step(model, optimizer, sample, step, args):
     model.train()
     # Compute target-free geometry-off teacher before constructing the live
@@ -278,12 +337,23 @@ def train_step(model, optimizer, sample, step, args):
     no_read_branch = None
     no_factor_branch = None
     no_geo_bytes = None
+    matched = None
+    no_geo_matched_branch = None
+    no_geo_matched_bytes = None
+    if (getattr(args,'layered',False) and step % args.ablate_every == 0 and
+            (args.matched_geometry_weight or args.matched_byte_weight)):
+        matched,_=matched_history_context(sample,args.seed+step+101)
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):
                 _, no_geo = forward(model, sample)
                 if 'byte_ar_logits' in no_geo:
                     no_geo_bytes=layered_byte_losses(no_geo,sample)[0].detach()
+                if matched is not None:
+                    _, no_matched = forward(model, matched)
+                    no_geo_matched_branch=no_matched['branch_nll'].detach()
+                    if 'byte_ar_logits' in no_matched:
+                        no_geo_matched_bytes=layered_byte_losses(no_matched,sample)[0].detach()
             if hasattr(model.diamond.geometry,'context_read_gain'):
                 with contextual_read_disabled(model):
                     _, no_read = forward(model,sample)
@@ -307,6 +377,21 @@ def train_step(model, optimizer, sample, step, args):
     foreign, _ = unrelated_book_context(sample, args.seed + step)
     _, wrong_extra = forward(model, foreign)
     different_book = soft_margin(extra['branch_nll'], wrong_extra['branch_nll'], args.history_margin)
+    matched_geo_penalty=correct.new_zeros(())
+    matched_byte_penalty=correct.new_zeros(())
+    if matched is not None:
+        _, matched_extra = forward(model, matched)
+        matched_geo_gain=geometry_specific_history_gain(
+            extra['branch_nll'],matched_extra['branch_nll'],
+            no_geo_branch,no_geo_matched_branch)
+        matched_geo_penalty=context_specific_margin(matched_geo_gain,args.matched_margin)
+        if 'byte_ar_logits' in extra:
+            matched_byte=layered_byte_losses(matched_extra,sample)[0]
+            byte_gain=geometry_specific_history_gain(
+                per_word,matched_byte,no_geo_bytes,no_geo_matched_bytes)
+            valid=counts>0
+            if bool(valid.any()):
+                matched_byte_penalty=context_specific_margin(byte_gain[valid],args.matched_margin)
     # The two full-signal ablations force the memory to be stored in geometric
     # faces and used by the apex -> pair -> point read path.  The counterfactual
     # never modifies the target or the inherited R7 hidden state.
@@ -331,7 +416,9 @@ def train_step(model, optimizer, sample, step, args):
                  args.pair_weight * pair_loss + args.contextual_weight * read_loss +
                  getattr(args,'factor_weight',0.) * factor_loss +
                  getattr(args,'byte_ar_weight',0.) * byte_ar +
-                 getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty)
+                 getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty +
+                 getattr(args,'matched_geometry_weight',0.) * matched_geo_penalty +
+                 getattr(args,'matched_byte_weight',0.) * matched_byte_penalty)
     optimizer.zero_grad(set_to_none=True)
     objective.backward()
     face_grad = model.diamond.geometry.face_plus.weight.grad
@@ -344,6 +431,8 @@ def train_step(model, optimizer, sample, step, args):
             'train_factor_contrast':float(factor_loss.detach()),
             'train_layered_byte_ar_nll':float(byte_ar.detach()),
             'train_layered_byte_geometry_contrast':float(byte_geo_penalty.detach()),
+            'train_matched_geometry_contrast':float(matched_geo_penalty.detach()),
+            'train_matched_byte_contrast':float(matched_byte_penalty.detach()),
             'train_face_plus_addresses_with_gradient': addressed}
 
 
@@ -382,6 +471,14 @@ def passes_gate(reference, candidate, min_gain):
         for key in ('conditional_spelling_top1','conditional_spelling_top5'):
             if key in reference and candidate[key] < reference[key]:
                 return False
+    if 'matched_geometry_word_advantage' in candidate:
+        if (candidate['matched_geometry_word_advantage']<=0 or
+                candidate['matched_geometry_branch_advantage']<=0 or
+                candidate['matched_geometry_word_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['matched_geometry_branch_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['matched_geometry_byte_advantage_nats_per_byte']<=0 or
+                candidate['matched_geometry_byte_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
+            return False
     return True
 
 
@@ -405,6 +502,13 @@ def candidate_priority(reference, candidate, min_gain):
         geometry_ready = (geometry_ready and
             candidate['conditional_spelling_bits_per_byte'] <
             reference['conditional_spelling_bits_per_byte'])
+    if 'matched_geometry_word_advantage' in candidate:
+        # A candidate with context-insensitive geometry cannot earn the
+        # intermediate geometry-ready tier merely by lowering word loss.
+        geometry_ready = geometry_ready and all(candidate[k] > 0 for k in (
+            'matched_geometry_word_advantage',
+            'matched_geometry_branch_advantage',
+            'matched_geometry_byte_advantage_nats_per_byte'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))
@@ -456,20 +560,9 @@ def run(args):
     face_plus_start = model.diamond.geometry.face_plus.weight.detach().clone()
     face_minus_start = model.diamond.geometry.face_minus.weight.detach().clone()
     triangle_code_start = model.diamond.triple_code.weight.detach().clone()
-    # A resumed R7.31/R7.32 checkpoint has *learned* gates. Never overwrite
-    # them with fixed exploratory warm-start constants on continuation.
-    preserve_learned_gates = (getattr(args,'layered',False) and
-        parent_meta.get('architecture_round') in (
-            'FA1_R7_31_LAYERED_DIAMOND_V1',
-            'FA1_R7_32_CALIBRATED_DIAMOND_V1'))
-    if not preserve_learned_gates:
-        open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
-                             getattr(args,'factor_up_init',0.),getattr(args,'factor_decoder_init',0.))
-    if getattr(args,'layered',False) and not preserve_learned_gates:
-        with torch.no_grad():
-            for name in ('context_gain','point_gain','pair_gain','triangle_gain',
-                         'word_gain','byte_geometry_gain'):
-                getattr(model.diamond.hierarchy,name).fill_(math.atanh(args.layered_gate_init))
+    # Source-migrated candidates get the initial gate warm-start. Fully trained
+    # R7.31/R7.32 candidates retain the learned gates and Adam moments.
+    preserve_learned_gates = not warm_start_only_if_migrated(model,args,parent_meta)
     opened = geometry_diagnostic(model, dev, args.seed+3)
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
     rng = np.random.default_rng(args.seed+9)
@@ -529,6 +622,8 @@ def run(args):
         'contextual_geometric_read':bool(args.contextual or getattr(args,'factorized',False) or getattr(args,'layered',False)),
         'factorized_geometric_read':bool(getattr(args,'factorized',False) or getattr(args,'layered',False)),
         'layered_autoregressive_decoder':bool(getattr(args,'layered',False)),
+        'resumed_learned_gates_unchanged':preserve_learned_gates,
+        'matched_history_contrast':bool(getattr(args,'layered',False)),
         'calibrated_geometric_trust':bool(getattr(args,'calibrated',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
@@ -595,6 +690,11 @@ def parse_args():
     p.add_argument('--layered-gate-init',type=float,default=.12)
     p.add_argument('--byte-ar-weight',type=float,default=.35)
     p.add_argument('--byte-geometry-weight',type=float,default=.2)
+    p.add_argument('--matched-geometry-weight',type=float,default=.6,
+                   help='R7.32 matched-old-history branch geometry contrast (R7.31 only)')
+    p.add_argument('--matched-byte-weight',type=float,default=.25,
+                   help='R7.32 matched-old-history byte geometry contrast (R7.31 only)')
+    p.add_argument('--matched-margin',type=float,default=.005)
     p.add_argument('--factor-up-init',type=float,default=0.20)
     p.add_argument('--factor-decoder-init',type=float,default=0.35)
     p.add_argument('--factor-weight',type=float,default=0.75)

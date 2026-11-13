@@ -172,6 +172,24 @@ class CalibratedDiamondTests(unittest.TestCase):
         self.assertAlmostEqual(m['conditional_spelling_bits_per_byte'],float(expected),places=5)
         self.assertEqual(m['conditional_spelling_bytes_per_word'],2.5)
 
+    def test_matched_history_stays_mandatory_for_calibrated_selection(self):
+        baseline = self.candidate(full_word_nll=5.4,
+                                  conditional_spelling_bits_per_byte=7.2)
+        admissible = self.candidate(
+            matched_geometry_word_advantage=.002,
+            matched_geometry_branch_advantage=.003,
+            matched_geometry_byte_advantage_nats_per_byte=.001,
+            matched_geometry_word_book_bootstrap={'book_bootstrap_ci95':[.0001,.004]},
+            matched_geometry_branch_book_bootstrap={'book_bootstrap_ci95':[.0001,.005]},
+            matched_geometry_byte_book_bootstrap={'book_bootstrap_ci95':[.0001,.003]})
+        harmful = dict(admissible, matched_geometry_word_advantage=-.002,
+                       full_word_nll=5.28)
+        self.assertTrue(passes_gate(baseline, admissible, .0001))
+        self.assertFalse(passes_gate(baseline, harmful, .0001))
+        self.assertEqual(candidate_priority(baseline, harmful, .0001)[0],0)
+        self.assertGreater(candidate_priority(baseline, admissible, .0001),
+                           candidate_priority(baseline, harmful, .0001))
+
 
 if __name__ == '__main__':
     unittest.main()

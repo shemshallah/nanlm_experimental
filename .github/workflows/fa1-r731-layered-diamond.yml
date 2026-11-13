@@ -6,12 +6,16 @@ on:
     paths:
       - '.github/workflows/fa1-r731-layered-diamond.yml'
       - 'fa1r7.12/source/fa1_r731_*.py'
+      - 'fa1r7.12/source/fa1_r732_*.py'
       - 'fa1r7.12/source/test_fa1_r731_*.py'
+      - 'fa1r7.12/source/test_fa1_r732_*.py'
+      - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
       - 'fa1r7.12/source/fa1_r723_diamond.py'
       - 'fa1r7.12/source/fa1_r723_corpus.py'
       - 'fa1r7.12/source/fa1_r727_checkpoint.py'
       - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
       - 'fa1r7.12/FA1_R7p31_LAYERED_DIAMOND.md'
+      - 'fa1r7.12/FA1_R7p32_MATCHED_HISTORY.md'
       - 'fa1r7.12/R7_CURRENT.md'
   workflow_dispatch:
 
@@ -42,11 +46,14 @@ jobs:
       - name: Compile and test new layered and inherited Diamond modules
         run: |
           python -m py_compile fa1r7.12/source/fa1_r731_*.py
+          python -m py_compile fa1r7.12/source/fa1_r732_*.py
+          python -m py_compile fa1r7.12/source/fa1_r728_geometric_memory.py
           python -m py_compile fa1r7.12/source/fa1_r723_diamond.py
           python -m py_compile fa1r7.12/source/fa1_r723_corpus.py
           python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
           python -m py_compile fa1r7.12/source/fa1_r728_geometric_memory.py
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r732_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r730_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r729_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r728_*.py' -q
