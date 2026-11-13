@@ -239,9 +239,19 @@ class CombinatorialDiamond(nn.Module):
         # This distribution becomes active ONLY via a zero-init normalized
         # probability mixture in UnifiedR723Diamond.joint_nll.
         new_hidden=hidden+correction
+        # R7.30: the factorized read is decoded *after* the unchanged
+        # triangle -> apex -> pair -> point path.  Both new gains start at
+        # exactly zero, leaving every inherited R7.29 prediction identical.
+        if geometric is not None and hasattr(self.geometry,'decoder_residual'):
+            new_hidden=new_hidden+self.geometry.decoder_residual(
+                geometric,point_summary,apex,q)
         byte_logits=self.head_byte(point_summary+apex)
         target_vector=self.head_word(point_summary+apex)
         if return_trace:
+            # Training may supervise the retrieved representation directly,
+            # but no target is used to construct it during causal inference.
+            memory_aux=({'factor_retrieved':geometric['factor_retrieved']}
+                        if geometric is not None and 'factor_retrieved' in geometric else {})
             return new_hidden,byte_logits,target_vector,{
                 'selected_sectors':sector_ids.detach(),
                 'triangle_addresses':tri_ids.detach(),
@@ -250,7 +260,7 @@ class CombinatorialDiamond(nn.Module):
                 'apex_std':apex.detach().std(),
                 'gate':self.gate.detach().clone(),'trust_logit':trust_logit,
                 'geometry':({k:v.detach() for k,v in geometric['metrics'].items()}
-                            if geometric is not None else {})}
+                            if geometric is not None else {}),**memory_aux}
         return new_hidden,byte_logits,target_vector
 
 

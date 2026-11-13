@@ -35,6 +35,8 @@ def geometry_disabled(model):
     names = list(GEOMETRY_GATES)
     if hasattr(model.diamond.geometry,'context_read_gain'):
         names.append('context_read_gain')
+    if hasattr(model.diamond.geometry,'factor_up_gain'):
+        names.extend(('factor_up_gain','factor_decoder_gain'))
     gates = [getattr(model.diamond.geometry, n) for n in names]
     before = [p.detach().clone() for p in gates]
     with torch.no_grad():
@@ -63,6 +65,24 @@ def contextual_read_disabled(model):
         with torch.no_grad():p.copy_(before)
 
 
+@contextlib.contextmanager
+def factor_read_disabled(model):
+    """Counterfactual: new R7.30 read off; inherited R7.29 path stays on."""
+    geo=model.diamond.geometry
+    if not hasattr(geo,'factor_up_gain'):
+        yield
+        return
+    gates=(geo.factor_up_gain,geo.factor_decoder_gain)
+    saved=[p.detach().clone() for p in gates]
+    with torch.no_grad():
+        for p in gates:p.zero_()
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            for p,v in zip(gates,saved):p.copy_(v)
+
+
 @torch.no_grad()
 def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
     model.eval()
@@ -74,6 +94,11 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
             without_read, no_read_extra = forward(model,data)
     else:
         without_read, no_read_extra = correct, extra
+    if hasattr(model.diamond.geometry,'factor_up_gain'):
+        with factor_read_disabled(model):
+            without_factor,no_factor_extra=forward(model,data)
+    else:
+        without_factor,no_factor_extra=correct,extra
     foreign, donors = unrelated_book_context(data, seed)
     foreign_nll, foreign_extra = forward(model, foreign)
     no_apex, no_apex_extra = forward(model, data, 'no_apex')
@@ -111,6 +136,19 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None):
           'contextual_read_branch_gain':float((no_read_extra['branch_nll']-extra['branch_nll']).mean()),
           'contextual_read_book_gain':boot_books(context_gain,data['book_ids'],seed+4),
         })
+    if hasattr(model.diamond.geometry,'factor_up_gain'):
+        factor_gain=without_factor-correct
+        branch_factor_gain=no_factor_extra['branch_nll']-extra['branch_nll']
+        result.update({
+          'factor_up_gate':float(model.diamond.geometry.factor_up_gain.detach()),
+          'factor_decoder_gate':float(model.diamond.geometry.factor_decoder_gain.detach()),
+          'factor_word_gain':float(factor_gain.mean()),
+          'factor_branch_gain':float(branch_factor_gain.mean()),
+          'factor_word_gain_bootstrap':boot_books(factor_gain,data['book_ids'],seed+5),
+          'factor_branch_gain_bootstrap':boot_books(branch_factor_gain,data['book_ids'],seed+6),
+          'branch_vs_mixture_gap':float((extra['branch_nll']-correct).mean()),
+          'branch_beats_inherited_fraction':float((extra['branch_nll']<old).float().mean()),
+        })
     if 'book_ids' in data:
         result['book_geometry_gain'] = boot_books(gain, data['book_ids'], seed)
         result['book_correct_history'] = boot_books(history, data['book_ids'], seed+1)
@@ -125,7 +163,8 @@ def soft_margin(positive, negative, margin):
     return (F.softplus(8. * (margin - (negative-positive))) / 8.).mean()
 
 
-def open_candidate_gates(model, bridge, meta, contextual_init=0.):
+def open_candidate_gates(model, bridge, meta, contextual_init=0.,
+                         factor_up_init=0.,factor_decoder_init=0.):
     """A candidate-only gate warm start; the saved R7.27 parent is untouched."""
     with torch.no_grad():
         model.diamond.gate.fill_(math.atanh(bridge))
@@ -134,6 +173,9 @@ def open_candidate_gates(model, bridge, meta, contextual_init=0.):
             geometry.meta_gate.fill_(math.atanh(meta))
         if hasattr(geometry,'context_read_gain'):
             geometry.context_read_gain.fill_(math.atanh(contextual_init))
+        if hasattr(geometry,'factor_up_gain'):
+            geometry.factor_up_gain.fill_(math.atanh(factor_up_init))
+            geometry.factor_decoder_gain.fill_(math.atanh(factor_decoder_init))
 
 
 def train_step(model, optimizer, sample, step, args):
@@ -143,6 +185,7 @@ def train_step(model, optimizer, sample, step, args):
     # an autograd-saved tensor in-place and invalidate the gradient.
     no_geo_branch = None
     no_read_branch = None
+    no_factor_branch = None
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):
@@ -151,6 +194,10 @@ def train_step(model, optimizer, sample, step, args):
                 with contextual_read_disabled(model):
                     _, no_read = forward(model,sample)
                 no_read_branch=no_read['branch_nll'].detach()
+            if hasattr(model.diamond.geometry,'factor_up_gain'):
+                with factor_read_disabled(model):
+                    _,no_factor=forward(model,sample)
+                no_factor_branch=no_factor['branch_nll'].detach()
         no_geo_branch = no_geo['branch_nll'].detach()
     correct, extra = forward(model, sample)
     branch = extra['branch_nll'].mean()
@@ -165,10 +212,13 @@ def train_step(model, optimizer, sample, step, args):
     apex_loss = correct.new_zeros(())
     pair_loss = correct.new_zeros(())
     read_loss = correct.new_zeros(())
+    factor_loss = correct.new_zeros(())
     if no_geo_branch is not None:
         geo_loss = soft_margin(extra['branch_nll'], no_geo_branch, args.geometry_margin)
         if no_read_branch is not None:
             read_loss=soft_margin(extra['branch_nll'],no_read_branch,args.geometry_margin)
+        if no_factor_branch is not None:
+            factor_loss=soft_margin(extra['branch_nll'],no_factor_branch,args.geometry_margin)
         _, no_apex = forward(model, sample, 'no_apex')
         apex_loss = soft_margin(extra['branch_nll'], no_apex['branch_nll'], args.geometry_margin)
         _, no_pair = forward(model, sample, 'no_pair')
@@ -176,7 +226,8 @@ def train_step(model, optimizer, sample, step, args):
     objective = (args.full_weight * correct.mean() + args.branch_weight * branch +
                  args.byte_weight * byte + args.history_weight * different_book +
                  args.geometry_weight * geo_loss + args.apex_weight * apex_loss +
-                 args.pair_weight * pair_loss + args.contextual_weight * read_loss)
+                 args.pair_weight * pair_loss + args.contextual_weight * read_loss +
+                 getattr(args,'factor_weight',0.) * factor_loss)
     optimizer.zero_grad(set_to_none=True)
     objective.backward()
     face_grad = model.diamond.geometry.face_plus.weight.grad
@@ -186,6 +237,7 @@ def train_step(model, optimizer, sample, step, args):
     return {'train_total': float(objective.detach()), 'train_full_nll': float(correct.mean().detach()),
             'train_branch_nll': float(branch.detach()), 'train_first_byte_nll': float(byte.detach()),
             'train_different_book_penalty': float(different_book.detach()),
+            'train_factor_contrast':float(factor_loss.detach()),
             'train_face_plus_addresses_with_gradient': addressed}
 
 
@@ -208,6 +260,11 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['contextual_read_branch_gain'] <= 0 or
                 candidate['contextual_read_book_gain']['book_bootstrap_ci95'][0] <= 0):
             return False
+    if 'factor_word_gain' in candidate:
+        if (candidate['factor_word_gain']<=0 or candidate['factor_branch_gain']<=0 or
+                candidate['factor_word_gain_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['factor_branch_gain_bootstrap']['book_bootstrap_ci95'][0]<=0):
+            return False
     return True
 
 
@@ -221,7 +278,10 @@ def run(args):
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     parent_hash = digest(args.checkpoint)
-    if args.contextual:
+    if getattr(args,'factorized',False):
+        from fa1_r730_factorized_geometry import load_factorized
+        model, optimizer, base, compositor, _ = load_factorized(args.checkpoint,args.root,args.threads)
+    elif args.contextual:
         from fa1_r729_contextual_geometry import load_contextual
         model, optimizer, base, compositor, _ = load_contextual(args.checkpoint, args.root, args.threads)
     else:
@@ -244,7 +304,8 @@ def run(args):
     face_plus_start = model.diamond.geometry.face_plus.weight.detach().clone()
     face_minus_start = model.diamond.geometry.face_minus.weight.detach().clone()
     triangle_code_start = model.diamond.triple_code.weight.detach().clone()
-    open_candidate_gates(model, args.bridge, args.meta, args.contextual_init)
+    open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
+                         getattr(args,'factor_up_init',0.),getattr(args,'factor_decoder_init',0.))
     opened = geometry_diagnostic(model, dev, args.seed+3)
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
     rng = np.random.default_rng(args.seed+9)
@@ -290,11 +351,13 @@ def run(args):
     # This is a scientific probe, not a checkpoint promotion. Its full result
     # stays in JSON, and future rounds may choose to save a guarded candidate.
     report = {
-        'format':('FA1_R7_29_CONTEXTUAL_GEOMETRY_DEV_PROBE_V1' if args.contextual
+        'format':('FA1_R7_30_FACTORIZED_GEOMETRY_DEV_PROBE_V1' if getattr(args,'factorized',False) else
+                  'FA1_R7_29_CONTEXTUAL_GEOMETRY_DEV_PROBE_V1' if args.contextual
                   else 'FA1_R7_28_GEOMETRIC_MEMORY_DEV_PROBE_V1'),
         'source_checkpoint_sha256':parent_hash,
         'branch':'master',
-        'contextual_geometric_read':bool(args.contextual),
+        'contextual_geometric_read':bool(args.contextual or getattr(args,'factorized',False)),
+        'factorized_geometric_read':bool(getattr(args,'factorized',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -314,10 +377,14 @@ def run(args):
         report['unpromoted_candidate_checkpoint'] = save_unpromoted(
             args.candidate_checkpoint, model, optimizer, args.root, args.checkpoint,
             source_metadata={'format':'FA1_R7_27_SINGLE_MODEL_SINGLE_HYBRID_OPTIMIZER_V1'},
-            candidate_trained=True, training_round=('FA1 R7.29 context-addressed geometric memory'
+            candidate_trained=True, training_round=('FA1 R7.30 factorized geometric memory'
+                                                     if getattr(args,'factorized',False) else
+                                                     'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_29_CONTEXTUAL_GEOMETRY_V1' if args.contextual else ''))
+            architecture_round=('FA1_R7_30_FACTORIZED_GEOMETRY_V1'
+                                if getattr(args,'factorized',False) else
+                                'FA1_R7_29_CONTEXTUAL_GEOMETRY_V1' if args.contextual else ''))
     else:
         report['unpromoted_candidate_checkpoint'] = None
     output=Path(args.output)
@@ -335,6 +402,10 @@ def parse_args():
     p.add_argument('--output',required=True)
     p.add_argument('--candidate-checkpoint',default='',help='separate unpromoted successor; never accepted parent')
     p.add_argument('--contextual',action='store_true',help='R7.29 context-addressed signed triangle read')
+    p.add_argument('--factorized',action='store_true',help='R7.30 continuation with point-factorized readout')
+    p.add_argument('--factor-up-init',type=float,default=0.20)
+    p.add_argument('--factor-decoder-init',type=float,default=0.35)
+    p.add_argument('--factor-weight',type=float,default=0.75)
     p.add_argument('--contextual-init',type=float,default=0.15)
     p.add_argument('--contextual-weight',type=float,default=0.6)
     p.add_argument('--split',default='dev')

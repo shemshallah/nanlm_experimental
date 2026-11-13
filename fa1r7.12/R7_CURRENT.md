@@ -1,6 +1,6 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.29 (context-addressed signed geometric read; one unified optimizer).**
+**Current source architecture: R7.30 (factorized geometric branch readout; one unified optimizer).**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
@@ -55,6 +55,14 @@ research candidate has passed the independent-book promotion gates.
   new context readout harmed word NLL by 0.00002942 nats/word with a strictly
   negative four-book interval. First-byte top-5 fell 43.55% -> 42.58%.
   **R7.29 rejected and fresh TEST left sealed.**
+- R7.30 source builds on R7.29 with 256-point factorized triangle keys/values,
+  an apex/pair/point-dependent branch decoder correction and two zero-initialized
+  gains. Its 15th optimizer group preserves all 14 inherited groups/moments.
+  The earlier 64-update pilot reportedly had full word NLL 4.955495 and
+  first-byte top-1/top-5 10.94%/32.81%, unchanged from its parent; correct-book
+  advantage was negative. That pilot's recoverable checkpoint is not on GitHub
+  master. The new source exposes factor-off branch and final-mixture gains with
+  whole-book CIs; **no new full-checkpoint result or promotion is claimed**.
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -73,6 +81,8 @@ next required context-dependent geometry readout.
 Read `FA1_R7p29_CONTEXTUAL_GEOMETRY.md` for context-addressed read equations,
 zero-gain and optimizer restoration checks, book-hash reservation protocol,
 and the failed new-memory causal ablation.
+Read `FA1_R7p30_FACTORIZED_GEOMETRY.md` for the factorized read, direct branch
+diagnostic, source-only CI coverage, and strict DEV-before-TEST promotion gate.
 Read `FA1_R7p25_CAUSAL_GEOMETRY_CONTINUATION.md` for checkpoint lineage and
 `FA1_R7p26_FACTOR_ABLATION_PROTOCOL.md` for the new diagnostics. The implementation
 is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,
