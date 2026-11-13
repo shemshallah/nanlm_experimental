@@ -84,7 +84,10 @@ class EvalV3Tests(unittest.TestCase):
 
         router = metrics["router_utilization"]
         self.assertIsNotNone(router)
-        self.assertEqual(len(router["layers"]), cfg.moe_layers)
+        expected_router_layers = cfg.moe_layers + (
+            cfg.mtp - 1 if cfg.mtp_block else 0
+        )
+        self.assertEqual(len(router["layers"]), expected_router_layers)
         for layer in router["layers"]:
             self.assertEqual(layer["n_experts"], cfg.n_experts)
             self.assertEqual(len(layer["utilization"]), cfg.n_experts)
@@ -205,6 +208,12 @@ class EvalV3Tests(unittest.TestCase):
             self.assertEqual(metrics["tokens_available"], 2500)
             self.assertEqual(metrics["tokenizer"], "bytes")
             self.assertEqual(metrics["tokenizer_vocab_size"], 256)
+            self.assertEqual(metrics["raw_bytes"], 2500)
+            self.assertEqual(metrics["encoded_tokens"], 2500)
+            self.assertAlmostEqual(metrics["bytes_per_token"], 1.0)
+            self.assertAlmostEqual(
+                metrics["bits_per_byte"], metrics["bits_per_token"]
+            )
             self.assertGreater(metrics["bits_per_token"], 0.0)
             self.assertGreaterEqual(metrics["top1"], 0.0)
             self.assertLessEqual(metrics["top1"], metrics["top5"])
@@ -252,7 +261,13 @@ class EvalV3Tests(unittest.TestCase):
         self.assertLessEqual(smoke["top5"], 1.0)
         self.assertEqual(set(smoke["mtp_top1"]), {"t+2", "t+3"})
         self.assertIsNotNone(smoke["router_utilization"])
-        self.assertEqual(len(smoke["router_utilization"]["layers"]), 2)
+        smoke_cfg = result["config"]
+        expected_router_layers = smoke_cfg["moe_layers"] + (
+            smoke_cfg["mtp"] - 1 if smoke_cfg["mtp_block"] else 0
+        )
+        self.assertEqual(
+            len(smoke["router_utilization"]["layers"]), expected_router_layers
+        )
         for layer in smoke["router_utilization"]["layers"]:
             self.assertAlmostEqual(sum(layer["utilization"]), 1.0, places=5)
 

@@ -141,6 +141,12 @@ def parse_config(raw: Any) -> V3Config:
         for key, value in mapping.items()
         if key in CONFIG_FIELD_NAMES and value is not None
     }
+    # JSON has no tuples.  Normalize tuple-typed fields so a config loaded
+    # from a checkpoint round-trips equal to the in-memory V3Config.
+    for key in ("mtp_aux_layers", "mtp_aux_layer_weights"):
+        value = kwargs.get(key)
+        if isinstance(value, list):
+            kwargs[key] = tuple(value)
     if not kwargs:
         raise ValueError(
             "no V3Config fields found in model config "
@@ -1230,6 +1236,16 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             metrics["tokenizer"] = tokenizer.kind
             metrics["tokenizer_backend"] = getattr(tokenizer, "backend", "builtin")
             metrics["tokenizer_vocab_size"] = tokenizer.vocab_size
+            raw_bytes = path.stat().st_size
+            if args.max_bytes > 0:
+                raw_bytes = min(raw_bytes, args.max_bytes)
+            bytes_per_token = raw_bytes / max(1, len(ids))
+            metrics["raw_bytes"] = raw_bytes
+            metrics["encoded_tokens"] = len(ids)
+            metrics["bytes_per_token"] = bytes_per_token
+            metrics["bits_per_byte"] = (
+                metrics["bits_per_token"] / bytes_per_token
+            )
             corpora[name] = metrics
 
         result = _build_result(

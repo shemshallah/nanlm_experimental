@@ -1434,12 +1434,13 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
 
+    lr_total_steps = int(args.lr_total_steps or args.steps)
     if args.warmup_steps > 0:
         warmup_steps = args.warmup_steps
     else:
-        warmup_steps = int(round(args.steps * args.warmup_frac))
-    warmup_steps = max(0, min(warmup_steps, max(0, args.steps - 1)))
-    effective_warmup_frac = warmup_steps / max(1, args.steps)
+        warmup_steps = int(round(lr_total_steps * args.warmup_frac))
+    warmup_steps = max(0, min(warmup_steps, max(0, lr_total_steps - 1)))
+    effective_warmup_frac = warmup_steps / max(1, lr_total_steps)
     horizon = args.lr_horizon
     if horizon == "auto":
         # Never tie the LR schedule to a wall-clock cutoff by default: a
@@ -1476,8 +1477,6 @@ def main(argv: list[str] | None = None) -> int:
     last_train: dict[str, Any] = {}
     status = "completed"
     steps_run = 0
-
-    lr_total_steps = int(args.lr_total_steps or args.steps)
 
     def current_lr(step: int, elapsed: float) -> float:
         if horizon == "time" and args.max_seconds > 0:
