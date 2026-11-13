@@ -45,10 +45,14 @@ def run():
     by=torch.randint(0,256,(batch,128))
     sen=torch.randint(0,32000,(batch,8))
     verts=torch.stack([torch.randperm(256)[:8] for _ in range(batch)])
-    _,logits,vec=m(h,words,by,sen,verts,trunk)
+    mem=torch.randn(batch,92)
+    state,logits,vec=m(h,words,by,sen,verts,trunk,memory_features=mem)
+    with torch.no_grad():
+        other,_,_=m(h,words,by,sen,verts,trunk,memory_features=torch.zeros_like(mem))
+        assert not torch.equal(state,other),'legacy causal reader feature path is disconnected' 
     (torch.nn.functional.cross_entropy(logits,torch.randint(0,256,(batch,)))+vec.square().mean()).backward()
     for name in ('triple_code.weight','triple_in.weight','pair_down.0.weight',
-                 'point_down.0.weight','sector_keys','sector_values'):
+                 'point_down.0.weight','sector_keys','sector_values','legacy_memory_in.weight'):
         param=dict(m.named_parameters())[name]
         assert param.grad is not None and torch.isfinite(param.grad).all(),('gradient absent',name)
         assert float(param.grad.abs().sum())>0,('gradient zero',name)
