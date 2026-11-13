@@ -1307,6 +1307,25 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     overfit_batch = source.train_batch() if args.overfit_single_batch else None
+    if resume_checkpoint is not None:
+        saved_model_config = (
+            resume_checkpoint.get("model_config")
+            if isinstance(resume_checkpoint, dict) else None
+        )
+        if isinstance(saved_model_config, dict):
+            # Pre-v4 checkpoints have no embedding-layout fields.  Resume
+            # them in their original full-rank/separate-head layout unless
+            # the user explicitly asked for the v4 layout.
+            if (
+                "factorized_embedding" not in saved_model_config
+                and not _was_provided(raw_argv, "--factorized-embedding")
+            ):
+                args.factorized_embedding = False
+            if (
+                "mtp_tie_heads" not in saved_model_config
+                and not _was_provided(raw_argv, "--mtp-tie-heads")
+            ):
+                args.mtp_tie_heads = False
     cfg = make_config(args, vocab_size)
     model_config = asdict(cfg)
 

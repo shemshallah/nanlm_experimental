@@ -486,10 +486,19 @@ class V3LM(nn.Module):
         # projections or, for 64k vocabularies, tied to the main token
         # geometry through project_logits().
         self.mtp_tie_heads = bool(cfg.mtp_tie_heads)
+        if self.mtp_tie_heads and self.factorized_embedding:
+            # The branch gets a tiny lag-specific projection into the shared
+            # token rank.  This keeps v4 output tying without routing full
+            # branch gradients through the input embedding projection.
+            mtp_head_dim = self.embedding_rank
+        elif self.mtp_tie_heads:
+            mtp_head_dim = 0
+        else:
+            mtp_head_dim = cfg.vocab_size
         self.mtp_heads = nn.ModuleList(
-            [nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
+            [nn.Linear(cfg.d_model, mtp_head_dim, bias=False)
              for _ in range(max(0, cfg.mtp - 1))]
-            if not self.mtp_tie_heads else []
+            if mtp_head_dim > 0 else []
         )
         self.mtp_adapters = nn.ModuleList(
             [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)
@@ -610,6 +619,10 @@ class V3LM(nn.Module):
                 mean=0.0,
                 std=1.0 / math.sqrt(self.embedding_rank),
             )
+            if self.mtp_tie_heads:
+                with torch.no_grad():
+                    for head in self.mtp_heads:
+                        head.weight.copy_(self.tok_up.weight.T)
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
@@ -648,6 +661,20 @@ class V3LM(nn.Module):
         if self.tok_up is not None:
             hidden = hidden @ self.tok_up.weight
         return hidden @ self.tok.weight.T
+
+    def mtp_head_logits(
+        self, head: nn.Module | None, hidden: torch.Tensor
+    ) -> torch.Tensor:
+        """Apply an MTP output adapter over the shared token basis."""
+        if head is None:
+            return self.project_logits(hidden)
+        adapted = head(hidden)
+        if (
+            self.tok_up is not None
+            and adapted.shape[-1] == self.embedding_rank
+        ):
+            adapted = adapted @ self.tok.weight.T
+        return adapted
 
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
         """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
@@ -700,8 +727,7 @@ class V3LM(nn.Module):
                 if hidden is not None:
                     projected = norm(hidden)
                     mtp_aux_logits.append(
-                        aux_head(projected) if aux_head is not None
-                        else self.project_logits(projected)
+                        self.mtp_head_logits(aux_head, projected)
                     )
 
         mtp_block_lb: list[torch.Tensor] = []
@@ -785,8 +811,11 @@ class V3LM(nn.Module):
                     if block_aux.get("router_z") is not None:
                         mtp_block_rz.append(block_aux["router_z"])
                 if head is not None:
-                    branch_logits = head(branch)
-                    base_logits = head(x)
+                    branch_logits = self.mtp_head_logits(head, branch)
+                    base_logits = (
+                        main if self.mtp_tie_heads
+                        else self.mtp_head_logits(head, x)
+                    )
                 else:
                     branch_logits = self.project_logits(branch)
                     # Tied fallback is exactly the main prediction.
@@ -816,10 +845,7 @@ class V3LM(nn.Module):
             for idx, adapter in enumerate(self.mtp_adapters):
                 hidden = adapter(x)
                 head = self.mtp_heads[idx] if self.mtp_heads else None
-                mtp.append(
-                    head(hidden) if head is not None
-                    else self.project_logits(hidden)
-                )
+                mtp.append(self.mtp_head_logits(head, hidden))
             gate_loss = None
         aux = dict(mem_aux)
         if mtp_aux_logits:

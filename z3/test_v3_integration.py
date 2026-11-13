@@ -93,7 +93,13 @@ class V3IntegrationTest(unittest.TestCase):
         self.assertLess(compact.parameter_count(), full.parameter_count())
         self.assertIsNotNone(compact.tok_up)
         self.assertEqual(compact.n_mtp_heads, 2)
-        self.assertEqual(len(compact.mtp_heads), 0)
+        self.assertEqual(len(compact.mtp_heads), 2)
+        self.assertEqual(compact.mtp_heads[0].out_features, 16)
+        probe = torch.randn(2, 4, 64)
+        torch.testing.assert_close(
+            compact.mtp_head_logits(compact.mtp_heads[0], probe),
+            compact.project_logits(probe),
+        )
 
         tokens = torch.randint(0, 512, (2, 32))
         logits, mtp, aux = compact(tokens)
