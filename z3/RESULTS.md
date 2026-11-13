@@ -96,6 +96,26 @@ GQA is 0.13 bits/token worse than the MHA 1,000-step run at this scale and
 step budget. That is an expected capacity reduction, not evidence that GQA is
 better for quality; it is an inference/memory-efficiency feature.
 
+## Gated attention + WSD 10-minute run
+
+Same 16-domain corpus and 1,000-step budget, with the sigmoid attention gate
+and warmup-stable-decay schedule (`--attn-gate --lr-horizon wsd`):
+
+```text
+params             112,899,328
+steps              1,000
+wall               570.7 s
+tokens seen        4,096,000
+eval before        8.1654 bits/token, top-1 0.38%, top-5 1.99%
+final              2.9823 bits/token, top-1 45.30%, top-5 73.41%
+MTP loss           2.652
+LR at end          5.14e-08 (WSD decay)
+```
+
+This is the best measured 1,000-step result so far: **0.39 bits/token better**
+and **6.55 top-1 points better** than the 1,000-step MHA/cosine run. It is
+still a short smoke, not a long-run or frontier-scale claim.
+
 ## CPU random smoke
 
 Tiny `--random-smoke` run, 3 steps, 2 MTP heads, CPU:
@@ -148,5 +168,6 @@ learning result.
 - No 30-minute T4/Colab v3 run has been completed for this integration.
 - No long v3 training run, long-context quality evaluation, or scaling run.
 - GQA has only a 1,000-step comparison against MHA; no scale comparison.
-- The attention gate and WSD schedule have tests but no completed quality run.
+- The attention gate and WSD schedule have one 1,000-step comparison, not a
+  long-run or multi-seed result.
 - No throughput comparison against the old Python expert loop.

@@ -44,6 +44,20 @@ active      roughly 70–80M per token
 
 The sparse ratio is the point: ~286M total capacity, ~25% active compute.
 
+## Measured 1,000-step profiles
+
+All on the same 16-domain corpus, 1,024 context, four batches per step, one
+T4, and a 1,000-step budget:
+
+| Profile | Params | Bits/token | Top-1 | Top-5 |
+|---|---:|---:|---:|---:|
+| MHA + cosine | 112,375,040 | 3.3723 | 38.75% | 68.41% |
+| GQA-2 + cosine | 111,588,608 | 3.5041 | 36.06% | 67.19% |
+| MHA + attention gate + WSD | 112,899,328 | **2.9823** | **45.30%** | **73.41%** |
+
+The gate+WSD profile is the current short-run best. This is smoke-scale
+evidence, not a frontier-scale result.
+
 ## Scaling ladder
 
 | Profile | Total params | Active/token | Tokens | Hardware | Rough GPU time |
