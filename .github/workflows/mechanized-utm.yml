@@ -68,9 +68,25 @@ jobs:
             exit 2
           }
 
+      - name: Locate Coq toolchain
+        run: |
+          set -euo pipefail
+          if command -v opam >/dev/null 2>&1; then
+            eval "$(opam env --shell=bash)"
+          fi
+          export PATH="$HOME/.opam/default/bin:/home/coq/.opam/default/bin:$PATH"
+          echo "$PATH" >> "$GITHUB_PATH"
+          command -v coqc || true
+          command -v coq_makefile || true
+          find / -name coq_makefile -type f 2>/dev/null | head -5
+
       - name: Build fixed-UTM dependency cone
         run: |
           set -euo pipefail
+          if command -v opam >/dev/null 2>&1; then
+            eval "$(opam env --shell=bash)"
+          fi
+          export PATH="$HOME/.opam/default/bin:/home/coq/.opam/default/bin:$PATH"
           cd coq-library-undecidability/theories
           if [ ! -f Makefile.rocq ]; then
             coq_makefile -f _CoqProject -o Makefile.rocq
@@ -83,6 +99,10 @@ jobs:
       - name: Check the mechanized equivalence theorem
         run: |
           set -euo pipefail
+          if command -v opam >/dev/null 2>&1; then
+            eval "$(opam env --shell=bash)"
+          fi
+          export PATH="$HOME/.opam/default/bin:/home/coq/.opam/default/bin:$PATH"
           cd NaNLMind
           coqc -Q ../coq-library-undecidability/theories Undecidability \
             -w -notation-overridden,-stdlib-vector,-notation-incompatible-prefix \
