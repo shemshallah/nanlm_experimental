@@ -685,12 +685,6 @@ doc_word_end = np.searchsorted(word_doc, np.arange(nd), side="right")
 sent_first = [s[0] for s in sentences if s]
 if not sent_first:
     sent_first = [0]
-sent_word_start = np.zeros(len(sent_chars), dtype=np.int64)
-if sent_chars:
-    sent_word_start = np.searchsorted(
-        word_char_start, np.array(sent_chars, dtype=np.int64), side="left"
-    )
-    sent_word_start = np.clip(sent_word_start, 0, n_words)
 word_to_sent = np.zeros(n_words, dtype=np.int32)
 if sent_chars:
     sent_chars_arr = np.array(sent_chars, dtype=np.int64)
@@ -736,9 +730,10 @@ def make_example(pos):
     if s_hi > s_lo:
         si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
         si = min(max(si, s_lo), s_hi - 1)
-        # Reserve the last sentence slot for the causal prefix of the sentence
-        # that contains the target word. The target itself is the first word of
-        # the *next* sentence, so only words before pos are visible here.
+        # The sentence head is a next-sentence task: it may read the whole
+        # current sentence, because every word in it precedes the target. The
+        # word/byte heads use the preceding sentence slot instead, so this
+        # full-sentence view cannot leak into next-byte/next-word prediction.
         start = max(s_lo, si - (WIN_S - 1))
         seg = sent_tokens[start:si]
         n_prev = min(len(seg), WIN_S - 1)
@@ -746,14 +741,7 @@ def make_example(pos):
             swin[WIN_S - 1 - n_prev:WIN_S - 1] = np.asarray(
                 seg[-n_prev:], dtype=np.int32
             )
-        cur = np.zeros(SENT_LEN, dtype=np.int32)
-        if si < len(sent_word_start):
-            cs = min(int(sent_word_start[si]), pos)
-            if pos > cs:
-                segc = word_stream[max(cs, pos - SENT_LEN):pos]
-                if len(segc) > 0:
-                    cur[:len(segc)] = np.asarray(segc, dtype=np.int32)
-        swin[WIN_S - 1] = cur
+        swin[WIN_S - 1] = sent_tokens[si]
         ys = int(sent_first[si + 1]) if si + 1 < s_hi else 0
     else:
         ys = 0
@@ -932,8 +920,9 @@ class MoE(tf.keras.layers.Layer):
 class Micro(tf.keras.layers.Layer):
     """One tiny transformer block, 4 heads. Stack DEPTH of these per tower."""
 
-    def __init__(self, dim, heads, ff, drop=0.1):
+    def __init__(self, dim, heads, ff, drop=0.1, causal=False):
         super().__init__()
+        self.causal = causal
         self.attn = tf.keras.layers.MultiHeadAttention(num_heads=heads, key_dim=dim // heads)
         self.ln1 = tf.keras.layers.LayerNormalization()
         self.ln2 = tf.keras.layers.LayerNormalization()
@@ -945,7 +934,7 @@ class Micro(tf.keras.layers.Layer):
         self.drop2 = tf.keras.layers.Dropout(drop)
 
     def call(self, x, training=False):
-        a = self.attn(x, x)
+        a = self.attn(x, x, use_causal_mask=self.causal)
         a = self.drop1(a, training=training)
         x = self.ln1(x + a)
         f = self.ffn(x)
@@ -1001,7 +990,8 @@ class TripleStaged(tf.keras.Model):
         self.sent_content_attn = Micro(DIM_S, 4, FF_S, ARGS.dropout)
         self.sent_moe = MoE(256, DIM_S, 2)
         self.sent_blocks = [
-            Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(SENT_DEPTH)
+            Micro(DIM_S, 4, FF_S, ARGS.dropout, causal=True)
+            for _ in range(SENT_DEPTH)
         ]
         self.sent_word_attn = tf.keras.layers.MultiHeadAttention(
             num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
@@ -1070,16 +1060,20 @@ class TripleStaged(tf.keras.Model):
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
         s_battn = self.sent_byte_attn(s_h, b_h, b_h)
         s_h = self.sent_byte_ln(s_h + tf.sigmoid(self.sent_byte_gate(s_h)) * s_battn)
-        # The final slot is the current-sentence prefix, not a completed
-        # sentence. A learned boundary vector tells the sentence head which
-        # representation is being asked to predict the next sentence.
-        s_last = s_h[:, -1, :] + self.sent_boundary
+        # The final slot is the whole current sentence, used only by the
+        # sentence head. The preceding slot is the completed previous sentence,
+        # used for causal byte/word conditioning. Causal self-attention keeps
+        # the current sentence out of the conditioning state.
+        s_pred = s_h[:, -1, :] + self.sent_boundary
+        s_cond = s_h[:, -2, :]
+        sent_word = self.word_to_sent(w_last)
 
         w_up = w_last + self.byte_to_word(b_last)
-        s_up = s_last + self.word_to_sent(w_last)
+        s_up = s_pred + sent_word
+        s_cond_up = s_cond + sent_word
         if two_way:
-            w_cond = w_up + self.sent_to_word(s_up)
-            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_up)
+            w_cond = w_up + self.sent_to_word(s_cond_up)
+            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_cond_up)
         else:
             w_cond = w_up
             b_cond = b_last
@@ -1116,7 +1110,9 @@ SIGNATURE = json.dumps({
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
     "sent_prefix": True,
-    "sent_content": "attention_first_last",
+    "sent_content": "attention_first_last_full_current",
+    "sent_full_current": True,
+    "sent_causal": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
