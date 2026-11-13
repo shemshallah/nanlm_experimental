@@ -62,6 +62,12 @@ def run():
         assert torch.isfinite(no_modal).all()
         assert not torch.equal(state,no_modal),'actual causal modal candidate path is disconnected'
         assert torch.isfinite(state).all() and torch.isfinite(logits).all()
+        # Structural non-bypass: no pair descent => exact inherited state.
+        bypass,_,_=m(h,words,by,sen,verts,trunk,memory_features=mem,
+                       modal_ids=modal_ids,modal_mask=modal_mask,without_pair=True)
+        assert torch.equal(bypass,h),'Diamond decoder can bypass the pair->point descent'
+        # The complete multimodal memory must be target-free: the forward
+        # signature has no target, so no gold labels may be routed into apex.
     (torch.nn.functional.cross_entropy(logits,torch.randint(0,256,(batch,)))+vec.square().mean()).backward()
     for name in ('triple_code.weight','triple_in.weight','pair_down.0.weight',
                  'point_down.0.weight','sector_keys','sector_values','legacy_memory_in.weight',
