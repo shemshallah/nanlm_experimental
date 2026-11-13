@@ -1,0 +1,165 @@
+{
+  "codename": "FA1",
+  "architecture": "hierarchical causal top-k directed rank64 reader",
+  "accepted_checkpoint_sha256": "54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d",
+  "accepted_joint_steps": 14416,
+  "accepted_checkpoint_promoted": false,
+  "r711_directed_delta_sha256": "a7ff6f371f7a08474d80f74195c0a081e96ea71c183aa3d6f3b16c8a8898402c",
+  "r712_gate_delta_sha256": "e2d828c22eff535c0cc5cc721ff1d93b3c8c00cb9f03f8b9c0d223230fa07295",
+  "num_segments": 8,
+  "segment_tokens": 768,
+  "topk": 2,
+  "query_historical_not_future": true,
+  "test_book_disjointness_verified": false,
+  "semantic_paraphrase_evaluated": false,
+  "training_task": "supervised lexical historical key->successor segment routing",
+  "before": {
+    "dev": {
+      "ce": 3.242612785528763,
+      "top1": 0.212890625,
+      "route_topk_recall": 1.0,
+      "n": 512
+    }
+  },
+  "baseline": {
+    "dev": {
+      "ce": 3.8381270702229813,
+      "top1": 0.13671875,
+      "n": 512
+    },
+    "test": {
+      "ce": 4.0097820879818755,
+      "top1": 0.13671875,
+      "n": 512
+    }
+  },
+  "router_training": {
+    "logs": [
+      {
+        "step": 1,
+        "train_ce": 0.18124987185001373,
+        "dev_segment_ce": 0.1441330462694168,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 32,
+        "train_ce": 0.13052362203598022,
+        "dev_segment_ce": 0.09739142656326294,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 64,
+        "train_ce": 0.08812915533781052,
+        "dev_segment_ce": 0.06825029104948044,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 96,
+        "train_ce": 0.05851532518863678,
+        "dev_segment_ce": 0.050420552492141724,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 128,
+        "train_ce": 0.05143527314066887,
+        "dev_segment_ce": 0.038867510855197906,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 160,
+        "train_ce": 0.04284484684467316,
+        "dev_segment_ce": 0.030958976596593857,
+        "dev_top1_segment": 1.0
+      },
+      {
+        "step": 192,
+        "train_ce": 0.030961638316512108,
+        "dev_segment_ce": 0.02528754249215126,
+        "dev_top1_segment": 1.0
+      }
+    ],
+    "selected_step": 192,
+    "best_dev_segment_ce": 0.02528754249215126
+  },
+  "after": {
+    "dev": {
+      "correct": {
+        "ce": 3.2642201189810294,
+        "top1": 0.2109375,
+        "route_topk_recall": 1.0,
+        "n": 512,
+        "per_source_segment_ce": {
+          "0": 3.2358383782978715,
+          "1": 3.118926430637219,
+          "2": 4.1923144015215215,
+          "3": 3.2184378083860663,
+          "4": 3.095969112796916,
+          "5": 3.169391964044836,
+          "6": 2.9936956712832816,
+          "7": 3.2076018070802093
+        }
+      },
+      "wrong": {
+        "ce": 3.6083548863243777,
+        "top1": 0.142578125,
+        "route_topk_recall": null,
+        "n": 512
+      },
+      "reversed": {
+        "ce": 4.59033600310795,
+        "top1": 0.044921875,
+        "route_topk_recall": null,
+        "n": 512
+      },
+      "correct_vs_wrong_ce_advantage": 0.34413476734334836,
+      "correct_vs_reversed_ce_advantage": 1.3261158841269207,
+      "fixed_last768": {
+        "ce": 3.8381270702229813,
+        "top1": 0.13671875,
+        "n": 512
+      }
+    },
+    "test": {
+      "correct": {
+        "ce": 3.4273400651145494,
+        "top1": 0.189453125,
+        "route_topk_recall": 1.0,
+        "n": 512,
+        "per_source_segment_ce": {
+          "0": 3.6018309212237036,
+          "1": 3.0456908812047914,
+          "2": 3.3305887364771927,
+          "3": 3.6794953171752,
+          "4": 3.2844092131902776,
+          "5": 3.551175152523476,
+          "6": 3.634923987496983,
+          "7": 3.3315143116633408
+        }
+      },
+      "wrong": {
+        "ce": 3.774300299337483,
+        "top1": 0.123046875,
+        "route_topk_recall": null,
+        "n": 512
+      },
+      "reversed": {
+        "ce": 4.447477521112887,
+        "top1": 0.060546875,
+        "route_topk_recall": null,
+        "n": 512
+      },
+      "correct_vs_wrong_ce_advantage": 0.34696023422293365,
+      "correct_vs_reversed_ce_advantage": 1.0201374559983378,
+      "fixed_last768": {
+        "ce": 4.0097820879818755,
+        "top1": 0.13671875,
+        "n": 512
+      }
+    }
+  },
+  "note": "No LM promotion; this experiment does not establish frontier capability.",
+  "wall_s": 14.07,
+  "auxiliary_probe_passed_memory_controls": true,
+  "LM_promotion_approved": false,
+  "hierarchy_overlay_sha256": "b2385f84c6943c865b2522defb85620211a3796382176117c995bf5fdfdbcab6"
+}

@@ -1,0 +1,425 @@
+name: Diamond NaNROUTER CPU training
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: 'Target total epochs, including any resumed epochs (1-1000)'
+        type: string
+        required: true
+        default: '40'
+      examples:
+        description: 'Training examples per epoch (256-20000)'
+        type: string
+        required: true
+        default: '15000'
+      corpus_chars:
+        description: 'NaNROUTER corpus characters (500000-8000000); changing this invalidates resume'
+        type: string
+        required: true
+        default: '8000000'
+      time_budget_minutes:
+        description: 'Graceful stop after N minutes; 0 disables (0-330)'
+        type: string
+        required: true
+        default: '330'
+      lr:
+        description: 'Peak learning rate for this run'
+        type: string
+        required: true
+        default: '0.001'
+      warmup_epochs:
+        description: 'LR warmup epochs'
+        type: string
+        required: true
+        default: '1'
+      patience:
+        description: 'Early-stop after N evals without improvement; 0 disables'
+        type: string
+        required: true
+        default: '5'
+      dropout:
+        description: 'Dropout'
+        type: string
+        required: true
+        default: '0.05'
+      weight_decay:
+        description: 'AdamW weight decay'
+        type: string
+        required: true
+        default: '0.005'
+      label_smoothing:
+        description: 'Training label smoothing; must match the checkpoint when resuming'
+        type: string
+        required: true
+        default: '0.05'
+      batch:
+        description: 'Batch size (1-64)'
+        type: string
+        required: true
+        default: '32'
+      model_size:
+        description: 'Tower preset: base, wide, or frontier (conv chunk stems, depth 3, long context)'
+        type: choice
+        required: true
+        default: frontier
+        options:
+          - base
+          - wide
+          - frontier
+      byte_chunk:
+        description: 'Bytes per byte-tower chunk (8 or 16)'
+        type: string
+        required: true
+        default: '8'
+      split_mode:
+        description: 'Held-out split: document or position'
+        type: choice
+        required: true
+        default: document
+        options:
+          - document
+          - position
+      doc_holdout_frac:
+        description: 'Fraction of documents held out in document mode'
+        type: string
+        required: true
+        default: '0.10'
+      test_size:
+        description: 'Held-out examples (64-8192)'
+        type: string
+        required: true
+        default: '1000'
+      self_loop_every:
+        description: 'Run filtered self-loop every N epochs; 0 disables'
+        type: string
+        required: true
+        default: '5'
+      self_loop_start_epoch:
+        description: 'First epoch for the self-loop schedule (1-based)'
+        type: string
+        required: true
+        default: '11'
+      quick:
+        description: 'Smoke test: 200 examples, 1 epoch, small corpus'
+        type: boolean
+        required: true
+        default: false
+      resume:
+        description: 'Resume from the latest diamond-state artifact if present'
+        type: boolean
+        required: true
+        default: false
+      release_tag:
+        description: 'GitHub Release tag for the final weights (blank skips the release)'
+        type: string
+        required: false
+        default: 'diamond-frontier2-8m-40e'
+      report_name:
+        description: 'Subdirectory under diamond/reports for this run'
+        type: string
+        required: true
+        default: 'frontier2-8m-40e'
+      commit_report:
+        description: 'Commit the per-epoch report back to the repository'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: diamond-1000-nanrouter-cache
+  cancel-in-progress: false
+
+jobs:
+  train:
+    name: Diamond on NaNROUTER corpora
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      TF_CPP_MIN_LOG_LEVEL: '2'
+      OMP_NUM_THREADS: '4'
+      TF_NUM_INTRAOP_THREADS: '4'
+      TF_NUM_INTEROP_THREADS: '2'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout engine and reports
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CPU TensorFlow and zstd
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          python -m pip install --upgrade pip
+          python -m pip install 'tensorflow-cpu==2.16.2' 'keras==3.0.5' 'numpy==1.26.4'
+
+      - name: Clone NaNROUTER and fetch SHA-pinned corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/shemshallah/NaNROUTER.git "$RUNNER_TEMP/NaNROUTER"
+          mkdir -p \
+            "$RUNNER_TEMP/nanrouter-download" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/short_stories/books-0001" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001" \
+            "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs/books-0001"
+          cd "$RUNNER_TEMP/nanrouter-download"
+
+          gh release download corpora-short-stories-0001 \
+            -R shemshallah/NaNROUTER -p 'short_stories-0001.tar.zst'
+          echo 'bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5  short_stories-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf short_stories-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/short_stories/books-0001"
+
+          gh release download corpora-sentences-0001 \
+            -R shemshallah/NaNROUTER -p 'sentences-0001.tar.zst'
+          echo '3ea4ee9882ee8127e298a5c1c3208b99cb95b2b3d8bf80d7380fead7ee7c644b  sentences-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf sentences-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/sentences/books-0001"
+
+          gh release download corpora-paragraphs-0001 \
+            -R shemshallah/NaNROUTER -p 'paragraphs-0001.tar.zst'
+          echo 'f2c616697a23f56ad4b5dba8ef28a860ae223654acfe5471e53fe8485f4bce3b  paragraphs-0001.tar.zst' \
+            | sha256sum -c -
+          tar --zstd -xf paragraphs-0001.tar.zst \
+            -C "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs/books-0001"
+
+          echo "short-story files: $(find "$RUNNER_TEMP/NaNROUTER/corpora/short_stories" -type f -name '*.txt' | wc -l)"
+          echo "sentence files:    $(find "$RUNNER_TEMP/NaNROUTER/corpora/sentences" -type f -name '*.txt' | wc -l)"
+          echo "paragraph files:   $(find "$RUNNER_TEMP/NaNROUTER/corpora/paragraphs" -type f -name '*.txt' | wc -l)"
+          du -sh "$RUNNER_TEMP/NaNROUTER/corpora"
+
+      - name: Restore latest resumable diamond state
+        if: ${{ inputs.resume == true || inputs.resume == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diamond/state
+          for id in $(gh run list --repo "$GH_REPO" --workflow diamond-1000.yml \
+              --status success --limit 10 --json databaseId \
+              --jq '.[].databaseId' 2>/dev/null || true); do
+            rm -rf "$RUNNER_TEMP/diamond-resume"
+            mkdir -p "$RUNNER_TEMP/diamond-resume"
+            if gh run download "$id" --repo "$GH_REPO" --name diamond-state \
+                --dir "$RUNNER_TEMP/diamond-resume" >/dev/null 2>&1; then
+              find "$RUNNER_TEMP/diamond-resume" -type f -exec cp -f {} diamond/state/ \;
+              if test -s diamond/state/diamond_state.npz; then
+                echo "Resuming from artifact of successful run $id"
+                break
+              fi
+            fi
+          done
+          ls -lh diamond/state || true
+
+      - name: Train with per-epoch reporting
+        shell: bash
+        env:
+          EPOCHS: ${{ inputs.epochs }}
+          EXAMPLES: ${{ inputs.examples }}
+          CORPUS_CHARS: ${{ inputs.corpus_chars }}
+          TIME_BUDGET: ${{ inputs.time_budget_minutes }}
+          LR: ${{ inputs.lr }}
+          WARMUP_EPOCHS: ${{ inputs.warmup_epochs }}
+          PATIENCE: ${{ inputs.patience }}
+          DROPOUT: ${{ inputs.dropout }}
+          WEIGHT_DECAY: ${{ inputs.weight_decay }}
+          LABEL_SMOOTHING: ${{ inputs.label_smoothing }}
+          BATCH: ${{ inputs.batch }}
+          MODEL_SIZE: ${{ inputs.model_size }}
+          BYTE_CHUNK: ${{ inputs.byte_chunk }}
+          SPLIT_MODE: ${{ inputs.split_mode }}
+          DOC_HOLDOUT_FRAC: ${{ inputs.doc_holdout_frac }}
+          TEST_SIZE: ${{ inputs.test_size }}
+          SELF_LOOP_EVERY: ${{ inputs.self_loop_every }}
+          SELF_LOOP_START: ${{ inputs.self_loop_start_epoch }}
+          QUICK: ${{ inputs.quick }}
+        run: |
+          set -euo pipefail
+          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=30
+          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=30
+          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=15000
+          (( EXAMPLES >= 256 && EXAMPLES <= 20000 )) || EXAMPLES=15000
+          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=8000000
+          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 8000000 )) || CORPUS_CHARS=8000000
+          [[ "$TIME_BUDGET" =~ ^[0-9]+$ ]] || TIME_BUDGET=330
+          (( TIME_BUDGET >= 0 && TIME_BUDGET <= 330 )) || TIME_BUDGET=330
+          [[ "$LR" =~ ^[0-9]+([.][0-9]+)?$ ]] || LR=0.001
+          [[ "$WARMUP_EPOCHS" =~ ^[0-9]+$ ]] || WARMUP_EPOCHS=1
+          [[ "$PATIENCE" =~ ^[0-9]+$ ]] || PATIENCE=5
+          [[ "$DROPOUT" =~ ^[0-9]*[.]?[0-9]+$ ]] || DROPOUT=0.05
+          [[ "$WEIGHT_DECAY" =~ ^[0-9]*[.]?[0-9]+$ ]] || WEIGHT_DECAY=0.005
+          [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
+          [[ "$BATCH" =~ ^[0-9]+$ ]] || BATCH=32
+          (( BATCH >= 1 && BATCH <= 64 )) || BATCH=32
+          [[ "$MODEL_SIZE" == "base" || "$MODEL_SIZE" == "wide" || "$MODEL_SIZE" == "frontier" ]] || MODEL_SIZE=frontier
+          VOCAB=2000
+          DEPTH=2
+          BYTE_WIN=1024; WORD_WIN=128; SENT_WIN=32; SENT_LEN=1; SENT_WEIGHT=0.3; SENT_DEPTH=2
+          CHUNK_CONV=0
+          if [ "$MODEL_SIZE" = "frontier" ]; then
+            DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=192
+            DEPTH=3
+            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=16; SENT_WEIGHT=0.8; SENT_DEPTH=4
+            CHUNK_CONV=1
+          elif [ "$MODEL_SIZE" = "wide" ]; then
+            DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
+          else
+            DIM_B=24; DIM_W=32; DIM_S=32; FF_B=48; FF_W=64; FF_S=64
+          fi
+          CHUNK_CONV_ARG=""
+          if [ "$CHUNK_CONV" = "1" ]; then CHUNK_CONV_ARG="--chunk-conv"; fi
+          [[ "$SPLIT_MODE" == "document" || "$SPLIT_MODE" == "position" ]] || SPLIT_MODE=document
+          [[ "$BYTE_CHUNK" == "8" || "$BYTE_CHUNK" == "16" ]] || BYTE_CHUNK=8
+          [[ "$TEST_SIZE" =~ ^[0-9]+$ ]] || TEST_SIZE=1000
+          (( TEST_SIZE >= 64 && TEST_SIZE <= 8192 )) || TEST_SIZE=1000
+          [[ "$SELF_LOOP_EVERY" =~ ^[0-9]+$ ]] || SELF_LOOP_EVERY=5
+          [[ "$SELF_LOOP_START" =~ ^[0-9]+$ ]] || SELF_LOOP_START=11
+          [[ "$DOC_HOLDOUT_FRAC" =~ ^[0-9]*[.]?[0-9]+$ ]] || DOC_HOLDOUT_FRAC=0.10
+          QUICK_ARG=""
+          if [ "$QUICK" = "true" ]; then QUICK_ARG="--quick"; fi
+
+          echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m lr=$LR warmup=$WARMUP_EPOCHS patience=$PATIENCE"
+          echo "model: preset=$MODEL_SIZE dims=${DIM_B}/${DIM_W}/${DIM_S} ff=${FF_B}/${FF_W}/${FF_S} depth=$DEPTH sent_depth=$SENT_DEPTH conv=$CHUNK_CONV ctx=${BYTE_WIN}/${WORD_WIN}/${SENT_WIN}x${SENT_LEN} sent_weight=$SENT_WEIGHT vocab=$VOCAB byte_chunk=$BYTE_CHUNK batch=$BATCH split=$SPLIT_MODE docs_holdout=$DOC_HOLDOUT_FRAC test=$TEST_SIZE self_loop=$SELF_LOOP_EVERY@$SELF_LOOP_START quick=$QUICK"
+          python diamond/diamond_engine.py $QUICK_ARG \
+            --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
+            --require-real-corpus \
+            --epochs "$EPOCHS" \
+            --examples "$EXAMPLES" \
+            --batch "$BATCH" \
+            --byte-win "$BYTE_WIN" --word-win "$WORD_WIN" --sent-win "$SENT_WIN" \
+            --sent-len "$SENT_LEN" --sent-weight "$SENT_WEIGHT" \
+            --sent-depth "$SENT_DEPTH" \
+            --dim-b "$DIM_B" --dim-w "$DIM_W" --dim-s "$DIM_S" \
+            --ff-b "$FF_B" --ff-w "$FF_W" --ff-s "$FF_S" \
+            --depth "$DEPTH" $CHUNK_CONV_ARG \
+            --byte-chunk "$BYTE_CHUNK" \
+            --vocab "$VOCAB" --corpus-chars "$CORPUS_CHARS" \
+            --file-read-chars 20000 --max-files 4000 \
+            --test-size "$TEST_SIZE" --split-mode "$SPLIT_MODE" \
+            --doc-holdout-frac "$DOC_HOLDOUT_FRAC" \
+            --eval-every 1 --eval-batch 32 \
+            --lr "$LR" --lr-schedule cosine --warmup-epochs "$WARMUP_EPOCHS" \
+            --grad-clip 1.0 --weight-decay "$WEIGHT_DECAY" --dropout "$DROPOUT" \
+            --label-smoothing "$LABEL_SMOOTHING" --patience "$PATIENCE" \
+            --save-every 5 --report-every-steps 50 \
+            --time-budget-minutes "$TIME_BUDGET" \
+            --checkpoint diamond/state/diamond_state.npz \
+            --best-checkpoint diamond/state/diamond_best.npz \
+            --best-weights diamond/state/diamond_best.weights.h5 \
+            --history diamond/state/diamond_history.jsonl \
+            --out diamond/state/diamond_metrics.json \
+            --save-weights \
+            --self-loop-every "$SELF_LOOP_EVERY" --self-loop-start-epoch "$SELF_LOOP_START" \
+            --self-streams 32 --self-steps 8 \
+            --threads 4 --memory-limit-gb 0 \
+            --seed 11
+
+      - name: Copy per-epoch reports
+        if: always()
+        shell: bash
+        env:
+          REPORT_NAME: ${{ inputs.report_name }}
+        run: |
+          REPORT_NAME="${REPORT_NAME:-run}"
+          REPORT_NAME="${REPORT_NAME//[^A-Za-z0-9._-]/_}"
+          mkdir -p "diamond/reports/$REPORT_NAME"
+          cp -f diamond/state/diamond_metrics.json "diamond/reports/$REPORT_NAME/" 2>/dev/null || true
+          cp -f diamond/state/diamond_history.jsonl "diamond/reports/$REPORT_NAME/" 2>/dev/null || true
+          cp -f diamond_weights.weights.h5 diamond/state/ 2>/dev/null || true
+          echo '--- latest epoch records ---'
+          tail -20 diamond/state/diamond_history.jsonl 2>/dev/null || true
+
+      - name: Upload resumable checkpoint and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diamond-state
+          path: diamond/state/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Publish weights to GitHub Release
+        if: ${{ always() && inputs.release_tag != '' }}
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          WEIGHTS="diamond/state/diamond_state.npz"
+          if [ ! -s "$WEIGHTS" ]; then
+            echo "No checkpoint weights found; skipping release"
+            exit 0
+          fi
+          if ! gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GH_REPO" \
+              --title "Diamond weights — $TAG" \
+              --notes "Diamond engine weights trained on the NaNROUTER corpora. diamond_best.npz / diamond_best.weights.h5 are the best held-out checkpoint and inference weights. diamond_state.npz is the latest resumable checkpoint (weights + AdamW state)."
+          fi
+          for f in \
+            diamond/state/diamond_best.npz \
+            diamond/state/diamond_best.weights.h5 \
+            "$WEIGHTS" \
+            diamond/state/diamond_weights.weights.h5; do
+            if [ -s "$f" ]; then
+              gh release upload "$TAG" --repo "$GH_REPO" --clobber "$f"
+            fi
+          done
+          for f in diamond/state/diamond_metrics.json diamond/state/diamond_history.jsonl; do
+            if [ -s "$f" ]; then
+              gh release upload "$TAG" --repo "$GH_REPO" --clobber "$f" || true
+            fi
+          done
+          echo "Release: $(gh release view "$TAG" --repo "$GH_REPO" --json url --jq .url)"
+
+      - name: Commit the per-epoch report
+        if: ${{ always() && (inputs.commit_report == true || inputs.commit_report == 'true') }}
+        shell: bash
+        env:
+          REPORT_NAME: ${{ inputs.report_name }}
+        run: |
+          set -euo pipefail
+          REPORT_NAME="${REPORT_NAME:-run}"
+          REPORT_NAME="${REPORT_NAME//[^A-Za-z0-9._-]/_}"
+          REPORT_DIR="diamond/reports/$REPORT_NAME"
+          if [ ! -s "$REPORT_DIR/diamond_metrics.json" ]; then
+            echo 'No metrics produced; nothing to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diamond/reports
+          if git diff --cached --quiet; then
+            echo 'Report unchanged'
+            exit 0
+          fi
+          EPOCH=$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("completed_epochs",0))' "$REPORT_DIR/diamond_metrics.json")
+          git commit -m "diamond: per-epoch NaNROUTER report through epoch $EPOCH ($REPORT_NAME)"
+          for retry in 1 2 3; do
+            git fetch origin master
+            git rebase origin/master
+            if git push origin HEAD:master; then
+              echo "Report pushed on attempt $retry"
+              exit 0
+            fi
+          done
+          echo 'Could not push the report after three attempts' >&2
+          exit 1
