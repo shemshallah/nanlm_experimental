@@ -36,11 +36,11 @@ signature.
 The three towers are stacks of microtransformer blocks with 256-expert MoE
 layers. `--model_size` in the workflow selects:
 
-| Preset | Dims | FF | Depth | Context (bytes/words/sentences) | Chunk stem |
-|---|---|---|---:|---|---|
-| `base` | 24/32/32 | 48/64/64 | 2 | 1024 / 128 / 32 | mean-pool |
-| `wide` | 32/48/48 | 64/96/96 | 2 | 1024 / 128 / 32 | mean-pool |
-| `frontier` | 48/64/64 | 96/128/128 | 3 | 2048 / 256 / 64 | strided conv |
+| Preset | Params | Dims | FF | Depth | Context (bytes/words/sentences) | Chunk stem |
+|---|---:|---|---|---:|---|---|
+| `base` | ~0.98M | 24/32/32 | 48/64/64 | 2 | 1024 / 128 / 32 | mean-pool |
+| `wide` | 2.02M | 32/48/48 | 64/96/96 | 2 | 1024 / 128 / 32 | mean-pool |
+| `frontier` | 3.66M | 48/64/64 | 96/128/128 | 3 | 2048 / 256 / 64 | strided conv |
 
 The frontier preset adds an order-preserving strided convolution inside every
 byte and word chunk (`--chunk-conv`). The old mean-pooling treated the eight
