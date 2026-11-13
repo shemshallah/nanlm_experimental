@@ -1052,6 +1052,9 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_block_hidden=int(args.mtp_block_hidden),
         mtp_teacher_prob=float(args.mtp_teacher_prob),
         mtp_aux_layer=int(args.mtp_aux_layer),
+        mtp_aux_layers=tuple(
+            int(x) for x in str(args.mtp_aux_layers).split(",") if x.strip()
+        ),
         mtp_aux_weight=float(args.mtp_aux_weight),
         dropout=float(args.dropout),
         rope_base=float(args.rope_base),
