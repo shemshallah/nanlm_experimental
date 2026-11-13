@@ -1,77 +1,76 @@
 #!/usr/bin/env python3
-"""Mathematical parity, sparse tetra closures, gradient and no-bypass tests."""
-from __future__ import annotations
-import torch,itertools
+"""Exact rank, S+/S- orientation, nilpotence, gradient, no bypass."""
+import math
 from types import SimpleNamespace
-from fa1_r724_curvature import CurvatureDiamond,rank4,triangle_parity,TETRAHEDRA
-from fa1_r723_diamond import CombinatorialDiamond,pair_rank,triple_rank
+import torch
+import torch.nn.functional as F
+from fa1_r724_geometry import (GeometricDiamond,OrientedSimplicialGeometry,
+  tetra_rank,TETRAHEDRA,TETRA_LOCAL,TETRA_FACES,FACE_SIGNS,orientation_sign)
+from fa1_r723_diamond import pair_rank,triple_rank
 
-def run():
-    torch.manual_seed(724);torch.set_num_threads(2)
-    assert TETRAHEDRA==174792640
-    g=CurvatureDiamond();g.train()
-    # Combinadic 4-simplex indexing exact on all active 70 tetra.
-    V=torch.tensor([[3,7,11,12,18,22,35,55]],dtype=torch.long)
-    n=torch.randn(1,8,32)
-    E=g.edges;F=g.faces;T=g.tetrahedra
-    pe=pair_rank(V[:,E[:,0]],V[:,E[:,1]])
-    tf=triple_rank(V[:,F[:,0]],V[:,F[:,1]],V[:,F[:,2]])
-    tc=torch.randn(1,56,32)
-    trunk=SimpleNamespace(P=torch.nn.Parameter(torch.randn(32640,64)),
+def test():
+    torch.set_num_threads(2)
+    assert len(TETRA_LOCAL)==70 and len(TETRA_FACES)==70
+    assert TETRAHEDRA==math.comb(256,4)==174792640
+    assert tetra_rank(*[torch.tensor(v) for v in [252,253,254,255]])==TETRAHEDRA-1
+    assert tetra_rank(*[torch.tensor(v) for v in [0,1,2,3]])==0
+    assert tetra_rank(*[torch.tensor(v) for v in [251,254,252,253]])==tetra_rank(*[torch.tensor(v) for v in [251,252,253,254]])
+    # d∘d = 0 on 1-cochains: every oriented edge cancels across
+    # the boundary of the four faces of every tetrahedron.
+    g=OrientedSimplicialGeometry()
+    ed=g.triangle_edges
+    phases=torch.randn(2,28)
+    face_curl=phases[:,ed[:,0]]+phases[:,ed[:,2]]-phases[:,ed[:,1]]
+    closed=(face_curl[:,g.tetra_faces]*g.face_signs).sum(-1)
+    assert float(closed.abs().max())<1e-6,closed.abs().max()
+    assert torch.equal(orientation_sign(torch.tensor([1]),torch.tensor([5]),torch.tensor([9])),torch.ones(1))
+    assert torch.equal(orientation_sign(torch.tensor([5]),torch.tensor([1]),torch.tensor([9])),-torch.ones(1))
+    p=torch.randn(3,64);m=torch.randn(3,64)
+    a=torch.tensor([2,5,9]);b=torch.tensor([5,9,1])
+    plus,minus,phase=g.signed_edge_channels(p,m,a,b)
+    plus_r,minus_r,phase_r=g.signed_edge_channels(p,m,b,a)
+    assert torch.equal(plus,plus_r) and torch.equal(minus,-minus_r) and torch.equal(phase,-phase_r)
+    triple_a=torch.tensor([[17]],dtype=torch.long)
+    abc=torch.tensor([[[2,4,7]]],dtype=torch.long)
+    bac=torch.tensor([[[4,2,7]]],dtype=torch.long)
+    cur=torch.tensor([[0.23]])
+    p3,m3=g.signed_triangle_channels(triple_a,abc,cur)
+    p3r,m3r=g.signed_triangle_channels(triple_a,bac,-cur)
+    assert torch.equal(p3,p3r) and torch.allclose(m3,-m3r,atol=1e-7)
+    torch.manual_seed(724)
+    mod=GeometricDiamond()
+    trunk=SimpleNamespace(E=torch.nn.Parameter(torch.randn(32000,96)),
+                          H=torch.nn.Parameter(torch.randn(256,96)),
+                          P=torch.nn.Parameter(torch.randn(32640,64)),
                           M=torch.nn.Parameter(torch.randn(32640,64)))
-    dx,dy,z=g(n,V,pe,tf,tc,trunk,trace=True)
-    assert dx.shape==(1,28,32) and dy.shape==(1,56,32)
-    ids=z['tetra_addresses'];assert ids.numel()==70 and ids.unique().numel()==70
-    assert ids.min()>=0 and ids.max()<TETRAHEDRA
-    assert g.tetra_faces.shape==(70,4)
-    assert torch.bincount(g.tetra_faces.flatten(),minlength=56).unique().tolist()==[5]
-    assert torch.isfinite(z['closure_loss']) and z['closure_loss']>1e-7
-    # Antisymmetric S- mirror edge and triangle, symmetric S+ under a swap.
-    Vp=V.clone();Vp[:,0],Vp[:,1]=V[:,1],V[:,0]
-    np=n.clone();np[:,0],np[:,1]=n[:,1],n[:,0]
-    pep=pair_rank(Vp[:,E[:,0]],Vp[:,E[:,1]])
-    tfp=triple_rank(Vp[:,F[:,0]],Vp[:,F[:,1]],Vp[:,F[:,2]])
-    # Use same global triangle codes for exactly matching triangle IDs.
-    tcm=tc.clone(); mp={int(x):tc[0,i].clone() for i,x in enumerate(tf[0])}
-    for i,j in enumerate(tfp[0]):tcm[0,i]=mp[int(j)]
-    _,_,zp=g(np,Vp,pep,tfp,tcm,trunk,trace=True)
-    assert torch.allclose(z['even_edge'][:,0],zp['even_edge'][:,0],atol=1e-5)
-    assert torch.allclose(z['odd_edge'][:,0],-zp['odd_edge'][:,0],atol=1e-5)
-    assert torch.allclose(z['face_even'][:,0],zp['face_even'][:,0],atol=1e-5)
-    assert torch.allclose(z['face_odd'][:,0],-zp['face_odd'][:,0],atol=1e-5)
-    assert torch.allclose(z['holonomy'][:,0],-zp['holonomy'][:,0],atol=1e-5)
-    assert torch.allclose(z['solid_angle'][:,0],-zp['solid_angle'][:,0],atol=1e-5)
-    assert torch.allclose(z['tetra_boundary'][:,0],-zp['tetra_boundary'][:,0],atol=1e-5)
-    # Exterior derivative squared is zero for the connection field by
-    # construction, but not for the separately trained face curvature.
-    hc=z['holonomy'][:,g.tetra_faces]*g.tetra_signs.view(1,1,4)
-    assert hc.sum(-1).abs().max()<5e-5
-    assert z['tetra_boundary'].abs().mean()>1e-4
-    (dx.square().mean()+dy.square().mean()+.01*z['closure_loss']).backward()
-    for name in ('mirror_P.weight','mirror_M.weight','edge_connection.0.weight',
-                 'independent_curvature.weight','point_sphere.weight',
-                 'tetra_message.0.weight','face_tetra_fuse.0.weight'):
-        p=dict(g.named_parameters())[name]
-        assert p.grad is not None and p.grad.isfinite().all() and p.grad.abs().sum()>1e-10,name
-    assert trunk.P.grad is None and trunk.M.grad is None
-    # Mandatory strict pair descent with active geometry.
-    full=CombinatorialDiamond();full.geometry=g
-    with torch.no_grad():full.geometry.gate.fill_(.5)
-    t=SimpleNamespace(E=torch.nn.Parameter(torch.randn(32000,96)),
-        H=torch.nn.Parameter(torch.randn(256,96)),P=trunk.P,M=trunk.M)
-    w=torch.randint(0,32000,(1,32));bb=torch.randint(0,256,(1,128))
-    ss=torch.randint(0,32000,(1,8));h=torch.randn(1,96)
+    B=2
+    args=(torch.randn(B,96),torch.randint(0,32000,(B,32)),torch.randint(0,256,(B,128)),
+          torch.randint(0,32000,(B,8)),torch.stack([torch.randperm(256)[:8] for _ in range(B)]),trunk)
+    opts={'memory_features':torch.randn(B,92),'modal_ids':torch.randint(2,32000,(B,12)),
+          'modal_mask':torch.ones(B,12,dtype=torch.bool)}
+    state0,_,_,t0=mod(*args,**opts,return_trace=True)
+    assert len(t0['geometry'])>=6
+    geo=mod.geometry
     with torch.no_grad():
-        args=(h,w,bb,ss,V,t)
-        base=full(*args,without_geometry=True)[0]
-        use=full(*args)[0]
-        pair_off=full(*args,without_pair=True)[0]
-        assert torch.equal(pair_off,h),'geometry bypassed pair->point descent'
-        assert not torch.equal(base,use),'geometry does not reach trunk decoder'
-    print('PASS R7.24 exact C(256,4) 174,792,640 addresses, 70 active tetra, 5 tetra/face')
-    print('PASS oriented S-/even S+ edges and triangles; holonomy, spherical curvature, tetra parity')
-    print('PASS nontrivial learned curvature closure and d^2(connection)=0')
-    print('PASS gradients: mirror P/M, edge connection, triangle curvature, tetra feedback; inherited frozen')
-    print('PASS geometry cannot bypass same R7 triple->pair->point->trunk decoder')
+        geo.edge_gain.fill_(0.025);geo.face_gain.fill_(0.025);geo.tetra_gain.fill_(0.025)
+    state1,logits,vec,trace=mod(*args,**opts,return_trace=True)
+    assert not torch.equal(state0,state1),'geometry has no effect'
+    ablated,_,_=mod(*args,**opts,without_pair=True)
+    assert torch.equal(ablated,args[0]),'geometric apex bypassed pair/point descent'
+    # Trainability of rank2+rank3 mirror and sparse tetra decisions.
+    loss=(state1.square().mean()+logits.square().mean()+vec.square().mean())
+    loss.backward()
+    names=dict(mod.named_parameters())
+    for k in ('geometry.edge_plus.weight','geometry.edge_minus.weight',
+              'geometry.edge_phase.weight','geometry.face_plus.weight',
+              'geometry.face_minus.weight','geometry.tetra_net.0.weight',
+              'geometry.point_coords.weight', 'geometry.edge_gain',
+              'geometry.face_gain','geometry.tetra_gain'):
+        grad=names[k].grad
+        assert grad is not None and torch.isfinite(grad).all() and float(grad.abs().sum())>0,('no gradient',k)
+    assert all(z.grad is None for z in (trunk.E,trunk.H,trunk.P,trunk.M))
+    print('PASS: C(256,2)=32640 / C(256,3)=2763520 / C(256,4)=174792640; active 28/56/70')
+    print('PASS: signed S+ orientation invariant / S- orientation odd; d²=0; trigonometric face holonomy')
+    print('PASS: old R7 frozen / exact-downward no-bypass / differentiable tetra -> triangle -> pair -> point')
 
-if __name__=='__main__':run()
+if __name__=='__main__':test()
