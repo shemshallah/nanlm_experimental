@@ -44,6 +44,9 @@ def forward(model,data,mode='full',two_way=True):
         # main LM + near/far memory unchanged. This is target-free routing.
         ids=torch.arange(len(data['target'])-1,-1,-1)
         for k in ('word_ids','byte_ids','sentence_ids','vertex_ids'):x[k]=data[k][ids]
+        # Leave the inherited original predictor unchanged while scrambling
+        # ALL target-free Diamond context, including old reader statistics.
+        x['diamond_memory_features']=torch.cat([data['near_features'],data['far_features']],dim=-1)[ids]
     ablate={'without_apex':mode=='no_apex','without_pair':mode=='no_pair'}
     nll,_,extra=model.joint_nll(x,diamond_enabled=True,return_extras=True,
                                 two_way=two_way,**ablate)
