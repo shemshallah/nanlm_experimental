@@ -85,9 +85,41 @@ python poincare_mirror/scripts/eval_context_ladder.py \
 Compare the original R30 and R32 **on the same target-position hash**, not
 unmatched short/long samples. Report top-1, top-5, cross-entropy, bits/byte,
 per-byte perplexity and throughput at each prediction horizon. Run the
-same-weight ablation with the new memory gate set to zero; further controls
-must include correct document versus shuffled/unrelated histories. Promotion
-requires lower independent-book next-byte BPB, no meaningful +2/+3 or 256-byte
+same-weight ablation with the new memory gate set to zero, and separately
+disable the full symbiotic-geometry pathway. Correct versus unrelated-history
+controls require an independent donor document and its SHA-256:
+
+```bash
+python poincare_mirror/scripts/eval_context_ladder.py \
+  --checkpoint poincare_mirror/run_candidate/latest.pt \
+  --raw-test /path/to/held_out_test_book.bin \
+  --expected-test-sha256 TEST_SHA256 \
+  --unrelated-history /path/to/different_held_out_book.bin \
+  --expected-unrelated-sha256 DONOR_SHA256 \
+  --contexts 256,4096,8192,32768 --positions 16 --batch 1 \
+  --ablations --output poincare_mirror/reports/r32_full_controls.json
+```
+
+For each evaluated target position the donor history substitutes only the
+older prefix; the most recent **256 bytes**, the target position and all three
+ground-truth byte labels remain unchanged. Donor offsets are deterministic
+under `--seed` and aligned across different context lengths. The output gives
+all three horizon metrics and differences in cross-entropy: **positive**
+`correct_history_ce_advantage_nats`, `temporal_memory_ce_gain_nats`, or
+`symbiotic_geometry_ce_gain_nats` means the corresponding original path
+improves prediction. An absent memory/geometry gain is not evidence of utility.
+
+Document the independent-book provenance for both files: different file hashes
+alone do not prove no training overlap. The `--ablations` switch runs both
+geometry ablations; the older `--ablate-geometric-memory` remains supported.
+
+**Artifact recovery status (2026-11-13):** The step-2,865 R32 checkpoint is not
+present among the accessible Releases or recently saved checkpoint files.
+Source-only or synthetic evaluation is not a 32K held-out model benchmark.
+The known R30 step-2,801 and R32 step-2,865 metrics must not be reinterpreted
+as having passed this new matched-history gate.
+
+Promotion requires lower independent-book next-byte BPB, no meaningful +2/+3 or 256-byte
 regressions, and causal/optimizer/regression checks. A synthetic source test
 does not establish language-model quality.
 

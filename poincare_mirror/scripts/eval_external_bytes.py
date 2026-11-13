@@ -31,7 +31,7 @@ def digest(path):
 
 @torch.no_grad()
 def benchmark(model, data, context=256, positions=2048, batch_size=8, seed=2026,
-              locations=None):
+              locations=None, window_transform=None):
     """Evaluate fixed targets with no look-ahead in any model input."""
     if locations is None:
         if len(data) < context + 3 + positions:
@@ -50,7 +50,14 @@ def benchmark(model, data, context=256, positions=2048, batch_size=8, seed=2026,
     model.eval()
     for start in range(0, len(locations), batch_size):
         points = locations[start:start + batch_size]
-        x = torch.from_numpy(np.stack([data[p-context:p] for p in points]).astype(np.int64))
+        windows = np.stack([data[p-context:p] for p in points]).astype(np.int64)
+        if window_transform is not None:
+            replaced = np.asarray(window_transform(windows.copy(), points))
+            if (replaced.shape != windows.shape or not np.issubdtype(replaced.dtype, np.integer)
+                    or np.any(replaced < 0) or np.any(replaced >= model.cfg.vocab_size)):
+                raise ValueError('History transformation must return valid same-shaped token IDs')
+            windows = replaced
+        x = torch.from_numpy(windows)
         y = torch.from_numpy(np.stack([data[p:p+3] for p in points]).astype(np.int64))
         begin = time.perf_counter()
         logits, hidden, _ = model(x)
