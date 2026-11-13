@@ -451,12 +451,22 @@ class V3LM(nn.Module):
             )
             cond = self.mtp_cond_proj(torch.cat([x, next_emb], dim=-1)) + self.mtp_now
             branch, _ = self.mtp_block(cond, attn_mask=causal)
+            gate_loss = None
             if self.mtp_gate is not None:
                 ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
                     dim=-1, keepdim=True
                 )
                 maxp = pred_probs.max(dim=-1, keepdim=True).values
-                gate = torch.sigmoid(self.mtp_gate(torch.cat([ent, maxp], dim=-1)))
+                gate_logits = self.mtp_gate(
+                    torch.cat([ent, maxp], dim=-1)
+                )
+                gate = torch.sigmoid(gate_logits)
+                t1_ok = (
+                    main.argmax(dim=-1)[:, :-1] == tokens[:, 1:]
+                ).to(dtype=pred_probs.dtype)
+                gate_loss = F.binary_cross_entropy_with_logits(
+                    gate_logits[:, :-1].squeeze(-1), t1_ok
+                )
             else:
                 gate = 1.0
             mtp = []
@@ -473,6 +483,8 @@ class V3LM(nn.Module):
                 for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
             ]
         aux = dict(mem_aux)
+        if self.mtp_block is not None and gate_loss is not None:
+            aux["mtp_gate_loss"] = gate_loss
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()
             aux["router_z"] = torch.stack(zs).mean()

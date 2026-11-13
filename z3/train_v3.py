@@ -752,6 +752,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="final ground-truth mix (keep >= 0.5 while repairing)")
     train.add_argument("--mtp-gt-mix-steps", type=int, default=0,
                        help="steps over which to decay the ground-truth mix")
+    train.add_argument("--mtp-gate-coef", type=float, default=0.1,
+                       help="supervision coefficient for the MTP confidence gate")
     train.add_argument("--load-balance-coef", type=float, default=0.01)
     train.add_argument("--router-z-coef", type=float, default=0.001)
 
@@ -921,6 +923,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("MTP gt-mix must satisfy 0 <= end <= start <= 1")
     if args.mtp_gt_mix_steps < 0:
         raise SystemExit("--mtp-gt-mix-steps must be non-negative")
+    if args.mtp_gate_coef < 0:
+        raise SystemExit("--mtp-gate-coef must be non-negative")
     if args.global_every < 1 or args.window < 1:
         raise SystemExit("--global-every and --window must be positive")
     if not 0.0 <= args.dropout < 1.0:
@@ -1537,6 +1541,8 @@ def main(argv: list[str] | None = None) -> int:
                 loss = loss + args.load_balance_coef * load_balance
             if router_z is not None:
                 loss = loss + args.router_z_coef * router_z
+            if aux.get("mtp_gate_loss") is not None:
+                loss = loss + args.mtp_gate_coef * aux["mtp_gate_loss"]
             loss_value = float(loss.detach())
 
         amp_skip = False
