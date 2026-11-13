@@ -329,6 +329,7 @@ class V3LM(nn.Module):
         self.mtp_now = (
             nn.Parameter(torch.zeros(cfg.d_model)) if cfg.mtp_block else None
         )
+        self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
         self.memory_path = None
         self.memory_cross = None
         if cfg.use_memory:
@@ -412,6 +413,7 @@ class V3LM(nn.Module):
                 next_emb = self.tok(next_ids)
             else:
                 next_emb = F.softmax(main.detach(), dim=-1) @ self.tok.weight
+            next_emb = self.mtp_next_norm(next_emb)
             t = x.shape[1]
             causal = torch.triu(
                 torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1

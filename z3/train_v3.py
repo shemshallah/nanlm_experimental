@@ -1230,6 +1230,7 @@ def main(argv: list[str] | None = None) -> int:
                 or name.startswith("mtp_adapters.")
                 or name.startswith("mtp_block.")
                 or name == "mtp_now"
+                or name == "mtp_next_norm.weight"
             )
             if args.unfreeze_last_block and name.startswith(last_prefix):
                 keep = True
