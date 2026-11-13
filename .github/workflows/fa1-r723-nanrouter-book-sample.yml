@@ -1,0 +1,66 @@
+name: FA1 R7.23 - SHA-pinned NaNROUTER book sample for local CPU audit
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r723-nanrouter-book-sample.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verified-books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install lossless archive reader
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+      - name: Fetch and verify immutable NaNROUTER batch 0001
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bookbatch" "$RUNNER_TEMP/extracted"
+          gh release download corpora-short-stories-0001 -R shemshallah/NaNROUTER -p short_stories-0001.tar.zst -D "$RUNNER_TEMP/bookbatch"
+          echo "bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5  $RUNNER_TEMP/bookbatch/short_stories-0001.tar.zst" | sha256sum -c -
+          tar --zstd -xf "$RUNNER_TEMP/bookbatch/short_stories-0001.tar.zst" -C "$RUNNER_TEMP/extracted"
+      - name: Deterministically select varied long books without duplicate content
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/selected/books"
+          python - "$RUNNER_TEMP/extracted" "$RUNNER_TEMP/selected" <<'PY'
+          import pathlib,sys,hashlib,shutil,json,collections
+          inp=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2])
+          files=[p for p in inp.rglob('*.txt') if 50000<=p.stat().st_size<=10000000]
+          files.sort(key=lambda p:(-p.stat().st_size,p.name))
+          seen=set();records=[];total=0
+          for f in files:
+              if len(records)>=120 or total+f.stat().st_size>85000000:continue
+              raw=f.read_bytes();digest=hashlib.sha256(raw).hexdigest()
+              if digest in seen:continue
+              seen.add(digest)
+              name=f'{len(records):04d}_{digest[:16]}.txt'
+              (out/'books'/name).write_bytes(raw)
+              records.append({'file':name,'bytes':len(raw),'sha256':digest,'source_name':f.name})
+              total+=len(raw)
+          if len(records)<20:raise RuntimeError('Not enough distinct real Gutenberg books')
+          (out/'MANIFEST.json').write_text(json.dumps({'source':'shemshallah/NaNROUTER','release':'corpora-short-stories-0001',
+            'archive_sha256':'bceb6ef83ffa89ccb257bf55d9a5ad0e56a70d2b7bfd54599bacd26dd5beb2a5',
+            'whole_book_count':len(records),'total_bytes':total,'books':records},indent=2))
+          print('SELECTED distinct_books=',len(records),'bytes=',total)
+          PY
+          cd "$RUNNER_TEMP/selected"
+          tar -czf "$RUNNER_TEMP/fa1_r723_nanrouter_books.tar.gz" books MANIFEST.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r723-nanrouter-books
+          path: ${{ runner.temp }}/fa1_r723_nanrouter_books.tar.gz
+          if-no-files-found: error
+          retention-days: 14
