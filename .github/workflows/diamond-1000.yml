@@ -131,7 +131,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-deep
+  group: diamond-1000-nanrouter-frontier4cache
   cancel-in-progress: false
 
 jobs:
