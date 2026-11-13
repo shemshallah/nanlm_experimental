@@ -884,6 +884,7 @@ print(
 )
 # Free raw text and token lists, but keep spans: make_example uses it for the
 # fresh position samples on every epoch.
+sent_lengths = [len(s) for s in sentences]
 del real_text, raw_words, sentences
 gc.collect()
 
@@ -1134,7 +1135,7 @@ if ARGS.split_mode == "document":
     train_doc_mask[np.asarray(test_docs, dtype=np.int64)] = False
 else:
     train_doc_mask = np.ones(nd, dtype=bool)
-for j, sent in enumerate(sentences):
+for j, sent_len in enumerate(sent_lengths):
     d = int(sent_doc[j])
     if not train_doc_mask[d]:
         continue
@@ -1142,7 +1143,7 @@ for j, sent in enumerate(sentences):
         target = int(sent_first[j + 1])
     else:
         target = 0
-    prior_counts[target] += len(sent)
+    prior_counts[target] += float(sent_len)
 prior_counts += 0.1
 sent_prior = (prior_counts / prior_counts.sum()).astype(np.float32)
 
