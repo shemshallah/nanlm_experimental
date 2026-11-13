@@ -1,0 +1,338 @@
+{
+  "format": "FA1_R7_28_GEOMETRIC_MEMORY_DEV_PROBE_V1",
+  "source_checkpoint_sha256": "f24ccc9c2a906504ee8d26c04b76e53f34010d34ccc61408e9c88ac99920c8ae",
+  "branch": "master",
+  "accepted_parent_step": 14416,
+  "one_optimizer_groups": 13,
+  "source_checkpoint_never_overwritten": true,
+  "checkpoint_promoted": false,
+  "test_books_consulted": false,
+  "corpus_inventory": {
+    "train": {
+      "books": 216,
+      "word_targets": 6613159
+    },
+    "dev": {
+      "books": 12,
+      "word_targets": 395249
+    },
+    "test": {
+      "books": 12,
+      "word_targets": 562736
+    }
+  },
+  "dev_positions": 96,
+  "train_positions": 160,
+  "train_steps": 16,
+  "baseline": {
+    "full_word_nll": 4.951294422149658,
+    "inherited_word_nll": 4.954214572906494,
+    "geometry_off_word_nll": 4.9483771324157715,
+    "geometry_word_gain": -0.0029170969501137733,
+    "diamond_word_gain": 0.002920309780165553,
+    "correct_book_advantage_nats_per_word": 0.0014235436683520675,
+    "apex_word_gain": 0.0031581157818436623,
+    "pair_word_gain": 0.003208559239283204,
+    "branch_word_nll": 5.498676776885986,
+    "branch_geometry_gain": -0.18957893550395966,
+    "branch_correct_book_advantage": 0.07508417218923569,
+    "branch_apex_gain": -0.30539584159851074,
+    "branch_pair_gain": -0.3028237521648407,
+    "geometry_gate_values": {
+      "edge_gain": 0.09418749809265137,
+      "face_gain": 0.0796559751033783,
+      "tetra_gain": 0.08013809472322464,
+      "meta_gate": 0.0
+    },
+    "diamond_bridge_gate": 0.289315402507782,
+    "mean_bridge_weight": 0.058886706829071045,
+    "unique_triangle_addresses": 5144,
+    "unique_routed_apex_specialists": 95,
+    "foreign_book_donors": 96,
+    "book_geometry_gain": {
+      "books": 5,
+      "book_average": -0.002926130569539964,
+      "book_bootstrap_ci95": [
+        -0.007296062936075032,
+        0.00020813853479921817
+      ]
+    },
+    "book_correct_history": {
+      "books": 5,
+      "book_average": 0.0015305979177355766,
+      "book_bootstrap_ci95": [
+        -0.0038536911259870977,
+        0.00500599754042922
+      ]
+    },
+    "prediction_metrics": {
+      "vocabulary_word_loss_nats_per_word": 4.951294422149658,
+      "first_byte_nll_nats_per_next_word": 3.309680700302124,
+      "first_byte_cross_entropy_bits_per_next_word": 4.77485990524292,
+      "first_byte_top1": 0.1666666716337204,
+      "first_byte_top5": 0.3958333432674408,
+      "first_byte_softmax_normalization_verified": true,
+      "raw_byte_bits_per_byte": null,
+      "raw_byte_top1": null,
+      "raw_byte_top5": null,
+      "raw_byte_metric_reason": "auxiliary head predicts only first byte of each next vocabulary word",
+      "n_word_targets": 96,
+      "trunk_vocabulary_size": 32000,
+      "trunk_word_loss_nats_per_word": 5.1958537101745605,
+      "trunk_next_word_top1": 0.1666666716337204,
+      "trunk_next_word_top5": 0.375,
+      "trunk_normalization_verified": true,
+      "full_model_word_top1": null,
+      "full_model_word_top5": null,
+      "full_model_word_accuracy_reason": "full near/far/Diamond mixture exposes target-conditioned NLL, not all-word normalized ranking",
+      "diamond_correct_history_advantage_nats_per_word": -0.002322640037164092,
+      "different_book_donors": 96,
+      "sampled_books": 5
+    }
+  },
+  "gate_open_only": {
+    "full_word_nll": 4.951175212860107,
+    "inherited_word_nll": 4.954214572906494,
+    "geometry_off_word_nll": 4.947416305541992,
+    "geometry_word_gain": -0.0037587389815598726,
+    "diamond_word_gain": 0.003039031056687236,
+    "correct_book_advantage_nats_per_word": 0.0017269045347347856,
+    "apex_word_gain": 0.0033514462411403656,
+    "pair_word_gain": 0.0034027390647679567,
+    "branch_word_nll": 5.498684406280518,
+    "branch_geometry_gain": -0.18958680331707,
+    "branch_correct_book_advantage": 0.07507945597171783,
+    "branch_apex_gain": -0.3054036796092987,
+    "branch_pair_gain": -0.30283161997795105,
+    "geometry_gate_values": {
+      "edge_gain": 0.09418749809265137,
+      "face_gain": 0.0796559751033783,
+      "tetra_gain": 0.08013809472322464,
+      "meta_gate": 0.15114043653011322
+    },
+    "diamond_bridge_gate": 0.36544376611709595,
+    "mean_bridge_weight": 0.07321501523256302,
+    "unique_triangle_addresses": 5144,
+    "unique_routed_apex_specialists": 95,
+    "foreign_book_donors": 96,
+    "book_geometry_gain": {
+      "books": 5,
+      "book_average": -0.003769971732981503,
+      "book_bootstrap_ci95": [
+        -0.00913224674295634,
+        0.00012140413746237755
+      ]
+    },
+    "book_correct_history": {
+      "books": 5,
+      "book_average": 0.001857498986646533,
+      "book_bootstrap_ci95": [
+        -0.004710054360330105,
+        0.006051467055221997
+      ]
+    }
+  },
+  "history": [
+    {
+      "full_word_nll": 4.950825214385986,
+      "inherited_word_nll": 4.954214572906494,
+      "geometry_off_word_nll": 4.9473443031311035,
+      "geometry_word_gain": -0.0034813315141946077,
+      "diamond_word_gain": 0.0033887226600199938,
+      "correct_book_advantage_nats_per_word": 0.0021435979288071394,
+      "apex_word_gain": 0.0037008055951446295,
+      "pair_word_gain": 0.0037526478990912437,
+      "branch_word_nll": 5.487025737762451,
+      "branch_geometry_gain": -0.1795213669538498,
+      "branch_correct_book_advantage": 0.080437570810318,
+      "branch_apex_gain": -0.29373887181282043,
+      "branch_pair_gain": -0.29117217659950256,
+      "geometry_gate_values": {
+        "edge_gain": 0.09412936866283417,
+        "face_gain": 0.079642653465271,
+        "tetra_gain": 0.0801476389169693,
+        "meta_gate": 0.15129023790359497
+      },
+      "diamond_bridge_gate": 0.3657093644142151,
+      "mean_bridge_weight": 0.07305192947387695,
+      "unique_triangle_addresses": 5144,
+      "unique_routed_apex_specialists": 94,
+      "foreign_book_donors": 96,
+      "book_geometry_gain": {
+        "books": 5,
+        "book_average": -0.0034914376912638543,
+        "book_bootstrap_ci95": [
+          -0.008717645169235766,
+          0.000543288653716445
+        ]
+      },
+      "book_correct_history": {
+        "books": 5,
+        "book_average": 0.002264868840575218,
+        "book_bootstrap_ci95": [
+          -0.003875649906694889,
+          0.006013977259863153
+        ]
+      },
+      "step": 1,
+      "train_total": 11.022477149963379,
+      "train_full_nll": 5.77241849899292,
+      "train_branch_nll": 6.350851058959961,
+      "train_first_byte_nll": 3.2441766262054443,
+      "train_different_book_penalty": 0.0005870509776286781,
+      "train_face_plus_addresses_with_gradient": 439,
+      "development_gate_passed": false
+    },
+    {
+      "full_word_nll": 4.948408126831055,
+      "inherited_word_nll": 4.954214572906494,
+      "geometry_off_word_nll": 4.947213649749756,
+      "geometry_word_gain": -0.0011945745209231973,
+      "diamond_word_gain": 0.005806151311844587,
+      "correct_book_advantage_nats_per_word": 0.0034042128827422857,
+      "apex_word_gain": 0.006123465020209551,
+      "pair_word_gain": 0.006171368062496185,
+      "branch_word_nll": 5.353693008422852,
+      "branch_geometry_gain": -0.09255313128232956,
+      "branch_correct_book_advantage": 0.07739429920911789,
+      "branch_apex_gain": -0.1604268103837967,
+      "branch_pair_gain": -0.15784020721912384,
+      "geometry_gate_values": {
+        "edge_gain": 0.09351007640361786,
+        "face_gain": 0.07931534945964813,
+        "tetra_gain": 0.07992518693208694,
+        "meta_gate": 0.15161889791488647
+      },
+      "diamond_bridge_gate": 0.3669898808002472,
+      "mean_bridge_weight": 0.07017605006694794,
+      "unique_triangle_addresses": 5144,
+      "unique_routed_apex_specialists": 99,
+      "foreign_book_donors": 96,
+      "book_geometry_gain": {
+        "books": 5,
+        "book_average": -0.0012037535663694144,
+        "book_bootstrap_ci95": [
+          -0.007617908634711057,
+          0.0044472227088408495
+        ]
+      },
+      "book_correct_history": {
+        "books": 5,
+        "book_average": 0.003497067582793534,
+        "book_bootstrap_ci95": [
+          -0.0013555126031860709,
+          0.008071165787987411
+        ]
+      },
+      "step": 8,
+      "train_total": 12.288850784301758,
+      "train_full_nll": 6.397061347961426,
+      "train_branch_nll": 7.010124683380127,
+      "train_first_byte_nll": 3.434654951095581,
+      "train_different_book_penalty": 0.0905827060341835,
+      "train_face_plus_addresses_with_gradient": 447,
+      "development_gate_passed": false
+    },
+    {
+      "full_word_nll": 4.947333335876465,
+      "inherited_word_nll": 4.954214572906494,
+      "geometry_off_word_nll": 4.946806907653809,
+      "geometry_word_gain": -0.00052631989819929,
+      "diamond_word_gain": 0.006881422828882933,
+      "correct_book_advantage_nats_per_word": 0.00550849037244916,
+      "apex_word_gain": 0.007207713555544615,
+      "pair_word_gain": 0.007247331086546183,
+      "branch_word_nll": 5.258417129516602,
+      "branch_geometry_gain": 0.009167440235614777,
+      "branch_correct_book_advantage": 0.06195889785885811,
+      "branch_apex_gain": -0.06500978022813797,
+      "branch_pair_gain": -0.06256383657455444,
+      "geometry_gate_values": {
+        "edge_gain": 0.09274550527334213,
+        "face_gain": 0.0782889872789383,
+        "tetra_gain": 0.07902302592992783,
+        "meta_gate": 0.15162716805934906
+      },
+      "diamond_bridge_gate": 0.3676607608795166,
+      "mean_bridge_weight": 0.06428315490484238,
+      "unique_triangle_addresses": 5144,
+      "unique_routed_apex_specialists": 98,
+      "foreign_book_donors": 96,
+      "book_geometry_gain": {
+        "books": 5,
+        "book_average": -0.0005013213958591223,
+        "book_bootstrap_ci95": [
+          -0.006122989766299725,
+          0.004971194034442306
+        ]
+      },
+      "book_correct_history": {
+        "books": 5,
+        "book_average": 0.005536505440250039,
+        "book_bootstrap_ci95": [
+          -0.002469592075794935,
+          0.012510913284495473
+        ]
+      },
+      "step": 16,
+      "train_total": 7.249975204467773,
+      "train_full_nll": 3.292560338973999,
+      "train_branch_nll": 4.267343997955322,
+      "train_first_byte_nll": 3.4907965660095215,
+      "train_different_book_penalty": 0.20198555290699005,
+      "train_face_plus_addresses_with_gradient": 447,
+      "development_gate_passed": false
+    }
+  ],
+  "best_development": {
+    "full_word_nll": 4.947333335876465,
+    "inherited_word_nll": 4.954214572906494,
+    "geometry_off_word_nll": 4.946806907653809,
+    "geometry_word_gain": -0.00052631989819929,
+    "diamond_word_gain": 0.006881422828882933,
+    "correct_book_advantage_nats_per_word": 0.00550849037244916,
+    "apex_word_gain": 0.007207713555544615,
+    "pair_word_gain": 0.007247331086546183,
+    "branch_word_nll": 5.258417129516602,
+    "branch_geometry_gain": 0.009167440235614777,
+    "branch_correct_book_advantage": 0.06195889785885811,
+    "branch_apex_gain": -0.06500978022813797,
+    "branch_pair_gain": -0.06256383657455444,
+    "geometry_gate_values": {
+      "edge_gain": 0.09274550527334213,
+      "face_gain": 0.0782889872789383,
+      "tetra_gain": 0.07902302592992783,
+      "meta_gate": 0.15162716805934906
+    },
+    "diamond_bridge_gate": 0.3676607608795166,
+    "mean_bridge_weight": 0.06428315490484238,
+    "unique_triangle_addresses": 5144,
+    "unique_routed_apex_specialists": 98,
+    "foreign_book_donors": 96,
+    "book_geometry_gain": {
+      "books": 5,
+      "book_average": -0.0005013213958591223,
+      "book_bootstrap_ci95": [
+        -0.006122989766299725,
+        0.004971194034442306
+      ]
+    },
+    "book_correct_history": {
+      "books": 5,
+      "book_average": 0.005536505440250039,
+      "book_bootstrap_ci95": [
+        -0.002469592075794935,
+        0.012510913284495473
+      ]
+    },
+    "step": 16,
+    "train_total": 7.249975204467773,
+    "train_full_nll": 3.292560338973999,
+    "train_branch_nll": 4.267343997955322,
+    "train_first_byte_nll": 3.4907965660095215,
+    "train_different_book_penalty": 0.20198555290699005,
+    "train_face_plus_addresses_with_gradient": 447,
+    "development_gate_passed": false
+  },
+  "elapsed_seconds": 8.237355171999297
+}

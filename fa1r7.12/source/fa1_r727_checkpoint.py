@@ -36,7 +36,9 @@ def corpus_digests(root):
     return {key: digest(Path(root) / 'corpus' / key) for key in CORPUS_FILES}
 
 
-def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=None):
+def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=None,
+                    candidate_trained=False, training_round='', training_updates=0,
+                    development_gate_passed=False):
     path = Path(path).resolve()
     if path == Path(source_path).resolve() or path == (Path(root) / 'checkpoint/pal_active.pt').resolve():
         raise ValueError('cannot overwrite protected accepted/candidate checkpoint')
@@ -45,11 +47,18 @@ def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=N
     state = optimizer.state_dict()
     if state['format'] != OPTIMIZER_FORMAT:
         raise ValueError('expected one verified R7.27 unified optimizer')
+    if candidate_trained and (not training_round or training_updates <= 0):
+        raise ValueError('a trained successor must declare its round and positive update count')
+    if not candidate_trained and (training_updates != 0 or development_gate_passed):
+        raise ValueError('an untrained migration cannot claim training or a development pass')
     obj = {
         'format': FORMAT,
         'accepted_step': 14416,
         'promoted': False,
-        'candidate_trained': False,
+        'candidate_trained': bool(candidate_trained),
+        'training_round':str(training_round),
+        'candidate_training_updates':int(training_updates),
+        'development_gate_passed':bool(development_gate_passed),
         'source_checkpoint_sha256': digest(source_path),
         'corpus_metadata_sha256': corpus_digests(root),
         'parent_candidate_format': (source_metadata or {}).get('format'),

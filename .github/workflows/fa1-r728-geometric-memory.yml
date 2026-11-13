@@ -1,0 +1,54 @@
+name: FA1 R7.28 - geometric address storage regression
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r728-geometric-memory.yml'
+      - 'fa1r7.12/source/fa1_r728_*.py'
+      - 'fa1r7.12/source/test_fa1_r728_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/FA1_R7p28_GEOMETRIC_MEMORY.md'
+      - 'fa1r7.12/reports/FA1_R728_*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r728-master-source-tests
+  cancel-in-progress: false
+
+jobs:
+  geometry-storage-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU runtime
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Source and causal control unit tests
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r728_geometric_memory.py
+          python -m unittest -q test_fa1_r728_geometry_memory
+        working-directory: .
+      - name: Historical R7.27 source regression
+        run: |
+          python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r727_source_suite.json"
+      - name: Upload verified source suite
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r728-source-regression
+          path: ${{ runner.temp }}/r727_source_suite.json
+          retention-days: 30
+      - name: Checkpoint promotion policy
+        run: echo 'Source-only CI. Real-weight dev metrics are reported separately; no automatic promotion.'

@@ -1,0 +1,153 @@
+{
+  "round": "FA1 R7.28 geometry sign/scale scan",
+  "checkpoint_sha256": "91e3220f9167984bf6d529b348bea610fadc05c5d4950ccdf8fe63911e2aae5b",
+  "candidate_promoted": false,
+  "split": "dev",
+  "test_books_consulted": false,
+  "n_positions": 256,
+  "n_books": 5,
+  "original_gates": {
+    "edge_gain": 0.09173384308815002,
+    "face_gain": 0.07737314701080322,
+    "tetra_gain": 0.07821213454008102,
+    "meta_gate": 0.15219548344612122
+  },
+  "rows": [
+    {
+      "scale": -2.0,
+      "full_nll": 5.256702423095703,
+      "branch_nll": 5.7194108963012695,
+      "book_mean_nll": 5.257082748413086,
+      "geometry_gain_vs_off": 5.9604644775390625e-05,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": 6.0330330597935244e-05,
+        "book_bootstrap_ci95": [
+          -0.0010561081813648342,
+          0.0015980267336999532
+        ]
+      }
+    },
+    {
+      "scale": -1.5,
+      "full_nll": 5.256650447845459,
+      "branch_nll": 5.698096752166748,
+      "book_mean_nll": 5.257029247283936,
+      "geometry_gain_vs_off": 0.00011157989501953125,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": 0.00011373964662197977,
+        "book_bootstrap_ci95": [
+          -0.0008481761178700253,
+          0.001398414617870003
+        ]
+      }
+    },
+    {
+      "scale": -1.0,
+      "full_nll": 5.256608963012695,
+      "branch_nll": 5.674505233764648,
+      "book_mean_nll": 5.2569883346557615,
+      "geometry_gain_vs_off": 0.00015306472778320312,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": 0.00015470389334950596,
+        "book_bootstrap_ci95": [
+          -0.0006195169728016481,
+          0.0010634846868924797
+        ]
+      }
+    },
+    {
+      "scale": -0.5,
+      "full_nll": 5.256571292877197,
+      "branch_nll": 5.647889614105225,
+      "book_mean_nll": 5.256951904296875,
+      "geometry_gain_vs_off": 0.00019073486328125,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": 0.0001910455001052469,
+        "book_bootstrap_ci95": [
+          -0.0002535413368605077,
+          0.0006847203825600445
+        ]
+      }
+    },
+    {
+      "scale": 0.0,
+      "full_nll": 5.2567620277404785,
+      "branch_nll": 5.623094081878662,
+      "book_mean_nll": 5.2571429252624515,
+      "geometry_gain_vs_off": 0.0,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": 0.0,
+        "book_bootstrap_ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "scale": 0.5,
+      "full_nll": 5.257193088531494,
+      "branch_nll": 5.602802753448486,
+      "book_mean_nll": 5.257577133178711,
+      "geometry_gain_vs_off": -0.000431060791015625,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": -0.00043399883434176446,
+        "book_bootstrap_ci95": [
+          -0.0013957312155980616,
+          0.00025907157687470316
+        ]
+      }
+    },
+    {
+      "scale": 1.0,
+      "full_nll": 5.257687568664551,
+      "branch_nll": 5.585753917694092,
+      "book_mean_nll": 5.2580766677856445,
+      "geometry_gain_vs_off": -0.0009255409240722656,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": -0.0009338801493868232,
+        "book_bootstrap_ci95": [
+          -0.0027326718904078008,
+          0.0005130851990543306
+        ]
+      }
+    },
+    {
+      "scale": 1.5,
+      "full_nll": 5.2580413818359375,
+      "branch_nll": 5.577998638153076,
+      "book_mean_nll": 5.258437538146973,
+      "geometry_gain_vs_off": -0.0012793540954589844,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": -0.0012945196591317653,
+        "book_bootstrap_ci95": [
+          -0.004108339757658541,
+          0.0011141823837533594
+        ]
+      }
+    },
+    {
+      "scale": 2.0,
+      "full_nll": 5.258890628814697,
+      "branch_nll": 5.5831828117370605,
+      "book_mean_nll": 5.259295558929443,
+      "geometry_gain_vs_off": -0.00212860107421875,
+      "book_gain_vs_off": {
+        "books": 5,
+        "book_average": -0.002152379835024476,
+        "book_bootstrap_ci95": [
+          -0.006514655984938144,
+          0.001491317106410861
+        ]
+      }
+    }
+  ],
+  "best_scale_dev_only": -0.5
+}
