@@ -618,6 +618,8 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--d-model", type=int, default=384)
     model.add_argument("--n-layers", type=int, default=12)
     model.add_argument("--n-heads", type=int, default=12)
+    model.add_argument("--n-kv-heads", type=int, default=0,
+                       help="KV heads for GQA; 0 = full MHA")
     model.add_argument("--swiglu", type=int, default=1536)
     model.add_argument("--window", type=int, default=512)
     model.add_argument("--global-every", type=int, default=4)
@@ -673,9 +675,9 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--min-lr-frac", type=float, default=0.0,
                        help="floor as a fraction of --lr (0 reaches zero)")
     train.add_argument("--lr-horizon", choices=("auto", "time", "steps"), default="auto",
-                       help="auto = time-based when --max-seconds is set, else step-based")
+                       help="auto = step-based; time is explicit opt-in")
     train.add_argument("--max-seconds", type=float, default=0.0,
-                       help="wall-clock budget and cosine horizon (0 = step-based)")
+                       help="wall-clock budget (LR horizon is --steps unless --lr-horizon time)")
     train.add_argument("--ema-decay", type=float, default=0.999)
     train.add_argument("--ema-start-frac", type=float, default=0.3)
     train.add_argument("--no-ema", action="store_true")
@@ -799,6 +801,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--d-model must be divisible by --n-heads")
     if args.n_layers < 1 or args.n_heads < 1:
         raise SystemExit("--n-layers and --n-heads must be positive")
+    if args.n_kv_heads < 0 or args.n_kv_heads > args.n_heads:
+        raise SystemExit("--n-kv-heads must be 0 or between 1 and --n-heads")
+    if args.n_kv_heads and args.n_heads % args.n_kv_heads:
+        raise SystemExit("--n-heads must be divisible by --n-kv-heads")
     if not 0 <= args.moe_layers <= args.n_layers:
         raise SystemExit("--moe-layers must be between 0 and --n-layers")
     if not 1 <= args.topk <= args.n_experts:
@@ -847,6 +853,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         d_model=int(args.d_model),
         n_layers=int(args.n_layers),
         n_heads=int(args.n_heads),
+        n_kv_heads=int(args.n_kv_heads),
         swiglu=int(args.swiglu),
         window=int(args.window),
         global_every=int(args.global_every),
@@ -1194,7 +1201,10 @@ def main(argv: list[str] | None = None) -> int:
     effective_warmup_frac = warmup_steps / max(1, args.steps)
     horizon = args.lr_horizon
     if horizon == "auto":
-        horizon = "time" if args.max_seconds > 0 else "steps"
+        # Never tie the LR schedule to a wall-clock cutoff by default: a
+        # preempted or short run must resume on the same step-based curve,
+        # not finish with an already-dead LR.
+        horizon = "steps"
 
     config_doc = dict(vars(args))
     config_doc["resolved"] = {

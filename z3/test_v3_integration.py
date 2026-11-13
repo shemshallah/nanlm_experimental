@@ -84,6 +84,29 @@ class V3IntegrationTest(unittest.TestCase):
         self.assertIn("load_balance", aux)
         self.assertIn("router_z", aux)
 
+    def test_gqa_forward_and_kv_projection(self):
+        base = dict(
+            vocab_size=64, ctx=32, max_ctx=32, d_model=64,
+            n_layers=1, n_heads=8, swiglu=128, window=16,
+            global_every=1, moe_layers=0, n_experts=4, topk=2,
+            shared_experts=0, expert_hidden=128, mtp=1, dropout=0.0,
+        )
+        mha = V3LM(V3Config(**base))
+        gqa = V3LM(V3Config(**base, n_kv_heads=2))
+        self.assertEqual(gqa.blocks[0].attn.qkv.out_features, 64 + 2 * (2 * 8))
+        self.assertLess(gqa.parameter_count(), mha.parameter_count())
+        x = torch.randint(0, 64, (2, 32))
+        y, _, _ = gqa(x)
+        self.assertEqual(tuple(y.shape), (2, 32, 64))
+        self.assertTrue(torch.isfinite(y).all())
+        manual = V3LM(
+            V3Config(**base, n_kv_heads=2, force_manual_attention=True)
+        ).eval()
+        manual.load_state_dict(gqa.state_dict())
+        with torch.no_grad():
+            y_manual, _, _ = manual(x)
+        torch.testing.assert_close(y_manual, y, atol=1e-5, rtol=1e-5)
+
     def test_manual_attention_matches_sdpa(self):
         base = dict(
             vocab_size=64, ctx=32, max_ctx=32, d_model=32,

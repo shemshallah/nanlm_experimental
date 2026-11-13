@@ -23,11 +23,11 @@ All commands were run from the repository root.
 
 ```text
 z3/test_rope_scaling.py       17 tests  OK  (includes 8k finite forward/backward)
-z3/test_moe_vectorized.py     11 tests  OK  (output/gradient parity vs loop)
+z3/test_moe_vectorized.py     12 tests  OK  (output/gradient parity vs loop)
 z3/test_memory_attention.py   17 tests  OK  (causality, collisions, gradients)
 z3/test_eval_v3.py             6 tests  OK
 z3/test_train_v3_smoke.py      2 tests  OK
-z3/test_v3_integration.py      5 tests  OK
+z3/test_v3_integration.py      7 tests  OK
 ```
 
 ## MoE memory check
@@ -53,6 +53,29 @@ been rerun here.
 The integration tests verify that YaRN is selected at `ctx=8192`, NTK builds,
 the model uses `VectorizedSparseMoE`, and the memory path backpropagates into
 its learnable n-gram scale.
+
+## Kaggle 10-minute v3 GPU run
+
+Measured on a Kaggle T4 with the v3 trainer, mixed 16-domain byte/token corpus
+(`r32-multidomain-16domains`), 1,024 context, 112,375,040 parameters:
+
+```text
+steps              1,092
+wall               603.8 s
+tokens seen        4,472,832
+eval before        8.1894 bits/token, top-1 0.60%, top-5 1.58%
+best (step 1050)   3.3723 bits/token, top-1 38.75%, top-5 68.41%
+final              3.3723 bits/token, top-1 38.72%, top-5 68.40%
+MTP loss           2.843
+```
+
+The run used `--lr-horizon time` with `--max-seconds 600`; the cosine schedule
+therefore reached ~8e-11 by step 1,092. That is why it flattened after roughly
+1,000 steps. `--lr-horizon auto` now means **step-based**, so a preempted or
+short run resumes on the same curve. `--lr-horizon time` is explicit opt-in.
+
+This is a 1,000-step smoke, not a 1M-step run and not a frontier-scale result.
+The step-1050 checkpoint is the best checkpoint from this run.
 
 ## CPU random smoke
 
@@ -105,4 +128,5 @@ learning result.
 
 - No 30-minute T4/Colab v3 run has been completed for this integration.
 - No long v3 training run, long-context quality evaluation, or scaling run.
+- GQA has shape/gradient tests, but no quality comparison against MHA at scale.
 - No throughput comparison against the old Python expert loop.

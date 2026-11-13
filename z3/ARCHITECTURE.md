@@ -8,6 +8,7 @@ prototype, not a frontier-scale trained model.
 | Feature | v2 | v3 |
 |---|---|---|
 | Attention | full causal | **sliding-window local + global every 4th layer** |
+| Attention heads | full MHA | **optional GQA (`n_kv_heads`)** |
 | Q/K stability | none | **QK-RMSNorm per head** |
 | Position | RoPE base 10k | **YaRN/NTK RoPE, 8k position cache** |
 | MoE | 128 mirror pairs, top-8 | **32 routed experts, top-2, +2 shared experts** |
@@ -15,6 +16,7 @@ prototype, not a frontier-scale trained model.
 | Memory | hashed n-gram path | **optional learned cross-attention + sparse n-gram bias** |
 | MoE aux | load balance | **load balance + router z-loss** |
 | Prediction | next token + S− | **multi-token prediction (MTP)** |
+| LR schedule | constant / cosine | **step-based cosine by default; explicit time mode** |
 | Dense FFN | SwiGLU 1024 | **SwiGLU 1536** |
 | Context | 512 | **1024 config default** |
 
@@ -29,6 +31,7 @@ ctx         1,024
 d_model     384
 layers      12
 heads       12
+kv heads    12 (GQA optional; 0 = MHA)
 SwiGLU      1,536
 MoE layers  4 (last four)
 experts     32 routed, top-2, 2 shared

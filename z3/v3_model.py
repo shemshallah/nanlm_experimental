@@ -64,6 +64,7 @@ class V3Config:
     d_model: int = 384
     n_layers: int = 12
     n_heads: int = 12
+    n_kv_heads: int = 0  # 0 = full multi-head attention; otherwise GQA
     swiglu: int = 1536
     window: int = 512
     global_every: int = 4
@@ -95,8 +96,17 @@ class Attention(nn.Module):
     def __init__(self, cfg: V3Config, layer: int):
         super().__init__()
         self.h = cfg.n_heads
+        if cfg.d_model % cfg.n_heads != 0:
+            raise ValueError("d_model must be divisible by n_heads")
         self.dh = cfg.d_model // cfg.n_heads
-        self.qkv = nn.Linear(cfg.d_model, 3 * cfg.d_model, bias=False)
+        self.kv_heads = int(cfg.n_kv_heads or cfg.n_heads)
+        if cfg.n_heads % self.kv_heads != 0:
+            raise ValueError("n_heads must be divisible by n_kv_heads")
+        self.kv_dim = self.kv_heads * self.dh
+        self.kv_group = self.h // self.kv_heads
+        self.qkv = nn.Linear(
+            cfg.d_model, cfg.d_model + 2 * self.kv_dim, bias=False
+        )
         self.out = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
         self.q_norm = RMSNorm(self.dh)
         self.k_norm = RMSNorm(self.dh)
@@ -136,14 +146,21 @@ class Attention(nn.Module):
 
     def forward(self, x):
         b, t, d = x.shape
-        q, k, v = self.qkv(x).split(d, dim=2)
+        q, k, v = self.qkv(x).split(
+            (d, self.kv_dim, self.kv_dim), dim=2
+        )
         q = q.view(b, t, self.h, self.dh).transpose(1, 2)
-        k = k.view(b, t, self.h, self.dh).transpose(1, 2)
-        v = v.view(b, t, self.h, self.dh).transpose(1, 2)
+        k = k.view(b, t, self.kv_heads, self.dh).transpose(1, 2)
+        v = v.view(b, t, self.kv_heads, self.dh).transpose(1, 2)
         q = self.q_norm(q)
         k = self.k_norm(k)
         q = self.rope(q)
         k = self.rope(k)
+        if self.kv_group > 1:
+            # Dense training path: expand KV heads for the attention kernel.
+            # Inference can cache the smaller KV tensors instead.
+            k = k.repeat_interleave(self.kv_group, dim=1)
+            v = v.repeat_interleave(self.kv_group, dim=1)
         if self.force_manual or x.device.type == "xla":
             y = self._manual_attention(q, k, v)
         elif self.is_global:
