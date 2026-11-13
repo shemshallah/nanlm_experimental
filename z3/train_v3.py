@@ -725,7 +725,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--eval-before", action="store_true",
                      help="evaluate once after init/restore, before training")
     run.add_argument("--save-every", type=int, default=0,
-                     help="also write last.pt every N steps (0 = only at eval/end)")
+                     help="write last.pt every N steps (0 = only final/early-stop)")
+    run.add_argument("--best-every", type=int, default=0,
+                     help="write best.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--init-from", default="",
                      help="checkpoint weights to initialize from")
     run.add_argument("--resume", default="", metavar="PATH",
@@ -777,7 +779,8 @@ SMOKE_DEFAULTS: dict[str, Any] = {
     "eval_every": 1,
     "eval_batches": 1,
     "log_every": 1,
-    "save_every": 0,
+    "save_every": 1,
+    "best_every": 1,
     "train_fraction": 0.9,
     "threads": 2,
     "out": "runs/v3_smoke",
@@ -812,6 +815,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--eval-every and --log-every must be positive")
     if args.early_stop_patience < 0 or args.early_stop_min_delta < 0:
         raise SystemExit("early-stop values must be non-negative")
+    if args.best_every < 0 or args.save_every < 0:
+        raise SystemExit("checkpoint intervals must be non-negative")
     if args.threads < 1:
         raise SystemExit("--threads must be positive")
     if args.lr <= 0 or args.grad_clip <= 0:
@@ -1337,6 +1342,7 @@ def main(argv: list[str] | None = None) -> int:
         metrics: dict[str, Any] | None,
         source_name: str,
         step: int,
+        force: bool = False,
     ) -> None:
         nonlocal best
         if metrics is None:
@@ -1352,6 +1358,9 @@ def main(argv: list[str] | None = None) -> int:
             "loss": float(loss),
             "metrics": metrics,
         }
+        if not force and step != args.steps:
+            if args.best_every <= 0 or step % args.best_every != 0:
+                return
         checkpoint_model = ema_model if source_name == "ema" else model
         _save_cpu(
             out / "best.pt",
@@ -1571,9 +1580,9 @@ def main(argv: list[str] | None = None) -> int:
         evaluate(ema_model, source.eval_batches, device, amp, args.mtp_weight)
         if ema_model is not None else None
     )
-    consider_best(final_metrics, "model", last_step)
+    consider_best(final_metrics, "model", last_step, force=True)
     if final_ema_metrics is not None:
-        consider_best(final_ema_metrics, "ema", last_step)
+        consider_best(final_ema_metrics, "ema", last_step, force=True)
 
     elapsed_total = time.time() - t0
     _save_cpu(
