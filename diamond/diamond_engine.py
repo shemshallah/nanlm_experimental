@@ -1156,6 +1156,7 @@ SIGNATURE = json.dumps({
     "sent_causal": True,
     "sent_isolated": True,
     "sent_cache": "first_word_document_cache",
+    "sent_balanced": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
@@ -1317,13 +1318,18 @@ def train_step(b, w, s, yb, yw, ys, two_way):
         per_b = cross_entropy_per_example(yb, bl)
         per_w = cross_entropy_per_example(yw, wl)
         per_s = cross_entropy_per_example(ys, sl)
+        # Balance sentence examples: every sentence contributes one unit
+        # instead of long sentences dominating the next-sentence objective.
+        cur_len = tf.reduce_sum(tf.cast(s[:, -1, :] > 0, tf.int32), axis=-1)
+        sw = 1.0 / tf.cast(tf.maximum(cur_len, 1), tf.float32)
+        sent_loss = tf.reduce_sum(per_s * sw) / tf.reduce_sum(sw)
         il = tf.reduce_mean(tf.square(tf.squeeze(intro, -1) - tf.stop_gradient(per_b)))
         wgt = 1.0 + tf.nn.sigmoid(tf.squeeze(intro, -1))
         wgt = wgt / tf.reduce_mean(wgt)
         total = (
             tf.reduce_mean(per_b * wgt)
             + 0.5 * tf.reduce_mean(per_w)
-            + SENT_WEIGHT * tf.reduce_mean(per_s)
+            + SENT_WEIGHT * sent_loss
             + 0.1 * il
         )
     grads = tape.gradient(total, model.trainable_variables)
