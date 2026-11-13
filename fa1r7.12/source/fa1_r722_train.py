@@ -124,8 +124,9 @@ def main(args):
         'initial_dev':initial,'selected_dev':best,'history':hist,
         'candidate_saved':save,'fifth_optimizer_continuity':True,
         'correct_history_frequency_control':True,'independent_train_donor_control':True,
-        'checkpoint_seed_unchanged':True,'full_new_book_evaluation':False,'new_book_dev_training':bool(args.corpus_dir),
-        'historical_splits_only':True,'promoted':False,
+        'checkpoint_seed_unchanged':True,'full_new_book_evaluation':False,'separate_corpus_dir_supplied':bool(args.corpus_dir),
+        'trained_routes':'32K-128K semantic gate only; 128K-1M gate unchanged',
+        'historical_splits_only':not bool(args.corpus_dir),'promoted':False,
         'elapsed_s':round(time.monotonic()-t,2)}
     pathlib.Path(args.output).parent.mkdir(parents=True,exist_ok=True)
     pathlib.Path(args.output).write_text(json.dumps(result,indent=2)+'\n')
