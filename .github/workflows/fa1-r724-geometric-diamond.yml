@@ -1,0 +1,44 @@
+name: FA1 R7.24 - signed geometric Diamond and tetrahedral boundary tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r724-geometric-diamond.yml'
+      - 'fa1r7.12/source/fa1_r723_diamond.py'
+      - 'fa1r7.12/source/fa1_r724_*.py'
+      - 'fa1r7.12/source/test_fa1_r724_geometry.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r724-one-r7-master
+  cancel-in-progress: false
+
+jobs:
+  topology-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify signed S+/S- triangle and tetra geometry, gradients
+        run: |
+          set -euo pipefail
+          python -m py_compile fa1r7.12/source/fa1_r724_geometry.py fa1r7.12/source/fa1_r724_unified.py fa1r7.12/source/fa1_r724_train.py fa1r7.12/source/fa1_r724_eval.py
+          python fa1r7.12/source/test_fa1_r724_geometry.py
+          python fa1r7.12/source/test_fa1_r723_topology.py
+          python fa1r7.12/source/test_fa1_r722.py
+      - run: echo 'Source-only structural tests; no weight promotion or new-book generalization claim.'
