@@ -194,6 +194,37 @@ only first words, which is the clearest remaining architectural limitation.
 
 - frontier weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-frontier-8m-40e>
 
+### Sentence-tower ablation (40 epochs each)
+
+The first frontier run showed that sentence loss was the remaining bottleneck.
+Four sentence-tower variants were trained on the same 8M document holdout.
+They all keep the byte/word towers and the held-out split fixed, so the
+sentence column is directly comparable across these rows.
+
+| Run | Params | Sentence-tower view | Sent | Combined | Byte | Word |
+|---|---:|---|---:|---:|---:|---:|
+| frontier v1 | 3,663,603 | 64 sentences, first word only | 6.8350 | 5.4288 | 2.6941 | 6.1751 |
+| frontier2 | 3,721,587 | 128 sentences, first 8 words + word cross-attention | 6.9933 | 5.4268 | 2.6406 | 6.1812 |
+| frontier4 | 3,816,819 | 128 sentences × 16 words (first/last), content attention, sentence↔byte attention, sentence depth 4 | **6.7817** | **5.4154** | 2.6463 | 6.2639 |
+| frontier5 | 3,721,651 | current-word lookahead, causal conditioning split | 6.8996 | 5.4180 | 2.6428 | 6.2077 |
+
+The best sentence result so far is frontier4 at **6.7817 bits**, a 0.0533-bit
+improvement over frontier v1. It also has the best combined loss (5.4154).
+Byte and word targets remain met; the sentence target is still 0.78 bits away.
+Adding more previous-sentence content or a current-word lookahead did not
+break the plateau. A frontier3 prefix-only run was lost when its hosted runner
+disconnected after three hours, so it has no metrics.
+
+- frontier2 report: `diamond/reports/frontier2-8m-40e/`
+- frontier4 report: `diamond/reports/frontier4-8m-40e/`
+- frontier5 report: `diamond/reports/frontier5-8m-40e/`
+- frontier4 weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-frontier4-8m-40e>
+- frontier5 weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-frontier5-8m-40e>
+
+The next experiments use the whole current sentence for the sentence head
+(while byte/word conditioning remains causal) and, separately, include short
+sentences in the sentence-target data.
+
 ## Runner
 
 `.github/workflows/diamond-1000.yml` downloads the SHA-256 pinned
