@@ -253,7 +253,7 @@ class MTPAdapter(nn.Module):
         self.up = nn.Linear(rank, d_model, bias=False)
         nn.init.xavier_uniform_(self.down.weight)
         nn.init.xavier_uniform_(self.up.weight)
-        self.scale = nn.Parameter(torch.tensor(1e-3))
+        self.scale = nn.Parameter(torch.tensor(1e-1))
 
     def forward(self, x):
         return x + self.scale * self.up(F.silu(self.down(self.norm(x))))
