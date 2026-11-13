@@ -500,6 +500,13 @@ class V3LM(nn.Module):
              for _ in range(max(0, cfg.mtp - 1))]
             if mtp_head_dim > 0 else []
         )
+        # A separate low-rank output basis for the MTP branch.  It starts as
+        # a copy of the token geometry but has its own gradient path, so an
+        # unstable future branch cannot corrupt the input/output embedding.
+        self.mtp_output = (
+            nn.Parameter(torch.empty(cfg.vocab_size, self.embedding_rank))
+            if self.mtp_tie_heads and self.factorized_embedding else None
+        )
         self.mtp_adapters = nn.ModuleList(
             [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)
              if cfg.mtp_adapter_rank > 0 else nn.Identity()
@@ -623,6 +630,8 @@ class V3LM(nn.Module):
                 with torch.no_grad():
                     for head in self.mtp_heads:
                         head.weight.copy_(self.tok_up.weight.T)
+                    if self.mtp_output is not None:
+                        self.mtp_output.copy_(self.tok.weight)
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
@@ -670,10 +679,10 @@ class V3LM(nn.Module):
             return self.project_logits(hidden)
         adapted = head(hidden)
         if (
-            self.tok_up is not None
+            self.mtp_output is not None
             and adapted.shape[-1] == self.embedding_rank
         ):
-            adapted = adapted @ self.tok.weight.T
+            adapted = adapted @ self.mtp_output.T
         return adapted
 
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
