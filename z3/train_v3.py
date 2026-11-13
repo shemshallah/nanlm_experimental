@@ -694,6 +694,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--eval-every", type=int, default=1000)
     run.add_argument("--eval-batches", type=int, default=16,
                      help="number of fixed validation batches")
+    run.add_argument("--early-stop-patience", type=int, default=0,
+                     help="stop after this many steps without a best-loss improvement (0 = off)")
+    run.add_argument("--early-stop-min-delta", type=float, default=0.0,
+                     help="minimum loss improvement to reset early-stop patience")
     run.add_argument("--log-every", type=int, default=50)
     run.add_argument("--eval-before", action="store_true",
                      help="evaluate once after init/restore, before training")
@@ -781,6 +785,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--batch-size and --eval-batches must be positive")
     if args.eval_every < 1 or args.log_every < 1:
         raise SystemExit("--eval-every and --log-every must be positive")
+    if args.early_stop_patience < 0 or args.early_stop_min_delta < 0:
+        raise SystemExit("early-stop values must be non-negative")
     if args.threads < 1:
         raise SystemExit("--threads must be positive")
     if args.lr <= 0 or args.grad_clip <= 0:
@@ -1246,6 +1252,10 @@ def main(argv: list[str] | None = None) -> int:
     total_start = time.time()
     last_step = start_step
     last_lr = 0.0
+    last_improve_step = (
+        int(best.get("step", start_step)) if best is not None else start_step
+    )
+    early_stop = False
     last_train: dict[str, Any] = {}
     status = "completed"
     steps_run = 0
@@ -1482,13 +1492,31 @@ def main(argv: list[str] | None = None) -> int:
                     f"mtp={val_ema['mtp_loss']:.4f}",
                     flush=True,
                 )
+            previous_best = best.get("loss") if best is not None else float("inf")
             consider_best(val, "model", step_done)
             if val_ema is not None:
                 consider_best(val_ema, "ema", step_done)
+            if best is not None and best["loss"] < previous_best - args.early_stop_min_delta:
+                last_improve_step = step_done
             _write_json(out / "history.json", history)
             save_last(step_done, val)
+            if (
+                args.early_stop_patience > 0
+                and step_done - last_improve_step >= args.early_stop_patience
+            ):
+                status = "early_stop"
+                early_stop = True
+                print(
+                    f"[early-stop] no best improvement for "
+                    f"{step_done - last_improve_step} steps "
+                    f"(best={best['loss']:.4f} at step {best['step']})",
+                    flush=True,
+                )
         elif args.save_every > 0 and step_done % args.save_every == 0:
             save_last(step_done, None)
+
+        if early_stop:
+            break
 
     # Final artifacts ------------------------------------------------------
     final_metrics = evaluate(
