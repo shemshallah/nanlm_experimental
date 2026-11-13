@@ -56,3 +56,19 @@ it verifies all inherited model tensors and optimizer moment fields exactly.
 - Do not mark R27 promoted, archive R26, or claim semantic/frontier gains
   merely because this implementation compiles.
 - A later genuine-new-author sealed set and negative controls are required.
+
+## R27 exploratory CPU pilot (not selected)
+
+The first 40-update real-book pilot used training books 240 and 784;
+development books 866, 970, and 1444. It tested fixed near, 33K,
+65K and 132K offsets when present. At update 40, dev-window R26 vs R27
+was near 2.470753 vs 2.470754 BPB; 33K 2.304552 vs 2.306472 BPB;
+132K 2.256431 vs 2.254587 BPB. Overall R26 2.393953 vs R27
+2.394423 BPB. No R27 candidate was selected. The pilot's final
+archive audit crashed on a Python tensor-equality assertion after the
+measurements; those logs therefore do not constitute a complete release.
+
+The revision above **permits R27 only from query position 131072 onward**,
+leaving earlier R26 results untouched. This guard is motivated by
+observed development failures, not an independently confirmed transfer
+gain. Fresh-author validation is still pending.

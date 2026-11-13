@@ -49,7 +49,7 @@ class CounterfactualTrustGate(nn.Module):
             self.gate[-1].weight.zero_()
             self.gate[-1].bias.zero_()
 
-    def fallback_fraction(self, features):
+    def fallback_fraction(self, features, position=0):
         if features.ndim != 3 or features.shape[1:] != (6, 4):
             raise ValueError("R26 features must be [T,6,4]")
         if not bool(torch.isfinite(features).all()):
@@ -83,14 +83,25 @@ class CounterfactualTrustGate(nn.Module):
         positive = raw.clamp_min(0.0)
         budget = .95 * (positive + (raw - raw.detach()) *
                         (raw <= 0).to(raw.dtype))
-        return budget * torch.sigmoid(score) * long.any(-1).float()
+        # Absolute query position is available before the target is read.
+        # Preserve ALL inherited R26 near/33K/65K predictions exactly.
+        if isinstance(position, torch.Tensor):
+            pos = position.to(device=features.device, dtype=features.dtype)
+        else:
+            pos = features.new_tensor(position)
+        if pos.ndim == 0:
+            pos = pos + torch.arange(len(features), device=features.device)
+        elif tuple(pos.shape) != (len(features),):
+            raise ValueError("positions must be scalar start or [T]")
+        mature = (pos >= 131072).to(features.dtype)
+        return budget * torch.sigmoid(score) * long.any(-1).float() * mature
 
-    def forward(self, full_logprobs, near_logprobs, features):
+    def forward(self, full_logprobs, near_logprobs, features, position=0):
         if full_logprobs.shape != near_logprobs.shape:
             raise ValueError("full and near probabilities have different shapes")
         if full_logprobs.ndim not in (1, 2) or len(full_logprobs) != len(features):
             raise ValueError("expected [T] target or [T,V] full log probabilities")
-        alpha = self.fallback_fraction(features)
+        alpha = self.fallback_fraction(features, position)
         if full_logprobs.ndim == 2:
             alpha = alpha[:, None]
         # float64 log1p(expm1()) avoids float32 cancellation and preserves

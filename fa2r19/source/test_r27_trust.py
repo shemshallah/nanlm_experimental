@@ -31,8 +31,8 @@ def run():
     assert torch.allclose(r26_full.gather(1,target[:,None]).squeeze(-1),r26_y,atol=1e-6)
     assert torch.allclose(r26_near.gather(1,target[:,None]).squeeze(-1),r26_near_y,atol=1e-6)
     gate=CounterfactualTrustGate()
-    assert torch.equal(gate(r26_full,r26_near,feats),r26_full),"R26 full logits parity lost"
-    assert torch.equal(gate(r26_y,r26_near_y,feats),r26_y),"R26 target parity lost"
+    assert torch.equal(gate(r26_full,r26_near,feats,position=132000),r26_full),"R26 full logits parity lost"
+    assert torch.equal(gate(r26_y,r26_near_y,feats,position=132000),r26_y),"R26 target parity lost"
     # Modified target label alone cannot change gate inputs or fallback.
     alternative=target.clone();alternative[0]=(alternative[0]+3)%vocab
     alt_cache,alt_features=idx.features(tokens,q,T,base.exp().numpy(),alternative.numpy())
@@ -44,12 +44,12 @@ def run():
     with torch.no_grad():
         gate.reversion.fill_(.85)
         gate.gate[-1].bias.fill_(4.)
-    out=gate(r26_full,r26_near,without_long)
+    out=gate(r26_full,r26_near,without_long,position=132000)
     assert torch.equal(out,r26_full)
     # All full-vocab rows are valid probability distributions (true mixtures).
     with torch.no_grad():
         gate.gate[-1].bias.zero_()
-    blend=gate(r26_full,r26_near,feats)
+    blend=gate(r26_full,r26_near,feats,position=132000)
     assert torch.allclose(blend.exp().sum(-1),torch.ones(T),atol=5e-6)
     assert torch.isfinite(blend).all()
     # Both model arms share EXACT same R26 parameters (nothing trained in R26).
@@ -59,7 +59,9 @@ def run():
         gate.reversion.zero_()
     # Force distinct counterfactual outcomes: the repeated toy text can otherwise
     # make near and far proposals exactly equal, yielding a legitimate zero gradient.
-    loss=-gate(r26_y,r26_near_y + .25,feats).mean()
+    # Positions strictly under 128K cannot be modified, even when enabled.
+    assert torch.equal(gate(r26_y,r26_near_y + .25,feats,position=33000),r26_y)
+    loss=-gate(r26_y,r26_near_y + .25,feats,position=132000).mean()
     loss.backward()
     assert gate.reversion.grad is not None
     assert torch.isfinite(gate.reversion.grad)

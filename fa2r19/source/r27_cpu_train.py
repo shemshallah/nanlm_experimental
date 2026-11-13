@@ -40,7 +40,7 @@ def row_scores(unified, row, wrong=False):
         base, prob, feats = row["base_y"], row["p_y"], row["features"]
     full = unified.r26.target_logprob(base, prob, feats)
     near = near_only_target(unified.r26, base, prob, feats)
-    blended = unified.r27(full, near, feats)
+    blended = unified.r27(full, near, feats, position=row['start'])
     return full, near, blended
 
 

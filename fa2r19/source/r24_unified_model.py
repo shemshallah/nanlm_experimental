@@ -114,7 +114,7 @@ class UnifiedFA2(nn.Module):
                 torch.from_numpy(span).to(actual.device),
                 torch.from_numpy(features).to(actual.device))
             actual=self.r27(before_r27,near,
-                torch.from_numpy(features).to(actual.device))
+                torch.from_numpy(features).to(actual.device),position=t0)
         byte_start=int(book.byte_starts[begin]);byte_end=int(book.byte_starts[end]) if end<len(book.byte_starts) else int(book.raw_len)
         if byte_end<=byte_start:raise ValueError('invalid byte span')
         return {'logits':actual,'without_r26':before_r26,'without_r27':before_r27,'without_r25':uncalibrated,'without_r23':post22,'scrambled_values':permuted,'unrelated_history':unrelated,'target':y,'bytes':byte_end-byte_start,'memory_detail':detail,'memory_index':index,'moe_balance':balance,'start':t0}
