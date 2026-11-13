@@ -54,3 +54,16 @@ An independent cold restore using **original PAL R19 + original FA2 R27 recovery
 PYTHONPATH=source python source/r28_restore_unified.py --root .
 PYTHONPATH=source python source/test_r28_recurrent.py
 ```
+
+## Frozen historical-book follow-up (no updates)
+
+After step 16 was fixed, a separate frozen evaluation compared R27 and R28 on the first 16 contiguous 12-word chunks from historical test books 710 and 1063. The training and development selection used neither book in **this** R28 pilot. However, PAL has consulted these books in earlier rounds; **this is not a clean blind test**. No training updates or re-selection followed this probe.
+
+| Test measure | R27 | R28 step 16 | Improvement |
+|---|---:|---:|---:|
+| Combined BPB (2,249 bytes, 1,298 tokens) | 2.8982332231 | 2.8970735305 | 0.0011596926 |
+| Nonspace NLL | 4.6108296495 | 4.6104817182 | 0.0003479313 |
+| Book 710 BPB | 3.1951315350 | 3.1943500646 | 0.0007814704 |
+| Book 1063 BPB | 2.5734143064 | 2.5718408233 | 0.0015734830 |
+
+Both historical test books improved, but only over a very short opening prefix. R28 remains unpromoted pending author-disjoint and 33K/65K/132K causal replay. Source: `source/r28_historical_probe.py`; frozen measurements: `reports/r28_historical_frozen.json`.
