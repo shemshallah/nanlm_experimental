@@ -107,8 +107,11 @@ jobs:
           coqc -Q ../coq-library-undecidability/theories Undecidability \
             -w -notation-overridden,-stdlib-vector,-notation-incompatible-prefix \
             formal/utm/UTMEquivalence.v
+          coqc -w -notation-overridden,-stdlib-vector \
+            formal/utm/InterpreterRefinement.v
           coqchk -Q ../coq-library-undecidability/theories Undecidability \
             formal/utm/UTMEquivalence.vo
+          coqchk formal/utm/InterpreterRefinement.vo
           echo "MECHANIZED UTM THEOREM PASS"
 
       - name: Upload checked proof and log
@@ -120,5 +123,8 @@ jobs:
             NaNLMind/formal/utm/UTMEquivalence.v
             NaNLMind/formal/utm/UTMEquivalence.vo
             NaNLMind/formal/utm/UTMEquivalence.glob
+            NaNLMind/formal/utm/InterpreterRefinement.v
+            NaNLMind/formal/utm/InterpreterRefinement.vo
+            NaNLMind/formal/utm/InterpreterRefinement.glob
           if-no-files-found: warn
           retention-days: 90
