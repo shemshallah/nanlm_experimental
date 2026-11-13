@@ -4,25 +4,55 @@ on:
   workflow_dispatch:
     inputs:
       epochs:
-        description: 'Target epochs (1-1000)'
+        description: 'Target total epochs, including any resumed epochs (1-1000)'
         type: string
         required: true
-        default: '1000'
+        default: '50'
       examples:
         description: 'Training examples per epoch (256-8000)'
         type: string
         required: true
-        default: '2500'
+        default: '8000'
       corpus_chars:
-        description: 'NaNROUTER corpus characters (500000-4000000)'
+        description: 'NaNROUTER corpus characters (500000-8000000); changing this invalidates resume'
         type: string
         required: true
-        default: '2000000'
+        default: '4000000'
       time_budget_minutes:
         description: 'Graceful stop after N minutes; 0 disables (0-330)'
         type: string
         required: true
         default: '330'
+      lr:
+        description: 'Peak learning rate for this run'
+        type: string
+        required: true
+        default: '0.0008'
+      warmup_epochs:
+        description: 'LR warmup epochs'
+        type: string
+        required: true
+        default: '5'
+      patience:
+        description: 'Early-stop after N evals without improvement; 0 disables'
+        type: string
+        required: true
+        default: '12'
+      dropout:
+        description: 'Dropout'
+        type: string
+        required: true
+        default: '0.2'
+      weight_decay:
+        description: 'AdamW weight decay'
+        type: string
+        required: true
+        default: '0.05'
+      label_smoothing:
+        description: 'Training label smoothing; must match the checkpoint when resuming'
+        type: string
+        required: true
+        default: '0.05'
       resume:
         description: 'Resume from the latest diamond-state artifact if present'
         type: boolean
@@ -144,18 +174,30 @@ jobs:
           EXAMPLES: ${{ inputs.examples }}
           CORPUS_CHARS: ${{ inputs.corpus_chars }}
           TIME_BUDGET: ${{ inputs.time_budget_minutes }}
+          LR: ${{ inputs.lr }}
+          WARMUP_EPOCHS: ${{ inputs.warmup_epochs }}
+          PATIENCE: ${{ inputs.patience }}
+          DROPOUT: ${{ inputs.dropout }}
+          WEIGHT_DECAY: ${{ inputs.weight_decay }}
+          LABEL_SMOOTHING: ${{ inputs.label_smoothing }}
         run: |
           set -euo pipefail
-          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=1000
-          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=1000
-          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=2500
-          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=2500
-          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=2000000
-          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 4000000 )) || CORPUS_CHARS=2000000
+          [[ "$EPOCHS" =~ ^[0-9]+$ ]] || EPOCHS=50
+          (( EPOCHS >= 1 && EPOCHS <= 1000 )) || EPOCHS=50
+          [[ "$EXAMPLES" =~ ^[0-9]+$ ]] || EXAMPLES=8000
+          (( EXAMPLES >= 256 && EXAMPLES <= 8000 )) || EXAMPLES=8000
+          [[ "$CORPUS_CHARS" =~ ^[0-9]+$ ]] || CORPUS_CHARS=4000000
+          (( CORPUS_CHARS >= 500000 && CORPUS_CHARS <= 8000000 )) || CORPUS_CHARS=4000000
           [[ "$TIME_BUDGET" =~ ^[0-9]+$ ]] || TIME_BUDGET=330
           (( TIME_BUDGET >= 0 && TIME_BUDGET <= 330 )) || TIME_BUDGET=330
+          [[ "$LR" =~ ^[0-9]+([.][0-9]+)?$ ]] || LR=0.0008
+          [[ "$WARMUP_EPOCHS" =~ ^[0-9]+$ ]] || WARMUP_EPOCHS=5
+          [[ "$PATIENCE" =~ ^[0-9]+$ ]] || PATIENCE=12
+          [[ "$DROPOUT" =~ ^[0-9]*[.]?[0-9]+$ ]] || DROPOUT=0.2
+          [[ "$WEIGHT_DECAY" =~ ^[0-9]*[.]?[0-9]+$ ]] || WEIGHT_DECAY=0.05
+          [[ "$LABEL_SMOOTHING" =~ ^[0-9]*[.]?[0-9]+$ ]] || LABEL_SMOOTHING=0.05
 
-          echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m"
+          echo "Diamond run: epochs=$EPOCHS examples=$EXAMPLES corpus_chars=$CORPUS_CHARS time_budget=${TIME_BUDGET}m lr=$LR warmup=$WARMUP_EPOCHS patience=$PATIENCE"
           python diamond/diamond_engine.py \
             --corpus-dir "$RUNNER_TEMP/NaNROUTER/corpora" \
             --require-real-corpus \
@@ -166,9 +208,9 @@ jobs:
             --vocab 2000 --corpus-chars "$CORPUS_CHARS" \
             --file-read-chars 20000 --max-files 4000 \
             --test-size 1024 --eval-every 1 --eval-batch 64 \
-            --lr 0.0008 --lr-schedule cosine --warmup-epochs 5 \
-            --grad-clip 1.0 --weight-decay 0.05 --dropout 0.2 \
-            --label-smoothing 0.05 --patience 12 \
+            --lr "$LR" --lr-schedule cosine --warmup-epochs "$WARMUP_EPOCHS" \
+            --grad-clip 1.0 --weight-decay "$WEIGHT_DECAY" --dropout "$DROPOUT" \
+            --label-smoothing "$LABEL_SMOOTHING" --patience "$PATIENCE" \
             --save-every 10 --report-every-steps 25 \
             --time-budget-minutes "$TIME_BUDGET" \
             --checkpoint diamond/state/diamond_state.npz \

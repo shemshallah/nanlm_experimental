@@ -87,6 +87,33 @@ weights into a different corpus/model shape. The latest and best checkpoints
 are separate: the latest one is for resuming, while the best one is for
 inference.
 
+## Continue a run with a warm restart
+
+To extend a finished 50-epoch run to 100 epochs, keep the same corpus, test
+block and label smoothing so the checkpoint signature matches, then use a new
+lower cosine cycle:
+
+```sh
+python diamond_engine.py \
+  --corpus-dir ../NaNROUTER/corpora --require-real-corpus \
+  --epochs 100 --examples 8000 --batch 64 \
+  --byte-win 1024 --word-win 128 --sent-win 32 \
+  --vocab 2000 --corpus-chars 4000000 \
+  --test-size 1024 --eval-every 1 \
+  --lr 0.0002 --lr-schedule cosine --warmup-epochs 5 \
+  --grad-clip 1.0 --weight-decay 0.05 --dropout 0.2 \
+  --label-smoothing 0.05 --patience 0 \
+  --save-every 10 --checkpoint state/diamond_state.npz \
+  --best-checkpoint state/diamond_best.npz \
+  --best-weights state/diamond_best.weights.h5 \
+  --history state/diamond_history.jsonl --out state/diamond_metrics.json \
+  --save-weights --threads 4 --memory-limit-gb 0
+```
+
+The restored `diamond_state.npz` must be in place; `--epochs` is the total
+target, so resuming at epoch 50 with `--epochs 100` adds 50 epochs. `--lr` is
+the peak of the new cosine cycle, and `--patience 0` runs the full extension.
+
 ## Runner
 
 `.github/workflows/diamond-1000.yml` downloads the SHA-256 pinned
