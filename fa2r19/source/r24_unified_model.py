@@ -54,8 +54,18 @@ class UnifiedFA2(nn.Module):
         if targets.numel()==0 or tags.min()<0 or tags.max()>=end-begin:raise ValueError('bad aligned chunk')
         hidden=self.model.core.hidden(examples.reshape(-1,7),lexical.reshape(-1,72)).reshape(1,end-begin,-1)
         logits,states=carry.forward_chunk(self.model,self.bridge,self.adapter,hidden,targets,tags,book_id=book.book_id,token_offset=t0,chunk_tag_offset=begin,return_states=True)
-        deep,balance=self.moe(states)
-        logits=logits[0]+torch.tanh(self.moe.amplitude)*self.model.memory.subword_out(deep)[0]
+        # R30 is an opt-in, zero-output residual on the SAME learned PAL model.
+        # Feedback reaches both the inherited MoE and the inherited decoder;
+        # the latter path remains trainable even when the MoE gate is zero.
+        r30_detail=None
+        if hasattr(self,'r30'):
+            r30_delta,r30_detail=self.r30(states,return_detail=True)
+            deep,balance=self.moe(states+r30_delta)
+            logits=logits[0]+torch.tanh(self.moe.amplitude)*self.model.memory.subword_out(deep)[0]
+            logits=logits+F.linear(r30_delta,self.model.memory.subword_out.weight)[0]
+        else:
+            deep,balance=self.moe(states)
+            logits=logits[0]+torch.tanh(self.moe.amplitude)*self.model.memory.subword_out(deep)[0]
         y=targets[0]
         from_pos=max(0,t0-self.local_history)
         prefix=torch.as_tensor(book.tokens[from_pos:t0].astype(np.int64));context=torch.cat((prefix,y))
@@ -117,4 +127,4 @@ class UnifiedFA2(nn.Module):
                 torch.from_numpy(features).to(actual.device),position=t0)
         byte_start=int(book.byte_starts[begin]);byte_end=int(book.byte_starts[end]) if end<len(book.byte_starts) else int(book.raw_len)
         if byte_end<=byte_start:raise ValueError('invalid byte span')
-        return {'logits':actual,'without_r26':before_r26,'without_r27':before_r27,'without_r25':uncalibrated,'without_r23':post22,'scrambled_values':permuted,'unrelated_history':unrelated,'target':y,'bytes':byte_end-byte_start,'memory_detail':detail,'memory_index':index,'moe_balance':balance,'start':t0}
+        return {'logits':actual,'without_r26':before_r26,'without_r27':before_r27,'without_r25':uncalibrated,'without_r23':post22,'scrambled_values':permuted,'unrelated_history':unrelated,'target':y,'bytes':byte_end-byte_start,'memory_detail':detail,'memory_index':index,'moe_balance':balance,'r30_detail':r30_detail,'start':t0}
