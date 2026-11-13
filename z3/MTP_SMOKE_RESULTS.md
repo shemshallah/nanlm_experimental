@@ -121,3 +121,24 @@ Interpretation: the branch still uses t+1 when it is correct, but it does not
 beat the old head on predicted t+1, and the gate did not lower the wrong-t1
 cost. Acceptance is already 67% for the old head; the branch does not improve
 it. Do not start the 5,000-step joint run.
+
+## Frontier MTP branch, per-lag + soft + supervised gate (100 steps)
+
+Per-lag MTP blocks now use QK-RMSNorm, RoPE, causal SDPA, and a separate
+8-expert MoE.  Conditioning is the predicted t+1 distribution mixed with
+ground truth (1.0 -> 0.7), and the confidence gate is BCE-supervised against
+t+1 correctness.
+
+```text
+                         MTP loss   correct-t1   wrong-t1   acceptance
+baseline old head         1.5484      1.0769      2.6682      67.02%
+frontier best (100)       1.5526      1.0688      2.7023      67.10%
+frontier final            1.5660      1.0594      2.7698      66.81%
+```
+
+Teacher-forced sensitivity after training: correct 1.3903, random 1.5445,
+delta -0.1542.
+
+The branch is now genuinely conditioned and the gate is supervised, but
+predicted-t+1 MTP still does not beat the old head and the gate does not lower
+the wrong-t+1 cost enough. No 200-step or 5,000-step run was started.
