@@ -165,6 +165,35 @@ evidence that the chunk mean-pooling, not data volume, was the byte bottleneck.
 
 - wide weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-wide-8m-30e>
 
+### Frontier 8M, whole-document holdout (40 epochs)
+
+The frontier preset was trained fresh on the same 8M/411-document corpus with
+the same whole-document holdout (41 documents, 138,728 held-out positions,
+1,000 sampled test examples). It used 3,663,603 parameters, 2048-byte /
+256-word / 64-sentence context, depth 3, and convolutional chunk stems.
+Training ran 40 epochs at 15,000 examples/epoch and batch 32 in 113.1 minutes.
+
+Best (epoch 39): combined **5.4288**, byte **2.6941**, word **6.1751**, sent
+**6.8350** bits. Byte top-1/top-5 were 45.9% / 82.6%; word top-1/top-5 were
+25.3% / 45.4%. The final epoch 40 was 5.4316 (byte 2.6980, word 6.1755, sent
+6.8345), so the best checkpoint is epoch 39.
+
+Against the wide 30-epoch document-holdout run, byte improved by **1.4863
+bits**, word by **0.7891 bits**, and sentence was effectively flat (+0.0163);
+the combined loss fell by **1.3003**. Against the 100-epoch position-holdout
+run the byte and word gains are also large, but the splits and epoch counts
+differ, so that comparison is descriptive rather than controlled.
+
+The byte and word targets are met (**byte < 4.0**, **word < 6.5**). The
+sentence target (**sent < 6.0**) is not: sentence loss was already flat around
+6.83 from epoch 24 onward. The next bottleneck is the sentence tower, while
+byte/word kept improving. This run changed several things together —
+order-preserving chunk stems, 2× context, depth 3 and wider towers — so it does
+not isolate which one caused the byte/word jump. The sentence tower still sees
+only first words, which is the clearest remaining architectural limitation.
+
+- frontier weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-frontier-8m-40e>
+
 ## Runner
 
 `.github/workflows/diamond-1000.yml` downloads the SHA-256 pinned
