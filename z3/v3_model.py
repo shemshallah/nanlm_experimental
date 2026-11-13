@@ -371,7 +371,7 @@ class V3LM(nn.Module):
                     torch.eye(self.cfg.d_model)
                 )
                 self.mtp_cond_proj.weight[:, self.cfg.d_model:].normal_(
-                    mean=0.0, std=0.05
+                    mean=0.0, std=0.5
                 )
             # Identity branch at step zero: the t+1-conditioned input reaches
             # the old MTP head unchanged, so any later gain is real.
