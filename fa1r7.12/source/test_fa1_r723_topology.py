@@ -4,6 +4,7 @@ import itertools, numpy as np, torch
 from fa1_r723_diamond import VERTICES, PAIRS, TRIPLES, pair_rank, triple_rank, CombinatorialDiamond
 
 def run():
+    torch.set_num_threads(2)
     assert VERTICES==256 and PAIRS==32640 and TRIPLES==2763520
     aa=[];bb=[];cc=[];pairs=[]
     for i in range(256):
@@ -46,18 +47,30 @@ def run():
     sen=torch.randint(0,32000,(batch,8))
     verts=torch.stack([torch.randperm(256)[:8] for _ in range(batch)])
     mem=torch.randn(batch,92)
-    state,logits,vec=m(h,words,by,sen,verts,trunk,memory_features=mem)
+    modal_ids=torch.randint(2,32000,(batch,12))
+    modal_mask=torch.ones(batch,12,dtype=torch.bool)
+    # One all-empty memory row must remain finite and remain causal.
+    modal_mask[0,:]=False
+    state,logits,vec=m(h,words,by,sen,verts,trunk,memory_features=mem,
+                       modal_ids=modal_ids,modal_mask=modal_mask)
     with torch.no_grad():
-        other,_,_=m(h,words,by,sen,verts,trunk,memory_features=torch.zeros_like(mem))
-        assert not torch.equal(state,other),'legacy causal reader feature path is disconnected' 
+        other,_,_=m(h,words,by,sen,verts,trunk,memory_features=torch.zeros_like(mem),
+                    modal_ids=modal_ids,modal_mask=modal_mask)
+        assert not torch.equal(state,other),'legacy causal reader feature path is disconnected'
+        no_modal,_,_=m(h,words,by,sen,verts,trunk,memory_features=mem,
+                       modal_ids=modal_ids,modal_mask=torch.zeros_like(modal_mask))
+        assert torch.isfinite(no_modal).all()
+        assert not torch.equal(state,no_modal),'actual causal modal candidate path is disconnected'
+        assert torch.isfinite(state).all() and torch.isfinite(logits).all()
     (torch.nn.functional.cross_entropy(logits,torch.randint(0,256,(batch,)))+vec.square().mean()).backward()
     for name in ('triple_code.weight','triple_in.weight','pair_down.0.weight',
-                 'point_down.0.weight','sector_keys','sector_values','legacy_memory_in.weight'):
+                 'point_down.0.weight','sector_keys','sector_values','legacy_memory_in.weight',
+                 'modal_key.weight','modal_value.weight','modal_query.weight','modal_fuse.0.weight'):
         param=dict(m.named_parameters())[name]
         assert param.grad is not None and torch.isfinite(param.grad).all(),('gradient absent',name)
         assert float(param.grad.abs().sum())>0,('gradient zero',name)
     assert all(x.grad is None for x in (trunk.H,trunk.P,trunk.M,trunk.E))
-    print('PASS gradient reachability: indexed triples, specialist meta-mind, pair and point reconstruction')
+    print('PASS gradient reachability: indexed triples, 12 concrete old-memory tokens, specialist meta-mind, pair and point reconstruction')
     print('PASS exact 256 points / 32,640 inherited pairs / 2,763,520 triples / 256 apex sectors; 56->28 incidence consistent')
 
 if __name__=='__main__':run()
