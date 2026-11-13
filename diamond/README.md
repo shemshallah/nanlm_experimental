@@ -114,6 +114,20 @@ The restored `diamond_state.npz` must be in place; `--epochs` is the total
 target, so resuming at epoch 50 with `--epochs 100` adds 50 epochs. `--lr` is
 the peak of the new cosine cycle, and `--patience 0` runs the full extension.
 
+## Results
+
+The fixed 50-epoch run (`diamond-50-epochs-best`) reached its best combined
+held-out loss at epoch 43: **6.6391** (byte 4.2082, word 6.9894, sent 6.2511
+bits). The 50-epoch extension to epoch 100 (`diamond-100-epochs`) resumed from
+the epoch-50 checkpoint with a second, lower cosine cycle and improved the best
+at epoch 86: **6.6074** (byte 4.1851, word 6.9625, sent 6.2205 bits). The final
+epoch 100 was 6.6093, so the curve had plateaued; the best checkpoint is the
+one published for inference. The best byte-only epoch was 79 at 4.1841 bits,
+but the release selects on the combined loss.
+
+- 100-epoch weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-100-epochs>
+- 50-epoch weights: <https://github.com/shemshallah/nanlm_experimental/releases/tag/diamond-50-epochs-best>
+
 ## Runner
 
 `.github/workflows/diamond-1000.yml` downloads the SHA-256 pinned
@@ -131,6 +145,18 @@ gh workflow run diamond-1000.yml -R shemshallah/nanlm_experimental \
   -f epochs=50 -f examples=8000 -f corpus_chars=4000000 \
   -f time_budget_minutes=0 -F resume=false \
   -f release_tag=diamond-50-epochs-best
+gh run watch -R shemshallah/nanlm_experimental
+```
+
+To extend that run to 100 epochs, keep the same corpus and label smoothing,
+restore the latest state, and use a second lower cosine cycle:
+
+```sh
+gh workflow run diamond-1000.yml -R shemshallah/nanlm_experimental \
+  -f epochs=100 -f examples=8000 -f corpus_chars=4000000 \
+  -f time_budget_minutes=0 -f lr=0.0002 -f warmup_epochs=5 \
+  -f patience=0 -F resume=true \
+  -f release_tag=diamond-100-epochs
 gh run watch -R shemshallah/nanlm_experimental
 ```
 
