@@ -77,6 +77,7 @@ class V3Config:
     moe_max_rows: int = 512
     moe_dense_dispatch: bool = False
     force_manual_attention: bool = False
+    attn_gate: bool = False
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -131,6 +132,10 @@ class Attention(nn.Module):
         self.is_global = layer % cfg.global_every == 0
         self.window = cfg.window
         self.force_manual = bool(cfg.force_manual_attention)
+        self.gate = (
+            nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+            if cfg.attn_gate else None
+        )
 
     def _manual_attention(self, q, k, v):
         """Dense attention fallback for backends without a working SDPA."""
@@ -174,7 +179,10 @@ class Attention(nn.Module):
                 q, k, v, attn_mask=mask, dropout_p=self.drop if self.training else 0.0
             )
         y = y.transpose(1, 2).contiguous().view(b, t, d)
-        return self.out(y)
+        y = self.out(y)
+        if self.gate is not None:
+            y = y * torch.sigmoid(self.gate(x))
+        return y
 
 
 class SwiGLU(nn.Module):

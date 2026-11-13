@@ -620,6 +620,8 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--n-heads", type=int, default=12)
     model.add_argument("--n-kv-heads", type=int, default=0,
                        help="KV heads for GQA; 0 = full MHA")
+    model.add_argument("--attn-gate", action="store_true",
+                       help="sigmoid-gate the attention output")
     model.add_argument("--swiglu", type=int, default=1536)
     model.add_argument("--window", type=int, default=512)
     model.add_argument("--global-every", type=int, default=4)
@@ -674,8 +676,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="overrides --warmup-frac when greater than zero")
     train.add_argument("--min-lr-frac", type=float, default=0.0,
                        help="floor as a fraction of --lr (0 reaches zero)")
-    train.add_argument("--lr-horizon", choices=("auto", "time", "steps"), default="auto",
-                       help="auto = step-based; time is explicit opt-in")
+    train.add_argument("--lr-horizon", choices=("auto", "time", "steps", "wsd"), default="auto",
+                       help="auto = step-based; time is explicit opt-in; wsd = warmup-stable-decay")
+    train.add_argument("--decay-frac", type=float, default=0.1,
+                       help="fraction of a WSD run used for the final decay")
     train.add_argument("--max-seconds", type=float, default=0.0,
                        help="wall-clock budget (LR horizon is --steps unless --lr-horizon time)")
     train.add_argument("--ema-decay", type=float, default=0.999)
@@ -783,6 +787,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--lr and --grad-clip must be positive")
     if not 0.0 <= args.min_lr_frac <= 1.0:
         raise SystemExit("--min-lr-frac must be in [0, 1]")
+    if not 0.0 < args.decay_frac <= 1.0:
+        raise SystemExit("--decay-frac must be in (0, 1]")
     if not 0.0 <= args.warmup_frac < 1.0:
         raise SystemExit("--warmup-frac must be in [0, 1)")
     if args.warmup_steps < 0:
@@ -854,6 +860,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         n_layers=int(args.n_layers),
         n_heads=int(args.n_heads),
         n_kv_heads=int(args.n_kv_heads),
+        attn_gate=bool(args.attn_gate),
         swiglu=int(args.swiglu),
         window=int(args.window),
         global_every=int(args.global_every),
@@ -905,14 +912,25 @@ def resolve_resume_path(value: str, out: Path) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def lr_scale(progress: float, warmup_frac: float, min_lr_frac: float) -> float:
-    """Linear warmup followed by cosine decay to ``min_lr_frac``."""
+def lr_scale(
+    progress: float,
+    warmup_frac: float,
+    min_lr_frac: float,
+    schedule: str = "cosine",
+    decay_frac: float = 0.1,
+) -> float:
+    """Warmup followed by cosine or WSD decay to ``min_lr_frac``."""
     p = min(1.0, max(0.0, float(progress)))
     warmup = min(0.99, max(0.0, float(warmup_frac)))
     if warmup > 0.0 and p < warmup:
         return p / warmup
     q = 0.0 if warmup >= 1.0 else (p - warmup) / (1.0 - warmup)
     q = min(1.0, max(0.0, q))
+    if schedule == "wsd":
+        stable_end = 1.0 - min(0.99, max(0.0, float(decay_frac)))
+        if q <= stable_end:
+            return 1.0
+        q = (q - stable_end) / max(1e-9, 1.0 - stable_end)
     cosine = 0.5 * (1.0 + math.cos(math.pi * q))
     return min_lr_frac + (1.0 - min_lr_frac) * cosine
 
@@ -1236,7 +1254,13 @@ def main(argv: list[str] | None = None) -> int:
             progress = elapsed / args.max_seconds
         else:
             progress = step / max(1, args.steps)
-        scale = lr_scale(progress, effective_warmup_frac, args.min_lr_frac)
+        scale = lr_scale(
+            progress,
+            effective_warmup_frac,
+            args.min_lr_frac,
+            schedule=horizon,
+            decay_frac=args.decay_frac,
+        )
         return args.lr * scale
 
     def save_last(step: int, metrics: dict[str, Any] | None) -> None:

@@ -27,7 +27,7 @@ z3/test_moe_vectorized.py     12 tests  OK  (output/gradient parity vs loop)
 z3/test_memory_attention.py   17 tests  OK  (causality, collisions, gradients)
 z3/test_eval_v3.py             6 tests  OK
 z3/test_train_v3_smoke.py      2 tests  OK
-z3/test_v3_integration.py      7 tests  OK
+z3/test_v3_integration.py      8 tests  OK
 ```
 
 ## MoE memory check
@@ -76,6 +76,25 @@ short run resumes on the same curve. `--lr-horizon time` is explicit opt-in.
 
 This is a 1,000-step smoke, not a 1M-step run and not a frontier-scale result.
 The step-1050 checkpoint is the best checkpoint from this run.
+
+## GQA 10-minute run
+
+Same 16-domain corpus and 1,000-step step-based cosine, with 8 query heads and
+2 KV heads:
+
+```text
+params             111,588,608  (0.79M fewer than MHA)
+steps              1,000
+wall               558.2 s
+tokens seen        4,096,000
+eval before        8.2416 bits/token, top-1 0.10%, top-5 0.93%
+final              3.5041 bits/token, top-1 36.06%, top-5 67.19%
+MTP loss           2.905
+```
+
+GQA is 0.13 bits/token worse than the MHA 1,000-step run at this scale and
+step budget. That is an expected capacity reduction, not evidence that GQA is
+better for quality; it is an inference/memory-efficiency feature.
 
 ## CPU random smoke
 
@@ -128,5 +147,6 @@ learning result.
 
 - No 30-minute T4/Colab v3 run has been completed for this integration.
 - No long v3 training run, long-context quality evaluation, or scaling run.
-- GQA has shape/gradient tests, but no quality comparison against MHA at scale.
+- GQA has only a 1,000-step comparison against MHA; no scale comparison.
+- The attention gate and WSD schedule have tests but no completed quality run.
 - No throughput comparison against the old Python expert loop.

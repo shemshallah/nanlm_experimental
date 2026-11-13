@@ -107,6 +107,20 @@ class V3IntegrationTest(unittest.TestCase):
             y_manual, _, _ = manual(x)
         torch.testing.assert_close(y_manual, y, atol=1e-5, rtol=1e-5)
 
+    def test_attention_gate_forward(self):
+        base = dict(
+            vocab_size=64, ctx=32, max_ctx=32, d_model=64,
+            n_layers=1, n_heads=8, swiglu=128, window=16,
+            global_every=1, moe_layers=0, n_experts=4, topk=2,
+            shared_experts=0, expert_hidden=128, mtp=1, dropout=0.0,
+        )
+        plain = V3LM(V3Config(**base))
+        gated = V3LM(V3Config(**base, attn_gate=True))
+        self.assertGreater(gated.parameter_count(), plain.parameter_count())
+        x = torch.randint(0, 64, (2, 32))
+        y, _, _ = gated(x)
+        self.assertTrue(torch.isfinite(y).all())
+
     def test_manual_attention_matches_sdpa(self):
         base = dict(
             vocab_size=64, ctx=32, max_ctx=32, d_model=32,

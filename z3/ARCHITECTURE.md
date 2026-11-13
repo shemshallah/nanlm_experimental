@@ -9,6 +9,7 @@ prototype, not a frontier-scale trained model.
 |---|---|---|
 | Attention | full causal | **sliding-window local + global every 4th layer** |
 | Attention heads | full MHA | **optional GQA (`n_kv_heads`)** |
+| Attention output | plain | **optional sigmoid gate (`attn_gate`)** |
 | Q/K stability | none | **QK-RMSNorm per head** |
 | Position | RoPE base 10k | **YaRN/NTK RoPE, 8k position cache** |
 | MoE | 128 mirror pairs, top-8 | **32 routed experts, top-2, +2 shared experts** |
@@ -16,7 +17,7 @@ prototype, not a frontier-scale trained model.
 | Memory | hashed n-gram path | **optional learned cross-attention + sparse n-gram bias** |
 | MoE aux | load balance | **load balance + router z-loss** |
 | Prediction | next token + S− | **multi-token prediction (MTP)** |
-| LR schedule | constant / cosine | **step-based cosine by default; explicit time mode** |
+| LR schedule | constant / cosine | **step-based cosine default; WSD or explicit time opt-in** |
 | Dense FFN | SwiGLU 1024 | **SwiGLU 1536** |
 | Context | 512 | **1024 config default** |
 
@@ -70,20 +71,22 @@ dominate.
 ## Integrated next steps (Nov 12)
 
 1. **Training harness:** `train_v3.py` implements MTP loss, fixed validation,
-   time-based cosine LR, EMA, AMP, resume, and best/final/EMA artifacts.
-2. **Long context:** `rope_scaling.py` implements standard, NTK, and YaRN RoPE
+   step-based cosine/WSD LR, EMA, AMP, resume, and best/final/EMA artifacts.
+2. **Attention:** optional GQA (`--n-kv-heads`) and a sigmoid attention-output
+   gate (`--attn-gate`), plus QK-RMSNorm and local/global attention.
+3. **Long context:** `rope_scaling.py` implements standard, NTK, and YaRN RoPE
    with an 8,192-position cache. `V3Config.rope_scaling="auto"` selects
    standard RoPE at 1k and YaRN above the original 1k window.
-3. **Memory:** `memory_attention.py` adds 1M-slot hashed 4-gram retrieval plus
+4. **Memory:** `memory_attention.py` adds 1M-slot hashed 4-gram retrieval plus
    learned memory cross-attention. Enable with `--use-memory`; the store is
    built from the training split with `--memory-max-tokens`.
-4. **Expert dispatch:** `moe_vectorized.py` replaces the per-expert loop with
+5. **Expert dispatch:** `moe_vectorized.py` replaces the per-expert loop with
    grouped, row-chunked top-k dispatch. `v3_model.SparseMoE` wraps it. The
    grouped path bounds peak memory at the T4 profile instead of gathering
    `(tokens × topk, d_model, expert_hidden)` weights.
-5. **Evaluation:** `eval_v3.py` reports bits/token, top-1/top-5, MTP accuracy,
+6. **Evaluation:** `eval_v3.py` reports bits/token, top-1/top-5, MTP accuracy,
    router utilization, and per-corpus metrics.
-6. **Single-GPU smoke:** `v3_colab.ipynb` / `COLAB_V3.md` run the mixed-corpus
+7. **Single-GPU smoke:** `v3_colab.ipynb` / `COLAB_V3.md` run the mixed-corpus
    v3 smoke on a T4. An 8k full-model run needs more GPU memory than a T4.
 
 ## Remaining scale work
