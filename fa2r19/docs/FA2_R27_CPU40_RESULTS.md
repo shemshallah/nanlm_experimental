@@ -49,10 +49,11 @@ From a clean directory, extract **the original PAL R19 accepted full-release ZIP
 ```bash
 PYTHONPATH=source python source/r27_restore_unified.py --root .
 PYTHONPATH=source python source/test_r26_causal.py
-PYTHONPATH=source python source/test_r27_trust.py
 # Historical R27 pilot and reserve probe are source/r27_local_pilot.py
 # and source/r27_reserved_probe.py; the real-book pilot replay is CPU-intensive.
 ```
+
+The R27 synthetic trust tests run in GitHub Actions from `source/test_r27_trust.py`; that test is maintained in GitHub source and is not included in the compact R27 recovery ZIP.
 
 Reports: `reports/r27_realbook_local_pilot.json`, `reports/r27_reserve_long_132k.json`, `reports/r27_inheritance_audit.json`. Logs and per-member SHA-256 manifest are in the recovery ZIP.
 
