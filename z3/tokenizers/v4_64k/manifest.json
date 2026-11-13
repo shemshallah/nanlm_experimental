@@ -1,0 +1,18 @@
+{
+  "train_bytes": 20000408,
+  "eval_bytes": 2006676,
+  "eval_tokens": 421432,
+  "bytes_per_token": 4.761565329637996,
+  "vocab_size": 64000,
+  "special_tokens": [
+    "<pad>",
+    "<bos>",
+    "<eos>",
+    "<doc>",
+    "<now>",
+    "<future_1>",
+    "<future_2>",
+    "<future_3>"
+  ],
+  "tokenizer": "/kaggle/working/tokenizer_v4/tokenizer_v4_64k.json"
+}

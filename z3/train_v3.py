@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Training harness for the z3 V3LM prototype (``z3/v3_model.py``).
 
-Text mode (BPE via the optional ``tokenizers`` package)::
+The default text path is the bundled v4 64k tokenizer.  Pre-tokenized uint16
+bins produced by that tokenizer are selected automatically from ``*.bin``::
+
+    python z3/train_v3.py \
+        --corpus data/v4_train.bin --val-corpus data/v4_valid.bin \
+        --ctx 1024 --steps 20000 --max-seconds 1800 \
+        --out runs/v3
+
+An explicit external BPE tokenizer remains available for byte-era ablations::
 
     python z3/train_v3.py \
         --corpus data/a.txt data/b.txt \
@@ -46,6 +54,10 @@ from v3_model import V3Config, V3LM  # noqa: E402
 
 IGNORE_INDEX = -100
 READ_BYTES = 1_000_000
+V4_TOKENIZER_PATH = (
+    SCRIPT_DIR / "tokenizers" / "v4_64k" / "tokenizer.json"
+)
+V4_VOCAB_SIZE = 64000
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +235,8 @@ class BPETokenizer:
 def build_tokenizer(args: argparse.Namespace) -> ByteTokenizer | BPETokenizer:
     if args.tokenizer == "bytes":
         return ByteTokenizer()
+    if args.tokenizer == "v4":
+        return BPETokenizer(V4_TOKENIZER_PATH)
     if not args.bpe_model:
         raise SystemExit("--bpe-model is required when --tokenizer bpe")
     return BPETokenizer(Path(args.bpe_model).expanduser())
@@ -692,8 +706,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="one or more UTF-8 text files (not used by --random-smoke)",
     )
     data.add_argument(
-        "--tokenizer", choices=("bpe", "bytes", "bin"), default="bpe",
-        help="text tokenizer; 'bin' reads pre-tokenized IDs from --corpus",
+        "--tokenizer", choices=("auto", "v4", "bpe", "bytes", "bin"),
+        default="auto",
+        help="tokenizer; auto=v4 text or bin for *.bin; 'bin' reads IDs",
     )
     data.add_argument("--bpe-model", default="", help="tokenizer.json path for --tokenizer bpe")
     data.add_argument("--token-dtype", choices=("uint8", "uint16", "uint32", "int32"),
@@ -707,21 +722,21 @@ def build_parser() -> argparse.ArgumentParser:
                       help="context length; validated presets are 512, 1024, and 8192")
 
     model = parser.add_argument_group("model")
-    model.add_argument("--vocab-size", type=int, default=32000,
-                       help="vocabulary for --random-smoke (text mode uses tokenizer vocab)")
+    model.add_argument("--vocab-size", type=int, default=V4_VOCAB_SIZE,
+                       help="vocabulary for bin/random modes (text uses tokenizer vocab)")
     model.add_argument("--d-model", type=int, default=384)
     model.add_argument("--n-layers", type=int, default=12)
     model.add_argument("--n-heads", type=int, default=12)
     model.add_argument("--n-kv-heads", type=int, default=4,
                        help="KV heads for GQA; 0 = full MHA")
     model.add_argument("--factorized-embedding", action=argparse.BooleanOptionalAction,
-                       default=False,
-                       help="low-rank token embedding for large vocabularies")
+                       default=True,
+                       help="low-rank token embedding for large vocabularies (default: on)")
     model.add_argument("--embedding-rank", type=int, default=128,
                        help="rank for --factorized-embedding")
     model.add_argument("--mtp-tie-heads", action=argparse.BooleanOptionalAction,
-                       default=False,
-                       help="tie MTP output to the main token geometry")
+                       default=True,
+                       help="tie MTP output to the main token geometry (default: on)")
     model.add_argument("--attn-gate", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="sigmoid-gate the attention output (default: on)")
@@ -1203,6 +1218,13 @@ def main(argv: list[str] | None = None) -> int:
             args.max_seconds = float(saved_args["max_seconds"])
 
     # Data -----------------------------------------------------------------
+    if not args.random_smoke and args.tokenizer == "auto":
+        paths = [Path(p).expanduser() for p in args.corpus]
+        args.tokenizer = (
+            "bin"
+            if len(paths) == 1 and paths[0].suffix.lower() == ".bin"
+            else "v4"
+        )
     if args.random_smoke:
         source: TextBatchSource | RandomBatchSource = RandomBatchSource(
             args.vocab_size,
@@ -1490,6 +1512,7 @@ def main(argv: list[str] | None = None) -> int:
     last_train: dict[str, Any] = {}
     status = "completed"
     steps_run = 0
+    nonfinite_skips = 0
 
     def current_lr(step: int, elapsed: float) -> float:
         if horizon == "time" and args.max_seconds > 0:
@@ -1638,24 +1661,53 @@ def main(argv: list[str] | None = None) -> int:
             loss_value = float(loss.detach())
 
         amp_skip = False
-        if scaler is not None:
+        loss_finite = bool(torch.isfinite(loss))
+        if not loss_finite:
+            # A non-finite MTP diagnostic must not poison the trunk.  Skip the
+            # optimizer step and keep training from the last finite weights.
+            amp_skip = True
+            nonfinite_skips += 1
+            optimizer.zero_grad(set_to_none=True)
+            grad_norm = torch.tensor(float("nan"), device=device)
+            print(
+                f"[warn] non-finite loss at step {step}; skipped optimizer step "
+                f"(ce={_finite(parts['ce'])} mtp={_finite(parts['mtp'])})",
+                flush=True,
+            )
+        elif scaler is not None:
             scale_before = scaler.get_scale()
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), args.grad_clip
             )
-            scaler.step(optimizer)
-            scaler.update()
-            amp_skip = scaler.get_scale() < scale_before
+            if not bool(torch.isfinite(grad_norm)):
+                amp_skip = True
+                nonfinite_skips += 1
+                optimizer.zero_grad(set_to_none=True)
+                scaler.update()
+                print(
+                    f"[warn] non-finite grad at step {step}; skipped optimizer step",
+                    flush=True,
+                )
+            else:
+                scaler.step(optimizer)
+                scaler.update()
+                amp_skip = scaler.get_scale() < scale_before
         else:
-            if not torch.isfinite(loss):
-                raise RuntimeError(f"non-finite loss at step {step}: {loss_value}")
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), args.grad_clip
             )
-            if device.type == "xla":
+            if not bool(torch.isfinite(grad_norm)):
+                amp_skip = True
+                nonfinite_skips += 1
+                optimizer.zero_grad(set_to_none=True)
+                print(
+                    f"[warn] non-finite grad at step {step}; skipped optimizer step",
+                    flush=True,
+                )
+            elif device.type == "xla":
                 import torch_xla.core.xla_model as xm
                 xm.optimizer_step(optimizer)
             else:
@@ -1845,6 +1897,7 @@ def main(argv: list[str] | None = None) -> int:
         "start_step": start_step,
         "steps_this_run": steps_run,
         "tokens_seen": int(steps_run * args.batch_size * args.ctx),
+        "nonfinite_skips": int(nonfinite_skips),
         "elapsed_seconds": elapsed_total,
         "wall_seconds": time.time() - total_start,
         "device": str(device),

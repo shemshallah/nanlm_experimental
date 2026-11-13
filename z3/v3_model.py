@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover - script execution path
 
 @dataclass
 class V3Config:
-    vocab_size: int = 32000
+    vocab_size: int = 64000
     ctx: int = 1024
     # Long-context RoPE.  ``max_ctx`` is the architecture limit; with
     # ``rope_scaling="auto"`` the model uses YaRN when ctx exceeds the
@@ -63,13 +63,13 @@ class V3Config:
     memory_min_count: int = 5
     memory_alpha_init: float = 0.1
     d_model: int = 384
-    # A 64k vocabulary makes a full-rank tied embedding (and one full output
-    # head per MTP lag) expensive.  These options keep a 64k model near the
-    # byte-model parameter budget without changing the trunk.  They default
-    # off so existing checkpoints keep their exact architecture.
-    factorized_embedding: bool = False
+    # The v4 64k vocabulary is the default.  Factorizing the tied embedding
+    # and sharing the MTP output geometry keeps the model near the byte-era
+    # parameter budget.  Old checkpoints carry their original fields and are
+    # migrated to the non-factorized layout by the loaders.
+    factorized_embedding: bool = True
     embedding_rank: int = 128
-    mtp_tie_heads: bool = False
+    mtp_tie_heads: bool = True
     n_layers: int = 12
     n_heads: int = 12
     n_kv_heads: int = 4  # GQA by default; 0 = full MHA

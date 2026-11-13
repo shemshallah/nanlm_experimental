@@ -88,9 +88,6 @@ class TrainV3SmokeTest(unittest.TestCase):
             proc = self.run_cli(
                 "--random-smoke",
                 *TINY_CONFIG,
-                "--factorized-embedding",
-                "--embedding-rank", "16",
-                "--mtp-tie-heads",
                 "--steps", "1",
                 "--threads", "1",
                 "--device", "cpu",

@@ -60,6 +60,9 @@ except ImportError:  # run as a script or with z3/ on sys.path
 
 VERSION = 1
 DEFAULT_SEED = 20261112
+V4_TOKENIZER_PATH = Path(__file__).resolve().with_name(
+    "tokenizers"
+) / "v4_64k" / "tokenizer.json"
 CONFIG_FIELD_NAMES = {f.name for f in fields(V3Config)}
 MODEL_KEYS = (
     "model",
@@ -147,6 +150,12 @@ def parse_config(raw: Any) -> V3Config:
         value = kwargs.get(key)
         if isinstance(value, list):
             kwargs[key] = tuple(value)
+    # Checkpoints created before the v4 defaults have no embedding-layout
+    # fields.  Keep them on their original full-rank, separate-head layout.
+    if "factorized_embedding" not in kwargs:
+        kwargs["factorized_embedding"] = False
+    if "mtp_tie_heads" not in kwargs:
+        kwargs["mtp_tie_heads"] = False
     if not kwargs:
         raise ValueError(
             "no V3Config fields found in model config "
@@ -486,16 +495,20 @@ class BPETokenizer:
 def load_tokenizer(kind: str | None, bpe_model: str | Path | None = None):
     """Resolve ``--tokenizer``/``--bpe-model`` into a tokenizer object."""
 
-    if kind is None:
-        kind = "bpe" if bpe_model else "bytes"
+    if kind is None or str(kind).lower() == "auto":
+        kind = "bpe" if bpe_model else "v4"
     kind = kind.lower()
     if kind == "bytes":
         return BytesTokenizer()
+    if kind == "v4":
+        return BPETokenizer(V4_TOKENIZER_PATH)
     if kind == "bpe":
         if not bpe_model:
             raise ValueError("--tokenizer bpe requires --bpe-model")
         return BPETokenizer(bpe_model)
-    raise ValueError(f"unknown tokenizer {kind!r}; expected 'bpe' or 'bytes'")
+    raise ValueError(
+        f"unknown tokenizer {kind!r}; expected 'auto', 'v4', 'bpe', or 'bytes'"
+    )
 
 
 def encode_file(
@@ -1031,9 +1044,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tokenizer",
-        choices=("bpe", "bytes"),
-        default=None,
-        help="bpe or bytes; defaults to bpe when --bpe-model is set, else bytes",
+        choices=("auto", "v4", "bpe", "bytes"),
+        default="auto",
+        help="v4 is bundled; bpe uses --bpe-model; bytes for byte checkpoints",
     )
     parser.add_argument("--bpe-model", default="", help="BPE tokenizer JSON")
     parser.add_argument("--ctx", type=int, default=0, help="context length; 0 uses the model config")

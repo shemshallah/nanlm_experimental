@@ -75,7 +75,13 @@ class V3IntegrationTest(unittest.TestCase):
             mtp_block_hidden=64, mtp_aux_layers=(3,),
             dropout=0.0, use_memory=False,
         )
-        full = V3LM(V3Config(**base))
+        full = V3LM(
+            V3Config(
+                **base,
+                factorized_embedding=False,
+                mtp_tie_heads=False,
+            )
+        )
         compact = V3LM(
             V3Config(
                 **base,
