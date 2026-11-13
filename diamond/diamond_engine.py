@@ -15,8 +15,9 @@ Architecture (all in this file, no other modules):
   The original 24/32/32, 48/64/64, 16-byte-chunk layout is still the default.
   ``--chunk-conv`` replaces mean-pooling inside each byte/word chunk with an
   order-preserving strided convolution, and ``--depth`` stacks more blocks.
-  The frontier preset is 2048 bytes / 256 words / 64 sentences, 48/64/64
-  dims, 96/128/128 FF, depth 3, and convolutional chunk stems.
+  The frontier preset is 2048 bytes / 256 words / 128 sentences x 8 words,
+  48/64/64 dims, 96/128/128 FF, depth 3, convolutional chunk stems, and a
+  sentence tower that cross-attends to the full word-tower state.
 
   Cross-conditioning, staged:
     Epoch 1: bottom-up only   byte -> word -> sentence
@@ -83,6 +84,8 @@ def parse_args():
                    help="byte window")
     p.add_argument("--word-win", type=int, default=128, help="word window")
     p.add_argument("--sent-win", type=int, default=32, help="sentence window")
+    p.add_argument("--sent-len", type=int, default=1,
+                   help="words of content per sentence in the sentence tower (1 = first word only)")
     p.add_argument("--depth", type=int, default=2,
                    help="transformer blocks per tower (1-6)")
     p.add_argument("--chunk-conv", action="store_true",
@@ -205,6 +208,7 @@ if ARGS.weight_decay < 0.0:
 if ARGS.self_loop_start_epoch < 0:
     ARGS.self_loop_start_epoch = 0
 ARGS.depth = max(1, min(6, int(ARGS.depth)))
+SENT_LEN = max(1, min(32, int(ARGS.sent_len)))
 if ARGS.doc_holdout_frac < 0.01:
     ARGS.doc_holdout_frac = 0.01
 if ARGS.doc_holdout_frac > 0.50:
@@ -637,6 +641,19 @@ if not sentences and len(word_stream) >= 3:
             sent_chars.append(0)
 print(f"[corpus] words {len(raw_words)} sents {len(sentences)} vocab {VOCAB}", flush=True)
 
+# Sentence-tower input: a fixed-width content row per sentence. The first word
+# is still the prediction target, but the tower can now use the rest of the
+# sentence instead of only its first token.
+sent_tokens = []
+for s in sentences:
+    row = np.zeros(SENT_LEN, dtype=np.int32)
+    if s:
+        n = min(SENT_LEN, len(s))
+        row[:n] = np.asarray(s[:n], dtype=np.int32)
+    sent_tokens.append(row)
+if not sent_tokens:
+    sent_tokens = [np.zeros(SENT_LEN, dtype=np.int32)]
+
 spans = [m for m in re.finditer(r"[a-zA-Z']+", real_text.lower())]
 n_words = min(len(word_stream), len(spans))
 word_stream = word_stream[:n_words]
@@ -696,14 +713,14 @@ def make_example(pos):
 
     s_lo = int(doc_sent_start[d])
     s_hi = int(doc_sent_end[d])
-    swin = np.zeros(WIN_S, dtype=np.int32)
+    swin = np.zeros((WIN_S, SENT_LEN), dtype=np.int32)
     if s_hi > s_lo:
         si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
         si = min(max(si, s_lo), s_hi - 1)
         start = max(s_lo, si - WIN_S)
-        seg = sent_first[start:si]
+        seg = sent_tokens[start:si]
         if len(seg) > 0:
-            swin[WIN_S - len(seg):] = np.array(seg, dtype=np.int32)
+            swin[WIN_S - len(seg):] = np.asarray(seg, dtype=np.int32)
         ys = int(sent_first[si + 1]) if si + 1 < s_hi else 0
     else:
         ys = 0
@@ -823,7 +840,7 @@ test_B, test_W, test_S, test_yb, test_yw, test_ys = build(test_pos)
 # memory flat and lets each epoch see different positions from the corpus.
 train_B = np.empty((0, WIN_B), dtype=np.int32)
 train_W = np.empty((0, WIN_W), dtype=np.int32)
-train_S = np.empty((0, WIN_S), dtype=np.int32)
+train_S = np.empty((0, WIN_S, SENT_LEN), dtype=np.int32)
 train_yb = np.empty((0,), dtype=np.int32)
 train_yw = np.empty((0,), dtype=np.int32)
 train_ys = np.empty((0,), dtype=np.int32)
@@ -947,8 +964,14 @@ class TripleStaged(tf.keras.Model):
 
         self.sent_emb = tf.keras.layers.Embedding(vocab, DIM_S)
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
+        self.sent_chunk_stem = ChunkConv(DIM_S, SENT_LEN)
         self.sent_moe = MoE(256, DIM_S, 2)
         self.sent_blocks = [Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(DEPTH)]
+        self.sent_word_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
+        )
+        self.sent_word_gate = tf.keras.layers.Dense(DIM_S)
+        self.sent_word_ln = tf.keras.layers.LayerNormalization()
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -989,10 +1012,16 @@ class TripleStaged(tf.keras.Model):
             w_h = block(w_h, training=training)
         w_last = w_h[:, -1, :]
 
-        s_emb = self.sent_emb(s_in) + self.sent_pos(tf.range(WIN_S))[None, :, :]
+        s_tok = self.sent_emb(s_in)
+        s_flat = tf.reshape(s_tok, (-1, SENT_LEN, DIM_S))
+        s_emb = self.sent_chunk_stem(s_flat)
+        s_emb = tf.reshape(s_emb, (-1, WIN_S, DIM_S))
+        s_emb = s_emb + self.sent_pos(tf.range(WIN_S))[None, :, :]
         s_h = self.sent_moe(s_emb) + s_emb
         for block in self.sent_blocks:
             s_h = block(s_h, training=training)
+        s_attn = self.sent_word_attn(s_h, w_h, w_h)
+        s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
         s_last = s_h[:, -1, :]
 
         w_up = w_last + self.byte_to_word(b_last)
@@ -1011,14 +1040,14 @@ _ = model(
     (
         tf.zeros((2, WIN_B), dtype=tf.int32),
         tf.zeros((2, WIN_W), dtype=tf.int32),
-        tf.zeros((2, WIN_S), dtype=tf.int32),
+        tf.zeros((2, WIN_S, SENT_LEN), dtype=tf.int32),
     ),
     training=False,
     two_way=True,
 )
 print(
     f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x{BYTE_CHUNK} "
-    f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S} "
+    f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S}x{SENT_LEN} "
     f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S} "
     f"depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
     flush=True,
@@ -1034,6 +1063,7 @@ SIGNATURE = json.dumps({
     "byte_win": WIN_B,
     "word_win": WIN_W,
     "sent_win": WIN_S,
+    "sent_len": SENT_LEN,
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
@@ -1569,7 +1599,7 @@ print(
     flush=True,
 )
 print(
-    f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S} "
+    f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S}x{SENT_LEN} "
     f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
     f"byte_chunk {BYTE_CHUNK} split {split_name} "
     f"completed {completed_epochs}/{ARGS.epochs} epochs "
