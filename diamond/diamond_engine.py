@@ -672,6 +672,12 @@ doc_word_end = np.searchsorted(word_doc, np.arange(nd), side="right")
 sent_first = [s[0] for s in sentences if s]
 if not sent_first:
     sent_first = [0]
+sent_word_start = np.zeros(len(sent_chars), dtype=np.int64)
+if sent_chars:
+    sent_word_start = np.searchsorted(
+        word_char_start, np.array(sent_chars, dtype=np.int64), side="left"
+    )
+    sent_word_start = np.clip(sent_word_start, 0, n_words)
 word_to_sent = np.zeros(n_words, dtype=np.int32)
 if sent_chars:
     sent_chars_arr = np.array(sent_chars, dtype=np.int64)
@@ -717,10 +723,24 @@ def make_example(pos):
     if s_hi > s_lo:
         si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
         si = min(max(si, s_lo), s_hi - 1)
-        start = max(s_lo, si - WIN_S)
+        # Reserve the last sentence slot for the causal prefix of the sentence
+        # that contains the target word. The target itself is the first word of
+        # the *next* sentence, so only words before pos are visible here.
+        start = max(s_lo, si - (WIN_S - 1))
         seg = sent_tokens[start:si]
-        if len(seg) > 0:
-            swin[WIN_S - len(seg):] = np.asarray(seg, dtype=np.int32)
+        n_prev = min(len(seg), WIN_S - 1)
+        if n_prev > 0:
+            swin[WIN_S - 1 - n_prev:WIN_S - 1] = np.asarray(
+                seg[-n_prev:], dtype=np.int32
+            )
+        cur = np.zeros(SENT_LEN, dtype=np.int32)
+        if si < len(sent_word_start):
+            cs = min(int(sent_word_start[si]), pos)
+            if pos > cs:
+                segc = word_stream[max(cs, pos - SENT_LEN):pos]
+                if len(segc) > 0:
+                    cur[:len(segc)] = np.asarray(segc, dtype=np.int32)
+        swin[WIN_S - 1] = cur
         ys = int(sent_first[si + 1]) if si + 1 < s_hi else 0
     else:
         ys = 0
@@ -972,6 +992,9 @@ class TripleStaged(tf.keras.Model):
         )
         self.sent_word_gate = tf.keras.layers.Dense(DIM_S)
         self.sent_word_ln = tf.keras.layers.LayerNormalization()
+        self.sent_boundary = self.add_weight(
+            shape=(DIM_S,), initializer="zeros", name="sent_boundary"
+        )
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1022,7 +1045,10 @@ class TripleStaged(tf.keras.Model):
             s_h = block(s_h, training=training)
         s_attn = self.sent_word_attn(s_h, w_h, w_h)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
-        s_last = s_h[:, -1, :]
+        # The final slot is the current-sentence prefix, not a completed
+        # sentence. A learned boundary vector tells the sentence head which
+        # representation is being asked to predict the next sentence.
+        s_last = s_h[:, -1, :] + self.sent_boundary
 
         w_up = w_last + self.byte_to_word(b_last)
         s_up = s_last + self.word_to_sent(w_last)
@@ -1064,6 +1090,7 @@ SIGNATURE = json.dumps({
     "word_win": WIN_W,
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
+    "sent_prefix": True,
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
