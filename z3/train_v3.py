@@ -435,14 +435,20 @@ def lm_mtp_loss(
     tokens: torch.Tensor,
     valid_mask: torch.Tensor | None = None,
     mtp_weight: float = 0.3,
-    aux_logits: torch.Tensor | None = None,
+    aux_logits: torch.Tensor | list[torch.Tensor] | None = None,
     aux_weight: float = 0.0,
+    aux_weights: list[float] | tuple[float, ...] | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """Main next-token CE plus masked MTP CEs for t+2 ... t+k.
 
     Head ``i`` predicts ``tokens[t + 2 + i]``.  Its natural mask drops the
     final positions with no target, and ``valid_mask`` can additionally mark
     padded positions.  Each head is weighted by ``mtp_weight / k``.
+
+    ``aux_logits`` accepts one intermediate-layer tensor or a list of tensors
+    for deep supervision.  Every deep-supervision tensor predicts t+2 and is
+    combined with ``aux_weights`` (normalised); this is deliberately separate
+    from the per-lag MTP heads.
     """
     batch, seq_len, vocab = logits.shape
     if valid_mask is None:
@@ -496,19 +502,40 @@ def lm_mtp_loss(
         mtp_ce = zero
         mtp_weighted = zero
 
-    aux_ce = zero
-    if aux_logits is not None and aux_weight > 0.0:
-        target_len = seq_len - 2
-        if target_len > 0:
-            targets = tokens[:, 2:]
-            mask = valid_mask[:, :target_len] & valid_mask[:, 2:]
-            targets = targets.masked_fill(~mask, IGNORE_INDEX)
-            if mask.any():
-                aux_ce = F.cross_entropy(
-                    aux_logits[:, :target_len].reshape(-1, vocab),
-                    targets.reshape(-1),
-                    ignore_index=IGNORE_INDEX,
+    if aux_logits is not None:
+        aux_list = (
+            list(aux_logits)
+            if isinstance(aux_logits, (list, tuple))
+            else [aux_logits]
+        )
+    else:
+        aux_list = []
+    aux_terms: list[torch.Tensor] = []
+    target_len = seq_len - 2
+    if aux_list and target_len > 0:
+        targets = tokens[:, 2:]
+        mask = valid_mask[:, :target_len] & valid_mask[:, 2:]
+        targets = targets.masked_fill(~mask, IGNORE_INDEX)
+        if mask.any():
+            for layer_logits in aux_list:
+                aux_terms.append(
+                    F.cross_entropy(
+                        layer_logits[:, :target_len].reshape(-1, vocab),
+                        targets.reshape(-1),
+                        ignore_index=IGNORE_INDEX,
+                    )
                 )
+    if aux_terms:
+        if aux_weights is not None and len(aux_weights) == len(aux_terms):
+            weights = torch.as_tensor(
+                aux_weights, device=aux_terms[0].device, dtype=aux_terms[0].dtype
+            )
+            weights = weights / weights.sum().clamp_min(1e-9)
+            aux_ce = torch.stack(aux_terms).mul(weights).sum()
+        else:
+            aux_ce = torch.stack(aux_terms).mean()
+    else:
+        aux_ce = zero
 
     total = main_ce + mtp_weighted + aux_weight * aux_ce
     parts = {
@@ -516,6 +543,7 @@ def lm_mtp_loss(
         "mtp": mtp_ce.detach(),
         "mtp_weighted": mtp_weighted.detach(),
         "mtp_aux": aux_ce.detach(),
+        "mtp_aux_layers": len(aux_terms),
     }
     return total, parts
 
@@ -684,10 +712,11 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--d-model", type=int, default=384)
     model.add_argument("--n-layers", type=int, default=12)
     model.add_argument("--n-heads", type=int, default=12)
-    model.add_argument("--n-kv-heads", type=int, default=0,
+    model.add_argument("--n-kv-heads", type=int, default=4,
                        help="KV heads for GQA; 0 = full MHA")
-    model.add_argument("--attn-gate", action="store_true",
-                       help="sigmoid-gate the attention output")
+    model.add_argument("--attn-gate", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="sigmoid-gate the attention output (default: on)")
     model.add_argument("--swiglu", type=int, default=1536)
     model.add_argument("--window", type=int, default=512)
     model.add_argument("--global-every", type=int, default=4)
@@ -700,19 +729,37 @@ def build_parser() -> argparse.ArgumentParser:
                        help="experts dispatched per batched einsum group")
     model.add_argument("--moe-max-rows", type=int, default=512,
                        help="token-row chunk size for MoE peak memory")
-    model.add_argument("--mtp", type=int, default=2,
+    model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
-    model.add_argument("--mtp-adapter-rank", type=int, default=0,
+    model.add_argument("--mtp-adapter-rank", type=int, default=32,
                        help="low-rank MTP adapter width; 0 disables")
-    model.add_argument("--mtp-block", action="store_true",
-                       help="use a one-block t+1-conditioned MTP branch")
+    model.add_argument("--mtp-block", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="use a per-lag t+1-conditioned MTP branch (default: on)")
     model.add_argument("--mtp-block-experts", type=int, default=8)
     model.add_argument("--mtp-block-hidden", type=int, default=1024)
-    model.add_argument("--mtp-teacher-prob", type=float, default=1.0,
-                       help="fraction of MTP training batches using ground-truth t+1")
+    model.add_argument("--mtp-attention-global", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="use full causal attention in the MTP branch")
+    model.add_argument("--mtp-attention-gate", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="sigmoid-gate the MTP branch attention output")
+    model.add_argument("--mtp-teacher-prob", type=float, default=0.75,
+                       help="probability of using the soft ground-truth t+1 teacher")
+    model.add_argument("--mtp-softmax-temperature", type=float, default=1.0,
+                       help="temperature for the predicted t+1 conditioning distribution")
     model.add_argument("--mtp-aux-layer", type=int, default=-1,
-                       help="intermediate layer for deep-supervision MTP loss (-1 off)")
+                       help="legacy extra intermediate layer for deep-supervision MTP loss (-1 off)")
+    model.add_argument("--mtp-aux-layers", default="3,7",
+                       help="comma-separated intermediate layers for deep supervision")
+    model.add_argument("--mtp-aux-layer-weights", default="",
+                       help="optional comma-separated deep-supervision weights")
     model.add_argument("--mtp-aux-weight", type=float, default=0.2)
+    model.add_argument("--mtp-position-embed", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="add a learned per-position anchor to each MTP lag")
+    model.add_argument("--mtp-gate-prior", type=float, default=0.7,
+                       help="initial confidence-gate reliability prior")
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -727,8 +774,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--rope-attention-factor", type=float, default=None)
 
     mem = parser.add_argument_group("memory")
-    mem.add_argument("--use-memory", action="store_true",
-                     help="enable learned memory cross-attention")
+    mem.add_argument("--use-memory", action=argparse.BooleanOptionalAction,
+                     default=True,
+                     help="enable learned memory cross-attention (default: on)")
     mem.add_argument("--no-ngram-memory", action="store_true",
                      help="disable the sparse hashed n-gram logit bias")
     mem.add_argument("--memory-slots", type=int, default=256)
@@ -766,10 +814,10 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--no-ema", action="store_true")
     train.add_argument("--mtp-weight", type=float, default=0.3,
                        help="total MTP weight; each of k heads gets weight/k")
-    train.add_argument("--mtp-gt-mix-start", type=float, default=1.0,
+    train.add_argument("--mtp-gt-mix-start", type=float, default=0.85,
                        help="starting ground-truth mix for soft MTP conditioning")
-    train.add_argument("--mtp-gt-mix-end", type=float, default=0.5,
-                       help="final ground-truth mix (keep >= 0.5 while repairing)")
+    train.add_argument("--mtp-gt-mix-end", type=float, default=0.25,
+                       help="final ground-truth mix; predicted distribution always remains")
     train.add_argument("--mtp-gt-mix-steps", type=int, default=0,
                        help="steps over which to decay the ground-truth mix")
     train.add_argument("--mtp-gate-coef", type=float, default=0.1,
@@ -1561,7 +1609,8 @@ def main(argv: list[str] | None = None) -> int:
                 xb,
                 mtp_weight=args.mtp_weight,
                 aux_logits=aux.get("mtp_aux_logits") if aux else None,
-                aux_weight=args.mtp_aux_weight if cfg.mtp_aux_layer >= 0 else 0.0,
+                aux_weight=args.mtp_aux_weight,
+                aux_weights=aux.get("mtp_aux_layer_weights") if aux else None,
             )
             load_balance = _aux_scalar(aux.get("load_balance")) if aux else None
             router_z = _aux_scalar(aux.get("router_z")) if aux else None

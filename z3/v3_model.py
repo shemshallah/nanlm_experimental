@@ -49,9 +49,9 @@ class V3Config:
     rope_beta_fast: float = 32.0
     rope_beta_slow: float = 1.0
     rope_attention_factor: float | None = None
-    # Optional memory path: learned global slots plus a sparse hashed
-    # n-gram logit bias.  Off by default; build the n-gram store with
-    # ``V3LM.build_memory(tokens)`` before training/evaluation.
+    # Memory is on by default: learned global slots are cheap and act as a
+    # persistent, causal context layer.  The hashed n-gram bias is opt-in
+    # because it needs an explicit ``build_memory`` pass over training IDs.
     use_memory: bool = True
     use_ngram_memory: bool = False
     memory_slots: int = 256
@@ -78,19 +78,63 @@ class V3Config:
     moe_dense_dispatch: bool = False
     force_manual_attention: bool = False
     attn_gate: bool = True
-    mtp_adapter_rank: int = 0
+    # Frontier MTP defaults.  The branch is a real, separately parameterised
+    # block per lag, not one shared branch reused for every horizon.
+    mtp: int = 3
+    mtp_adapter_rank: int = 32
     mtp_block: bool = True
     mtp_block_experts: int = 8
     mtp_block_hidden: int = 1024
+    mtp_attention_global: bool = True
+    mtp_attention_gate: bool = False
     mtp_teacher_prob: float = 1.0
     mtp_gt_mix: float = 0.0
+    mtp_softmax_temperature: float = 1.0
     mtp_gate: bool = True
-    mtp_gate_hidden: int = 32
+    mtp_gate_hidden: int = 256
+    mtp_gate_prior: float = 0.7
+    mtp_gate_use_hidden: bool = True
+    # Deep supervision.  ``mtp_aux_layer`` is the legacy single-layer knob;
+    # ``mtp_aux_layers`` enables multiple intermediate MTP losses.
     mtp_aux_layer: int = -1
+    mtp_aux_layers: tuple[int, ...] = (3, 7)
     mtp_aux_weight: float = 0.2
-    mtp: int = 2
+    mtp_aux_layer_weights: tuple[float, ...] | None = None
+    mtp_position_embed: bool = True
     dropout: float = 0.1
     rope_base: float = 10000.0
+
+
+def _rope_kwargs(cfg: V3Config, head_dim: int) -> dict:
+    """Resolve the long-context RoPE configuration once for every block."""
+    scaling = cfg.rope_scaling.lower()
+    if scaling == "auto":
+        scaling = "yarn" if cfg.ctx > cfg.rope_original_ctx else "none"
+    factor = float(cfg.rope_factor)
+    if factor < 1.0:
+        factor = max(1.0, cfg.ctx / max(1, cfg.rope_original_ctx))
+    return dict(
+        head_dim=head_dim,
+        base=cfg.rope_base,
+        max_context=max(cfg.max_ctx, cfg.ctx),
+        original_context=cfg.rope_original_ctx,
+        scaling=scaling,
+        factor=factor,
+        beta_fast=cfg.rope_beta_fast,
+        beta_slow=cfg.rope_beta_slow,
+        attention_factor=cfg.rope_attention_factor,
+    )
+
+
+def _causal_mask(
+    length: int, device, *, is_global: bool, window: int
+) -> torch.Tensor:
+    """Causal (and optionally sliding-window) boolean attention mask."""
+    ones = torch.ones(length, length, device=device, dtype=torch.bool)
+    mask = ones.tril()
+    if not is_global:
+        mask = mask & ones.triu(1 - max(1, int(window)))
+    return mask
 
 
 class RMSNorm(nn.Module):
@@ -121,23 +165,7 @@ class Attention(nn.Module):
         self.out = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
         self.q_norm = RMSNorm(self.dh)
         self.k_norm = RMSNorm(self.dh)
-        scaling = cfg.rope_scaling.lower()
-        if scaling == "auto":
-            scaling = "yarn" if cfg.ctx > cfg.rope_original_ctx else "none"
-        factor = cfg.rope_factor
-        if factor < 1.0:
-            factor = max(1.0, cfg.ctx / max(1, cfg.rope_original_ctx))
-        self.rope = build_rope(
-            self.dh,
-            base=cfg.rope_base,
-            max_context=max(cfg.max_ctx, cfg.ctx),
-            original_context=cfg.rope_original_ctx,
-            scaling=scaling,
-            factor=factor,
-            beta_fast=cfg.rope_beta_fast,
-            beta_slow=cfg.rope_beta_slow,
-            attention_factor=cfg.rope_attention_factor,
-        )
+        self.rope = build_rope(**_rope_kwargs(cfg, self.dh))
         self.drop = cfg.dropout
         self.is_global = layer % cfg.global_every == 0
         self.window = cfg.window
@@ -151,9 +179,9 @@ class Attention(nn.Module):
         """Dense attention fallback for backends without a working SDPA."""
         scale = self.dh ** -0.5
         scores = (q @ k.transpose(-2, -1)) * scale
-        t = q.shape[-2]
-        ones = torch.ones(t, t, device=q.device, dtype=torch.bool)
-        mask = ones.tril() if self.is_global else (ones.tril() & ones.triu(1 - self.window))
+        mask = _causal_mask(
+            q.shape[-2], q.device, is_global=self.is_global, window=self.window
+        )
         scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
         attn = torch.softmax(scores, dim=-1)
         attn = F.dropout(attn, p=self.drop if self.training else 0.0)
@@ -183,8 +211,9 @@ class Attention(nn.Module):
                 q, k, v, dropout_p=self.drop if self.training else 0.0, is_causal=True
             )
         else:
-            ones = torch.ones(t, t, device=x.device, dtype=torch.bool)
-            mask = ones.tril() & ones.triu(1 - self.window)
+            mask = _causal_mask(
+                t, x.device, is_global=False, window=self.window
+            )
             y = F.scaled_dot_product_attention(
                 q, k, v, attn_mask=mask, dropout_p=self.drop if self.training else 0.0
             )
@@ -269,29 +298,65 @@ class MTPAdapter(nn.Module):
 
 
 class MTPAttention(nn.Module):
-    """Trunk-grade causal attention for the MTP branch."""
+    """Trunk-grade causal attention for the MTP branch.
 
-    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1,
-                 max_ctx: int = 8192):
+    The branch uses the same stability and long-context machinery as the
+    trunk: QK-RMSNorm, YaRN/NTK-capable RoPE, optional GQA, and either full
+    causal or sliding-window causal attention.  Keeping these aligned avoids
+    a situation where the trunk is stable at long context but the MTP branch
+    silently degrades because it still uses vanilla attention.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        dropout: float = 0.1,
+        max_ctx: int = 8192,
+        n_kv_heads: int = 0,
+        window: int = 512,
+        is_global: bool = True,
+        rope_kwargs: dict | None = None,
+        force_manual: bool = False,
+        attn_gate: bool = False,
+    ):
         super().__init__()
         if d_model % n_heads:
             raise ValueError("d_model must be divisible by n_heads")
         self.h = n_heads
         self.dh = d_model // n_heads
-        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.kv_heads = int(n_kv_heads or n_heads)
+        if self.h % self.kv_heads:
+            raise ValueError("n_heads must be divisible by n_kv_heads")
+        self.kv_dim = self.kv_heads * self.dh
+        self.kv_group = self.h // self.kv_heads
+        self.qkv = nn.Linear(
+            d_model, d_model + 2 * self.kv_dim, bias=False
+        )
         self.out = nn.Linear(d_model, d_model, bias=False)
         self.q_norm = RMSNorm(self.dh)
         self.k_norm = RMSNorm(self.dh)
-        self.rope = build_rope(
-            self.dh, max_context=max_ctx, original_context=1024,
-            scaling="none",
-        )
+        if rope_kwargs is None:
+            rope_kwargs = dict(
+                max_context=max_ctx, original_context=1024,
+                scaling="none",
+            )
+        rope_kwargs = dict(rope_kwargs)
+        rope_kwargs.setdefault("head_dim", self.dh)
+        self.rope = build_rope(**rope_kwargs)
         self.drop = dropout
+        self.window = max(1, int(window))
+        self.is_global = bool(is_global)
+        self.force_manual = bool(force_manual)
+        self.gate = (
+            nn.Linear(d_model, d_model, bias=False) if attn_gate else None
+        )
 
     def _manual(self, q, k, v):
         scores = (q @ k.transpose(-2, -1)) * (self.dh ** -0.5)
-        t = q.shape[-2]
-        mask = torch.ones(t, t, device=q.device, dtype=torch.bool).tril()
+        mask = _causal_mask(
+            q.shape[-2], q.device, is_global=self.is_global, window=self.window
+        )
         scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
         attn = F.dropout(
             torch.softmax(scores, dim=-1), p=self.drop, training=self.training
@@ -300,34 +365,75 @@ class MTPAttention(nn.Module):
 
     def forward(self, x):
         b, t, d = x.shape
-        q, k, v = self.qkv(x).split(d, dim=2)
+        q, k, v = self.qkv(x).split(
+            (d, self.kv_dim, self.kv_dim), dim=2
+        )
         q = q.view(b, t, self.h, self.dh).transpose(1, 2)
-        k = k.view(b, t, self.h, self.dh).transpose(1, 2)
-        v = v.view(b, t, self.h, self.dh).transpose(1, 2)
+        k = k.view(b, t, self.kv_heads, self.dh).transpose(1, 2)
+        v = v.view(b, t, self.kv_heads, self.dh).transpose(1, 2)
         q = self.rope(self.q_norm(q))
         k = self.rope(self.k_norm(k))
-        if x.device.type == "xla":
+        if self.kv_group > 1:
+            k = k.repeat_interleave(self.kv_group, dim=1)
+            v = v.repeat_interleave(self.kv_group, dim=1)
+        if self.force_manual or x.device.type == "xla":
             y = self._manual(q, k, v)
-        else:
+        elif self.is_global:
             y = F.scaled_dot_product_attention(
                 q, k, v,
                 dropout_p=self.drop if self.training else 0.0,
                 is_causal=True,
             )
+        else:
+            mask = _causal_mask(
+                t, x.device, is_global=False, window=self.window
+            )
+            y = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask,
+                dropout_p=self.drop if self.training else 0.0,
+            )
         y = y.transpose(1, 2).contiguous().view(b, t, d)
-        return self.out(y)
+        y = self.out(y)
+        if self.gate is not None:
+            y = y * torch.sigmoid(self.gate(x))
+        return y
 
 
 class MTPBlock(nn.Module):
     """One-block future branch with trunk-grade attention and its own MoE."""
 
-    def __init__(self, d_model: int, n_heads: int, hidden: int = 1024,
-                 n_experts: int = 8, topk: int = 2, shared: int = 1,
-                 dropout: float = 0.1, max_ctx: int = 8192):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        hidden: int = 1024,
+        n_experts: int = 8,
+        topk: int = 2,
+        shared: int = 1,
+        dropout: float = 0.1,
+        max_ctx: int = 8192,
+        n_kv_heads: int = 0,
+        window: int = 512,
+        is_global: bool = True,
+        rope_kwargs: dict | None = None,
+        force_manual: bool = False,
+        attn_gate: bool = False,
+        group_size: int = 4,
+        max_rows: int = 512,
+    ):
         super().__init__()
         self.norm1 = RMSNorm(d_model)
         self.attn = MTPAttention(
-            d_model, n_heads, dropout=dropout, max_ctx=max_ctx
+            d_model,
+            n_heads,
+            dropout=dropout,
+            max_ctx=max_ctx,
+            n_kv_heads=n_kv_heads,
+            window=window,
+            is_global=is_global,
+            rope_kwargs=rope_kwargs,
+            force_manual=force_manual,
+            attn_gate=attn_gate,
         )
         self.norm2 = RMSNorm(d_model)
         self.moe = VectorizedSparseMoE(
@@ -337,8 +443,8 @@ class MTPBlock(nn.Module):
             shared_experts=shared,
             expert_hidden=hidden,
             dropout=dropout,
-            group_size=4,
-            max_rows=512,
+            group_size=group_size,
+            max_rows=max_rows,
         )
         self.drop = nn.Dropout(dropout)
 
@@ -367,6 +473,7 @@ class V3LM(nn.Module):
              for _ in range(max(0, cfg.mtp - 1))]
         )
         n_mtp = max(0, cfg.mtp - 1)
+        rope_kwargs = _rope_kwargs(cfg, cfg.d_model // cfg.n_heads)
         self.mtp_blocks = nn.ModuleList(
             [
                 MTPBlock(
@@ -378,8 +485,19 @@ class V3LM(nn.Module):
                     shared=1,
                     dropout=cfg.dropout,
                     max_ctx=max(cfg.max_ctx, cfg.ctx),
+                    n_kv_heads=cfg.n_kv_heads or cfg.n_heads,
+                    window=cfg.window,
+                    is_global=(
+                        cfg.mtp_attention_global
+                        or (lag % cfg.global_every == 0)
+                    ),
+                    rope_kwargs=rope_kwargs,
+                    force_manual=cfg.force_manual_attention,
+                    attn_gate=cfg.mtp_attention_gate,
+                    group_size=cfg.moe_group_size,
+                    max_rows=cfg.moe_max_rows,
                 )
-                for _ in range(n_mtp)
+                for lag in range(n_mtp)
             ]
             if cfg.mtp_block else []
         )
@@ -387,20 +505,43 @@ class V3LM(nn.Module):
         self.mtp_now = nn.ParameterList(
             [nn.Parameter(torch.zeros(cfg.d_model)) for _ in range(n_mtp)]
         )
+        if cfg.mtp_position_embed and n_mtp:
+            self.mtp_position_embed = nn.Embedding(
+                max(cfg.max_ctx, cfg.ctx), cfg.d_model
+            )
+            nn.init.zeros_(self.mtp_position_embed.weight)
+        else:
+            self.mtp_position_embed = None
         self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
         self.mtp_cond_proj = nn.ModuleList(
             [nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
              for _ in range(n_mtp)]
             if cfg.mtp_block else []
         )
-        self.mtp_aux_norm = (
-            RMSNorm(cfg.d_model)
-            if 0 <= cfg.mtp_aux_layer < cfg.n_layers else None
+        # Deep supervision can read several intermediate residual streams.
+        aux_layers = [
+            int(layer) for layer in cfg.mtp_aux_layers
+            if 0 <= int(layer) < cfg.n_layers
+        ]
+        if 0 <= cfg.mtp_aux_layer < cfg.n_layers:
+            aux_layers.append(int(cfg.mtp_aux_layer))
+        aux_layers = sorted(set(aux_layers))
+        self.mtp_aux_layers = tuple(aux_layers)
+        self.mtp_aux_norms = nn.ModuleList(
+            [RMSNorm(cfg.d_model) for _ in aux_layers]
         )
+        self.mtp_aux_norm = (
+            self.mtp_aux_norms[0] if len(self.mtp_aux_norms) else None
+        )
+        weights = cfg.mtp_aux_layer_weights
+        if weights is None or len(weights) != len(aux_layers):
+            weights = tuple(1.0 for _ in aux_layers)
+        self.mtp_aux_layer_weights = tuple(float(w) for w in weights)
+        gate_input = 3 + (cfg.d_model if cfg.mtp_gate_use_hidden else 0)
         self.mtp_gate = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.Linear(2, cfg.mtp_gate_hidden),
+                    nn.Linear(gate_input, cfg.mtp_gate_hidden),
                     nn.SiLU(),
                     nn.Linear(cfg.mtp_gate_hidden, 1),
                 )
@@ -447,6 +588,14 @@ class V3LM(nn.Module):
             block.moe.down_w.data.zero_()
             if block.moe.shared_down_w is not None:
                 block.moe.shared_down_w.data.zero_()
+        # Start the reliability gate near the observed t+1 accuracy rather
+        # than at 0.5; the branch is identity at step zero, so this only
+        # affects the gate's initial gradient conditioning.
+        prior = min(0.99, max(0.01, float(self.cfg.mtp_gate_prior)))
+        prior_logit = math.log(prior / (1.0 - prior))
+        for gate in self.mtp_gate:
+            with torch.no_grad():
+                gate[-1].bias.fill_(prior_logit)
 
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
         """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
@@ -467,11 +616,11 @@ class V3LM(nn.Module):
                 mtp_gt_mix: float | None = None):
         x = self.tok(tokens)
         lbs, zs = [], []
-        aux_hidden = None
+        aux_hidden: dict[int, torch.Tensor] = {}
         for layer_index, block in enumerate(self.blocks):
             x, lb, z = block(x)
-            if layer_index == self.cfg.mtp_aux_layer:
-                aux_hidden = x
+            if layer_index in self.mtp_aux_layers:
+                aux_hidden[layer_index] = x
             if lb is not None:
                 lbs.append(lb)
                 zs.append(z)
@@ -487,35 +636,81 @@ class V3LM(nn.Module):
             bias = self.memory_path.logit_bias(tokens)
             bias.value = bias.value * self.memory_scale
             bias.add_(main)
-        mtp_aux_logits = None
-        if self.mtp_aux_norm is not None and aux_hidden is not None and self.mtp_heads:
-            mtp_aux_logits = self.mtp_heads[0](self.mtp_aux_norm(aux_hidden))
+
+        # Deep supervision: each selected intermediate stream predicts t+2
+        # through the same small MTP head.  The residual stream is causal, so
+        # no future token can leak into an earlier position.
+        mtp_aux_logits: list[torch.Tensor] = []
+        if self.mtp_heads and self.mtp_aux_norms:
+            aux_head = self.mtp_heads[0]
+            for layer, norm in zip(self.mtp_aux_layers, self.mtp_aux_norms):
+                hidden = aux_hidden.get(layer)
+                if hidden is not None:
+                    mtp_aux_logits.append(aux_head(norm(hidden)))
+
+        mtp_block_lb: list[torch.Tensor] = []
+        mtp_block_rz: list[torch.Tensor] = []
         if self.mtp_blocks:
-            # Predicted t+1 distribution, mixed with ground truth during
-            # training.  The same distribution is used at inference.
-            pred_probs = F.softmax(main.detach(), dim=-1)
+            # Predicted t+1 distribution.  This is a distribution in both
+            # train and eval; ground truth is only ever a soft teacher term.
+            temperature = max(1e-3, float(self.cfg.mtp_softmax_temperature))
+            pred_probs = F.softmax(main.detach() / temperature, dim=-1)
             gt_mix = self.cfg.mtp_gt_mix if mtp_gt_mix is None else mtp_gt_mix
-            if mtp_next_tokens is not None:
-                next_soft = F.one_hot(
-                    mtp_next_tokens, num_classes=self.cfg.vocab_size
+            gt_mix = min(1.0, max(0.0, float(gt_mix)))
+            teacher_prob = (
+                self.cfg.mtp_teacher_prob
+                if mtp_teacher_prob is None else mtp_teacher_prob
+            )
+            teacher_prob = min(1.0, max(0.0, float(teacher_prob)))
+            next_ids = torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
+            gt = F.one_hot(
+                next_ids.clamp_min(0), num_classes=self.cfg.vocab_size
+            ).to(dtype=pred_probs.dtype)
+
+            explicit_teacher = mtp_next_tokens is not None
+            if explicit_teacher:
+                # Diagnostics may inject a known/corrupted t+1 target.  Keep
+                # the predicted distribution in the mix even then; a hard
+                # one-hot is never the sole branch input.
+                explicit = F.one_hot(
+                    mtp_next_tokens.clamp_min(0).clamp_max(self.cfg.vocab_size - 1),
+                    num_classes=self.cfg.vocab_size,
                 ).to(dtype=pred_probs.dtype)
+                mix = 1.0 if mtp_gt_mix is None else gt_mix
+                mix = min(0.95, max(0.0, mix))
+                next_soft = (1.0 - mix) * pred_probs + mix * explicit
             elif mtp_teacher and gt_mix > 0.0:
-                next_ids = torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
-                gt = F.one_hot(
-                    next_ids, num_classes=self.cfg.vocab_size
-                ).to(dtype=pred_probs.dtype)
-                next_soft = (1.0 - gt_mix) * pred_probs + gt_mix * gt
+                mix = gt_mix
+                if self.training and teacher_prob < 1.0:
+                    keep = (
+                        torch.rand(tokens.size(0), 1, 1, device=tokens.device)
+                        < teacher_prob
+                    ).to(dtype=pred_probs.dtype)
+                    mix = mix * keep
+                next_soft = (1.0 - mix) * pred_probs + mix * gt
             else:
                 next_soft = pred_probs
             next_emb = self.mtp_next_norm(next_soft @ self.tok.weight)
+
             ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
                 dim=-1, keepdim=True
             )
-            maxp = pred_probs.max(dim=-1, keepdim=True).values
-            gate_features = torch.cat([ent, maxp], dim=-1)
+            top2 = pred_probs.topk(2, dim=-1).values
+            maxp = top2[..., :1]
+            margin = (top2[..., 0:1] - top2[..., 1:2])
+            gate_parts = [ent, maxp, margin]
+            if self.cfg.mtp_gate_use_hidden:
+                gate_parts.append(x)
+            gate_features = torch.cat(gate_parts, dim=-1)
+            valid_t1 = tokens[:, 1:] >= 0
             t1_ok = (
                 main.argmax(dim=-1)[:, :-1] == tokens[:, 1:]
             ).to(dtype=pred_probs.dtype)
+            positions = torch.arange(tokens.size(1), device=tokens.device)
+            position_anchor = (
+                self.mtp_position_embed(positions).to(dtype=x.dtype).unsqueeze(0)
+                if self.mtp_position_embed is not None else 0.0
+            )
             mtp = []
             gate_losses = []
             for idx, head in enumerate(self.mtp_heads):
@@ -524,8 +719,14 @@ class V3LM(nn.Module):
                         torch.cat([x, next_emb], dim=-1)
                     )
                     + self.mtp_now[idx]
+                    + position_anchor
                 )
-                branch, _ = self.mtp_blocks[idx](cond)
+                branch, block_aux = self.mtp_blocks[idx](cond)
+                if block_aux:
+                    if block_aux.get("load_balance") is not None:
+                        mtp_block_lb.append(block_aux["load_balance"])
+                    if block_aux.get("router_z") is not None:
+                        mtp_block_rz.append(block_aux["router_z"])
                 branch_logits = head(branch)
                 base_logits = head(x)
                 if self.mtp_gate:
@@ -534,11 +735,15 @@ class V3LM(nn.Module):
                     mtp.append(
                         gate * branch_logits + (1.0 - gate) * base_logits
                     )
-                    gate_losses.append(
-                        F.binary_cross_entropy_with_logits(
-                            gate_logits[:, :-1].squeeze(-1), t1_ok
-                        )
+                    gate_target = gate_logits[:, :-1].squeeze(-1)
+                    gate_loss = F.binary_cross_entropy_with_logits(
+                        gate_target, t1_ok, reduction="none"
                     )
+                    if valid_t1.any():
+                        gate_loss = gate_loss[valid_t1].mean()
+                    else:
+                        gate_loss = gate_loss.sum() * 0.0
+                    gate_losses.append(gate_loss)
                 else:
                     mtp.append(branch_logits)
             gate_loss = (
@@ -549,11 +754,18 @@ class V3LM(nn.Module):
                 head(adapter(x))
                 for head, adapter in zip(self.mtp_heads, self.mtp_adapters)
             ]
+            gate_loss = None
         aux = dict(mem_aux)
-        if mtp_aux_logits is not None:
+        if mtp_aux_logits:
             aux["mtp_aux_logits"] = mtp_aux_logits
+            aux["mtp_aux_layers"] = self.mtp_aux_layers
+            aux["mtp_aux_layer_weights"] = self.mtp_aux_layer_weights
         if self.mtp_blocks and gate_loss is not None:
             aux["mtp_gate_loss"] = gate_loss
+        if mtp_block_lb:
+            aux["mtp_load_balance"] = torch.stack(mtp_block_lb).mean()
+        if mtp_block_rz:
+            aux["mtp_router_z"] = torch.stack(mtp_block_rz).mean()
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()
             aux["router_z"] = torch.stack(zs).mean()
