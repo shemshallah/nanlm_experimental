@@ -62,8 +62,16 @@ class TestSymbioticGeometry(unittest.TestCase):
         byold=dict(zip(old_names,old_ids)); bynew=dict(zip(new_names,new_ids))
         self.assertEqual(len(oldstates),len(newstates))
         for name in old_names:
-            for key,val in oldstates[byold[name]].items():
-                newval=newstates[bynew[name]][key]
+            old_id, new_id = byold[name], bynew[name]
+            # AdamW has no moments for parameters that never received a gradient.
+            # Preserve both populated states and that absent-state distinction.
+            if old_id not in oldstates:
+                self.assertNotIn(new_id, newstates, name)
+                continue
+            self.assertIn(new_id, newstates, name)
+            self.assertEqual(set(oldstates[old_id]),set(newstates[new_id]),name)
+            for key,val in oldstates[old_id].items():
+                newval=newstates[new_id][key]
                 if isinstance(val,torch.Tensor):
                     self.assertTrue(torch.equal(val,newval),(name,key))
                 else:
