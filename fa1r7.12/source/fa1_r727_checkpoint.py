@@ -107,7 +107,8 @@ def load_unified(path, root, threads=2):
         'params': list(model.diamond.parameters()), 'lr': 1e-3, 'weight_decay': 0.})
     if obj.get('architecture_round') in ('FA1_R7_29_CONTEXTUAL_GEOMETRY_V1',
                                         'FA1_R7_30_FACTORIZED_GEOMETRY_V1',
-                                        'FA1_R7_31_LAYERED_DIAMOND_V1'):
+                                        'FA1_R7_31_LAYERED_DIAMOND_V1',
+                                        'FA1_R7_32_CALIBRATED_DIAMOND_V1'):
         # The only new trainable state is an R7-attached scalar read gate.
         # Build the 13-group inherited optimizer first, then append one group
         # without recreating any learned historical Parameter or Adam moment.
@@ -115,12 +116,17 @@ def load_unified(path, root, threads=2):
         unified = UnifiedR7Optimizer(model, old_optimizers, allow_empty_inherited=True)
         attach_contextual(model, unified)
         if obj['architecture_round'] in ('FA1_R7_30_FACTORIZED_GEOMETRY_V1',
-                                         'FA1_R7_31_LAYERED_DIAMOND_V1'):
+                                         'FA1_R7_31_LAYERED_DIAMOND_V1',
+                                         'FA1_R7_32_CALIBRATED_DIAMOND_V1'):
             from fa1_r730_factorized_geometry import attach_factorized
             attach_factorized(model, unified)
-        if obj['architecture_round'] == 'FA1_R7_31_LAYERED_DIAMOND_V1':
+        if obj['architecture_round'] in ('FA1_R7_31_LAYERED_DIAMOND_V1',
+                                         'FA1_R7_32_CALIBRATED_DIAMOND_V1'):
             from fa1_r731_layered_decoder import attach_layered
             attach_layered(model, unified)
+        if obj['architecture_round'] == 'FA1_R7_32_CALIBRATED_DIAMOND_V1':
+            from fa1_r732_geometry_calibration import attach_calibrated
+            attach_calibrated(model, unified)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)

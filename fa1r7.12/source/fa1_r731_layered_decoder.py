@@ -112,13 +112,20 @@ class LayeredDiamondDecoder(nn.Module):
     def descend(self, point, apex, query):
         fused = torch.cat((point * torch.tanh(apex), apex * torch.tanh(point), query), -1)
         route = self.route(point, apex)
-        word = torch.tanh(self.word_gain) * route * self.word_readout(fused)
+        # R7.32 optionally learns *when* geometric evidence deserves trust.
+        # These scalars equal one at attachment, exactly preserving every
+        # inherited R7.31 logit and optimizer moment.
+        word_trust = byte_trust = 1.
+        if hasattr(self, 'word_geometry_router'):
+            word_trust = 2. * torch.sigmoid(self.word_geometry_router(fused))
+            byte_trust = 2. * torch.sigmoid(self.byte_geometry_router(fused))
+        word = torch.tanh(self.word_gain) * route * word_trust * self.word_readout(fused)
         # Keep the geometric byte contribution separately gated; the byte
         # prefix transformer may learn useful syntax even when it is zero.
         baseline = self.byte_condition(torch.cat((torch.zeros_like(point),
                                                    torch.zeros_like(apex), query), -1))
         geometric = self.byte_condition(fused) - baseline
-        byte_condition = baseline + torch.tanh(self.byte_geometry_gain) * route * geometric
+        byte_condition = baseline + torch.tanh(self.byte_geometry_gain) * route * byte_trust * geometric
         return word, byte_condition
 
     def autoregressive(self, byte_targets, condition):

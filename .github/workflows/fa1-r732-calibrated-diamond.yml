@@ -1,0 +1,57 @@
+name: FA1 R7.32 - calibrated geometric readout CPU regression
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r732-calibrated-diamond.yml'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
+      - 'fa1r7.12/source/fa1_r731_layered_decoder.py'
+      - 'fa1r7.12/source/fa1_r732_geometry_calibration.py'
+      - 'fa1r7.12/source/test_fa1_r73*.py'
+      - 'fa1r7.12/FA1_R7p32_CALIBRATED_GEOMETRY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r732-master-source
+  cancel-in-progress: false
+
+jobs:
+  cpu-source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Check restore and geometric calibration contracts
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r731_layered_decoder.py fa1r7.12/source/fa1_r732_geometry_calibration.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r732_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r730_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r729_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r728_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r727_*.py' -q
+      - name: Verify inherited unified optimizer suite
+        run: python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r732_optimizer_suite.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r732-source-regression
+          path: ${{ runner.temp }}/r732_optimizer_suite.json
+          retention-days: 30
+      - name: Keep independent test books sealed
+        run: echo 'Source/structural CI only; private parent and independent-book training metrics are not claimed.'
