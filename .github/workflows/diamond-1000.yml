@@ -131,7 +131,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-cache
+  group: diamond-1000-nanrouter-sw12
   cancel-in-progress: false
 
 jobs:
@@ -277,7 +277,7 @@ jobs:
           if [ "$MODEL_SIZE" = "frontier" ]; then
             DIM_B=48; DIM_W=64; DIM_S=64; FF_B=96; FF_W=128; FF_S=192
             DEPTH=3
-            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=16; SENT_WEIGHT=0.8; SENT_DEPTH=4
+            BYTE_WIN=2048; WORD_WIN=256; SENT_WIN=128; SENT_LEN=16; SENT_WEIGHT=1.2; SENT_DEPTH=4
             CHUNK_CONV=1
           elif [ "$MODEL_SIZE" = "wide" ]; then
             DIM_B=32; DIM_W=48; DIM_S=48; FF_B=64; FF_W=96; FF_S=96
