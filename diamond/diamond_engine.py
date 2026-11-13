@@ -86,6 +86,8 @@ def parse_args():
     p.add_argument("--sent-win", type=int, default=32, help="sentence window")
     p.add_argument("--sent-len", type=int, default=1,
                    help="words of content per sentence in the sentence tower (1 = first word only)")
+    p.add_argument("--sent-weight", type=float, default=0.3,
+                   help="training loss weight for the sentence head (combined metric stays 0.3)")
     p.add_argument("--depth", type=int, default=2,
                    help="transformer blocks per tower (1-6)")
     p.add_argument("--chunk-conv", action="store_true",
@@ -209,6 +211,7 @@ if ARGS.self_loop_start_epoch < 0:
     ARGS.self_loop_start_epoch = 0
 ARGS.depth = max(1, min(6, int(ARGS.depth)))
 SENT_LEN = max(1, min(32, int(ARGS.sent_len)))
+SENT_WEIGHT = max(0.0, min(2.0, float(ARGS.sent_weight)))
 if ARGS.doc_holdout_frac < 0.01:
     ARGS.doc_holdout_frac = 0.01
 if ARGS.doc_holdout_frac > 0.50:
@@ -1099,6 +1102,7 @@ SIGNATURE = json.dumps({
     "sent_len": SENT_LEN,
     "sent_prefix": True,
     "sent_content": "first_last",
+    "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
@@ -1264,7 +1268,7 @@ def train_step(b, w, s, yb, yw, ys, two_way):
         total = (
             tf.reduce_mean(per_b * wgt)
             + 0.5 * tf.reduce_mean(per_w)
-            + 0.3 * tf.reduce_mean(per_s)
+            + SENT_WEIGHT * tf.reduce_mean(per_s)
             + 0.1 * il
         )
     grads = tape.gradient(total, model.trainable_variables)
