@@ -1,0 +1,122 @@
+{
+  "round": "FA1 R7.22",
+  "status": "rejected-identity-kept",
+  "accepted_parent_step": 14416,
+  "train_examples": 96,
+  "dev_examples": 64,
+  "steps_executed": 48,
+  "selected_steps": 0,
+  "initial_dev": {
+    "base_nll": 5.230860233306885,
+    "correct_nll": 5.230860233306885,
+    "gain": 0.0,
+    "correct_vs_old_freq_advantage": 0.0,
+    "correct_vs_train_donor_advantage": 0.0,
+    "mean_gate_mass": 0.0,
+    "nonempty": 62,
+    "target_supported": 22
+  },
+  "selected_dev": null,
+  "history": [
+    {
+      "step": 1,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 8,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 16,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 24,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 32,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 40,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    },
+    {
+      "step": 48,
+      "dev": {
+        "base_nll": 5.230860233306885,
+        "correct_nll": 5.230860233306885,
+        "gain": 0.0,
+        "correct_vs_old_freq_advantage": 0.0,
+        "correct_vs_train_donor_advantage": 0.0,
+        "mean_gate_mass": 0.0,
+        "nonempty": 62,
+        "target_supported": 22
+      }
+    }
+  ],
+  "candidate_saved": null,
+  "fifth_optimizer_continuity": true,
+  "correct_history_frequency_control": true,
+  "independent_train_donor_control": true,
+  "checkpoint_seed_unchanged": true,
+  "full_new_book_evaluation": false,
+  "historical_splits_only": true,
+  "promoted": false,
+  "elapsed_s": 6.95
+}

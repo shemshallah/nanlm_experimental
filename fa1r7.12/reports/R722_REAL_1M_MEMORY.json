@@ -1,0 +1,20 @@
+{
+  "round": "FA1 R7.22 unified 1M memory",
+  "split": "historical train",
+  "positions": 64,
+  "first": 1350000,
+  "last": 1350063,
+  "full_model_parity_errors": {
+    "baseline_nll": 0.0,
+    "near_nll": 0.0,
+    "far_nll": 0.0
+  },
+  "short_semantic_eligible": 64,
+  "long_semantic_eligible": 64,
+  "new_gates_disabled_exactly": true,
+  "source_1M_memory_causal": true,
+  "selected_updates": 0,
+  "independent_books": false,
+  "promoted": false,
+  "elapsed_seconds": 3.754
+}

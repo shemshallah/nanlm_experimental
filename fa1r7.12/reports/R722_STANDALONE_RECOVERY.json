@@ -1,0 +1,13 @@
+{
+  "round": "FA1 R7.22",
+  "complete_unified_checkpoint": true,
+  "model_tensor_count": 105,
+  "optimizer_history_count": 5,
+  "all_model_tensors_bitwise_recovered": true,
+  "all_five_optimizer_histories_bitwise_recovered": true,
+  "no_legacy_checkpoint_or_adapter_files_present": true,
+  "external_tokenizer_and_corpus_metadata_still_required": true,
+  "sha256": "eb0b7f0505f027095af23bc85ef00f2c036f3d2d5fb160ee0c45e60fb02e3455",
+  "promoted": false,
+  "elapsed_s": 2.413
+}

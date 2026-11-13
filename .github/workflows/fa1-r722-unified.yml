@@ -1,0 +1,53 @@
+name: FA1 R7.22 - single unified R7 causal CPU tests
+
+on:
+  push:
+    paths:
+      - 'fa1r7.12/source/fa1_r722_*.py'
+      - 'fa1r7.12/source/test_fa1_r722*.py'
+      - 'fa1r7.12/source/r7_current.py'
+      - '.github/workflows/fa1-r722-unified.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r722-one-model-master
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify inherited R7.18-R7.21 synthetic regressions
+        run: |
+          set -euo pipefail
+          python fa1r7.12/source/test_fa1_r718.py
+          python fa1r7.12/source/test_fa1_r719.py
+          python fa1r7.12/source/test_fa1_r720.py
+          python fa1r7.12/source/test_fa1_r721_synthetic.py
+      - name: Verify 128K and 1M causal semantic memory
+        run: |
+          set -euo pipefail
+          python -m py_compile fa1r7.12/source/fa1_r722_semantic.py fa1r7.12/source/fa1_r722_unified.py fa1r7.12/source/fa1_r722_train.py fa1r7.12/source/r7_current.py
+          python fa1r7.12/source/test_fa1_r722.py
+      - name: Explicit non-promotion status
+        run: |
+          echo 'R7.22 94.8MB checkpoint is NOT included in source-only GitHub tests.'
+          echo 'Real historical 128-position parity and real 1M read tests were run locally.'
+          echo 'Independent NaNROUTER book gates are NOT complete. No promotion.'

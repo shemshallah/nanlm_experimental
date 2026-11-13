@@ -1,3 +1,9 @@
+# FA1 R7.22 — ONE ACTIVE R7 ARCHITECTURE ON `master`
+
+Canonical sources: [R7_CURRENT.md](R7_CURRENT.md), [unified model](source/fa1_r722_unified.py), [associative reader](source/fa1_r722_semantic.py), and [report](FA1_R7p22_UNIFIED_1M_ASSOCIATIVE.md). R7.22 extends R7.21 in place: 105 tensors, five original optimizer histories, and exactly-off optional 128K/1M embedding-associative routes. The accepted R7.13 checkpoint remains at step 14,416; 48 gate-training updates were rejected, and independent-book validation is pending. Prior R7 files are historical reference implementations, **not competing models**. No new Git branch or model promotion.
+
+---
+
 # FA1 — formerly PAL, R7.12 baseline and R7.13 hierarchical experiment
 
 This subtree is the **FA1** research lineage. `source/` and `reports/` mirror the full textual PAL R7.12 release, plus the current hierarchical FA1 experiment. No NaNLMind model is merged into FA1.

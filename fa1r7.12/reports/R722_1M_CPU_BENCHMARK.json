@@ -1,0 +1,41 @@
+{
+  "round": "FA1 R7.22",
+  "positions": 64,
+  "split": "train",
+  "start": 1350000,
+  "comparison": "full model R7.21 vs single unified R7.22 closed (lazy) and 1M probe",
+  "runs": [
+    {
+      "order": [
+        "r721",
+        "r722_closed",
+        "r722_probe"
+      ],
+      "runtime_s": {
+        "r721": 0.5966228280003634,
+        "r722_closed": 0.5264125620005871,
+        "r722_probe": 0.693054845000006
+      },
+      "closed_factor_vs_r721": 0.8823205169083246,
+      "probe_factor_vs_r721": 1.1616297809502922
+    },
+    {
+      "order": [
+        "r722_probe",
+        "r722_closed",
+        "r721"
+      ],
+      "runtime_s": {
+        "r722_probe": 0.8273694890003753,
+        "r722_closed": 0.4623935489998985,
+        "r721": 0.5248293590002504
+      },
+      "closed_factor_vs_r721": 0.8810359806865871,
+      "probe_factor_vs_r721": 1.5764542794946435
+    }
+  ],
+  "prediction_parity_exact": true,
+  "newbook_results": false,
+  "semantic_capability_gain_proven": false,
+  "promoted": false
+}

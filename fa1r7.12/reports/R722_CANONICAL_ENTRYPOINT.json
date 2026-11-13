@@ -1,0 +1,20 @@
+{
+  "round": "FA1 R7.22 one unified architecture",
+  "git_branch": "master",
+  "accepted_parent_step": 14416,
+  "semantic_updates": 0,
+  "model_tensors": 105,
+  "optimizers": 5,
+  "split": "dev",
+  "positions": 32,
+  "probe_memory": false,
+  "baseline_nll": 5.144154794514179,
+  "near_nll": 4.997079756110907,
+  "far_nll": 4.931052815169096,
+  "associative_128k_nll": 4.931052815169096,
+  "associative_1m_nll": 4.931052815169096,
+  "semantic_128k_eligible_positions": 0,
+  "semantic_1m_eligible_positions": 0,
+  "promotion": false,
+  "independent_new_books": false
+}

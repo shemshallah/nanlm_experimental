@@ -1,0 +1,23 @@
+{
+  "round": "FA1 R7.22",
+  "real_positions": 128,
+  "parity_max_error": {
+    "baseline_nll": 0.0,
+    "near_nll": 0.0,
+    "far_nll": 0.0
+  },
+  "semantic_identity_exact": true,
+  "semantic_hit_positions": 103,
+  "final_equal_prior": true,
+  "parameter_tensors": 105,
+  "optimizers": 5,
+  "fifth_optimizer_groups": 7,
+  "inherited_adam_states_preserved": true,
+  "semantic_grad_nonzero": 1.114076852798462,
+  "synthetic_training_resume": true,
+  "training_updates_selected": 0,
+  "accepted_checkpoint_mutated": false,
+  "new_book_evaluation": false,
+  "promoted": false,
+  "seconds": 6.372
+}
