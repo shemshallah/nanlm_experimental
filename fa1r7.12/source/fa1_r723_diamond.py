@@ -201,6 +201,10 @@ class CombinatorialDiamond(nn.Module):
         sector_prob=F.softmax(sectors*4,dim=-1)
         meta=(sector_prob.unsqueeze(-1)*chosen).sum(1)
         apex=self.apex(torch.cat([apex_in,meta,q],dim=-1))
+        # A learned tetra-conditioned operator per selected apex specialist;
+        # its gate is zero at checkpoint migration for exact R7.23 parity.
+        if geometric is not None and hasattr(self.geometry,'specialize'):
+            apex=apex+self.geometry.specialize(apex,sector_ids,sector_prob,geometric)
         if without_apex:apex=apex*0
         # C(256,3) -> C(256,2): send triangle judgments only to their 3 edges.
         down_tri=tri+self.triple_down(apex).unsqueeze(1) if two_way else tri
