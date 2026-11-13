@@ -112,6 +112,18 @@ def _extract_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
     }
 
 
+def _is_data_parallel(model: torch.nn.Module) -> bool:
+    return isinstance(model, torch.nn.DataParallel)
+
+
+def _model_core(model: torch.nn.Module) -> torch.nn.Module:
+    return model.module if _is_data_parallel(model) else model
+
+
+def _model_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    return _model_core(model).state_dict()
+
+
 def _amp_context(enabled: bool):
     if not enabled:
         return contextlib.nullcontext()
@@ -263,7 +275,7 @@ def load_token_bin(path: str, dtype: str) -> np.ndarray:
     file_path = Path(path).expanduser()
     if not file_path.is_file():
         raise SystemExit(f"token bin not found: {file_path}")
-    dtype_map = {"uint16": np.uint16, "uint32": np.uint32, "int32": np.int32}
+    dtype_map = {"uint8": np.uint8, "uint16": np.uint16, "uint32": np.uint32, "int32": np.int32}
     if dtype not in dtype_map:
         raise SystemExit(f"unsupported --token-dtype: {dtype}")
     ids = np.fromfile(file_path, dtype=dtype_map[dtype])
@@ -602,7 +614,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="text tokenizer; 'bin' reads pre-tokenized IDs from --corpus",
     )
     data.add_argument("--bpe-model", default="", help="tokenizer.json path for --tokenizer bpe")
-    data.add_argument("--token-dtype", choices=("uint16", "uint32", "int32"),
+    data.add_argument("--token-dtype", choices=("uint8", "uint16", "uint32", "int32"),
                       default="uint16", help="dtype for --tokenizer bin")
     data.add_argument("--val-corpus", default="",
                       help="separate validation token file for --tokenizer bin")
@@ -716,6 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="'auto', 'cpu', 'cuda', or e.g. 'cuda:1'")
     system.add_argument("--amp", action=argparse.BooleanOptionalAction, default=None,
                         help="AMP on CUDA (default: enabled on CUDA; CPU always fp32)")
+    system.add_argument("--data-parallel", action="store_true",
+                        help="wrap the model in nn.DataParallel when multiple CUDA GPUs exist")
     system.add_argument("--amp-init-scale", type=float, default=1024.0)
     system.add_argument("--random-smoke", action="store_true",
                         help="random token IDs, no tokenizer/corpus, 3-5 CPU steps")
@@ -1155,8 +1169,18 @@ def main(argv: list[str] | None = None) -> int:
             ) from exc
         print(f"[init] loaded weights from {init_path}", flush=True)
 
+    if args.data_parallel and device.type == "cuda" and torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+        print(
+            f"[model] DataParallel over {torch.cuda.device_count()} GPUs",
+            flush=True,
+        )
+
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        fused=(device.type == "cuda"),
     )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
@@ -1178,14 +1202,16 @@ def main(argv: list[str] | None = None) -> int:
     if resume_checkpoint is not None:
         resume_state = _extract_state_dict(resume_checkpoint)
         try:
-            model.load_state_dict(resume_state, strict=True)
+            _model_core(model).load_state_dict(resume_state, strict=True)
         except RuntimeError as exc:
             raise SystemExit(
                 f"resume checkpoint is incompatible with this model: {exc}"
             ) from exc
         if ema_model is not None and resume_checkpoint.get("ema") is not None:
             try:
-                ema_model.load_state_dict(resume_checkpoint["ema"], strict=True)
+                _model_core(ema_model).load_state_dict(
+                    resume_checkpoint["ema"], strict=True
+                )
             except RuntimeError as exc:
                 raise SystemExit(f"resume EMA is incompatible: {exc}") from exc
         if resume_checkpoint.get("optimizer") is not None:
@@ -1276,8 +1302,8 @@ def main(argv: list[str] | None = None) -> int:
 
     def save_last(step: int, metrics: dict[str, Any] | None) -> None:
         payload = {
-            "model": model.state_dict(),
-            "ema": ema_model.state_dict() if ema_model is not None else None,
+            "model": _model_state(model),
+            "ema": _model_state(ema_model) if ema_model is not None else None,
             "optimizer": optimizer.state_dict(),
             "scaler": scaler.state_dict() if scaler is not None else None,
             "step": step,
@@ -1315,7 +1341,7 @@ def main(argv: list[str] | None = None) -> int:
         _save_cpu(
             out / "best.pt",
             {
-                "model": checkpoint_model.state_dict(),
+                "model": _model_state(checkpoint_model),
                 "source": source_name,
                 "step": step,
                 "loss": float(loss),
@@ -1499,13 +1525,17 @@ def main(argv: list[str] | None = None) -> int:
             if best is not None and best["loss"] < previous_best - args.early_stop_min_delta:
                 last_improve_step = step_done
             _write_json(out / "history.json", history)
-            save_last(step_done, val)
+            if args.save_every > 0 and (
+                step_done % args.save_every == 0 or step_done == args.steps
+            ):
+                save_last(step_done, val)
             if (
                 args.early_stop_patience > 0
                 and step_done - last_improve_step >= args.early_stop_patience
             ):
                 status = "early_stop"
                 early_stop = True
+                save_last(step_done, val)
                 print(
                     f"[early-stop] no best improvement for "
                     f"{step_done - last_improve_step} steps "
@@ -1534,7 +1564,7 @@ def main(argv: list[str] | None = None) -> int:
     _save_cpu(
         out / "final.pt",
         {
-            "model": model.state_dict(),
+            "model": _model_state(model),
             "step": last_step,
             "metrics": final_metrics,
             "model_config": model_config,
@@ -1545,7 +1575,7 @@ def main(argv: list[str] | None = None) -> int:
         _save_cpu(
             out / "ema.pt",
             {
-                "model": ema_model.state_dict(),
+                "model": _model_state(ema_model),
                 "source": "ema",
                 "step": last_step,
                 "metrics": final_ema_metrics,
