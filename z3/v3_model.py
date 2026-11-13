@@ -356,6 +356,14 @@ class V3LM(nn.Module):
                 )
         self.apply(self._init)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
+        if self.mtp_block is not None:
+            # Identity branch at step zero: the t+1-conditioned input reaches
+            # the old MTP head unchanged, so any later gain is real.
+            nn.init.zeros_(self.mtp_block.attn.out_proj.weight)
+            nn.init.zeros_(self.mtp_block.attn.out_proj.bias)
+            self.mtp_block.moe.down_w.data.zero_()
+            if self.mtp_block.moe.shared_down_w is not None:
+                self.mtp_block.moe.shared_down_w.data.zero_()
 
     def build_memory(self, tokens, max_tokens: int | None = None) -> "V3LM":
         """Populate the hashed n-gram store from token IDs (no-op if disabled)."""
@@ -371,7 +379,8 @@ class V3LM(nn.Module):
                 nn.init.zeros_(m.bias)
 
     def forward(self, tokens, mtp_teacher: bool = False,
-                mtp_teacher_prob: float | None = None):
+                mtp_teacher_prob: float | None = None,
+                mtp_next_tokens=None):
         x = self.tok(tokens)
         lbs, zs = [], []
         for block in self.blocks:
@@ -395,8 +404,10 @@ class V3LM(nn.Module):
             prob = self.cfg.mtp_teacher_prob if mtp_teacher_prob is None else mtp_teacher_prob
             use_teacher = mtp_teacher and (prob >= 1.0 or (prob > 0.0 and torch.rand(()).item() < prob))
             if use_teacher:
-                next_ids = torch.cat(
-                    [tokens[:, 1:], tokens[:, -1:]], dim=1
+                next_ids = (
+                    mtp_next_tokens
+                    if mtp_next_tokens is not None
+                    else torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
                 )
                 next_emb = self.tok(next_ids)
             else:

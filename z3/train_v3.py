@@ -738,6 +738,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="freeze the trunk (MTP repair)")
     run.add_argument("--unfreeze-last-block", action="store_true",
                      help="with --freeze-trunk, also train the last transformer block")
+    run.add_argument("--overfit-single-batch", action="store_true",
+                     help="reuse one training batch for diagnostics")
     run.add_argument("--best-every", type=int, default=0,
                      help="write best.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--init-from", default="",
@@ -1150,6 +1152,7 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
+    overfit_batch = source.train_batch() if args.overfit_single_batch else None
     cfg = make_config(args, vocab_size)
     model_config = asdict(cfg)
 
@@ -1463,7 +1466,11 @@ def main(argv: list[str] | None = None) -> int:
         for group in optimizer.param_groups:
             group["lr"] = lr
 
-        xb = source.train_batch().to(device, non_blocking=True)
+        xb = (
+            overfit_batch
+            if overfit_batch is not None
+            else source.train_batch()
+        ).to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
             logits, mtp_logits, aux = model(xb, mtp_teacher=True)
