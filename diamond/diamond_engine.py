@@ -963,24 +963,26 @@ class TripleStaged(tf.keras.Model):
     def call(self, inputs, training=False, two_way=True):
         b_in, w_in, s_in = inputs
 
-        b_r = tf.reshape(b_in, (-1, BYTE_CHUNKS, BYTE_CHUNK))
-        b_emb = self.byte_emb(b_r)
+        b_flat = tf.reshape(b_in, (-1, WIN_B))
+        b_emb = self.byte_emb(b_flat)
         if USE_CHUNK_CONV:
             b_chunk = self.byte_chunk_stem(b_emb)
         else:
-            b_chunk = self.byte_proj(tf.reduce_mean(b_emb, axis=2))
+            b_chunk = self.byte_proj(tf.reduce_mean(
+                tf.reshape(b_emb, (-1, BYTE_CHUNKS, BYTE_CHUNK, DIM_B)), axis=2))
         b_chunk = b_chunk + self.byte_pos(tf.range(BYTE_CHUNKS))[None, :, :]
         b_h = self.byte_moe(b_chunk) + b_chunk
         for block in self.byte_blocks:
             b_h = block(b_h, training=training)
         b_last = b_h[:, -1, :]
 
-        w_r = tf.reshape(w_in, (-1, WORD_CHUNKS, 8))
-        w_emb = self.word_emb(w_r)
+        w_flat = tf.reshape(w_in, (-1, WIN_W))
+        w_emb = self.word_emb(w_flat)
         if USE_CHUNK_CONV:
             w_chunk = self.word_chunk_stem(w_emb)
         else:
-            w_chunk = self.word_proj(tf.reduce_mean(w_emb, axis=2))
+            w_chunk = self.word_proj(tf.reduce_mean(
+                tf.reshape(w_emb, (-1, WORD_CHUNKS, 8, DIM_W)), axis=2))
         w_chunk = w_chunk + self.word_pos(tf.range(WORD_CHUNKS))[None, :, :]
         w_h = self.word_moe(w_chunk) + w_chunk
         for block in self.word_blocks:
