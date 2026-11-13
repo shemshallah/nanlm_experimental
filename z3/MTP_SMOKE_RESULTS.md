@@ -142,3 +142,22 @@ delta -0.1542.
 The branch is now genuinely conditioned and the gate is supervised, but
 predicted-t+1 MTP still does not beat the old head and the gate does not lower
 the wrong-t+1 cost enough. No 200-step or 5,000-step run was started.
+
+## Margin + 256-d hidden confidence gate (100 steps)
+
+Gate input is `[entropy, max_prob, top1-top2 margin, trunk_hidden_256]` with a
+256-unit MLP.  Deep supervision was disabled for this isolated branch test.
+The checkpoint was loaded with full MHA (`n_kv_heads=0`) to match its weights.
+
+```text
+                         MTP loss   correct-t1   wrong-t1   acceptance
+baseline old head         1.5484      1.0812      2.6456      66.71%
+margin+hidden best        1.5541      1.0724      2.6861      66.77%
+margin+hidden final       1.5645      1.0646      2.7392      66.61%
+```
+
+Sensitivity after training: correct 1.3841, random 1.5703, delta -0.1862.
+
+The richer gate still does not beat the frozen-trunk baseline. Correct-t1
+positions gain ~0.009–0.017; wrong-t1 positions lose more. The branch-only
+MTP path has reached its ceiling. No 200/1000-step run was started.
