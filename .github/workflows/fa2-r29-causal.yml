@@ -1,1 +1,36 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+name: FA2 R29 - matched BPTT and exact causal replay
+on:
+  push:
+    paths:
+      - 'fa2r19/source/r29_*'
+      - 'fa2r19/source/test_r29_*'
+      - 'fa2r19/source/r28_recurrent.py'
+      - 'fa2r19/source/r23_stream_carry.py'
+      - 'fa2r19/docs/FA2_R29_MATCHED_BPTT_RESULTS.md'
+      - '.github/workflows/fa2-r29-causal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r29-causal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check PAL syntax
+        run: python -m compileall -q fa2r19/source
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Inherited R27 causal trust
+        run: python fa2r19/source/test_r27_trust.py
+      - name: R28 recurrent gradient and identity
+        run: python fa2r19/source/test_r28_recurrent.py
+      - name: R29 matched-token protocol and exact fast replay
+        run: python fa2r19/source/test_r29_fast_replay.py
