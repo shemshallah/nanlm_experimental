@@ -55,11 +55,15 @@ class OrientedSimplicialGeometry(nn.Module):
         self.face_minus=nn.Embedding(TRIPLES,1)
         nn.init.normal_(self.face_plus.weight,std=0.002)
         nn.init.normal_(self.face_minus.weight,std=0.002)
-        self.face_net=nn.Sequential(nn.Linear(9,d),nn.GELU(),nn.Linear(d,d))
+        self.face_net=nn.Sequential(nn.Linear(11,d),nn.GELU(),nn.Linear(d,d))
         self.tetra_net=nn.Sequential(nn.Linear(7,d),nn.GELU(),nn.Linear(d,d))
         self.edge_gain=nn.Parameter(torch.zeros(()))
         self.face_gain=nn.Parameter(torch.zeros(()))
         self.tetra_gain=nn.Parameter(torch.zeros(()))
+        self.tetra_meta=nn.Linear(d,d)
+        self.meta_up=nn.Parameter(torch.randn(256,d,4)*0.02)
+        self.meta_down=nn.Parameter(torch.randn(256,4,d)*0.02)
+        self.meta_gate=nn.Parameter(torch.zeros(()))
         self.register_buffer('edge_local',torch.tensor(list(itertools.combinations(range(ACTIVE),2)),dtype=torch.long),persistent=False)
         self.register_buffer('tri_local',torch.tensor(TRIPLES_LOCAL,dtype=torch.long),persistent=False)
         self.register_buffer('tetra_local',torch.tensor(TETRA_LOCAL,dtype=torch.long),persistent=False)
@@ -112,6 +116,8 @@ class OrientedSimplicialGeometry(nn.Module):
         side0,side1,side2=lengths.unbind(-1)
         cosine=((side0.square()+side1.square()-side2.square())/
                 (2*side0*side1).clamp_min(1e-6)).clamp(-1.,1.)
+        denominator=1.+(a*b).sum(-1)+(b*c).sum(-1)+(c*a).sum(-1)
+        spherical_area=2.*torch.atan2((a*torch.cross(b,c,dim=-1)).sum(-1),denominator)
         te=self.triangle_edges
         # Exterior derivative dA: A_ij + A_jk - A_ik.
         curl=(state['edge_phase'][:,te[:,0]]+
@@ -123,7 +129,8 @@ class OrientedSimplicialGeometry(nn.Module):
         face_odd=curv-torch.sin(curl)
         features=torch.stack([side0,side1,side2,area,cosine,
                               torch.sin(curl),torch.cos(curl),
-                              face_even,face_odd],dim=-1)
+                              face_even,face_odd,torch.sin(spherical_area),
+                              torch.cos(spherical_area)],dim=-1)
         tri=tri+torch.tanh(self.face_gain)*self.face_net(features)
         ti=self.tetra_local
         id4=vertex_ids[:,ti]
@@ -141,6 +148,7 @@ class OrientedSimplicialGeometry(nn.Module):
                                 signed_curv.abs().mean(-1),
                                 signed_curv.square().mean(-1)],dim=-1)
         tetra_vec=self.tetra_net(tetra_feat)
+        state['tetra_summary']=tetra_vec.mean(1)
         triangle_mail=torch.zeros_like(tri)
         triangle_n=tri.new_zeros(tri.shape[:2])
         for j in range(4):
@@ -149,6 +157,7 @@ class OrientedSimplicialGeometry(nn.Module):
         tri=tri+torch.tanh(self.tetra_gain)*triangle_mail/triangle_n.unsqueeze(-1).clamp_min(1)
         state['metrics'].update({'triangle_curl_abs':curl.detach().abs().mean(),
              'tetra_closure_abs':closure.detach().abs().mean(),
+             'spherical_area_abs':spherical_area.detach().abs().mean(),
              'tetra_signed_volume_abs':signed_volume.detach().abs().mean(),
              'tetra_unique_ids':tetra_ids.detach().unique().numel()*torch.ones((),device=tri.device),
              'edge_gain':self.edge_gain.detach().clone(),
@@ -158,6 +167,15 @@ class OrientedSimplicialGeometry(nn.Module):
         state['face_curvature']=curv
         state['closure']=closure
         return tri,state
+
+    def specialize(self,apex,expert_ids,expert_prob,state):
+        """Sparse rank-4 computation by four of 256 tetra-conditioned apex specialists."""
+        q=F.silu(apex+self.tetra_meta(state['tetra_summary']))
+        u=self.meta_up[expert_ids]
+        v=self.meta_down[expert_ids]
+        h=F.silu(torch.einsum('bd,bkdr->bkr',q,u))
+        changed=torch.einsum('bkr,bkrd->bkd',h,v)
+        return torch.tanh(self.meta_gate)*(expert_prob.unsqueeze(-1)*changed).sum(1)
 
 
 class GeometricDiamond(CombinatorialDiamond):
