@@ -131,7 +131,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: diamond-1000-nanrouter-isolate
+  group: diamond-1000-nanrouter-cache
   cancel-in-progress: false
 
 jobs:

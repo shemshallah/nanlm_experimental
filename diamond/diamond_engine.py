@@ -1006,6 +1006,13 @@ class TripleStaged(tf.keras.Model):
         self.sent_boundary = self.add_weight(
             shape=(DIM_S,), initializer="zeros", name="sent_boundary"
         )
+        # Document-local cache of sentence-first words. The cache is built from
+        # the already-visible sentence window, so it is causal for the
+        # next-sentence target and cannot leak the answer.
+        self.sent_cache_gain = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="sent_cache_gain",
+        )
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1085,7 +1092,33 @@ class TripleStaged(tf.keras.Model):
         else:
             w_cond = w_up
             b_cond = b_last
-        return self.byte_head(b_cond), self.word_head(w_cond), self.sent_head(s_up), self.intro(b_cond)
+
+        sent_logits = self.sent_head(s_up)
+        # First-word cache: count the first token of every visible sentence
+        # (previous rows plus the current sentence). This is the causal
+        # document-level prior that the per-document entropy analysis showed
+        # is highly informative for the next sentence's first word.
+        first = tf.cast(s_in[:, :, 0], tf.int32)
+        visible = tf.cast(first > 0, tf.float32)
+        B = tf.shape(first)[0]
+        flat = tf.reshape(first, (-1,))
+        batch_idx = tf.repeat(tf.range(B), tf.shape(first)[1])
+        valid = tf.reshape(visible, (-1,)) > 0.0
+        cache_idx = tf.boolean_mask(tf.stack([batch_idx, flat], axis=1), valid)
+        ones = tf.ones((tf.shape(cache_idx)[0],), dtype=tf.float32)
+        counts = tf.math.unsorted_segment_sum(
+            ones, cache_idx[:, 0] * VOCAB + cache_idx[:, 1], B * VOCAB
+        )
+        counts = tf.reshape(counts, (B, VOCAB))
+        total = tf.reduce_sum(counts, axis=-1, keepdims=True)
+        cache_prob = counts / tf.maximum(total, 1.0)
+        has_cache = tf.cast(total > 0.0, tf.float32)
+        cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
+        sent_prob = tf.nn.softmax(sent_logits, axis=-1)
+        sent_logits = tf.math.log(
+            (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob + 1e-9
+        )
+        return self.byte_head(b_cond), self.word_head(w_cond), sent_logits, self.intro(b_cond)
 
 
 model = TripleStaged(VOCAB)
@@ -1122,6 +1155,7 @@ SIGNATURE = json.dumps({
     "sent_full_current": True,
     "sent_causal": True,
     "sent_isolated": True,
+    "sent_cache": "first_word_document_cache",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
