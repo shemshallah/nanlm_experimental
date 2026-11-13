@@ -220,7 +220,9 @@ class UnifiedR723Diamond(UnifiedR722):
         if not diamond_enabled:return old_nll,close
         # Features are causal and target-free. Never pass near_prob or far_prob
         # to the Diamond because those arrays encode the current gold target.
-        memory_features=torch.cat([data['near_features'],data['far_features']],dim=-1)
+        memory_features=data.get('diamond_memory_features')
+        if memory_features is None:
+            memory_features=torch.cat([data['near_features'],data['far_features']],dim=-1)
         h,b_logits,w_vec,trace=self.diamond(data['hidden'],data['word_ids'],
                  data['byte_ids'],data['sentence_ids'],data['vertex_ids'],
                  self.core.trunk,memory_features=memory_features,
