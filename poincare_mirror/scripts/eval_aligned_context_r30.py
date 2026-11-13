@@ -62,6 +62,8 @@ def main():
         d['bpb']=round(d['ce_nats_byte']/math.log(2),6)
         d['accuracy']=round(d.pop('correct')/n,6)
     print(json.dumps({'step':ck['step'],'split':args.split,'same_target_positions':n,'windows':args.windows,
+                      'seed':args.seed,'short':args.short,'long':args.long,
+                      'data_split_sha256':expected,
                       'context_comparison':scores,'long_minus_short_bpb':round(scores[str(args.long)]['bpb']-scores[str(args.short)]['bpb'],6)},indent=2))
 
 if __name__=='__main__':main()

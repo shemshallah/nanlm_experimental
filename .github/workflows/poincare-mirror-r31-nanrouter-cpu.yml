@@ -23,6 +23,10 @@ on:
         description: 'CPU threads, 1..4'
         required: true
         default: '4'
+      symbiotic_rank:
+        description: 'Enable shared sparse Diamond rank (0 disables, 8..64 enables; default 32)'
+        required: true
+        default: '32'
 
 permissions:
   contents: read
@@ -85,9 +89,12 @@ jobs:
         env:
           UPDATES: ${{ inputs.updates }}
           THREADS: ${{ inputs.cpu_threads }}
+          SYMBIOTIC_RANK: ${{ inputs.symbiotic_rank }}
         run: |
           [[ "$UPDATES" =~ ^[0-9]+$ && "$UPDATES" -ge 1 && "$UPDATES" -le 128 ]] || exit 2
           [[ "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 && "$THREADS" -le 4 ]] || exit 2
+          [[ "$SYMBIOTIC_RANK" =~ ^[0-9]+$ ]] || exit 2
+          [[ "$SYMBIOTIC_RANK" -eq 0 || ( "$SYMBIOTIC_RANK" -ge 8 && "$SYMBIOTIC_RANK" -le 64 ) ]] || exit 2
       - name: Recover exact R30 optimizer checkpoint (never reinitialize)
         env:
           SOURCE_TAG: ${{ inputs.checkpoint_tag }}
@@ -140,6 +147,8 @@ jobs:
             --checkpoint poincare_mirror/run/latest.pt --expected-step 2801 \
             --minimum-adam-states 63 \
             --report poincare_mirror/reports/adopted_r30.json
+          mkdir -p poincare_mirror/baseline
+          cp poincare_mirror/run/latest.pt poincare_mirror/baseline/latest.pt
       - name: Baseline on new held-out development books
         env:
           OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
@@ -150,6 +159,26 @@ jobs:
             --split valid --context-override 256 --batch 1 \
             --exhaustive --max-eval-batches 16 --cpu \
             > poincare_mirror/reports/before_valid256.json
+          python poincare_mirror/scripts/eval_aligned_context_r30.py \
+            --data-dir poincare_mirror/data --run-dir poincare_mirror/baseline \
+            --split valid --long 4096 --short 256 --windows 4 \
+            --threads "$OMP_NUM_THREADS" \
+            > poincare_mirror/reports/before_valid_aligned4096.json
+      - name: Atomically activate the symbiotic Diamond without changing prior logits
+        env:
+          SYMBIOTIC_RANK: ${{ inputs.symbiotic_rank }}
+          OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
+        run: |
+          if [[ "$SYMBIOTIC_RANK" -gt 0 ]]; then
+            python poincare_mirror/poincare_frontier.py grow \
+              --run-dir poincare_mirror/run --symbiotic-rank "$SYMBIOTIC_RANK" \
+              --max-logit-drift 1e-7 --widen-noise 0 --threads "$OMP_NUM_THREADS" \
+              --report poincare_mirror/reports/symbiotic_migration.json
+          fi
+          python poincare_mirror/scripts/verify_lineage.py \
+            --checkpoint poincare_mirror/run/latest.pt --expected-step 2801 \
+            --minimum-adam-states 63 \
+            --report poincare_mirror/reports/migrated_r30.json
       - name: Continue same weights and Adam history
         env:
           UPDATES: ${{ inputs.updates }}
@@ -187,11 +216,28 @@ jobs:
         run: |
           passed="$(python -c 'import json; print(str(json.load(open("poincare_mirror/reports/development_gate.json"))["promotable_on_development"]).lower())')"
           if [[ "$passed" == true ]]; then
+            python poincare_mirror/scripts/eval_aligned_context_r30.py \
+              --data-dir poincare_mirror/data --run-dir poincare_mirror/run \
+              --split valid --long 4096 --short 256 --windows 4 \
+              --threads "$OMP_NUM_THREADS" \
+              > poincare_mirror/reports/after_valid_aligned4096.json
+            python poincare_mirror/poincare_frontier.py evaluate \
+              --data-dir poincare_mirror/data --run-dir poincare_mirror/baseline \
+              --split test --context-override 256 --batch 1 \
+              --exhaustive --max-eval-batches 32 --cpu \
+              > poincare_mirror/reports/before_test256.json
             python poincare_mirror/poincare_frontier.py evaluate \
               --data-dir poincare_mirror/data --run-dir poincare_mirror/run \
               --split test --context-override 256 --batch 1 \
               --exhaustive --max-eval-batches 32 --cpu \
               > poincare_mirror/reports/test256.json
+            python poincare_mirror/scripts/compare_r31_independent.py \
+              --development poincare_mirror/reports/development_gate.json \
+              --test-before poincare_mirror/reports/before_test256.json \
+              --test-after poincare_mirror/reports/test256.json \
+              --long-before poincare_mirror/reports/before_valid_aligned4096.json \
+              --long-after poincare_mirror/reports/after_valid_aligned4096.json \
+              --output poincare_mirror/reports/independent_and_context_gate.json
           fi
       - name: Preserve exact candidate and metrics, without replacing R30
         if: always()
@@ -211,16 +257,17 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          passed="$(python -c 'import json; print(str(json.load(open("poincare_mirror/reports/development_gate.json"))["promotable_on_development"]).lower())')"
+          passed="$(python -c 'import json,pathlib; p=pathlib.Path("poincare_mirror/reports/independent_and_context_gate.json"); print(str(p.exists() and json.loads(p.read_text())["eligible_for_manual_promotion"]).lower())')"
           if [[ "$passed" == true ]]; then
             cp poincare_mirror/run/latest.pt poincare_mirror_latest.pt
             tag="poincare-r31-unpromoted-${GITHUB_RUN_ID}"
             gh release create "$tag" -R "$GITHUB_REPOSITORY" \
               --title "Poincare Mirror R31 CPU candidate (unpromoted)" \
-              --notes 'One-checkpoint R30 continuation; development eligibility only; previous accepted weights untouched.' \
+              --notes 'Single-model R30 continuation. Independent-book and long-context gates passed; still UNPROMOTED pending manual review. Canonical R30 untouched.' \
               --prerelease \
               poincare_mirror_latest.pt \
               poincare_mirror/reports/development_gate.json \
               poincare_mirror/reports/candidate.json \
-              poincare_mirror/reports/test256.json
+              poincare_mirror/reports/test256.json \
+              poincare_mirror/reports/independent_and_context_gate.json
           fi

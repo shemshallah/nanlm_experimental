@@ -10,6 +10,12 @@ def compare(before, after, min_gain):
     for field in ('split', 'evaluation_context', 'evaluated_tokens'):
         if before[field] != after[field]:
             raise ValueError(f'Non-comparable evaluation: {field}')
+    # New corpus reports carry exact input identities; refuse silently
+    # comparing a different book set or nonmatching sampling schedule.
+    for field in ('data_split_sha256','evaluation_seed','exhaustive','eval_stride'):
+        if field in before or field in after:
+            if not before.get(field) or before[field] != after.get(field):
+                raise ValueError(f'Non-comparable evaluation: {field}')
     if before['split'] != 'valid':
         raise ValueError('Acceptance decisions must only use development books')
     if before['evaluated_tokens'] < 1024:

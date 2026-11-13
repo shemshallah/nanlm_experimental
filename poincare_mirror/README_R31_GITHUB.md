@@ -64,6 +64,61 @@ completed training round merely because a workflow exists. Real CPU numbers
 are reported only after the runner has restored the full checkpoint and
 completed its measured experiments.
 
+## Unified symbiotic Diamond, source-ready (not an accepted weight update)
+
+The original R30 weights contain 16 physical attention heads and 32 trained
+signed-mirror expert pairs. **They do not already contain 256 trained physical
+attention heads.** The optional `symbiotic_rank` extension adds 256 *conceptual*
+point addresses and 256 learnable Overmind apex slots **inside the same MoE
+residual backbone**. These are not independent models or new optimizers.
+
+For each token and active mirror block, one shared point router selects eight
+of the 256 points. Their canonical orientation gives precisely 28 S+/S− pairs,
+56 learned-value triangles with signed 2D curvature, and 70 tetrahedra with
+signed 3D volume. These are sparse addresses in the full spaces of
+`C(256,2)=32,640`, `C(256,3)=2,763,520`, and
+`C(256,4)=174,792,640`; the full tensors are **not** materialized. Existing
+expert sign probabilities determine the S+/S− mixture. Four pooled levels feed
+two shared apex attention/feedback passes; downward attention reads back from
+triangle → pair → point, and its projected result returns to the original
+residual stream used by causal attention, the decoder and +2/+3 objectives.
+
+The apex uses a vectorized causal prefix summary of the *current document-safe
+window*. This is genuine within-window historical access, but **not** yet a
+cross-window persistent memory, a proven reasoning system, or 256 physical
+GPU attention heads. A targeted ablation, `no_symbiotic_geometry`, measures
+the same trained checkpoint with the geometric residual switched off.
+
+The geometric output projection is initialized **exactly to zero** after model
+initialization. `grow --symbiotic-rank 32` cold-migrates a verified R30
+checkpoint in place, checks +1/+2/+3 logit drift, maps all old Adam moments by
+parameter name, and retains training step, RNG and corpus provenance. The old
+checkpoint Release remains immutable, and migration/test reports go into
+GitHub Actions artifacts. The default workflow input enables rank 32; use
+rank 0 for a non-geometric R31 control.
+
+## Enforced independent-book and long-context gate
+
+The workflow now evaluates the old and new checkpoints on the **same**
+deterministic 256-token validation positions. The original, post-adoption
+step-2801 baseline is separately retained on the ephemeral Actions runner.
+At fixed random seed and book hashes, the same 1,024 validation target bytes
+are compared at 256 vs 4,096 input tokens, both before and after training.
+Only once the development gate passes does the workflow open untouched
+test books and score old and new weights on matching test positions.
+
+`scripts/compare_r31_independent.py` requires held-out next-byte CE
+improvement, +2/+3 non-regression within 0.005 nats, at most one percentage
+point accuracy regression, long-context BPB no worse by more than 0.005, and
+no newly enlarged long-minus-short penalty. Data hashes, window seeds,
+checkpoint steps and token counts must match. Passing produces **manual
+promotion eligibility**, not automatic promotion. The stronger frontier
+diagnostic requires 4,096 context to outperform 256 on the same target bytes.
+
+Until the exact 255,749,067-byte R30 release asset exists in GitHub, source
+tests can run but the Action cannot recover/train the canonical checkpoint.
+Do not start from a freshly initialized model to circumvent that constraint.
+
 ## Local verification
 
 ```bash

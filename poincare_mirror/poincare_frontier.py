@@ -60,6 +60,7 @@ class Config:
     norm_divisor: int = 0  # old width when growing; preserves RMSNorm exactly
     dispatch_mode: str = 'grouped'  # prototype loop or chunked batched gather
     gather_chunk: int = 32
+    symbiotic_rank: int = 0  # opt-in sparse geometric Diamond
 
     def check(self):
         assert self.dim % self.heads == 0
@@ -71,6 +72,7 @@ class Config:
         assert self.future_block_index == -1 or 0 <= self.future_block_index < self.layers
         assert self.norm_divisor == 0 or 0 < self.norm_divisor <= self.dim
         assert self.dispatch_mode in ('grouped', 'gather') and self.gather_chunk > 0
+        assert self.symbiotic_rank == 0 or 8 <= self.symbiotic_rank <= 64
 
 
 class RMSNorm(nn.Module):
@@ -135,6 +137,97 @@ class SwiGLU(nn.Module):
         return self.down(F.silu(a) * b)
 
 
+class SymbioticGeometry(nn.Module):
+    """Causal, sparsely addressed point/pair/triangle/tetra/apex feedback.
+
+    Conceptual addresses C(256,2/3/4) are virtual: eight selected points
+    activate 28 edges, 56 triangles and 70 tetrahedra per token. The sign
+    comes from the SAME mirrored experts, not a second model or optimizer.
+    Prefix state resets at each document-safe input window.
+    """
+    POINTS = 256
+    ACTIVE = 8
+
+    def __init__(self, dim, rank):
+        super().__init__()
+        self.rank = rank
+        self.point_query = nn.Linear(dim, rank, bias=False)
+        self.expert_query = nn.Linear(dim, rank, bias=False)
+        self.point_keys = nn.Parameter(torch.randn(256, rank) * .02)
+        self.point_values = nn.Parameter(torch.randn(256, rank) * .02)
+        self.apex_keys = nn.Parameter(torch.randn(256, rank) * .02)
+        self.apex_values = nn.Parameter(torch.randn(256, rank) * .02)
+        self.level_logits = nn.Parameter(torch.zeros(4))
+        self.feedback_query = nn.Linear(rank, rank, bias=False)
+        self.to_hidden = nn.Linear(rank, dim, bias=False)
+        for order in (2, 3, 4):
+            self.register_buffer('choose'+str(order),
+                                 torch.combinations(torch.arange(8), r=order), persistent=False)
+
+    @staticmethod
+    def pair_address(a, b):
+        """Unique canonical index in 0..32639 when 0 <= a < b < 256."""
+        if torch.any(a < 0) or torch.any(a >= b) or torch.any(b >= 256):
+            raise ValueError('Require 0 <= a < b < 256')
+        return a * (511 - a) // 2 + b - a - 1
+
+    @staticmethod
+    def pool(values, weights):
+        return (values * weights.unsqueeze(-1)).sum(1) / weights.sum(1, keepdim=True).clamp_min(1e-12)
+
+    def forward(self, tokens, expert, signed_probability):
+        batch, length, dim = tokens.shape
+        rank = self.rank
+        query = self.point_query(tokens.reshape(-1, dim)) + self.expert_query(expert.reshape(-1, dim))
+        scores = query @ self.point_keys.T / math.sqrt(rank)
+        score, selected = scores.topk(self.ACTIVE, dim=-1)
+        selected, order = selected.sort(dim=-1)  # canonical signed orientation
+        weights = score.softmax(-1).gather(1, order)
+        point = self.point_values[selected]
+        i, j = self.choose2.unbind(-1)
+        a, b = point[:, i], point[:, j]
+        symmetric, antisymmetric = (a+b)*.5, (b-a)*.5
+        pair = symmetric + (2*signed_probability.reshape(-1,1,1)-1)*antisymmetric
+        pair_mean = self.pool(pair, weights[:,i]*weights[:,j])
+
+        i, j, k = self.choose3.unbind(-1)
+        a, b, c = point[:,i], point[:,j], point[:,k]
+        u, v = b-a, c-a
+        area = u[...,0]*v[...,1] - u[...,1]*v[...,0]
+        norm = (u.square().sum(-1)*v.square().sum(-1)).clamp_min(1e-12).sqrt()
+        triangle = (a+b+c)/3 + torch.tanh(area/norm).unsqueeze(-1)*(v-u)/6
+        tri_mean = self.pool(triangle, weights[:,i]*weights[:,j]*weights[:,k])
+
+        i, j, k, l = self.choose4.unbind(-1)
+        a, b, c, d = point[:,i], point[:,j], point[:,k], point[:,l]
+        u, v, w = b-a, c-a, d-a
+        vol = (torch.cross(u[...,:3], v[...,:3], dim=-1)*w[...,:3]).sum(-1)
+        norm = (u.square().sum(-1)*v.square().sum(-1)*w.square().sum(-1)).clamp_min(1e-18).sqrt()
+        tetra = (a+b+c+d)/4 + torch.tanh(vol/norm).unsqueeze(-1)*w/8
+        tetra_mean = self.pool(tetra, weights[:,i]*weights[:,j]*weights[:,k]*weights[:,l])
+
+        level = self.level_logits.softmax(0)
+        local = (level[0]*self.pool(point, weights) + level[1]*pair_mean +
+                 level[2]*tri_mean + level[3]*tetra_mean).reshape(batch,length,rank)
+        # Each position receives only its own or preceding concept states.
+        positions = torch.arange(1,length+1,device=local.device,dtype=local.dtype)
+        prefix = local.cumsum(1)/positions.view(1,length,1)
+        state = F.layer_norm(local+prefix,(rank,))
+        for _ in range(2):
+            logits = self.feedback_query(state) @ self.apex_keys.T/math.sqrt(rank)
+            score, selected = logits.topk(self.ACTIVE,dim=-1)
+            apex = (self.apex_values[selected]*score.softmax(-1).unsqueeze(-1)).sum(-2)
+            state = F.layer_norm(state+apex+prefix,(rank,))
+
+        # Downward apex -> triangle -> mirror pair -> point closure.
+        down = state.reshape(-1,rank)
+        def read(values):
+            score = (values*down.unsqueeze(1)).sum(-1)/math.sqrt(rank)
+            return (values*score.softmax(-1).unsqueeze(-1)).sum(1)
+        feedback = F.layer_norm(down+read(triangle)+read(pair)+read(point),(rank,))
+        return self.to_hidden(feedback).reshape(batch,length,dim)
+
+
 class MirrorPairMoE(nn.Module):
     """An exact S+/S- mirror parameterization with sparse pair dispatch.
 
@@ -162,6 +255,7 @@ class MirrorPairMoE(nn.Module):
         self.out_shared = nn.Parameter(torch.randn(p, f, d) * (0.45 / math.sqrt(f)))
         self.out_anti = nn.Parameter(torch.randn(p, f, d) * (0.15 / math.sqrt(f)))
         self.normalizer = RMSNorm(d, cfg.norm_divisor or d)
+        self.symbiotic = SymbioticGeometry(d, cfg.symbiotic_rank) if cfg.symbiotic_rank else None
 
     @staticmethod
     def to_ball(z):
@@ -233,7 +327,11 @@ class MirrorPairMoE(nn.Module):
         fraction = F.one_hot(top_idx, self.pairs).float().mean(dim=(0, 1)).detach()
         mean_prob = scores.softmax(-1).mean(0)
         aux = self.pairs * (fraction * mean_prob).sum()
-        return out.reshape(b, t, d), aux
+        out = out.reshape(b, t, d)
+        if self.symbiotic is not None:
+            signed = (sign_probs.gather(1,top_idx)*routing_weights).sum(-1).reshape(b,t)
+            out = out + self.symbiotic(x,out,signed)
+        return out, aux
 
 
 class Block(nn.Module):
@@ -266,6 +364,10 @@ class MirrorLM(nn.Module):
         # SAME causal rail/head for future +2 / +3, without observing future tokens.
         self.future_offsets = nn.Parameter(torch.zeros(2, cfg.dim))
         self.apply(self._init)
+        # Exact old-logit preservation when opting into geometry on a checkpoint.
+        for block in self.blocks:
+            if block.use_moe and block.ff.symbiotic is not None:
+                nn.init.zeros_(block.ff.symbiotic.to_hidden.weight)
 
     @staticmethod
     def _init(m):
@@ -675,8 +777,11 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Only non-shrinking expansions are supported')
     if (new_pairs == old_pairs and new_layers == old_layers
             and model.cfg.dim == previous_cfg.dim
-            and model.cfg.expert_hidden == previous_cfg.expert_hidden):
+            and model.cfg.expert_hidden == previous_cfg.expert_hidden
+            and model.cfg.symbiotic_rank == previous_cfg.symbiotic_rank):
         raise ValueError('No capacity expansion requested')
+    if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
+        raise ValueError('Cannot reshape an already trained Diamond')
     if model.cfg.moe_every != previous_cfg.moe_every:
         raise ValueError('Cannot change MoE placement during expansion')
     if model.cfg.expert_hidden < previous_cfg.expert_hidden:
@@ -706,7 +811,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         for name, target in new_state.items():
             if name not in saved['model']:
                 if name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
-                                                    for i in range(old_layers, new_layers)):
+                                                    for i in range(old_layers, new_layers)) or (
+                    not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name):
                     continue
                 raise ValueError('Unknown new state entry: ' + name)
             source = saved['model'][name]
@@ -798,7 +904,8 @@ def configure(args, vocab_size):
                   heads=args.heads, pairs=args.pairs, topk_pairs=args.topk,
                   expert_hidden=args.expert_hidden, context=args.context,
                   moe_every=args.moe_every, hyperbolic_strength=args.geo,
-                  balance_weight=args.balance, future2_weight=0.1 if args.future2 is None else args.future2,
+                  balance_weight=args.balance, symbiotic_rank=args.symbiotic_rank or 0,
+                  future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
 
 
@@ -870,8 +977,19 @@ def train(args):
         torch.manual_seed(args.seed)
         random.seed(args.seed)
     old_cfg = copy.deepcopy(cfg)
+    enable_symbiotic = bool(saved and args.symbiotic_rank is not None and args.symbiotic_rank != cfg.symbiotic_rank)
+    if enable_symbiotic:
+        if cfg.symbiotic_rank or args.symbiotic_rank == 0:
+            raise ValueError('Diamond can only be enabled once; existing learned geometry cannot be reset')
+        cfg.symbiotic_rank = args.symbiotic_rank
     growth = saved.get('growth') if saved else None
     history = list(saved.get('growth_history', [])) if saved else []
+    if enable_symbiotic:
+        history.append({'kind':'symbiotic_diamond','step':saved['step'],
+                        'rank':cfg.symbiotic_rank,'points':256,'active_points':8,
+                        'active_pairs':28,'active_triangles':56,'active_tetrahedra':70,
+                        'apex_concepts':256,'feedback_passes':2,
+                        'output_initialized_to_zero':True})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -964,12 +1082,12 @@ def train(args):
                               foreach=False if device.type == 'cpu' else None)
     rng = np.random.default_rng(args.seed)
     if saved:
-        if growing or deepen or widening or expert_growing:
+        if growing or deepen or widening or expert_growing or enable_symbiotic:
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
                   f'pairs {old_cfg.pairs}->{cfg.pairs}, expert_hidden {old_cfg.expert_hidden}->{cfg.expert_hidden}; '
-                  'old parameter coordinates and Adam moments retained')
+                  f'symbiotic_rank {old_cfg.symbiotic_rank}->{cfg.symbiotic_rank}; old weights and Adam moments retained')
         else:
             ckpt = restore_checkpoint(path, model, optim)
         rng.bit_generator.state = ckpt['rng_numpy']
@@ -1177,6 +1295,13 @@ def evaluate(args):
         results['unigram_prior'] = {'ce_1': round(base_ce, 6),
                                      'ppl_1': round(math.exp(base_ce), 4)}
     if args.ablations:
+        original_geometry = [m.symbiotic for m in moes]
+        if any(g is not None for g in original_geometry):
+            for m in moes:
+                m.symbiotic = None
+            results['no_symbiotic_geometry'] = measure()
+            for m, g in zip(moes, original_geometry):
+                m.symbiotic = g
         prev = [m.strength for m in moes]
         for m in moes:
             m.strength = 0.
@@ -1194,7 +1319,11 @@ def evaluate(args):
             m.out_anti.copy_(oa)
 
         results['no_temporal_mechanism'] = measure(disable_temporal=True)
-    print(json.dumps({'checkpoint_step': saved['step'], 'split': split, 'checkpoint_context': checkpoint_context,
+    print(json.dumps({'checkpoint_step': saved['step'], 'split': split,
+                      'data_split_sha256': expected_val or file_hash(split_path),
+                      'evaluation_seed':args.seed,'exhaustive':bool(args.exhaustive),
+                      'eval_stride':args.eval_stride or cfg.context,
+                      'checkpoint_context': checkpoint_context,
                       'evaluation_context': cfg.context, 'future_mode': cfg.future_mode, 'evaluated_tokens':
                       sum(v.shape[0] * cfg.context for v in batches),
                       'ablations_use_same_weights': True, 'results': results}, indent=2))
@@ -1212,6 +1341,9 @@ def count_parameters_exact(cfg):
     for i in range(cfg.layers):
         if (i + 1) % cfg.moe_every == 0:
             total += 5*d*d + 4*p*d*f + 3*p*d + p + 3*d
+            if cfg.symbiotic_rank:
+                r = cfg.symbiotic_rank
+                total += 3*d*r + 1024*r + r*r + 4
         else:
             total += 16*d*d + 2*d
     return total
@@ -1313,9 +1445,14 @@ def grow_checkpoint(args):
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
         cfg.gather_chunk = args.gather_chunk
+    if args.symbiotic_rank is not None:
+        if original.symbiotic_rank and args.symbiotic_rank != original.symbiotic_rank:
+            raise ValueError('Cannot resize trained geometric concepts')
+        cfg.symbiotic_rank = args.symbiotic_rank
     cfg.check()
     expanded = any((cfg.dim != original.dim, cfg.layers != original.layers,
-                    cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden))
+                    cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
+                    cfg.symbiotic_rank != original.symbiotic_rank))
     changed = expanded or cfg.context != original.context or cfg.dispatch_mode != original.dispatch_mode
     if not changed:
         raise ValueError('No capacity/context/dispatch change requested')
@@ -1373,7 +1510,7 @@ def grow_checkpoint(args):
         if 'step' in old_st and not torch.equal(new_st['step'], old_st['step']):
             raise AssertionError('Adam optimizer step changed: ' + name)
     history = list(saved.get('growth_history', []))
-    history.append({'kind':'R28_capacity_migration', 'step':saved['step'],
+    history.append({'kind':'unified_capacity_migration', 'step':saved['step'],
        'old':asdict(original), 'new':asdict(cfg),
        'test_max_abs_logit_drifts': differences, 'widen_noise':args.widen_noise,
        'adam_moment_fields_verified':moment_fields})
@@ -1409,6 +1546,7 @@ def grow_checkpoint(args):
               'old_mirror_pairs':original.pairs,'new_mirror_pairs':cfg.pairs,
               'new_signed_experts':2*cfg.pairs,'new_hidden_dim':cfg.dim,
               'new_layers':cfg.layers, 'new_expert_hidden':cfg.expert_hidden,
+              'new_symbiotic_rank':cfg.symbiotic_rank,
               'max_abs_logit_drift_h1_h2_h3':differences,
               'adam_moment_fields_verified':moment_fields,
               'data_unchanged': new_saved['data'] == saved['data'],
@@ -1438,6 +1576,7 @@ def main():
     gr.add_argument('--add-layers', type=int, default=0)
     gr.add_argument('--grow-pairs',type=int)
     gr.add_argument('--grow-expert-hidden',type=int)
+    gr.add_argument('--symbiotic-rank',type=int,help='enable 256-point Diamond without changing inherited logits or Adam states')
     gr.add_argument('--set-context',type=int)
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
@@ -1497,6 +1636,8 @@ def main():
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None, help='expand width; auto-expand attention heads, preserve old head size')
     tr.add_argument('--grow-expert-hidden', type=int, default=None, help='expand every pair expert inner width')
+    tr.add_argument('--symbiotic-rank', type=int, default=None,
+                    help='enable shared 256-point/triangle/tetra/apex feedback with zero-output migration')
     tr.add_argument('--widen-noise', type=float, default=1e-4, help='small new-channel seed; set 0 for exact no-op')
     tr.add_argument('--dispatch-mode', choices=('grouped','gather'), default=None)
     tr.add_argument('--gather-chunk', type=int, default=None)
