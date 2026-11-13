@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay,
-        fused=(device.type == "cuda"),
+        fused=(device.type == "cuda" and not amp),
     )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
