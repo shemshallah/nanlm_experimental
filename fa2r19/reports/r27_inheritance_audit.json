@@ -1,0 +1,15 @@
+{
+  "format": "FA2_R27_FULL_INHERITANCE_V1",
+  "r27_step": 40,
+  "inherited_model_tensors_exact": 179,
+  "inherited_adam_states_exact": 137,
+  "inherited_document_streams_exact": 12,
+  "optimizer_groups": 12,
+  "optimizer_states": 144,
+  "r18_parent_sha256": "dd040106568786e7fbad2a880f4010635b626b51c3697e2ab08712905a2de91f",
+  "r26_parent_sha256": "8cb6b5524fafcbdc6427e175000d490451a800287964ee509bf2b44aaea376fc",
+  "r27_checkpoint_sha256": "0f4cdb8ce41b62472b6c8408296b496dfb3e801b388289453c0cdcc720f5b3f8",
+  "selected_gain_bpb": 0.0002029112568974244,
+  "reserve_gain_bpb": 0.006110297615666322,
+  "accepted_model_promoted": false
+}

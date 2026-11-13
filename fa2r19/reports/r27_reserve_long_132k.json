@@ -1,0 +1,55 @@
+{
+  "format": "R27_HELD_OUT_LONGBOOK_AUDIT_V1",
+  "checkpoint_r27_step": 40,
+  "source_r26_sha256": "8cb6b5524fafcbdc6427e175000d490451a800287964ee509bf2b44aaea376fc",
+  "selection_books_excluded": [
+    "866",
+    "970",
+    "1444"
+  ],
+  "reserved_books": [
+    "8571",
+    "13505",
+    "15985"
+  ],
+  "scope": "Historical PAL development authors, not globally unseen authors",
+  "results": {
+    "r26_bpb": 2.1300447565226106,
+    "near_bpb": 2.1298073714665136,
+    "r27_bpb": 2.1239344589069438,
+    "gain_bpb": 0.006110297615666322,
+    "correct_vs_wrong_nats": 0.6009698252860314,
+    "nonspace_nll": 3.8823543814725654,
+    "books_improved": 3,
+    "books": 3,
+    "mean_fallback": 0.05230811915278964,
+    "by_book": {
+      "8571": {
+        "r26_bpb": 1.9523792940147442,
+        "r27_bpb": 1.9511954202371378,
+        "near_bpb": 1.976784003532945,
+        "bytes": 113.0
+      },
+      "13505": {
+        "r26_bpb": 1.837473509965596,
+        "r27_bpb": 1.8348549801661065,
+        "near_bpb": 1.838998380409764,
+        "bytes": 119.0
+      },
+      "15985": {
+        "r26_bpb": 2.591323543108102,
+        "r27_bpb": 2.577043444956085,
+        "near_bpb": 2.565924266527408,
+        "bytes": 119.0
+      }
+    },
+    "by_band": {
+      "132K": {
+        "r26_bpb": 2.1300447565226106,
+        "r27_bpb": 2.1239344589069438,
+        "near_bpb": 2.1298073714665136,
+        "bytes": 351.0
+      }
+    }
+  }
+}
