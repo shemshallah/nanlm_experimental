@@ -22,7 +22,9 @@ concurrency:
 jobs:
   coq-utm:
     runs-on: ubuntu-latest
-    container: coqorg/coq:8.20
+    container:
+      image: coqorg/coq:8.20
+      options: --user root
     timeout-minutes: 360
     env:
       LIB_COMMIT: 70dfc56f33a6e4835281044e68aa68279989047e
