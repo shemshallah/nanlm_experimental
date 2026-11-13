@@ -27,6 +27,18 @@ on:
         description: 'Enable shared sparse Diamond rank (0 disables, 8..64 enables; default 32)'
         required: true
         default: '32'
+      widen_dim:
+        description: 'Hidden width: 0 retains 192D; 256, 384, or 512 adds heads without reshaping trained heads'
+        required: true
+        default: '512'
+      add_layers:
+        description: 'Append zero-residual transformer blocks (0..6); 6 gives 12 total blocks'
+        required: true
+        default: '6'
+      hierarchy_rank:
+        description: 'Causal byte/pair/word/sentence feedback rank (0 disables, 8..128 enables)'
+        required: true
+        default: '32'
 
 permissions:
   contents: read
@@ -90,11 +102,18 @@ jobs:
           UPDATES: ${{ inputs.updates }}
           THREADS: ${{ inputs.cpu_threads }}
           SYMBIOTIC_RANK: ${{ inputs.symbiotic_rank }}
+          WIDEN_DIM: ${{ inputs.widen_dim }}
+          ADD_LAYERS: ${{ inputs.add_layers }}
+          HIERARCHY_RANK: ${{ inputs.hierarchy_rank }}
         run: |
           [[ "$UPDATES" =~ ^[0-9]+$ && "$UPDATES" -ge 1 && "$UPDATES" -le 128 ]] || exit 2
           [[ "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 && "$THREADS" -le 4 ]] || exit 2
           [[ "$SYMBIOTIC_RANK" =~ ^[0-9]+$ ]] || exit 2
           [[ "$SYMBIOTIC_RANK" -eq 0 || ( "$SYMBIOTIC_RANK" -ge 8 && "$SYMBIOTIC_RANK" -le 64 ) ]] || exit 2
+          [[ "$WIDEN_DIM" =~ ^[0-9]+$ && ( "$WIDEN_DIM" -eq 0 || "$WIDEN_DIM" -eq 256 || "$WIDEN_DIM" -eq 384 || "$WIDEN_DIM" -eq 512 ) ]] || exit 2
+          [[ "$ADD_LAYERS" =~ ^[0-9]+$ && "$ADD_LAYERS" -le 6 ]] || exit 2
+          [[ "$HIERARCHY_RANK" =~ ^[0-9]+$ ]] || exit 2
+          [[ "$HIERARCHY_RANK" -eq 0 || ( "$HIERARCHY_RANK" -ge 8 && "$HIERARCHY_RANK" -le 128 ) ]] || exit 2
       - name: Recover exact R30 optimizer checkpoint (never reinitialize)
         env:
           SOURCE_TAG: ${{ inputs.checkpoint_tag }}
@@ -164,16 +183,32 @@ jobs:
             --split valid --long 4096 --short 256 --windows 4 \
             --threads "$OMP_NUM_THREADS" \
             > poincare_mirror/reports/before_valid_aligned4096.json
-      - name: Atomically activate the symbiotic Diamond without changing prior logits
+      - name: Migrate same backbone to wider/deeper causal geometry and hierarchy
         env:
           SYMBIOTIC_RANK: ${{ inputs.symbiotic_rank }}
+          WIDEN_DIM: ${{ inputs.widen_dim }}
+          ADD_LAYERS: ${{ inputs.add_layers }}
+          HIERARCHY_RANK: ${{ inputs.hierarchy_rank }}
           OMP_NUM_THREADS: ${{ inputs.cpu_threads }}
         run: |
+          grow_args=()
           if [[ "$SYMBIOTIC_RANK" -gt 0 ]]; then
+            grow_args+=(--symbiotic-rank "$SYMBIOTIC_RANK")
+          fi
+          if [[ "$WIDEN_DIM" -gt 0 ]]; then
+            grow_args+=(--widen-dim "$WIDEN_DIM")
+          fi
+          if [[ "$ADD_LAYERS" -gt 0 ]]; then
+            grow_args+=(--add-layers "$ADD_LAYERS")
+          fi
+          if [[ "$HIERARCHY_RANK" -gt 0 ]]; then
+            grow_args+=(--hierarchy-rank "$HIERARCHY_RANK")
+          fi
+          if (( ${#grow_args[@]} )); then
             python poincare_mirror/poincare_frontier.py grow \
-              --run-dir poincare_mirror/run --symbiotic-rank "$SYMBIOTIC_RANK" \
-              --max-logit-drift 1e-7 --widen-noise 0 --threads "$OMP_NUM_THREADS" \
-              --report poincare_mirror/reports/symbiotic_migration.json
+              --run-dir poincare_mirror/run "${grow_args[@]}" \
+              --max-logit-drift 5e-4 --widen-noise 1e-5 --threads "$OMP_NUM_THREADS" \
+              --report poincare_mirror/reports/capacity_migration.json
           fi
           python poincare_mirror/scripts/verify_lineage.py \
             --checkpoint poincare_mirror/run/latest.pt --expected-step 2801 \

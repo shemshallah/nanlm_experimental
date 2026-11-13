@@ -61,10 +61,24 @@ class Config:
     dispatch_mode: str = 'grouped'  # prototype loop or chunked batched gather
     gather_chunk: int = 32
     symbiotic_rank: int = 0  # opt-in sparse geometric Diamond
+    # Non-divisible widening preserves the original RoPE head geometry.
+    # For example, 192D / 16 heads (12D each) -> 256D / 20 mixed heads:
+    # the 16 old 12D heads plus four new 16D heads.
+    legacy_attention_dim: int = 0
+    legacy_attention_heads: int = 0
+    hierarchy_rank: int = 0  # opt-in byte/pair/word/sentence causal feedback
 
     def check(self):
-        assert self.dim % self.heads == 0
-        assert (self.dim // self.heads) % 2 == 0
+        if self.legacy_attention_dim:
+            old_dim, old_heads = self.legacy_attention_dim, self.legacy_attention_heads
+            added_dim, added_heads = self.dim - old_dim, self.heads - old_heads
+            assert 0 < old_dim < self.dim and 0 < old_heads < self.heads
+            assert old_dim % old_heads == 0 and (old_dim // old_heads) % 2 == 0
+            assert added_dim % added_heads == 0 and (added_dim // added_heads) % 2 == 0
+        else:
+            assert self.legacy_attention_heads == 0
+            assert self.dim % self.heads == 0
+            assert (self.dim // self.heads) % 2 == 0
         assert 1 <= self.topk_pairs <= self.pairs
         assert self.moe_every >= 1 and self.layers >= 1
         assert self.context >= 4
@@ -73,6 +87,7 @@ class Config:
         assert self.norm_divisor == 0 or 0 < self.norm_divisor <= self.dim
         assert self.dispatch_mode in ('grouped', 'gather') and self.gather_chunk > 0
         assert self.symbiotic_rank == 0 or 8 <= self.symbiotic_rank <= 64
+        assert self.hierarchy_rank == 0 or 8 <= self.hierarchy_rank <= 128
 
 
 class RMSNorm(nn.Module):
@@ -110,20 +125,82 @@ def apply_rope(x):
 
 
 class CausalAttention(nn.Module):
-    def __init__(self, dim, heads):
+    def __init__(self, dim, heads, legacy_dim=0, legacy_heads=0):
         super().__init__()
         self.heads = heads
+        self.legacy_dim = legacy_dim
+        self.legacy_heads = legacy_heads
         self.qkv = nn.Linear(dim, dim * 3, bias=False)
         self.out = nn.Linear(dim, dim, bias=False)
 
     def forward(self, x):
         b, t, d = x.shape
-        q, k, v = self.qkv(x).reshape(b, t, 3, self.heads, d // self.heads).unbind(2)
-        q = apply_rope(q.transpose(1, 2))
-        k = apply_rope(k.transpose(1, 2))
-        v = v.transpose(1, 2)
-        a = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.)
-        return self.out(a.transpose(1, 2).contiguous().view(b, t, d))
+        q, k, v = self.qkv(x).reshape(b, t, 3, d).unbind(2)
+
+        def attend(q0, k0, v0, heads):
+            width = q0.shape[-1]
+            q0 = apply_rope(q0.reshape(b, t, heads, width // heads).transpose(1, 2))
+            k0 = apply_rope(k0.reshape(b, t, heads, width // heads).transpose(1, 2))
+            v0 = v0.reshape(b, t, heads, width // heads).transpose(1, 2)
+            a = F.scaled_dot_product_attention(q0, k0, v0, is_causal=True, dropout_p=0.)
+            return a.transpose(1, 2).contiguous().view(b, t, width)
+
+        if self.legacy_dim:
+            cut = self.legacy_dim
+            old = attend(q[..., :cut], k[..., :cut], v[..., :cut], self.legacy_heads)
+            new = attend(q[..., cut:], k[..., cut:], v[..., cut:],
+                         self.heads - self.legacy_heads)
+            a = torch.cat((old, new), dim=-1)
+        else:
+            a = attend(q, k, v, self.heads)
+        return self.out(a)
+
+
+class CausalTokenHierarchy(nn.Module):
+    """Four causal token scales with two shared cross-scale attention loops.
+
+    The byte head and loss remain authoritative. The pair level represents a
+    causal two-byte proxy, *not* a trained BPE vocabulary. Word and sentence
+    levels use online prefix means; an unfinished segment never reads later
+    bytes. Four scales attend to each other only at the same time position,
+    then send one learned residual back to the original byte stream.
+    """
+    def __init__(self, dim, rank):
+        super().__init__()
+        self.rank = rank
+        self.input = nn.Linear(dim, rank, bias=False)
+        self.scale_qkv = nn.Linear(rank, rank * 3, bias=False)
+        self.scale_logits = nn.Parameter(torch.zeros(4))
+        self.to_hidden = nn.Linear(rank, dim, bias=False)
+
+    @staticmethod
+    def prefix_mean(z, starts):
+        b, t, r = z.shape
+        places = torch.arange(t, device=z.device).expand(b, -1)
+        segment_start = torch.cummax(torch.where(starts, places, 0), dim=1).values
+        accumulated = F.pad(z.cumsum(1), (0, 0, 1, 0))
+        before = accumulated.gather(1, segment_start.unsqueeze(-1).expand(-1, -1, r))
+        return (accumulated[:, 1:] - before) / (places - segment_start + 1).unsqueeze(-1)
+
+    def forward(self, hidden, byte_ids):
+        b, t, _ = hidden.shape
+        z = self.input(hidden)
+        previous = F.pad(byte_ids[:, :-1], (1, 0), value=256)
+        word_break = ((previous == 32) | (previous == 9) | (previous == 10) |
+                      (previous == 13) | (previous == 256))
+        sentence_break = ((previous == 46) | (previous == 33) |
+                          (previous == 63) | (previous == 10) | (previous == 256))
+        pair = torch.cat((z[:, :1], (z[:, 1:] + z[:, :-1]) * 0.5), dim=1)
+        levels = torch.stack((z, pair, self.prefix_mean(z, word_break),
+                              self.prefix_mean(z, sentence_break)), dim=2)
+        # Self-attention is over *scales at time t*, not future time indices.
+        # Base causal attention across time remains in every transformer block.
+        for _ in range(2):
+            q, k, v = self.scale_qkv(levels).reshape(b, t, 4, 3, self.rank).unbind(3)
+            scores = (q @ k.transpose(-1, -2)) / math.sqrt(self.rank)
+            levels = F.layer_norm(levels + scores.softmax(-1) @ v, (self.rank,))
+        pooled = (levels * self.scale_logits.softmax(0).view(1, 1, 4, 1)).sum(2)
+        return self.to_hidden(pooled)
 
 
 class SwiGLU(nn.Module):
@@ -338,7 +415,8 @@ class Block(nn.Module):
     def __init__(self, cfg, use_moe):
         super().__init__()
         self.n1 = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
-        self.att = CausalAttention(cfg.dim, cfg.heads)
+        self.att = CausalAttention(cfg.dim, cfg.heads,
+                                   cfg.legacy_attention_dim, cfg.legacy_attention_heads)
         self.n2 = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.ff = MirrorPairMoE(cfg) if use_moe else SwiGLU(cfg.dim, 4 * cfg.dim)
         self.use_moe = use_moe
@@ -361,6 +439,7 @@ class MirrorLM(nn.Module):
         self.norm = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.head = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         self.head.weight = self.embed.weight  # a single shared vocabulary head
+        self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         # SAME causal rail/head for future +2 / +3, without observing future tokens.
         self.future_offsets = nn.Parameter(torch.zeros(2, cfg.dim))
         self.apply(self._init)
@@ -368,6 +447,8 @@ class MirrorLM(nn.Module):
         for block in self.blocks:
             if block.use_moe and block.ff.symbiotic is not None:
                 nn.init.zeros_(block.ff.symbiotic.to_hidden.weight)
+        if self.hierarchy is not None:
+            nn.init.zeros_(self.hierarchy.to_hidden.weight)
 
     @staticmethod
     def _init(m):
@@ -382,6 +463,8 @@ class MirrorLM(nn.Module):
         for block in self.blocks:
             x, a = block(x)
             aux = aux + a
+        if self.hierarchy is not None:
+            x = x + self.hierarchy(x, ids)
         h = self.norm(x)
         logits = self.head(h)
         metrics = {'balancing': aux}
@@ -764,6 +847,41 @@ def morph_tensor(name, target, source, old_cfg, cfg, preserve_new_pairs=False):
         target[d0:].fill_(1.)
 
 
+def widen_config(cfg, target_dim):
+    """Grow hidden width without changing any inherited RoPE frequencies.
+
+    Integral multiples retain uniform head geometry. Other increases create
+    new heterogeneous heads and keep all trained heads exactly intact. Later
+    increases extend the newer head group without changing its geometry.
+    """
+    if target_dim < cfg.dim:
+        raise ValueError('Width cannot shrink')
+    if target_dim == cfg.dim:
+        return
+    initial_dim, initial_heads = cfg.dim, cfg.heads
+    if cfg.legacy_attention_dim:
+        newer_dim = cfg.dim - cfg.legacy_attention_dim
+        newer_heads = cfg.heads - cfg.legacy_attention_heads
+        head_dim = newer_dim // newer_heads
+        if (target_dim - cfg.dim) % head_dim:
+            raise ValueError('Mixed-head growth must add whole inherited new-group heads')
+        cfg.heads += (target_dim - cfg.dim) // head_dim
+    elif target_dim % initial_dim == 0:
+        cfg.heads *= target_dim // initial_dim
+    else:
+        extra = target_dim - initial_dim
+        new_head_dim = next((h for h in range(min(extra, 16), 1, -1)
+                             if h % 2 == 0 and extra % h == 0), None)
+        if new_head_dim is None:
+            raise ValueError('Additional width needs an even-sized attention head group')
+        cfg.legacy_attention_dim = initial_dim
+        cfg.legacy_attention_heads = initial_heads
+        cfg.heads += extra // new_head_dim
+    cfg.norm_divisor = cfg.norm_divisor or initial_dim
+    cfg.dim = target_dim
+    cfg.check()
+
+
 def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen_noise=1e-4):
     """Function-preserving pair AND/OR depth growth with Adam-state migration.
 
@@ -778,17 +896,32 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
     if (new_pairs == old_pairs and new_layers == old_layers
             and model.cfg.dim == previous_cfg.dim
             and model.cfg.expert_hidden == previous_cfg.expert_hidden
-            and model.cfg.symbiotic_rank == previous_cfg.symbiotic_rank):
+            and model.cfg.symbiotic_rank == previous_cfg.symbiotic_rank
+            and model.cfg.hierarchy_rank == previous_cfg.hierarchy_rank):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
         raise ValueError('Cannot reshape an already trained Diamond')
+    if previous_cfg.hierarchy_rank and model.cfg.hierarchy_rank != previous_cfg.hierarchy_rank:
+        raise ValueError('Cannot reshape a trained token hierarchy')
     if model.cfg.moe_every != previous_cfg.moe_every:
         raise ValueError('Cannot change MoE placement during expansion')
     if model.cfg.expert_hidden < previous_cfg.expert_hidden:
         raise ValueError('Cannot shrink expert hidden capacity')
     if model.cfg.dim != previous_cfg.dim:
-        if model.cfg.dim % previous_cfg.dim or model.cfg.heads * previous_cfg.dim != previous_cfg.heads * model.cfg.dim:
-            raise ValueError('Width growth must preserve attention head dimension')
+        continuing_mixed = (previous_cfg.legacy_attention_dim and
+                            model.cfg.legacy_attention_dim == previous_cfg.legacy_attention_dim and
+                            model.cfg.legacy_attention_heads == previous_cfg.legacy_attention_heads and
+                            (model.cfg.dim - model.cfg.legacy_attention_dim) *
+                            (previous_cfg.heads - previous_cfg.legacy_attention_heads) ==
+                            (previous_cfg.dim - previous_cfg.legacy_attention_dim) *
+                            (model.cfg.heads - model.cfg.legacy_attention_heads))
+        uniform = (model.cfg.legacy_attention_dim == 0 and
+                   model.cfg.dim % previous_cfg.dim == 0 and
+                   model.cfg.heads * previous_cfg.dim == previous_cfg.heads * model.cfg.dim)
+        mixed = (model.cfg.legacy_attention_dim == previous_cfg.dim and
+                 model.cfg.legacy_attention_heads == previous_cfg.heads)
+        if not (uniform or mixed or continuing_mixed):
+            raise ValueError('Width growth must preserve inherited attention heads')
         norm0 = previous_cfg.norm_divisor or previous_cfg.dim
         if model.cfg.norm_divisor != norm0:
             raise ValueError('Must preserve original RMSNorm divisor on width growth')
@@ -812,7 +945,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             if name not in saved['model']:
                 if name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
-                    not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name):
+                    not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
+                    not previous_cfg.hierarchy_rank and name.startswith('hierarchy.')):
                     continue
                 raise ValueError('Unknown new state entry: ' + name)
             source = saved['model'][name]
@@ -905,6 +1039,7 @@ def configure(args, vocab_size):
                   expert_hidden=args.expert_hidden, context=args.context,
                   moe_every=args.moe_every, hyperbolic_strength=args.geo,
                   balance_weight=args.balance, symbiotic_rank=args.symbiotic_rank or 0,
+                  hierarchy_rank=getattr(args, 'hierarchy_rank', None) or 0,
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
 
@@ -982,6 +1117,13 @@ def train(args):
         if cfg.symbiotic_rank or args.symbiotic_rank == 0:
             raise ValueError('Diamond can only be enabled once; existing learned geometry cannot be reset')
         cfg.symbiotic_rank = args.symbiotic_rank
+    requested_hierarchy_rank = getattr(args, 'hierarchy_rank', None)
+    enable_hierarchy = bool(saved and requested_hierarchy_rank is not None and
+                            requested_hierarchy_rank != cfg.hierarchy_rank)
+    if enable_hierarchy:
+        if cfg.hierarchy_rank or requested_hierarchy_rank == 0:
+            raise ValueError('Token hierarchy can only be enabled once')
+        cfg.hierarchy_rank = requested_hierarchy_rank
     growth = saved.get('growth') if saved else None
     history = list(saved.get('growth_history', [])) if saved else []
     if enable_symbiotic:
@@ -990,6 +1132,10 @@ def train(args):
                         'active_pairs':28,'active_triangles':56,'active_tetrahedra':70,
                         'apex_concepts':256,'feedback_passes':2,
                         'output_initialized_to_zero':True})
+    if enable_hierarchy:
+        history.append({'kind':'causal_token_hierarchy','step':saved['step'],
+                        'rank':cfg.hierarchy_rank,'scales':['byte','byte_pair_proxy','word','sentence'],
+                        'cross_scale_attention_passes':2,'output_initialized_to_zero':True})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -1048,15 +1194,12 @@ def train(args):
     if args.grow_pairs is not None and saved and args.grow_pairs < cfg.pairs:
         raise ValueError('Cannot shrink trained mirror-pair capacity')
     if widening:
-        if args.widen_dim % cfg.dim != 0:
-            raise ValueError('Width expansion must be an integral multiple')
-        factor = args.widen_dim // cfg.dim
-        cfg.heads *= factor  # preserve RoPE head dimension
-        cfg.norm_divisor = cfg.norm_divisor or cfg.dim
-        history.append({'kind': 'width', 'from': cfg.dim,
+        before_dim = cfg.dim
+        widen_config(cfg, args.widen_dim)
+        history.append({'kind': 'width', 'from': before_dim,
                         'to': args.widen_dim, 'step': saved['step'],
-                        'noise_std': args.widen_noise})
-        cfg.dim = args.widen_dim
+                        'noise_std': args.widen_noise,
+                        'attention_layout': 'mixed' if cfg.legacy_attention_dim else 'uniform'})
     if expert_growing:
         history.append({'kind': 'expert_hidden', 'from': cfg.expert_hidden,
                         'to': args.grow_expert_hidden, 'step': saved['step']})
@@ -1082,12 +1225,14 @@ def train(args):
                               foreach=False if device.type == 'cpu' else None)
     rng = np.random.default_rng(args.seed)
     if saved:
-        if growing or deepen or widening or expert_growing or enable_symbiotic:
+        if growing or deepen or widening or expert_growing or enable_symbiotic or enable_hierarchy:
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
                   f'pairs {old_cfg.pairs}->{cfg.pairs}, expert_hidden {old_cfg.expert_hidden}->{cfg.expert_hidden}; '
-                  f'symbiotic_rank {old_cfg.symbiotic_rank}->{cfg.symbiotic_rank}; old weights and Adam moments retained')
+                  f'symbiotic_rank {old_cfg.symbiotic_rank}->{cfg.symbiotic_rank}; '
+                  f'hierarchy_rank {old_cfg.hierarchy_rank}->{cfg.hierarchy_rank}; '
+                  'old weights and Adam moments retained')
         else:
             ckpt = restore_checkpoint(path, model, optim)
         rng.bit_generator.state = ckpt['rng_numpy']
@@ -1260,7 +1405,7 @@ def evaluate(args):
     moes = [b.ff for b in model.blocks if b.use_moe]
 
     def measure(disable_temporal=False):
-        sums = np.zeros(6, dtype=np.float64)
+        sums = np.zeros(9, dtype=np.float64)
         total = 0
         for ids in batches:
             x = ids[:, :-3]
@@ -1273,13 +1418,21 @@ def evaluate(args):
             for j, (logit, target) in enumerate(zip(predictions, targets)):
                 sums[j] += F.cross_entropy(logit.flatten(0, 1), target.flatten()).item() * positions
                 sums[j+3] += (logit.argmax(-1) == target).float().mean().item() * positions
+                top5 = logit.topk(min(5, cfg.vocab_size), dim=-1).indices
+                sums[j+6] += (top5 == target.unsqueeze(-1)).any(-1).float().mean().item() * positions
         means = sums / total
         return {'ce_1': round(means[0], 6), 'ce_2': round(means[1], 6),
                 'ce_3': round(means[2], 6),
                 'acc_1': round(means[3], 6), 'acc_2': round(means[4], 6),
                 'acc_3': round(means[5], 6),
+                'top5_1': round(means[6], 6), 'top5_2': round(means[7], 6),
+                'top5_3': round(means[8], 6),
                 'ppl_1': round(math.exp(min(means[0], 30.)), 4),
-                'bits_per_token_1': round(means[0] / math.log(2), 6)}
+                'ppl_2': round(math.exp(min(means[1], 30.)), 4),
+                'ppl_3': round(math.exp(min(means[2], 30.)), 4),
+                'bits_per_token_1': round(means[0] / math.log(2), 6),
+                'bits_per_token_2': round(means[1] / math.log(2), 6),
+                'bits_per_token_3': round(means[2] / math.log(2), 6)}
 
     results = {'base': measure()}
     if args.unigram_baseline:
@@ -1295,6 +1448,11 @@ def evaluate(args):
         results['unigram_prior'] = {'ce_1': round(base_ce, 6),
                                      'ppl_1': round(math.exp(base_ce), 4)}
     if args.ablations:
+        if model.hierarchy is not None:
+            original_hierarchy = model.hierarchy
+            model.hierarchy = None
+            results['no_token_hierarchy'] = measure()
+            model.hierarchy = original_hierarchy
         original_geometry = [m.symbiotic for m in moes]
         if any(g is not None for g in original_geometry):
             for m in moes:
@@ -1346,6 +1504,9 @@ def count_parameters_exact(cfg):
                 total += 3*d*r + 1024*r + r*r + 4
         else:
             total += 16*d*d + 2*d
+    if cfg.hierarchy_rank:
+        r = cfg.hierarchy_rank
+        total += 2*d*r + 3*r*r + 4
     return total
 
 
@@ -1418,12 +1579,7 @@ def grow_checkpoint(args):
     original = Config(**saved['config'])
     cfg = copy.deepcopy(original)
     if args.widen_dim is not None:
-        if args.widen_dim < cfg.dim or args.widen_dim % cfg.dim:
-            raise ValueError('Width must be an integral nonshrinking multiple of prior width')
-        f = args.widen_dim // cfg.dim
-        cfg.heads *= f  # keeps existing RoPE head_dim invariant
-        cfg.norm_divisor = cfg.norm_divisor or cfg.dim
-        cfg.dim = args.widen_dim
+        widen_config(cfg, args.widen_dim)
     if args.grow_pairs is not None:
         if args.grow_pairs < cfg.pairs:
             raise ValueError('Cannot shrink paired experts')
@@ -1450,10 +1606,16 @@ def grow_checkpoint(args):
         if original.symbiotic_rank and requested_symbiotic_rank != original.symbiotic_rank:
             raise ValueError('Cannot resize trained geometric concepts')
         cfg.symbiotic_rank = requested_symbiotic_rank
+    requested_hierarchy_rank = getattr(args, 'hierarchy_rank', None)
+    if requested_hierarchy_rank is not None:
+        if original.hierarchy_rank and requested_hierarchy_rank != original.hierarchy_rank:
+            raise ValueError('Cannot resize a trained token hierarchy')
+        cfg.hierarchy_rank = requested_hierarchy_rank
     cfg.check()
     expanded = any((cfg.dim != original.dim, cfg.layers != original.layers,
                     cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
-                    cfg.symbiotic_rank != original.symbiotic_rank))
+                    cfg.symbiotic_rank != original.symbiotic_rank,
+                    cfg.hierarchy_rank != original.hierarchy_rank))
     changed = expanded or cfg.context != original.context or cfg.dispatch_mode != original.dispatch_mode
     if not changed:
         raise ValueError('No capacity/context/dispatch change requested')
@@ -1548,6 +1710,9 @@ def grow_checkpoint(args):
               'new_signed_experts':2*cfg.pairs,'new_hidden_dim':cfg.dim,
               'new_layers':cfg.layers, 'new_expert_hidden':cfg.expert_hidden,
               'new_symbiotic_rank':cfg.symbiotic_rank,
+              'new_hierarchy_rank':cfg.hierarchy_rank,
+              'new_attention_heads':cfg.heads,
+              'legacy_attention_heads':cfg.legacy_attention_heads,
               'max_abs_logit_drift_h1_h2_h3':differences,
               'adam_moment_fields_verified':moment_fields,
               'data_unchanged': new_saved['data'] == saved['data'],
@@ -1573,11 +1738,14 @@ def main():
     size.add_argument('--moe-every', type=int, default=2)
     gr = commands.add_parser('grow', help='atomically grow one existing checkpoint without synthetic training')
     gr.add_argument('--run-dir', required=True)
-    gr.add_argument('--widen-dim',type=int)
+    gr.add_argument('--widen-dim', type=int,
+                    help='includes function-preserving 192D to 256D mixed-head migration')
     gr.add_argument('--add-layers', type=int, default=0)
     gr.add_argument('--grow-pairs',type=int)
     gr.add_argument('--grow-expert-hidden',type=int)
     gr.add_argument('--symbiotic-rank',type=int,help='enable 256-point Diamond without changing inherited logits or Adam states')
+    gr.add_argument('--hierarchy-rank',type=int,
+                    help='enable causal byte/pair/word/sentence attention feedback without changing prior logits')
     gr.add_argument('--set-context',type=int)
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
@@ -1635,10 +1803,13 @@ def main():
     tr.add_argument('--grow-pairs', type=int, default=None, help='increase pair capacity within the same checkpoint')
     tr.add_argument('--set-context', type=int, default=None, help='expand causal context with the same learned weights')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
-    tr.add_argument('--widen-dim', type=int, default=None, help='expand width; auto-expand attention heads, preserve old head size')
+    tr.add_argument('--widen-dim', type=int, default=None,
+                    help='expand width without changing learned head geometry, including 192D to 256D')
     tr.add_argument('--grow-expert-hidden', type=int, default=None, help='expand every pair expert inner width')
     tr.add_argument('--symbiotic-rank', type=int, default=None,
                     help='enable shared 256-point/triangle/tetra/apex feedback with zero-output migration')
+    tr.add_argument('--hierarchy-rank',type=int,default=None,
+                    help='causal byte/pair/word/sentence cross-scale attention; zero-output migration')
     tr.add_argument('--widen-noise', type=float, default=1e-4, help='small new-channel seed; set 0 for exact no-op')
     tr.add_argument('--dispatch-mode', choices=('grouped','gather'), default=None)
     tr.add_argument('--gather-chunk', type=int, default=None)
