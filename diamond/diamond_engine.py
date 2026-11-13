@@ -746,8 +746,12 @@ def make_example(pos):
         cur = np.zeros(SENT_LEN, dtype=np.int32)
         if si < len(sent_word_start):
             cs = min(int(sent_word_start[si]), pos)
-            if pos > cs:
-                segc = word_stream[max(cs, pos - SENT_LEN):pos]
+            if pos >= cs:
+                # Include the current word for the sentence head only. The
+                # word/byte heads and their conditioning path use the causal
+                # sentence state at the preceding slot, so this is not leaked
+                # into next-byte / next-word prediction.
+                segc = word_stream[max(cs, pos + 1 - SENT_LEN):pos + 1]
                 if len(segc) > 0:
                     cur[:len(segc)] = np.asarray(segc, dtype=np.int32)
         swin[WIN_S - 1] = cur
@@ -929,8 +933,9 @@ class MoE(tf.keras.layers.Layer):
 class Micro(tf.keras.layers.Layer):
     """One tiny transformer block, 4 heads. Stack DEPTH of these per tower."""
 
-    def __init__(self, dim, heads, ff, drop=0.1):
+    def __init__(self, dim, heads, ff, drop=0.1, causal=False):
         super().__init__()
+        self.causal = causal
         self.attn = tf.keras.layers.MultiHeadAttention(num_heads=heads, key_dim=dim // heads)
         self.ln1 = tf.keras.layers.LayerNormalization()
         self.ln2 = tf.keras.layers.LayerNormalization()
@@ -942,7 +947,7 @@ class Micro(tf.keras.layers.Layer):
         self.drop2 = tf.keras.layers.Dropout(drop)
 
     def call(self, x, training=False):
-        a = self.attn(x, x)
+        a = self.attn(x, x, use_causal_mask=self.causal)
         a = self.drop1(a, training=training)
         x = self.ln1(x + a)
         f = self.ffn(x)
@@ -996,7 +1001,9 @@ class TripleStaged(tf.keras.Model):
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
         self.sent_chunk_stem = ChunkConv(DIM_S, SENT_LEN)
         self.sent_moe = MoE(256, DIM_S, 2)
-        self.sent_blocks = [Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(DEPTH)]
+        self.sent_blocks = [
+            Micro(DIM_S, 4, FF_S, ARGS.dropout, causal=True) for _ in range(DEPTH)
+        ]
         self.sent_word_attn = tf.keras.layers.MultiHeadAttention(
             num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
         )
@@ -1055,16 +1062,21 @@ class TripleStaged(tf.keras.Model):
             s_h = block(s_h, training=training)
         s_attn = self.sent_word_attn(s_h, w_h, w_h)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
-        # The final slot is the current-sentence prefix, not a completed
-        # sentence. A learned boundary vector tells the sentence head which
-        # representation is being asked to predict the next sentence.
-        s_last = s_h[:, -1, :] + self.sent_boundary
+        # The final slot is the current-sentence prefix (including the current
+        # word), used only by the sentence head. The preceding slot is the
+        # completed previous sentence, used for causal byte/word conditioning.
+        # The sentence self-attention is causal, so the current word cannot
+        # reach the conditioning state through attention.
+        s_pred = s_h[:, -1, :] + self.sent_boundary
+        s_cond = s_h[:, -2, :]
+        sent_word = self.word_to_sent(w_last)
 
         w_up = w_last + self.byte_to_word(b_last)
-        s_up = s_last + self.word_to_sent(w_last)
+        s_up = s_pred + sent_word
+        s_cond_up = s_cond + sent_word
         if two_way:
-            w_cond = w_up + self.sent_to_word(s_up)
-            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_up)
+            w_cond = w_up + self.sent_to_word(s_cond_up)
+            b_cond = b_last + self.word_to_byte(w_cond) + self.sent_to_byte(s_cond_up)
         else:
             w_cond = w_up
             b_cond = b_last
@@ -1101,7 +1113,9 @@ SIGNATURE = json.dumps({
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
     "sent_prefix": True,
-    "sent_content": "first_last",
+    "sent_content": "first_last_lookahead",
+    "sent_lookahead": True,
+    "sent_causal": True,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
