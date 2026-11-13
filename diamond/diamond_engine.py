@@ -648,8 +648,15 @@ sent_tokens = []
 for s in sentences:
     row = np.zeros(SENT_LEN, dtype=np.int32)
     if s:
-        n = min(SENT_LEN, len(s))
-        row[:n] = np.asarray(s[:n], dtype=np.int32)
+        if len(s) <= SENT_LEN:
+            row[:len(s)] = np.asarray(s, dtype=np.int32)
+        else:
+            # Keep both the opening and closing words: the opening carries the
+            # sentence topic and the closing words are adjacent to the next
+            # sentence boundary that the sentence head predicts.
+            half = max(1, SENT_LEN // 2)
+            row[:half] = np.asarray(s[:half], dtype=np.int32)
+            row[half:] = np.asarray(s[-(SENT_LEN - half):], dtype=np.int32)
     sent_tokens.append(row)
 if not sent_tokens:
     sent_tokens = [np.zeros(SENT_LEN, dtype=np.int32)]
@@ -1091,6 +1098,7 @@ SIGNATURE = json.dumps({
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
     "sent_prefix": True,
+    "sent_content": "first_last",
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
