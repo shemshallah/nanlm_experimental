@@ -1,7 +1,7 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.26 (read-only geometric factor diagnostic).**
-**Accepted model: step 14,416, with five continuous inherited optimizer histories.**
+**Current source architecture: R7.27 (one unified optimizer/checkpoint/test interface).**
+**Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
 
@@ -26,6 +26,16 @@ research candidate has passed the independent-book promotion gates.
   face and pair channels, odd edge connection, tetrahedral closure versus
   signed volume, and each geometry/apex gate. It also checks triangle/geometry
   interactions and book-level confidence intervals without training weights.
+- R7.27 preserves the exact legacy AdaGrad-style accumulator and merges the
+  four AdamW engines into one optimizer interface with 13 parameter groups.
+  Real-checkpoint bitwise state and update parity passed; the new unpromoted
+  single-state checkpoint format has explicit restore-time tokenizer hashes.
+- The R7.27 canonical source suite passes seven structural test groups. A
+  512-target NaNROUTER book-disjoint DEV benchmark reported first-byte top-1
+  15.63%, first-byte top-5 39.45%, trunk-word top-1 16.60%, trunk-word top-5
+  37.70%, and full-system vocabulary NLL 5.098015 nats/word. The tiny
+  foreign-history difference (+0.000056 nats/word) does not justify promotion.
+  Full-system normalized word rankings and true raw-byte BPB remain unavailable.
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -36,6 +46,8 @@ book-level confidence bounds, correct-history superiority, informative
 S-/tetra/apex ablations, matched nongeneric controls, and unchanged original
 weights/moments. No GPU escalation yet. FA2 and NaNLMind remain distinct.
 
+Read `FA1_R7p27_UNIFIED_SYSTEM.md` for checkpoint continuity, the new optimizer,
+the unified suite and the honest byte/word measurement protocol.
 Read `FA1_R7p25_CAUSAL_GEOMETRY_CONTINUATION.md` for checkpoint lineage and
 `FA1_R7p26_FACTOR_ABLATION_PROTOCOL.md` for the new diagnostics. The implementation
 is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,

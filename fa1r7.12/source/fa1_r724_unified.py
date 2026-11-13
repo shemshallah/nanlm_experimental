@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Identity-preserving R7.23 -> R7.24 geometric migration, same five Adams."""
 from __future__ import annotations
-import copy,os,pathlib,tempfile
+import copy,math,os,pathlib,tempfile
 import torch
 from fa1_r723_diamond import extend_r722,load_diamond,UnifiedR723Diamond
 from fa1_r724_geometry import GeometricDiamond
@@ -34,12 +34,28 @@ def _legacy_geometry_upgrade(obj,model,opts):
         result[:,:9].copy_(value)
         return result
     new_state[face]=widen(old_state[face],current_state[face])
+    # Pre-meta R7.24 files lack the five tensors below. Their random
+    # initializer used to depend on unrelated global RNG state, so loading
+    # the SAME candidate twice produced different model weights. Reconstruct
+    # them deterministically without touching any saved learned parameter.
+    rng=torch.Generator(device='cpu').manual_seed(724027)
+    def missing_meta(name,reference):
+        value=reference.new_empty(reference.shape)
+        if name.endswith(('meta_up','meta_down')):
+            return value.normal_(mean=0.,std=.02,generator=rng)
+        if name.endswith('meta_gate'):
+            return value.zero_()
+        if name.endswith('tetra_meta.weight'):
+            return torch.nn.init.kaiming_uniform_(value,a=math.sqrt(5),generator=rng)
+        if name.endswith('tetra_meta.bias'):
+            return value.uniform_(-1/math.sqrt(32),1/math.sqrt(32),generator=rng)
+        raise ValueError('unknown absent geometry tensor '+name)
     added=[]
     for name,value in current_state.items():
         if name not in new_state:
             if not name.startswith('diamond.geometry.'):
                 raise ValueError('missing inherited tensor '+name)
-            new_state[name]=value.clone()
+            new_state[name]=missing_meta(name,value)
             added.append(name)
     if set(added)!={
         'diamond.geometry.meta_up','diamond.geometry.meta_down',
@@ -74,6 +90,7 @@ def _legacy_geometry_upgrade(obj,model,opts):
     last['param_groups'][-1]['params']=remapped
     obj['legacy_geometry_migration']={
         'from_face_features':9,'to_face_features':11,
+        'missing_meta_seed':724027,
         'added_meta_parameters':sorted(added),
         'old_adam_ids_preserved':True,'accepted_parent_unchanged':True}
     return new_state,states

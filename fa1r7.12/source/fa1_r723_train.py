@@ -20,6 +20,13 @@ def prepare(a,m,base,comp,split,n,seed):
         data=gather_joint(a.root,m,base,comp,split,n,seed,batch=a.batch,corpus_dir=a.corpus_dir)
         extras=diamond_context(a.root,base,split,data['positions'],data['hidden'],a.corpus_dir)
     data.update(extras)
+    # Preserve whole-book identity alongside the sampled examples. R7.24-26
+    # hard-negative controls require these labels, but the legacy gather path
+    # did not propagate them from prepare_document_corpus.py's doc_start map.
+    corpus=Corpus(a.root,split,corpus_dir=a.corpus_dir)
+    if corpus.doc_start is not None:
+        positions=np.asarray(data['positions'],dtype=np.int64)
+        data['book_ids']=torch.from_numpy(np.asarray(corpus.doc_start[positions],dtype=np.int64).copy())
     return data
 
 

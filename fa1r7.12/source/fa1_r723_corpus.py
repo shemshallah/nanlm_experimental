@@ -44,7 +44,11 @@ def diamond_context(root,base,split,positions,hidden,corpus_dir=None):
                 if int(h) not in points:points.append(int(h))
                 if len(points)==8:break
         vertices.append(points)
-        tw=base.vocab[int(c.seq[p])]
+        # The word vocabulary maps out-of-vocabulary words to ID zero.
+        # The original UTF-8 spelling is retained in the corpus character
+        # sidecar: use it for the *label*, or byte accuracy is falsified by
+        # predicting the literal '<unk>' spelling for every unknown word.
+        tw=c.spelling(int(p),base.vocab)
         first=tw.encode('utf-8')[:1]
         byte_target.append(int(first[0]) if first else 0)
     return {'word_ids':torch.from_numpy(word).long(),

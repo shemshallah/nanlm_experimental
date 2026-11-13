@@ -1,0 +1,55 @@
+name: FA1 R7.27 - one model, one optimizer, unified test suite
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r727-unified-suite.yml'
+      - 'fa1r7.12/source/fa1_r723_corpus.py'
+      - 'fa1r7.12/source/fa1_r723_train.py'
+      - 'fa1r7.12/source/fa1_r724_unified.py'
+      - 'fa1r7.12/source/fa1_r727_*.py'
+      - 'fa1r7.12/source/test_fa1_r727_*.py'
+      - 'fa1r7.12/FA1_R7p27_UNIFIED_SYSTEM.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r727-master-source-tests
+  cancel-in-progress: false
+
+jobs:
+  r727-unified-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU runtime
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile unified architecture source
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r727_*.py
+          python -m py_compile fa1r7.12/source/test_fa1_r727_*.py
+      - name: Seven-level unified regression suite
+        run: |
+          python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r727_source_suite.json"
+      - name: Upload source-only report
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r727-unified-source-suite
+          path: ${{ runner.temp }}/r727_source_suite.json
+          retention-days: 30
+      - name: Promotion policy
+        run: echo 'Structural tests only. No accepted checkpoint promotion. Real-weight DEV must run on recovered files.'
