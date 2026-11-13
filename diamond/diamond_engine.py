@@ -1113,7 +1113,7 @@ class TripleStaged(tf.keras.Model):
         total = tf.reduce_sum(counts, axis=-1, keepdims=True)
         cache_prob = counts / tf.maximum(total, 1.0)
         has_cache = tf.cast(total > 0.0, tf.float32)
-        cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
+        cache_gate = 0.5 * has_cache
         sent_prob = tf.nn.softmax(sent_logits, axis=-1)
         sent_logits = tf.math.log(
             (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob + 1e-9
