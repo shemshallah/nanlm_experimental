@@ -729,7 +729,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--save-every", type=int, default=0,
                      help="write last.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--freeze-trunk", action="store_true",
-                     help="freeze everything except the MTP heads (MTP-only repair)")
+                     help="freeze the trunk (MTP repair)")
+    run.add_argument("--unfreeze-last-block", action="store_true",
+                     help="with --freeze-trunk, also train the last transformer block")
     run.add_argument("--best-every", type=int, default=0,
                      help="write best.pt every N steps (0 = only final/early-stop)")
     run.add_argument("--init-from", default="",
@@ -1204,8 +1206,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[init] loaded weights from {init_path}", flush=True)
 
     if args.freeze_trunk:
+        last_prefix = f"blocks.{cfg.n_layers - 1}."
         for name, param in model.named_parameters():
-            if not (name.startswith("mtp_heads.") or name.startswith("mtp_adapters.")):
+            keep = name.startswith("mtp_heads.") or name.startswith("mtp_adapters.")
+            if args.unfreeze_last_block and name.startswith(last_prefix):
+                keep = True
+            if not keep:
                 param.requires_grad_(False)
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"[freeze] trunk frozen; trainable MTP params={trainable:,}", flush=True)
