@@ -76,3 +76,27 @@ The next MTP test should change the **branch and objective**, not just the head:
 
 The tokenizer v4 64k smoke is the first part that passed. Do not start a full
 cycle until the MTP branch passes a 500-step gate.
+
+## t+1-conditioned MTP block (2026-11-13)
+
+Implemented a one-block MTP branch with its own attention and 8-expert router,
+t+1 conditioning, `<now>` vector, and a concat projection.
+
+50-step diagnostics (trunk frozen, LR 5e-5):
+
+| Variant | Eval MTP | Correct-vs-wrong t+1 delta |
+|---|---:|---:|
+| teacher t+1 = 1.0 | 1.5701 | **-0.1792** |
+| teacher t+1 = 0.5 | 1.5588 | -0.0299 |
+| teacher t+1 = 0.0 | 1.5500 | 0.0000 |
+
+The branch genuinely uses t+1 when it is given the **ground-truth** next
+token: MTP drops to 1.3802 in the sensitivity probe and correct-vs-random t+1
+delta is -0.179. But with the **predicted** t+1 used at eval, held-out MTP is
+1.55–1.57, not below the 1.548 baseline and not near the 1.40 target.
+
+This is the key remaining issue: MTP is conditioned on a t+1 guess whose top-1
+is only about 70%, and the branch was not trained to be robust to that guess.
+Simply training longer with ground-truth t+1 will not fix it.
+
+No 200/1000-step follow-up was run because the gate was not met.
