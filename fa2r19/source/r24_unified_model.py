@@ -90,7 +90,7 @@ class UnifiedFA2(nn.Module):
         self.local_history = int(local_history)
 
     def forward_chunk(self, book, segment, carry, *, counterfactual=False,
-                      donor_book=None):
+                      donor_book=None, apply_r25=True):
         begin, end, t0, t1 = segment
         examples = torch.as_tensor(book.examples[begin:end].astype(np.int64))[None]
         lexical = torch.as_tensor(book.context[begin:end].astype(np.float32))[None]
@@ -156,12 +156,26 @@ class UnifiedFA2(nn.Module):
                         unrelated, _ = self.r23(
                             post22, alternate,
                             piece_table=self.model.memory.piece_emb.weight)
+        uncalibrated = actual
+        if apply_r25 and hasattr(self, "r25"):
+            from r25_episodic_cache import CausalNGramIndex
+            if not hasattr(self, "_r25_book_indexes"):
+                self._r25_book_indexes = {}
+            cache = self._r25_book_indexes.get(book.book_id)
+            if cache is None:
+                cache = CausalNGramIndex(book.tokens)
+                self._r25_book_indexes[book.book_id] = cache
+            values, features = cache.distributions(
+                book.tokens, t0, len(y), actual.shape[-1])
+            actual = self.r25(
+                actual, torch.from_numpy(values).to(actual.device),
+                torch.from_numpy(features).to(actual.device))
         byte_start = int(book.byte_starts[begin])
         byte_end = (int(book.byte_starts[end]) if end < len(book.byte_starts)
                     else int(book.raw_len))
         if byte_end <= byte_start:
             raise ValueError("nonpositive source-verified byte span")
-        return {"logits": actual, "without_r23": post22,
+        return {"logits": actual, "without_r25": uncalibrated, "without_r23": post22,
                 "scrambled_values": permuted, "unrelated_history": unrelated,
                 "target": y,
                 "bytes": byte_end - byte_start, "memory_detail": details,
