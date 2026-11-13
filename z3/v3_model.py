@@ -330,6 +330,10 @@ class V3LM(nn.Module):
             nn.Parameter(torch.zeros(cfg.d_model)) if cfg.mtp_block else None
         )
         self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
+        self.mtp_cond_proj = (
+            nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
+            if cfg.mtp_block else None
+        )
         self.memory_path = None
         self.memory_cross = None
         if cfg.use_memory:
@@ -358,6 +362,17 @@ class V3LM(nn.Module):
         self.apply(self._init)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
         if self.mtp_block is not None:
+            # Preserve the trunk hidden on the x half of the conditioning
+            # projection, with a small nonzero t+1 half so conditioning is
+            # live and testable from step zero.
+            with torch.no_grad():
+                self.mtp_cond_proj.weight.zero_()
+                self.mtp_cond_proj.weight[:, : self.cfg.d_model].copy_(
+                    torch.eye(self.cfg.d_model)
+                )
+                self.mtp_cond_proj.weight[:, self.cfg.d_model:].normal_(
+                    mean=0.0, std=0.05
+                )
             # Identity branch at step zero: the t+1-conditioned input reaches
             # the old MTP head unchanged, so any later gain is real.
             nn.init.zeros_(self.mtp_block.attn.out_proj.weight)
@@ -418,7 +433,8 @@ class V3LM(nn.Module):
             causal = torch.triu(
                 torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1
             )
-            branch, _ = self.mtp_block(x + next_emb + self.mtp_now, attn_mask=causal)
+            cond = self.mtp_cond_proj(torch.cat([x, next_emb], dim=-1)) + self.mtp_now
+            branch, _ = self.mtp_block(cond, attn_mask=causal)
             mtp = [head(branch) for head in self.mtp_heads]
         else:
             mtp = [
