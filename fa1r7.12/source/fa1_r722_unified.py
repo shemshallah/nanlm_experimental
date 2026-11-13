@@ -153,11 +153,22 @@ def extend_r721(r721_path,root,threads=2):
 
 def save_unified(path,model,opts,parent_path,train_updates=0,selection=None):
     if len(opts)!=5 or len(opts[4].param_groups)!=7:raise ValueError('R7 unified optimizer topology changed')
-    if sha256(parent_path)!=PARENT_R721:raise ValueError('R7 ancestor changed while saving')
+    # A one-time R7.21 -> R7.22 identity migration may use the verified
+    # ancestor. All later R7.22 checkpoints MUST be able to continue from
+    # their latest complete R7.22 checkpoint alone, without R7.21 on disk.
+    direct_parent_digest=sha256(parent_path)
+    if direct_parent_digest!=PARENT_R721:
+        predecessor=torch.load(parent_path,map_location='cpu',weights_only=False)
+        if (predecessor.get('format')!=FORMAT or
+            predecessor.get('accepted_parent_sha256')!=PARENT or
+            predecessor.get('r721_ancestor_sha256')!=PARENT_R721 or
+            predecessor.get('optimizer_count')!=5 or predecessor.get('promotion')):
+            raise ValueError('untrusted R7.22 continuation parent')
     state={
       'format':FORMAT,'lineage':'FA1 R7 one model on master',
       'accepted_parent_sha256':PARENT,'accepted_step':STEP,
       'r721_ancestor_sha256':PARENT_R721,
+      'direct_parent_sha256':direct_parent_digest,
       'model':model.state_dict(), 'optimizer_count':5,
       'optimizer_names':list(OPT_NAMES),
       'optimizer_states':[o.state_dict() for o in opts],

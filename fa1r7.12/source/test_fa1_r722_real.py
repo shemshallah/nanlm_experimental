@@ -42,7 +42,7 @@ def run(a):
     assert all(deep_equal(s5['state'][k],v) for k,v in orig5['state'].items())
     with tempfile.TemporaryDirectory() as td:
         path=pathlib.Path(td)/'r7_candidate.pt'
-        save_unified(path,model,opts,a.ancestor,train_updates=1,
+        save_unified(path,model,opts,a.candidate,train_updates=1,
             selection={'synthetic_gradient_step_only':True,'new_books':False})
         loaded,newopts,_,_,meta3=load_unified(path,a.root)
         assert all(torch.equal(v,loaded.state_dict()[k]) for k,v in model.state_dict().items())

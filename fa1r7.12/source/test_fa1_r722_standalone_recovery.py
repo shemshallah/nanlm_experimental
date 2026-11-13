@@ -2,7 +2,7 @@
 """R7.22 recovery without R7.13 or R7.21 weights (corpus/tokenizer metadata only)."""
 import argparse, tempfile, pathlib,json,time
 import torch
-from fa1_r722_unified import load_unified
+from fa1_r722_unified import load_unified,save_unified
 from r710_checkpoint_integrity import deep_equal,sha256
 
 def run(a):
@@ -20,10 +20,19 @@ def run(a):
   assert all(deep_equal(o.state_dict(),t.state_dict()) for o,t in zip(opts,ops))
   assert len(opts)==5 and len(orig.state_dict())==105
   assert meta2['semantic_updates']==0 and not meta2['promotion']
+  # Can continue saving from the latest R7.22 checkpoint alone; the R7.21
+  # ancestor is *not* required after the verified identity migration.
+  outpath=root/'resumed_r722.pt'
+  save_unified(outpath,copied,ops,a.checkpoint,train_updates=0)
+  resumed,r_opts,_,_,r_meta=load_unified(outpath,root)
+  assert all(torch.equal(v,resumed.state_dict()[k]) for k,v in copied.state_dict().items())
+  assert all(deep_equal(o.state_dict(),t.state_dict()) for o,t in zip(ops,r_opts))
+  assert r_meta['direct_parent_sha256']==sha256(a.checkpoint)
  out={'round':'FA1 R7.22','complete_unified_checkpoint':True,
    'model_tensor_count':105,'optimizer_history_count':5,
    'all_model_tensors_bitwise_recovered':True,
    'all_five_optimizer_histories_bitwise_recovered':True,
+   'save_and_resume_without_r721_files':True,
    'no_legacy_checkpoint_or_adapter_files_present':True,
    'external_tokenizer_and_corpus_metadata_still_required':True,
    'sha256':sha256(a.checkpoint),'promoted':False,
