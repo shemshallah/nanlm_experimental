@@ -124,6 +124,15 @@ def _model_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
     return _model_core(model).state_dict()
 
 
+def _aux_scalar(value):
+    """Reduce a per-replica auxiliary tensor (e.g. DataParallel gather)."""
+    if isinstance(value, torch.Tensor):
+        if value.numel() == 0:
+            return None
+        return value.reshape(-1).mean()
+    return value
+
+
 def _amp_context(enabled: bool):
     if not enabled:
         return contextlib.nullcontext()
@@ -562,9 +571,9 @@ def evaluate(
 
         if aux:
             if aux.get("load_balance") is not None:
-                load_balance_sum += float(aux["load_balance"].detach())
+                load_balance_sum += float(_aux_scalar(aux["load_balance"]).detach())
             if aux.get("router_z") is not None:
-                router_z_sum += float(aux["router_z"].detach())
+                router_z_sum += float(_aux_scalar(aux["router_z"]).detach())
             aux_batches += 1
 
     main_loss = main_ce_sum / max(1, main_tokens)
@@ -1401,8 +1410,8 @@ def main(argv: list[str] | None = None) -> int:
                 xb,
                 mtp_weight=args.mtp_weight,
             )
-            load_balance = aux.get("load_balance") if aux else None
-            router_z = aux.get("router_z") if aux else None
+            load_balance = _aux_scalar(aux.get("load_balance")) if aux else None
+            router_z = _aux_scalar(aux.get("router_z")) if aux else None
             if load_balance is not None:
                 loss = loss + args.load_balance_coef * load_balance
             if router_z is not None:
