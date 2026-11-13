@@ -76,7 +76,13 @@ class CounterfactualTrustGate(nn.Module):
         ), dim=-1)
         score = self.gate(torch.cat((evidence, summary), dim=-1)).squeeze(-1)
         # Exact zero at init; useful gradients at zero. 0.95 safety bound.
-        budget = .95 * torch.clamp_min(torch.tanh(self.reversion), 0.0)
+        # Forward is exactly zero at initialization. The straight-through
+        # term guarantees a nonzero derivative across PyTorch clamp-at-zero
+        # conventions, while retaining a nonnegative forward mixture.
+        raw = torch.tanh(self.reversion)
+        positive = raw.clamp_min(0.0)
+        budget = .95 * (positive + (raw - raw.detach()) *
+                        (raw <= 0).to(raw.dtype))
         return budget * torch.sigmoid(score) * long.any(-1).float()
 
     def forward(self, full_logprobs, near_logprobs, features):
