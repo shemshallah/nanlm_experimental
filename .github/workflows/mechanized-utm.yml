@@ -78,6 +78,16 @@ jobs:
           "$COQBIN/coqc" --version | head -1
           "$COQBIN/coq_makefile" --version | head -1
 
+      - name: Ensure MetaCoq template plugin
+        run: |
+          set -euo pipefail
+          export OPAMROOT=/home/coq/.opam
+          export OPAMSWITCH=4.13.1+flambda
+          if ! opam list --installed --short 2>/dev/null | grep -qx coq-metacoq-template; then
+            opam install -y coq-metacoq-template
+          fi
+          opam list --installed --short | grep -E 'coq-metacoq|coq ' | head
+
       - name: Build fixed-UTM dependency cone
         run: |
           set -euo pipefail
