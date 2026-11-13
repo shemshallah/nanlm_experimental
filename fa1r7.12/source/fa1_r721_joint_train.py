@@ -26,7 +26,8 @@ from fa1_r721_unified import load_candidate,trainable_memory_only,write_candidat
 def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None):
     corpus=Corpus(root,split,corpus_dir=corpus_dir);positions=np.sort(pick_positions(corpus,n,seed))
     stream=DirectedStreaming(model.core)
-    allb=[];nf=[];npb=[];nc=[];ff=[];fp=[];fc=[]
+    allb=[];allhidden=[];alltarget=[];nf=[];npb=[];nc=[];ff=[];fp=[];fc=[]
+    modal_ids=[];modal_mask=[]
     for offset in range(0,n,batch):
         inds=positions[offset:offset+batch]
         _,ctx,pieces,lens,y,_,_=batch_data(base,corpus,comp,inds)
@@ -35,7 +36,7 @@ def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None):
         ex=torch.from_numpy(corpus.data[inds].copy()).long()
         lg=torch.from_numpy(corpus.long[inds].copy()).long()
         now,loss,_=stream.forward(ex,lg,ctx,pieces,lens,state,older,y)
-        allb.append(loss.detach().cpu());hist=corpus.get(inds,HORIZON)[0]
+        allhidden.append(now.detach().cpu());alltarget.append(y.detach().cpu());allb.append(loss.detach().cpu());hist=corpus.get(inds,HORIZON)[0]
         routes=[];modal=[]
         for j in range(len(inds)):
             q=ctx[j].numpy();target=int(y[j]);h=hist[j]
@@ -46,14 +47,21 @@ def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None):
         p=torch.exp(-model.core.trunk.nll(now.cpu().repeat_interleave(12,0),
                                 torch.tensor(modal,dtype=torch.long)).reshape(len(inds),12)).numpy()
         for j,(near,far,q) in enumerate(routes):
+            # The retrieved MODAL tokens are selected by causal history and
+            # query alone. Never pass target_probability to the Diamond.
+            records=near+far
+            modal_ids.append([int(r['modal']) if r['n'] else 1 for r in records])
+            modal_mask.append([int(r['n']>0) for r in records])
             nf.append(make_feature(near,p[j,:8],q));npb.append([r['target_probability'] for r in near]);nc.append([r['n'] for r in near])
             ff.append(make_feature(far,p[j,8:],q,far=True));fp.append([r['target_probability'] for r in far]);fc.append([r['n'] for r in far])
-    return {'base':torch.cat(allb).cpu(),'near_features':torch.tensor(np.asarray(nf),dtype=torch.float32),
+    return {'base':torch.cat(allb).cpu(),'hidden':torch.cat(allhidden).cpu(),'target':torch.cat(alltarget).cpu(),'near_features':torch.tensor(np.asarray(nf),dtype=torch.float32),
             'near_prob':torch.tensor(np.asarray(npb),dtype=torch.float32),
             'near_count':torch.tensor(np.asarray(nc),dtype=torch.float32),
             'far_features':torch.tensor(np.asarray(ff),dtype=torch.float32),
             'far_prob':torch.tensor(np.asarray(fp),dtype=torch.float32),
             'far_count':torch.tensor(np.asarray(fc),dtype=torch.float32),
+            'memory_modal_ids':torch.tensor(modal_ids,dtype=torch.long),
+            'memory_modal_mask':torch.tensor(modal_mask,dtype=torch.bool),
             'positions':positions.tolist(),'n':n}
 
 
