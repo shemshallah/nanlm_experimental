@@ -139,13 +139,32 @@ def run(a):
             old_ce=m.joint_nll(sample,diamond_enabled=False)[0]
             useful=(extra['branch_nll'].detach()<old_ce.detach()).float()
         trust_ce=F.binary_cross_entropy_with_logits(extra['trace']['trust_logit'],useful)
+        # The apex and its downward pair reconstruction must *cause* a
+        # predictive benefit, rather than merely activate while inherited R7
+        # carries the score. Ablations keep the target identical and replace
+        # only the affected causal pathway. Train on TRAIN examples only.
+        if a.apex_contrast>0:
+            _,without_apex=forward(m,sample,'no_apex')
+            apex_difference=(without_apex['branch_nll']-extra['branch_nll']).mean()
+            apex_c=F.softplus((a.apex_margin-apex_difference)*8)/8
+        else:
+            apex_difference=branch_ce.new_zeros(())
+            apex_c=branch_ce.new_zeros(())
+        if a.pair_contrast>0:
+            _,without_pair=forward(m,sample,'no_pair')
+            pair_difference=(without_pair['branch_nll']-extra['branch_nll']).mean()
+            pair_c=F.softplus((a.apex_margin-pair_difference)*8)/8
+        else:
+            pair_difference=branch_ce.new_zeros(())
+            pair_c=branch_ce.new_zeros(())
+        topological=a.apex_contrast*apex_c+a.pair_contrast*pair_c
         if step<=a.warmup:
-            loss=a.branch_weight*branch_ce+a.context_contrast*contrastive+a.trust_weight*trust_ce+a.aux_byte*bce+a.aux_word*nce
+            loss=a.branch_weight*branch_ce+a.context_contrast*contrastive+a.trust_weight*trust_ce+topological+a.aux_byte*bce+a.aux_word*nce
         else:
             if step==a.warmup+1:
                 # Open only exploratory candidate, never its accepted parent.
                 with torch.no_grad():m.diamond.gate.fill_(float(np.arctanh(.2)))
-            loss=joint.mean()+a.branch_weight*branch_ce+a.context_contrast*contrastive+a.trust_weight*trust_ce+a.aux_byte*bce+a.aux_word*nce
+            loss=joint.mean()+a.branch_weight*branch_ce+a.context_contrast*contrastive+a.trust_weight*trust_ce+topological+a.aux_byte*bce+a.aux_word*nce
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(m.diamond.parameters(),1.0)
@@ -159,6 +178,8 @@ def run(a):
                         'aux_byte_train':float(bce.detach()),'aux_word_train':float(nce.detach()),
                         'branch_nll_train':float(branch_ce.detach()),'unrelated_branch_train':float(bad_ce.detach()),
                         'context_difference_train':float(difference.detach()),'trust_ce_train':float(trust_ce.detach()),
+                        'apex_difference_train':float(apex_difference.detach()),
+                        'pair_difference_train':float(pair_difference.detach()),
                         'passes_gates':acceptable})
             history.append(eva)
             print('STEP',step,json.dumps({k:round(v,6) if isinstance(v,float) else v for k,v in eva.items()}),flush=True)
@@ -218,6 +239,9 @@ if __name__=='__main__':
     p.add_argument('--context-contrast',type=float,default=.7)
     p.add_argument('--context-margin',type=float,default=.02)
     p.add_argument('--trust-weight',type=float,default=.12)
+    p.add_argument('--apex-contrast',type=float,default=0.)
+    p.add_argument('--pair-contrast',type=float,default=0.)
+    p.add_argument('--apex-margin',type=float,default=.01)
     p.add_argument('--min-gain',type=float,default=.0001)
     p.add_argument('--min-history-adv',type=float,default=.0001)
     p.add_argument('--min-apex-adv',type=float,default=.00001)
