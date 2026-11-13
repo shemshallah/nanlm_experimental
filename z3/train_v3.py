@@ -521,6 +521,12 @@ def evaluate(
     top5 = 0
     mtp_ce_sum = 0.0
     mtp_tokens = 0
+    mtp_correct_sum = 0.0
+    mtp_correct_tokens = 0
+    mtp_wrong_sum = 0.0
+    mtp_wrong_tokens = 0
+    mtp_accept = 0
+    mtp_accept_tokens = 0
     load_balance_sum = 0.0
     router_z_sum = 0.0
     aux_batches = 0
@@ -559,15 +565,26 @@ def evaluate(
             head_mask = head_targets != IGNORE_INDEX
             if not head_mask.any():
                 continue
-            mtp_ce_sum += float(
-                F.cross_entropy(
-                    head_logits[:, :target_len].reshape(-1, vocab),
-                    head_targets.reshape(-1),
-                    reduction="sum",
-                    ignore_index=IGNORE_INDEX,
-                )
-            )
+            ce = F.cross_entropy(
+                head_logits[:, :target_len].reshape(-1, vocab),
+                head_targets.reshape(-1),
+                reduction="none",
+                ignore_index=IGNORE_INDEX,
+            ).view(xb.size(0), target_len)
+            mtp_ce_sum += float(ce.sum())
             mtp_tokens += int(head_mask.sum())
+            if head_index == 0:
+                t1_pred = main_logits[:, :target_len].argmax(dim=-1)
+                t1_correct = t1_pred == xb[:, 1:1 + target_len]
+                mtp_correct_sum += float(ce[t1_correct & head_mask].sum())
+                mtp_wrong_sum += float(ce[~t1_correct & head_mask].sum())
+                mtp_correct_tokens += int((t1_correct & head_mask).sum())
+                mtp_wrong_tokens += int((~t1_correct & head_mask).sum())
+                draft = head_logits[:, :target_len].argmax(dim=-1)
+                main_next = main_logits[:, 1:1 + target_len].argmax(dim=-1)
+                accepted = (draft == main_next) & head_mask
+                mtp_accept += int(accepted.sum())
+                mtp_accept_tokens += int(head_mask.sum())
 
         if aux:
             if aux.get("load_balance") is not None:
@@ -583,6 +600,17 @@ def evaluate(
         "loss": main_loss,
         "total_loss": total_loss,
         "mtp_loss": mtp_loss,
+        "mtp_correct_loss": (
+            mtp_correct_sum / mtp_correct_tokens if mtp_correct_tokens else None
+        ),
+        "mtp_wrong_loss": (
+            mtp_wrong_sum / mtp_wrong_tokens if mtp_wrong_tokens else None
+        ),
+        "mtp_correct_tokens": int(mtp_correct_tokens),
+        "mtp_wrong_tokens": int(mtp_wrong_tokens),
+        "mtp_accept": (
+            mtp_accept / mtp_accept_tokens if mtp_accept_tokens else None
+        ),
         "bits_per_token": main_loss / math.log(2),
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
@@ -718,6 +746,12 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--no-ema", action="store_true")
     train.add_argument("--mtp-weight", type=float, default=0.3,
                        help="total MTP weight; each of k heads gets weight/k")
+    train.add_argument("--mtp-gt-mix-start", type=float, default=1.0,
+                       help="starting ground-truth mix for soft MTP conditioning")
+    train.add_argument("--mtp-gt-mix-end", type=float, default=0.5,
+                       help="final ground-truth mix (keep >= 0.5 while repairing)")
+    train.add_argument("--mtp-gt-mix-steps", type=int, default=0,
+                       help="steps over which to decay the ground-truth mix")
     train.add_argument("--load-balance-coef", type=float, default=0.01)
     train.add_argument("--router-z-coef", type=float, default=0.001)
 
@@ -883,6 +917,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
     if not 0.0 <= args.mtp_teacher_prob <= 1.0:
         raise SystemExit("--mtp-teacher-prob must be in [0, 1]")
+    if not 0.0 <= args.mtp_gt_mix_end <= args.mtp_gt_mix_start <= 1.0:
+        raise SystemExit("MTP gt-mix must satisfy 0 <= end <= start <= 1")
+    if args.mtp_gt_mix_steps < 0:
+        raise SystemExit("--mtp-gt-mix-steps must be non-negative")
     if args.global_every < 1 or args.window < 1:
         raise SystemExit("--global-every and --window must be positive")
     if not 0.0 <= args.dropout < 1.0:
@@ -1232,6 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
                 or name == "mtp_now"
                 or name == "mtp_next_norm.weight"
                 or name == "mtp_cond_proj.weight"
+                or name.startswith("mtp_gate.")
             )
             if args.unfreeze_last_block and name.startswith(last_prefix):
                 keep = True
@@ -1467,6 +1506,14 @@ def main(argv: list[str] | None = None) -> int:
         lr = current_lr(step, elapsed)
         for group in optimizer.param_groups:
             group["lr"] = lr
+        if args.mtp_gt_mix_steps > 0:
+            mix_frac = min(1.0, step / args.mtp_gt_mix_steps)
+        else:
+            mix_frac = 1.0
+        mtp_gt_mix = (
+            args.mtp_gt_mix_start
+            + (args.mtp_gt_mix_end - args.mtp_gt_mix_start) * mix_frac
+        )
 
         xb = (
             overfit_batch
@@ -1475,7 +1522,9 @@ def main(argv: list[str] | None = None) -> int:
         ).to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
-            logits, mtp_logits, aux = model(xb, mtp_teacher=True)
+            logits, mtp_logits, aux = model(
+                xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix
+            )
             loss, parts = lm_mtp_loss(
                 logits,
                 mtp_logits,

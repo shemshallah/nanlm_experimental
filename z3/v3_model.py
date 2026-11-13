@@ -83,6 +83,9 @@ class V3Config:
     mtp_block_experts: int = 8
     mtp_block_hidden: int = 1024
     mtp_teacher_prob: float = 1.0
+    mtp_gt_mix: float = 0.0
+    mtp_gate: bool = True
+    mtp_gate_hidden: int = 32
     mtp: int = 2
     dropout: float = 0.1
     rope_base: float = 10000.0
@@ -334,6 +337,14 @@ class V3LM(nn.Module):
             nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
             if cfg.mtp_block else None
         )
+        self.mtp_gate = (
+            nn.Sequential(
+                nn.Linear(2, cfg.mtp_gate_hidden),
+                nn.SiLU(),
+                nn.Linear(cfg.mtp_gate_hidden, 1),
+            )
+            if cfg.mtp_block and cfg.mtp_gate else None
+        )
         self.memory_path = None
         self.memory_cross = None
         if cfg.use_memory:
@@ -396,7 +407,8 @@ class V3LM(nn.Module):
 
     def forward(self, tokens, mtp_teacher: bool = False,
                 mtp_teacher_prob: float | None = None,
-                mtp_next_tokens=None):
+                mtp_next_tokens=None,
+                mtp_gt_mix: float | None = None):
         x = self.tok(tokens)
         lbs, zs = [], []
         for block in self.blocks:
@@ -415,27 +427,46 @@ class V3LM(nn.Module):
             # Sparse n-gram bias; empty until build_memory() is called.
             self.memory_path.logit_bias(tokens).add_(main)
         if self.mtp_block is not None:
-            # t+1 conditioning: ground truth during training, predicted t+1
-            # soft embedding during evaluation.
-            prob = self.cfg.mtp_teacher_prob if mtp_teacher_prob is None else mtp_teacher_prob
-            use_teacher = mtp_teacher and (prob >= 1.0 or (prob > 0.0 and torch.rand(()).item() < prob))
-            if use_teacher:
-                next_ids = (
-                    mtp_next_tokens
-                    if mtp_next_tokens is not None
-                    else torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
-                )
-                next_emb = self.tok(next_ids)
+            # Predicted t+1 distribution, mixed with the ground-truth one-hot
+            # during training.  A distribution in both train and eval removes
+            # the hard-token exposure bias.
+            pred_probs = F.softmax(main.detach(), dim=-1)
+            gt_mix = self.cfg.mtp_gt_mix if mtp_gt_mix is None else mtp_gt_mix
+            if mtp_next_tokens is not None:
+                next_soft = F.one_hot(
+                    mtp_next_tokens, num_classes=self.cfg.vocab_size
+                ).to(dtype=pred_probs.dtype)
+            elif mtp_teacher and gt_mix > 0.0:
+                next_ids = torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
+                gt = F.one_hot(
+                    next_ids, num_classes=self.cfg.vocab_size
+                ).to(dtype=pred_probs.dtype)
+                next_soft = (1.0 - gt_mix) * pred_probs + gt_mix * gt
             else:
-                next_emb = F.softmax(main.detach(), dim=-1) @ self.tok.weight
-            next_emb = self.mtp_next_norm(next_emb)
+                next_soft = pred_probs
+            next_emb = self.mtp_next_norm(next_soft @ self.tok.weight)
             t = x.shape[1]
             causal = torch.triu(
                 torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1
             )
             cond = self.mtp_cond_proj(torch.cat([x, next_emb], dim=-1)) + self.mtp_now
             branch, _ = self.mtp_block(cond, attn_mask=causal)
-            mtp = [head(branch) for head in self.mtp_heads]
+            if self.mtp_gate is not None:
+                ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
+                    dim=-1, keepdim=True
+                )
+                maxp = pred_probs.max(dim=-1, keepdim=True).values
+                gate = torch.sigmoid(self.mtp_gate(torch.cat([ent, maxp], dim=-1)))
+            else:
+                gate = 1.0
+            mtp = []
+            for head in self.mtp_heads:
+                branch_logits = head(branch)
+                base_logits = head(x)
+                if self.mtp_gate is not None:
+                    mtp.append(gate * branch_logits + (1.0 - gate) * base_logits)
+                else:
+                    mtp.append(branch_logits)
         else:
             mtp = [
                 head(adapter(x))
