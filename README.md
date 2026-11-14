@@ -4,7 +4,14 @@ Experimental branches and controlled ablations for the NaNLM / Poincaré Mirror
 language model. This repo is for negative results as much as positive ones; the
 logs include failed runs and protocol corrections.
 
-**Latest experiment (2026-11-12):** R32 multidomain. A 151M-parameter hybrid
+**Frontier v4 (2026-11-13):** the z3 text path now uses a bundled 64k v4 BPE
+tokenizer, factorized 128-d embeddings, tied low-rank MTP output, 1k context,
+and a tuned six-level layered tokenizer. The layered artifact aligns bits,
+UTF-8 bytes, subwords, model tokens/specials, words, and sentences losslessly.
+See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md) and
+[`z3/FRONTIER_FIX_PLAN.md`](z3/FRONTIER_FIX_PLAN.md).
+
+**Previous experiment (2026-11-12):** R32 multidomain. A 151M-parameter hybrid
 using ~21M active MAC/token ties the 21M dense baseline on 16 domain releases
 (`2.9186` vs `2.9180` BPB, 1.8M positions), and routing becomes strongly
 domain-dependent: code and multilingual use ~39 effective pairs while most

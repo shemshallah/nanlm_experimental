@@ -1713,10 +1713,23 @@ def main(argv: list[str] | None = None) -> int:
             )
             load_balance = _aux_scalar(aux.get("load_balance")) if aux else None
             router_z = _aux_scalar(aux.get("router_z")) if aux else None
+            mtp_load_balance = (
+                _aux_scalar(aux.get("mtp_load_balance")) if aux else None
+            )
+            mtp_router_z = (
+                _aux_scalar(aux.get("mtp_router_z")) if aux else None
+            )
             if load_balance is not None:
                 loss = loss + args.load_balance_coef * load_balance
             if router_z is not None:
                 loss = loss + args.router_z_coef * router_z
+            # Per-lag MTP blocks have their own routers.  They need the same
+            # balancing pressure as the trunk or they collapse to a few
+            # experts and one or more experts die.
+            if mtp_load_balance is not None:
+                loss = loss + args.load_balance_coef * mtp_load_balance
+            if mtp_router_z is not None:
+                loss = loss + args.router_z_coef * mtp_router_z
             if aux.get("mtp_gate_loss") is not None:
                 loss = loss + args.mtp_gate_coef * aux["mtp_gate_loss"]
             loss_value = float(loss.detach())
@@ -1804,6 +1817,12 @@ def main(argv: list[str] | None = None) -> int:
             "mtp_weighted": _finite(parts["mtp_weighted"]),
             "load_balance": _finite(load_balance) if load_balance is not None else None,
             "router_z": _finite(router_z) if router_z is not None else None,
+            "mtp_load_balance": (
+                _finite(mtp_load_balance) if mtp_load_balance is not None else None
+            ),
+            "mtp_router_z": (
+                _finite(mtp_router_z) if mtp_router_z is not None else None
+            ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),
             "tokens": int(args.batch_size * args.ctx),
