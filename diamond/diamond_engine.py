@@ -1089,6 +1089,7 @@ class TripleStaged(tf.keras.Model):
             name="concept_triple_bank",
         )
         self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
+        self.concept_to_tok = tf.keras.layers.Dense(DIM_T)
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
         self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1220,6 +1221,13 @@ class TripleStaged(tf.keras.Model):
                 tf.concat([pair_vec, triple_vec], axis=-1)
             )
 
+            # Close the concept -> tokenizer loop: concept feedback re-enters
+            # the 256-wide tokenizer micro-transformer before meta reads it.
+            tok_states = tok_states + self.concept_to_tok(concept)[:, None, :]
+            for block in self.tok_blocks:
+                tok_states = block(tok_states, training=training)
+            tok_meta = self.tok_to_meta(tf.reduce_mean(tok_states, axis=1))
+
             meta = self.meta_bus(
                 tf.concat(
                     [self.meta_bit_raw(bit_pool), self.meta_bit(b_pool),
@@ -1241,13 +1249,16 @@ class TripleStaged(tf.keras.Model):
                  self.meta_subword(w_pool)[:, None, :],
                  self.meta_sentence(s_pool)[:, None, :]], axis=1,
             )
-            tokens = tf.concat([slots, tower_tokens], axis=1)
+            tokens = tf.concat(
+                [slots, tower_tokens, tok_meta[:, None, :], concept[:, None, :]],
+                axis=1,
+            )
             meta_attn = self.meta_cross_attn(tokens, tokens)
             tokens = self.meta_cross_ln(tokens + meta_attn)
             slots = tokens[:, :4, :]
             meta_now = slots[:, 0, :]
             meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
-            meta_feedback = meta_now + 0.5 * meta_future
+            meta_feedback = meta_now + 0.5 * meta_future + concept
             for l, block in enumerate(self.byte_blocks):
                 fb = self.meta_byte_layers[l](meta_feedback) * tf.sigmoid(
                     self.meta_byte_layer_gates[l])
@@ -1354,6 +1365,7 @@ SIGNATURE = json.dumps({
     "meta_temporal_feedback": "now+future",
     "tokenizer_micro": "256x6",
     "concept_storage": "C(256,2)x4 + C(256,3)x4",
+    "concept_feedback": "concept->tokenizer->meta->layers",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
