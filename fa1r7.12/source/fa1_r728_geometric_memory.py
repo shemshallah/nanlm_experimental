@@ -186,6 +186,18 @@ def apex_feedback_disabled(model):
             gain.copy_(saved)
 
 
+@contextlib.contextmanager
+def apex_reentry_disabled(model):
+    """Isolate the second complete descent; leave inherited decoder live."""
+    h=getattr(model.diamond,'hierarchy',None)
+    if h is None or not hasattr(h,'apex_reentry_gain'):
+        yield
+        return
+    from fa1_r736_deep_wiring import control_disabled
+    with control_disabled(h.apex_reentry_gain):
+        yield
+
+
 @torch.no_grad()
 def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
                         with_matched_far=False):
@@ -239,6 +251,9 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             no_sparse_mix,no_sparse_mix_extra=forward(model,data)
         with control_disabled(model.diamond.hierarchy.apex_feedback_center_gain):
             no_feedback_center,no_feedback_center_extra=forward(model,data)
+    if hasattr(model.diamond,'hierarchy') and hasattr(model.diamond.hierarchy,'apex_reentry'):
+        with apex_reentry_disabled(model):
+            no_reentry,no_reentry_extra=forward(model,data)
     foreign, donors = unrelated_book_context(data, seed)
     foreign_nll, foreign_extra = forward(model, foreign)
     no_apex, no_apex_extra = forward(model, data, 'no_apex')
@@ -313,6 +328,14 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             'r736_sparse_word_book_bootstrap':boot_books(sparse_gain,data['book_ids'],seed+40),
             'r736_center_word_book_bootstrap':boot_books(center_gain,data['book_ids'],seed+41),
         })
+    if hasattr(model.diamond,'hierarchy') and hasattr(model.diamond.hierarchy,'apex_reentry'):
+        reentry_gain=no_reentry-correct
+        result.update({
+            'r737_reentry_gate':float(model.diamond.hierarchy.apex_reentry_gain.detach()),
+            'r737_reentry_word_gain':float(reentry_gain.mean()),
+            'r737_reentry_branch_gain':float((no_reentry_extra['branch_nll']-extra['branch_nll']).mean()),
+            'r737_reentry_word_book_bootstrap':boot_books(reentry_gain,data['book_ids'],seed+45),
+        })
     if hasattr(model.diamond, 'hierarchy') and hasattr(model.diamond.hierarchy,
                                                        'apex_feedback_gain'):
         feedback_gain=without_feedback-correct
@@ -353,6 +376,13 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
                     sparse_byte-full_per_word,counts,data['book_ids'],seed+42),
                 'r736_center_byte_book_bootstrap':book_byte_ratio_bootstrap(
                     center_byte-full_per_word,counts,data['book_ids'],seed+43),
+            })
+        if hasattr(model.diamond,'hierarchy') and hasattr(model.diamond.hierarchy,'apex_reentry'):
+            reentry_per_word,_,reentry_ce,_,_=layered_byte_losses(no_reentry_extra,data)
+            result.update({
+                'r737_reentry_byte_gain_nats_per_byte':float((reentry_ce-full_bytes).sum()/counts.sum()),
+                'r737_reentry_byte_book_bootstrap':book_byte_ratio_bootstrap(
+                    reentry_per_word-full_per_word,counts,data['book_ids'],seed+46),
             })
         delta=no_geo_per_word-full_per_word
         valid=counts>0
@@ -516,7 +546,8 @@ def warm_start_only_if_migrated(model, args, loaded_meta):
                                   'FA1_R7_32_CALIBRATED_DIAMOND_V1',
                                   'FA1_R7_UNIFIED_APEX_FEEDBACK_V1',
                                   'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
-                                  'FA1_R7_36_DEEP_WIRING_V1'))
+                                  'FA1_R7_36_DEEP_WIRING_V1',
+                                  'FA1_R7_37_CLOSED_FEEDBACK_V1'))
     if resuming:
         return False
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
@@ -784,6 +815,13 @@ def passes_gate(reference, candidate, min_gain):
                     candidate['r736_'+part+'_word_book_bootstrap']['book_bootstrap_ci95'][0] <= 0 or
                     candidate['r736_'+part+'_byte_book_bootstrap']['book_bootstrap_ci95'][0] <= 0):
                 return False
+    if 'r737_reentry_word_gain' in candidate:
+        if (candidate['r737_reentry_word_gain']<=0 or
+                candidate['r737_reentry_branch_gain']<=0 or
+                candidate['r737_reentry_byte_gain_nats_per_byte']<=0 or
+                candidate['r737_reentry_word_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['r737_reentry_byte_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
+            return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
                 candidate['conditional_byte_apex_gain_nats_per_byte']<=0 or
@@ -863,6 +901,9 @@ def candidate_priority(reference, candidate, min_gain):
         geometry_ready = geometry_ready and all(candidate['r736_'+part+'_'+metric]>0
             for part in ('sparse','center')
             for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte'))
+    if 'r737_reentry_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate['r737_reentry_'+metric]>0
+            for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))
@@ -881,6 +922,14 @@ def run(args):
         args.calibrated=True
         args.layered=True
     if getattr(args,'deep_wiring_r736',False):
+        args.history_value_writer=True
+        args.apex_feedback=True
+        args.calibrated=True
+        args.layered=True
+    if getattr(args,'feedback_closure_r737',False):
+        if not (0 <= args.feedback_closure_init < .5):
+            raise ValueError('feedback closure warm start must be in [0, 0.5)')
+        args.deep_wiring_r736=True
         args.history_value_writer=True
         args.apex_feedback=True
         args.calibrated=True
@@ -937,6 +986,12 @@ def run(args):
             attach_deep_wiring(model,optimizer)
     elif hasattr(model.diamond.geometry,'history_read_mix'):
         raise ValueError('FA1 R7.36 checkpoint requires --deep-wiring-r736')
+    if getattr(args,'feedback_closure_r737',False):
+        if not hasattr(model.diamond.hierarchy,'apex_reentry'):
+            from fa1_r737_feedback_closure import attach_feedback_closure
+            attach_feedback_closure(model,optimizer)
+    elif hasattr(getattr(model.diamond,'hierarchy',None),'apex_reentry'):
+        raise ValueError('FA1 R7.37 checkpoint requires --feedback-closure-r737')
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
     if getattr(args,'layered',False):dev['layered_byte_supervision']=True
@@ -977,6 +1032,13 @@ def run(args):
             resume_override=getattr(args,'resume_causal_gate_warmup',False))
         if getattr(args,'resume_causal_gate_warmup',False):
             preserve_learned_gates=False
+    if getattr(args,'feedback_closure_r737',False):
+        # Open ONLY the new return edge for a migrated candidate, following
+        # the gate-identity diagnostic. Never touch an existing trained gate.
+        if parent_meta.get('architecture_round') != 'FA1_R7_37_CLOSED_FEEDBACK_V1':
+            with torch.no_grad():
+                model.diamond.hierarchy.apex_reentry_gain.fill_(
+                    math.atanh(args.feedback_closure_init))
     opened = geometry_diagnostic(model, dev, args.seed+3,
                                  with_matched_far=getattr(args,'matched_far_history',False))
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
@@ -1052,6 +1114,7 @@ def run(args):
         'matched_far_history_controls':bool(getattr(args,'matched_far_history',False)),
         'causal_history_value_writer':bool(getattr(args,'history_value_writer',False)),
         'r736_sparse_read_and_feedback_centering':bool(getattr(args,'deep_wiring_r736',False)),
+        'r737_closed_apex_return':bool(getattr(args,'feedback_closure_r737',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -1093,7 +1156,9 @@ def run(args):
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_36_DEEP_WIRING_V1'
+            architecture_round=('FA1_R7_37_CLOSED_FEEDBACK_V1'
+                                if getattr(args,'feedback_closure_r737',False) else
+                                'FA1_R7_36_DEEP_WIRING_V1'
                                 if getattr(args,'deep_wiring_r736',False) else
                                 'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1'
                                 if getattr(args,'history_value_writer',False) else
@@ -1135,6 +1200,10 @@ def parse_args():
                    help='R7.35 causal far-token value writes at top-8 signed triangles')
     p.add_argument('--deep-wiring-r736',action='store_true',
                    help='R7.36 identity-migrated sparse read scaling and apex feedback centering')
+    p.add_argument('--feedback-closure-r737',action='store_true',
+                   help='R7.37 zero-gated apex->point->apex second-pass causal feedback')
+    p.add_argument('--feedback-closure-init',type=float,default=.03,
+                   help='candidate-only initial second-pass feedback gate in [0, 0.5)')
     p.add_argument('--history-value-weight',type=float,default=0.35)
     p.add_argument('--history-value-byte-weight',type=float,default=0.15)
     p.add_argument('--history-value-content-weight',type=float,default=.25,

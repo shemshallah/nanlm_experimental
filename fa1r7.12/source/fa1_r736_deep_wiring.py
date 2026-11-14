@@ -45,6 +45,9 @@ def gradient_path_health(model):
            'triangle_loop':d.hierarchy.triangle_loop,
            'sparse_read_gate':d.geometry.history_read_mix,
            'feedback_center_gate':d.hierarchy.apex_feedback_center_gain}
+    if hasattr(d.hierarchy, 'apex_reentry'):
+        paths['apex_reentry']=d.hierarchy.apex_reentry
+        paths['apex_reentry_gate']=d.hierarchy.apex_reentry_gain
     result={}
     for name,object_ in paths.items():
         params=[object_] if isinstance(object_,nn.Parameter) else list(object_.parameters())

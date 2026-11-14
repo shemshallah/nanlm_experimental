@@ -22,6 +22,7 @@ def canonical_args():
     args.apex_feedback = True
     args.history_value_writer = True
     args.deep_wiring_r736 = True
+    args.feedback_closure_r737 = True
     return args
 
 
