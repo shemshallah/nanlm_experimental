@@ -39,14 +39,20 @@ def main(updates=320):
     proposed=MirrorLM(newcfg)
     proposed_optimizer=torch.optim.AdamW(proposed.parameters(),lr=.001)
     expand_architecture(proposed,proposed_optimizer,saved,cfg)
+    auxiliary_only=copy.deepcopy(proposed)
+    auxiliary_only.blocks[-1].ff.symbiotic.holonomy_feedback_enabled=False
+    auxiliary_optimizer=torch.optim.AdamW(auxiliary_only.parameters(),lr=.001)
+    auxiliary_optimizer.load_state_dict(copy.deepcopy(proposed_optimizer.state_dict()))
     inherited=len(old_optimizer.state)
     assert inherited==len(proposed_optimizer.state)
     evaluation=[window(dev,i,j) for i in range(4) for j in (1,47,113)]
     before=measure(baseline,evaluation)
     assert before==measure(proposed,evaluation)
+    assert before==measure(auxiliary_only,evaluation)
     for i in range(updates):
         seq=window(train,i%len(train),(i*19)%296)
-        for model,opt in ((baseline,old_optimizer),(proposed,proposed_optimizer)):
+        for model,opt in ((baseline,old_optimizer),(proposed,proposed_optimizer),
+                          (auxiliary_only,auxiliary_optimizer)):
             model.train();opt.zero_grad()
             loss=model.loss_with_future(seq)['loss']
             assert torch.isfinite(loss)
@@ -64,6 +70,7 @@ def main(updates=320):
              'zero_drift_baseline':before,
              'r35_continued':measure(baseline,evaluation),
              'r36_fourier_continued':after,
+             'r36_auxiliary_only':measure(auxiliary_only,evaluation),
              'r36_holonomy_off':ablation,
              'holonomy_ce_benefit':round(ablation['ce_nats_per_byte']-after['ce_nats_per_byte'],6),
              'holonomy_gate':round(float(g.curvature.holonomy.gate.detach()),6)}
