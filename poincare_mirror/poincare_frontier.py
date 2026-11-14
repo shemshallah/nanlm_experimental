@@ -584,6 +584,7 @@ class SymbioticGeometry(nn.Module):
         self.simplex = SparseSimplexTransfer(rank) if simplex_transfer else None
         self.curvature_enabled = True
         self.holonomy_enabled = True
+        self.holonomy_feedback_enabled = True  # auxiliary-only training control
         self.curvature = (TriangleCurvatureMemory(rank,vocab_size,holonomy_retrieval)
                           if triangle_curvature else None)
         self.point_query = nn.Linear(dim, rank, bias=False)
@@ -705,7 +706,7 @@ class SymbioticGeometry(nn.Module):
             local = local + simplex_gate*(simplex_up.reshape(batch,length,rank)+simplex_store)
         if self.curvature is not None and self.curvature_enabled:
             local = local + curvature_gate*curvature_read
-            if holonomy_read is not None:
+            if holonomy_read is not None and self.holonomy_feedback_enabled:
                 local = local + torch.tanh(8.*self.curvature.holonomy.gate)*holonomy_read
         # Each position receives only its own or preceding concept states.
         positions = torch.arange(1,length+1,device=local.device,dtype=local.dtype)
@@ -743,7 +744,7 @@ class SymbioticGeometry(nn.Module):
             feedback = feedback + simplex_gate*(back+simplex_store.reshape(-1,rank))
         if self.curvature is not None and self.curvature_enabled:
             feedback = feedback + curvature_gate*curvature_read.reshape(-1,rank)
-            if holonomy_read is not None:
+            if holonomy_read is not None and self.holonomy_feedback_enabled:
                 feedback = feedback + (torch.tanh(8.*self.curvature.holonomy.gate)*
                                        holonomy_read.reshape(-1,rank))
         return self.to_hidden(feedback).reshape(batch,length,dim)
@@ -2025,6 +2026,11 @@ def evaluate(args):
             holonomy_geometries = [g for g in curvature_geometries
                                    if g.curvature.holonomy is not None]
             if holonomy_geometries:
+                for geometry in holonomy_geometries:
+                    geometry.holonomy_feedback_enabled = False
+                results['holonomy_aux_only_feedback_off'] = measure()
+                for geometry in holonomy_geometries:
+                    geometry.holonomy_feedback_enabled = True
                 for geometry in holonomy_geometries:
                     geometry.holonomy_enabled = False
                 results['no_holonomy_retrieval'] = measure()
