@@ -54,13 +54,13 @@ class TestTriangleCurvature(unittest.TestCase):
         points = torch.randn(2*4,8,8)
         triangles = torch.randn(2*4,56,8)
         weights = torch.ones(8,8)/8
-        initial = memory(points,triangles,face_indices,weights,2,4)
+        initial,_ = memory(points,triangles,face_indices,weights,2,4)
         self.assertTrue(torch.equal(initial[:,0],torch.zeros_like(initial[:,0])))
         # Alter only the *future* of document 1 and all of document 2.
         points2=points.clone(); triangles2=triangles.clone()
         points2[2:]=torch.randn_like(points2[2:])
         triangles2[2:]=torch.randn_like(triangles2[2:])
-        changed = memory(points2,triangles2,face_indices,weights,2,4)
+        changed,_ = memory(points2,triangles2,face_indices,weights,2,4)
         self.assertTrue(torch.allclose(initial[0,:2],changed[0,:2],atol=2e-6,rtol=0))
         self.assertTrue(torch.isfinite(changed).all())
 
