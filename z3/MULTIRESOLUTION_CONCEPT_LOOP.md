@@ -292,6 +292,30 @@ For math translation, add constrained decoding/verifier hooks:
 7. **A/B gates**: CE, word/sentence probes, object routing, Wiki BPB,
    MTP per-byte, composition exact-match.
 
+## Implementation status
+
+Implemented in this integration:
+
+- `SpanSidecar` token↔byte↔word↔sentence↔math alignment
+- `SpanSidecar.from_token_ids` bridge for v4c bin batches
+- multi-row sidecar collation
+- `ConceptEncoder` word/sentence pooling and concept vectors
+- shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
+- per-layer concept → object → route context → attention → MoE feedback
+- concept state fed into MTP branch context
+- composition event head and auxiliary CE
+- sidecar-aware trainer and evaluator
+- tokenizer-side incremental composition decoder
+- autoregressive `generate()` with model and tokenizer composition events
+
+Still pending, and should not be pretended otherwise:
+
+- seeding all 256 concept vertices from byte symbols (currently learned)
+- a real composition-token vocabulary inside the main tokenizer artifact
+- emitting/referencing object IDs from the decoder
+- full-corpus word/sentence retuning on the 300MB v4c shard
+- training validation of the full concept loss on a long run
+
 ## Frontier disconnects to avoid
 
 - Do not compute word/sentence features only at evaluation.
