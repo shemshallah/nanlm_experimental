@@ -1089,6 +1089,24 @@ class TripleStaged(tf.keras.Model):
             name="concept_triple_bank",
         )
         self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
+        self.concept_prev_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="concept_prev_gate",
+        )
+        self.tok_self = tf.keras.layers.Dense(DIM_M)
+        self.tok_self_ln = tf.keras.layers.LayerNormalization()
+        self.tok_self_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="tok_self_gate",
+        )
+        self.meta_self_blocks = [
+            Micro(DIM_M, 4, FF_M, ARGS.dropout) for _ in range(1)
+        ]
+        self.meta_self_ln = tf.keras.layers.LayerNormalization()
+        self.meta_self_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="meta_self_gate",
+        )
 
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
@@ -1184,6 +1202,7 @@ class TripleStaged(tf.keras.Model):
         bit_pool = tf.reduce_mean(b_emb, axis=1)
         subword_pool = tf.reduce_mean(w_emb, axis=1)
         token_pool = tf.reduce_mean(w_chunk, axis=1)
+        concept_prev = tf.zeros((tf.shape(b_h)[0], DIM_M), dtype=tf.float32)
         for _ in range(META_LOOPS):
             b_pool = tf.reduce_mean(b_h, axis=1)
             w_pool = tf.reduce_mean(w_h, axis=1)
@@ -1203,9 +1222,13 @@ class TripleStaged(tf.keras.Model):
             for block in self.tok_blocks:
                 tok_states = block(tok_states, training=training)
             tok_meta = self.tok_to_meta(tf.reduce_mean(tok_states, axis=1))
+            tok_meta = tok_meta + tf.sigmoid(self.tok_self_gate) * self.tok_self_ln(
+                self.tok_self(tok_meta)
+            )
 
             # Select a pair and a triple of the 256 tokenizer feature slots.
-            scores = self.concept_router(tok_meta)
+            concept_input = tok_meta + tf.sigmoid(self.concept_prev_gate) * concept_prev
+            scores = self.concept_router(concept_input)
             _, cidx = tf.math.top_k(scores, k=3)
             cidx = tf.sort(cidx, axis=1)
             ci = cidx[:, 0]
@@ -1220,6 +1243,7 @@ class TripleStaged(tf.keras.Model):
             concept = self.concept_to_meta(
                 tf.concat([pair_vec, triple_vec], axis=-1)
             )
+            concept_prev = concept
 
             # Close the concept -> tokenizer loop: concept feedback re-enters
             # the 256-wide tokenizer micro-transformer before meta reads it.
@@ -1238,6 +1262,10 @@ class TripleStaged(tf.keras.Model):
             meta = meta[:, None, :]
             meta = self.meta_moe2(meta) + self.meta_moe3(meta) + meta
             meta = meta[:, 0, :]
+            meta3 = meta[:, None, :]
+            for block in self.meta_self_blocks:
+                meta3 = block(meta3, training=training)
+            meta = meta + tf.sigmoid(self.meta_self_gate) * self.meta_self_ln(meta3[:, 0, :])
             slots = self.meta_temporal(tf.range(4))[None, :, :] + meta[:, None, :]
             for block in self.meta_blocks:
                 slots = block(slots, training=training)
@@ -1362,7 +1390,9 @@ SIGNATURE = json.dumps({
     "meta_temporal_feedback": "now+future",
     "tokenizer_micro": "256x6",
     "concept_storage": "C(256,2)x4 + C(256,3)x4",
-    "concept_feedback": "concept->meta-cross+per-layer (tokenizer residual disabled by ablation)",
+    "concept_feedback": "concept->meta-cross+per-layer+self-loop",
+    "meta_self_loop": True,
+    "tokenizer_self_loop": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
