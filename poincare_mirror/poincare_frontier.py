@@ -379,7 +379,9 @@ class ReciprocalScaleGeometry(nn.Module):
             if geometry.point_micro_enabled:
                 # The returned feedback is run THROUGH the existing 256
                 # address-specific microtransformers before updating points.
-                micro = geometry.run_microtransformers(point+gate*source,selected)
+                # Use one outer cold gate; an inner gate would shrink the
+                # pair/cloud/apex contribution quadratically at warm-up.
+                micro = geometry.run_microtransformers(point+source,selected)
                 point = point+gate*(micro-point)
             else:
                 point = point+gate*source
@@ -1809,6 +1811,25 @@ def parse_context_mix(spec, maximum):
             np.array([weight / total for _, weight in entries], dtype=np.float64))
 
 
+def freeze_inherited_backbone_for_geometry(model):
+    """Warm up attached geometry while retaining inherited LM/Adam states."""
+    if model.reciprocal is None or model.hierarchy is None or not any(
+            b.use_moe and b.ff.symbiotic is not None for b in model.blocks):
+        raise ValueError('--geometry-only requires a migrated reciprocal Diamond checkpoint')
+    trainable = frozen = 0
+    for name, param in model.named_parameters():
+        geometry = (name.startswith(('reciprocal.', 'hierarchy.')) or
+                    '.ff.symbiotic.' in name)
+        param.requires_grad_(geometry)
+        if geometry:
+            trainable += param.numel()
+        else:
+            frozen += param.numel()
+    if not trainable or not frozen:
+        raise ValueError('Geometry warm-up must contain both new and inherited parameters')
+    return trainable, frozen
+
+
 def train(args):
     meta = load_meta(args.data_dir)
     if 'split_manifest_sha256' in meta:
@@ -1863,6 +1884,10 @@ def train(args):
         random.seed(args.seed)
         old_cfg = copy.deepcopy(cfg)
     enable_future_adapter = bool(saved and cfg.future_adapter_rank != old_cfg.future_adapter_rank)
+    if getattr(args, 'future_only', False) and getattr(args, 'geometry_only', False):
+        raise ValueError('--geometry-only and --future-only are mutually exclusive')
+    if getattr(args, 'geometry_only', False) and (not saved or args.steps == 0):
+        raise ValueError('--geometry-only requires a migrated checkpoint and positive updates')
     if getattr(args, 'future_only', False) and (
             not saved or cfg.future_mode != 'isolated' or not cfg.future_adapter_rank):
         raise ValueError('--future-only requires an existing checkpoint and isolated future adapter')
@@ -2141,6 +2166,14 @@ def train(args):
         for param in model.future_adapter.parameters():
             param.requires_grad_(True)
         print('ISOLATED future-only training: NOW backbone, tied vocabulary and their Adam moments frozen')
+    if getattr(args, 'geometry_only', False):
+        new_count, frozen_count = freeze_inherited_backbone_for_geometry(model)
+        history.append({'kind':'geometry_only_warmup','step':start,
+                        'updates':args.steps,'trainable_parameters':new_count,
+                        'frozen_parameters':frozen_count,
+                        'inherited_adam_states_preserved':True})
+        print(f'GEOMETRY-ONLY warm-up: {new_count:,} trainable new parameters; '
+              f'{frozen_count:,} inherited parameters and their Adam states frozen')
     model.train()
     for step in range(start + 1, start + args.steps + 1):
         update_growth_bias(model, growth, step)
@@ -2808,6 +2841,8 @@ def main():
                     help='opt-in causal expectation adapter; preserves existing NOW weights on migration')
     tr.add_argument('--future-only', action='store_true',
                     help='freeze NOW backbone/embedding and train only isolated future adapter')
+    tr.add_argument('--geometry-only', action='store_true',
+                    help='warm up reciprocal/geometry/hierarchy with inherited language weights and Adam frozen')
     tr.add_argument('--lr', type=float, default=None, help='initial or explicitly overridden optimizer LR')
     tr.add_argument('--grow-pairs', type=int, default=None, help='increase pair capacity within the same checkpoint')
     tr.add_argument('--set-context', type=int, default=None, help='expand causal context with the same learned weights')

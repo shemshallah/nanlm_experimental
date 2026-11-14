@@ -13,6 +13,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poincare_frontier import (Config, MirrorLM, ReciprocalScaleGeometry,
                               count_parameters_exact, expand_architecture,
+                              freeze_inherited_backbone_for_geometry,
                               grow_checkpoint, save_checkpoint)
 
 
@@ -37,6 +38,68 @@ class ReciprocalScalesTest(unittest.TestCase):
         cfg.micro_meta = False
         with self.assertRaises(AssertionError):
             MirrorLM(cfg)
+
+    def test_geometry_only_warmup_preserves_inherited_weights_and_adam(self):
+        torch.manual_seed(617)
+        model = MirrorLM(config(True))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+        ids = torch.randint(0,256,(1,19))
+        model.loss_with_future(ids)['loss'].backward()
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        before_weights = {k: v.detach().clone() for k,v in model.named_parameters()}
+        before_optimizer = copy.deepcopy(optimizer.state_dict())
+        trainable, frozen = freeze_inherited_backbone_for_geometry(model)
+        self.assertGreater(trainable, 0)
+        self.assertGreater(frozen, 0)
+        model.loss_with_future(ids)['loss'].backward()
+        optimizer.step()
+        after_optimizer = optimizer.state_dict()
+        for index,(name,param) in enumerate(model.named_parameters()):
+            if param.requires_grad:
+                continue
+            self.assertIsNone(param.grad, name)
+            self.assertTrue(torch.equal(before_weights[name],param), name)
+            old_id = before_optimizer['param_groups'][0]['params'][index]
+            new_id = after_optimizer['param_groups'][0]['params'][index]
+            for key, value in before_optimizer['state'].get(old_id,{}).items():
+                self.assertTrue(torch.equal(value,after_optimizer['state'][new_id][key]),
+                                f'{name}.{key}')
+        self.assertTrue(any(not torch.equal(before_weights[n],p) for n,p in
+                            model.named_parameters() if p.requires_grad))
+
+    def test_geometry_only_requires_reciprocal_geometry(self):
+        with self.assertRaisesRegex(ValueError,'migrated reciprocal Diamond'):
+            freeze_inherited_backbone_for_geometry(MirrorLM(config(False)))
+
+    def test_signed_pair_return_has_single_cold_gate(self):
+        torch.manual_seed(618)
+        model = MirrorLM(config(True)).eval()
+        bridge = model.reciprocal
+        geometry = model.blocks[1].ff.symbiotic
+        selected = torch.arange(8)[None]
+        point = geometry.point_values[selected]
+        a,b = geometry.choose2.unbind(-1)
+        pair = (point[:,a]+point[:,b])*.5
+        triangle = point[:,geometry.choose3].mean(2)
+        weights = point.new_full((1,8),1/8)
+        levels = torch.randn(1,1,5,8)
+        def difference(gate):
+            with torch.no_grad():
+                bridge.gate.fill_(gate)
+                bridge.pair_to_micro_enabled = True
+                on = bridge.couple(point,pair,triangle,selected,weights,
+                                   geometry,levels)[0]
+                bridge.pair_to_micro_enabled = False
+                off = bridge.couple(point,pair,triangle,selected,weights,
+                                    geometry,levels)[0]
+                bridge.pair_to_micro_enabled = True
+                return (on-off).norm().item()
+        small = difference(.0025)
+        large = difference(.005)
+        self.assertGreater(small,1e-7)
+        self.assertGreater(large/small,1.4)
+        self.assertLess(large/small,3.0)
 
     def test_five_byte_aligned_scales_have_no_right_context(self):
         torch.manual_seed(392)
