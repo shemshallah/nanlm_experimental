@@ -189,6 +189,7 @@ class CombinatorialMemory(nn.Module):
             pair_idx.unsqueeze(-1).expand(-1, -1, -1, self.dim),
         )
         memory = (selected * pair_weights.unsqueeze(-1)).sum(dim=2)
+        triple_object_ids = None
 
         if self.top_triples > 0:
             pair_keys_sel = torch.gather(
@@ -223,6 +224,18 @@ class CombinatorialMemory(nn.Module):
                 kt, dim=-1
             )
             t_weights = F.softmax(t_weights, dim=-1)
+            pair_local = torch.div(t_idx, vc, rounding_mode="floor")
+            w_local = t_idx % vc
+            u_sel = torch.gather(u_global, 2, pair_local)
+            v_sel = torch.gather(v_global, 2, pair_local)
+            w_sel = torch.gather(top_ids, 2, w_local)
+            a = torch.minimum(torch.minimum(u_sel, v_sel), w_sel)
+            c = torch.maximum(torch.maximum(u_sel, v_sel), w_sel)
+            bmid = u_sel + v_sel + w_sel - a - c
+            triple_object_ids = (
+                a + bmid * (bmid - 1) // 2
+                + c * (c - 1) * (c - 2) // 6
+            )
             triple_memory = torch.gather(
                 triple_values.reshape(b, t, -1, self.dim),
                 2,
@@ -235,6 +248,7 @@ class CombinatorialMemory(nn.Module):
         return torch.sigmoid(self.gate_logit) * out, {
             "pair_ids": pair_object_ids,
             "pair_vertices": torch.stack([lo, hi], dim=-1),
+            "triple_ids": triple_object_ids,
         }
 
     @torch.no_grad()

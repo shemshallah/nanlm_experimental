@@ -114,7 +114,7 @@ class ConceptLoopTests(unittest.TestCase):
             use_combinatorial_memory=False, use_concept_loop=True,
             composition_head=True, moe_hd_dim=64,
             concept_loop_dim=32, concept_top_vertices=8,
-            concept_top_pairs=4, concept_top_triples=0,
+            concept_top_pairs=4, concept_top_triples=2,
             dropout=0.0, use_memory=False,
         )
         model = V3LM(cfg)
@@ -145,7 +145,11 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertIn("objects", payload)
         self.assertEqual(len(payload["objects"]), 2)
         self.assertTrue(
-            all(0 <= object_id < 32640 for object_id in payload["objects"][0])
+            all(0 <= object_id < 32640 for object_id in payload["objects"][0]["pairs"])
+        )
+        self.assertIn("triples", payload["objects"][0])
+        self.assertTrue(
+            all(0 <= object_id < 2763520 for object_id in payload["objects"][0]["triples"])
         )
 
     def test_incremental_composition(self):

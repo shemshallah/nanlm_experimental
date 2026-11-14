@@ -1225,6 +1225,8 @@ class V3LM(nn.Module):
             self.concept_loop, "last_object_ids"
         ):
             aux["object_pair_ids"] = self.concept_loop.last_object_ids
+            if getattr(self.concept_loop, "last_triple_ids", None) is not None:
+                aux["object_triple_ids"] = self.concept_loop.last_triple_ids
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
         return main, mtp, aux
@@ -1269,9 +1271,14 @@ class V3LM(nn.Module):
             if decoder is not None:
                 tokenizer_events.extend(decoder.feed(int(next_id[0])))
             if aux.get("object_pair_ids") is not None:
-                object_events.append(
-                    aux["object_pair_ids"][:, -1].reshape(-1).tolist()
-                )
+                event = {
+                    "pairs": aux["object_pair_ids"][:, -1].reshape(-1).tolist(),
+                }
+                if aux.get("object_triple_ids") is not None:
+                    event["triples"] = (
+                        aux["object_triple_ids"][:, -1].reshape(-1).tolist()
+                    )
+                object_events.append(event)
         if decoder is not None:
             return ids, {
                 "model": events,

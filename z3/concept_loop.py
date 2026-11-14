@@ -457,7 +457,6 @@ class ConceptLoop(nn.Module):
         self.object_memory.seed_vertices(byte_keys, byte_values)
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
-        self.route_to_state = nn.Linear(d_model, d_model, bias=False)
         self.state_norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
 
     def counts(self) -> dict[str, int]:
@@ -477,9 +476,15 @@ class ConceptLoop(nn.Module):
         object_ctx, object_aux = self.object_memory(x + concept)
         self.last_object_ids = object_aux["pair_ids"].detach()
         self.last_object_vertices = object_aux["pair_vertices"].detach()
+        self.last_triple_ids = (
+            object_aux["triple_ids"].detach()
+            if object_aux.get("triple_ids") is not None else None
+        )
+        # Return only the concept/object contribution.  The block adds the
+        # route context separately; including it here double-counted the
+        # router state on every layer.
         loop_ctx = self.state_norm(
-            route_ctx
-            + self.concept_to_state(global_ctx)
+            self.concept_to_state(global_ctx)
             + self.object_to_state(object_ctx.mean(dim=1))
         )
         return concept, object_ctx, loop_ctx
