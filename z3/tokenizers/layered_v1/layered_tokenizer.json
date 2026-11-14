@@ -12,7 +12,9 @@
     "subword": {
       "path": "../v4_64k/tokenizer.json",
       "sha256": "73ab8c94650f5c92b23c3e153f8fdeaf23c0b5c508529021846bfe0773d9989b",
-      "vocab_size": 64000,
+      "base_vocab_size": 64000,
+      "vocab_size": 64060,
+      "extra_byte_fallbacks": 60,
       "backend": "native",
       "special_tokens": [
         "<pad>",
@@ -49,6 +51,11 @@
       "max_chars": 512,
       "min_chars": 1,
       "boundary_regex": "[.!?]+[\\\"')\\]]*(?=\\s|$)"
+    },
+    "math": {
+      "spans": "display|inline|command|number|operator",
+      "lossless": true,
+      "canonicalize": "optional data preparation only"
     }
   },
   "word_vocab": {

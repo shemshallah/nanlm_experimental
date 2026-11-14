@@ -92,6 +92,15 @@ class V3Config:
     moe_context_router: bool = True
     moe_route_feedback: bool = True
     moe_route_to_attention: bool = True
+    # Hyperdimensional expert/branch signatures fused into the router.
+    # Off by default until the HD codebook is A/B gated against the learned
+    # MLP router.
+    moe_hyperdimensional: bool = True
+    moe_hd_dim: int = 256
+    moe_hd_scale: float = 0.5
+    moe_associative_memory: bool = True
+    moe_memory_keys: int = 16
+    moe_memory_dim: int = 0
     force_manual_attention: bool = False
     attn_gate: bool = True
     # Frontier MTP defaults.  The branch is a real, separately parameterised
@@ -117,6 +126,9 @@ class V3Config:
     mtp_aux_weight: float = 0.2
     mtp_aux_layer_weights: tuple[float, ...] | None = None
     mtp_position_embed: bool = True
+    # Fixed hyperdimensional time rails: bundle context + <now>, then bind
+    # with a fixed random permutation of <now> for each future lag.
+    mtp_hd_time: bool = True
     dropout: float = 0.1
     rope_base: float = 10000.0
 
@@ -480,6 +492,12 @@ class MTPBlock(nn.Module):
         branches: int = 0,
         context_router: bool = False,
         route_to_attention: bool = False,
+        hyperdimensional: bool = False,
+        hd_dim: int = 256,
+        hd_scale: float = 0.5,
+        associative_memory: bool = False,
+        memory_keys: int = 16,
+        memory_dim: int = 0,
     ):
         super().__init__()
         self.norm1 = RMSNorm(d_model)
@@ -508,6 +526,12 @@ class MTPBlock(nn.Module):
             hierarchical=hierarchical,
             branches=branches,
             context_router=context_router,
+            hyperdimensional=hyperdimensional,
+            hd_dim=hd_dim,
+            hd_scale=hd_scale,
+            associative_memory=associative_memory,
+            memory_keys=memory_keys,
+            memory_dim=memory_dim,
         )
         self.drop = nn.Dropout(dropout)
         self.route_to_state = (
@@ -605,6 +629,12 @@ class V3LM(nn.Module):
                     branches=0,
                     context_router=cfg.moe_context_router,
                     route_to_attention=cfg.moe_route_to_attention,
+                    hyperdimensional=cfg.moe_hyperdimensional,
+                    hd_dim=cfg.moe_hd_dim,
+                    hd_scale=cfg.moe_hd_scale,
+                    associative_memory=cfg.moe_associative_memory,
+                    memory_keys=cfg.moe_memory_keys,
+                    memory_dim=cfg.moe_memory_dim,
                 )
                 for lag in range(n_mtp)
             ]
@@ -621,6 +651,29 @@ class V3LM(nn.Module):
             nn.init.zeros_(self.mtp_position_embed.weight)
         else:
             self.mtp_position_embed = None
+        self.mtp_hd_time = bool(cfg.mtp_hd_time and n_mtp)
+        if self.mtp_hd_time:
+            now = torch.randn(cfg.d_model)
+            self.register_buffer("hd_now", F.normalize(now, dim=-1))
+            self.register_buffer(
+                "hd_pos",
+                F.normalize(
+                    torch.randn(max(cfg.max_ctx, cfg.ctx), cfg.d_model),
+                    dim=-1,
+                ),
+            )
+            self.register_buffer(
+                "hd_perm", torch.randperm(cfg.d_model)
+            )
+            self.mtp_hd_proj = nn.ModuleList(
+                [nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+                 for _ in range(n_mtp)]
+            )
+        else:
+            self.hd_now = None
+            self.hd_pos = None
+            self.hd_perm = None
+            self.mtp_hd_proj = nn.ModuleList()
         self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
         self.mtp_cond_proj = nn.ModuleList(
             [nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
@@ -727,6 +780,9 @@ class V3LM(nn.Module):
             if getattr(block, "route_to_state", None) is not None:
                 with torch.no_grad():
                     block.route_to_state.weight.mul_(0.01)
+        for proj in self.mtp_hd_proj:
+            with torch.no_grad():
+                proj.weight.zero_()
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
@@ -765,6 +821,26 @@ class V3LM(nn.Module):
         if self.tok_up is not None:
             hidden = hidden @ self.tok_up.weight
         return hidden @ self.tok.weight.T
+
+    def _hd_future_signal(
+        self, hidden: torch.Tensor, positions: torch.Tensor, steps: int
+    ) -> torch.Tensor | None:
+        if not self.mtp_hd_time:
+            return None
+        assert self.hd_now is not None
+        assert self.hd_pos is not None
+        assert self.hd_perm is not None
+        future_now = self.hd_now
+        for _ in range(max(1, int(steps))):
+            future_now = future_now[self.hd_perm]
+        # Bundle context with position and the fixed <now> anchor; bind the
+        # result with the permuted <now> rail for this future lag.
+        context = (
+            F.normalize(hidden, dim=-1)
+            + self.hd_pos[positions]
+            + self.hd_now
+        )
+        return context * future_now
 
     def mtp_head_logits(
         self, head: nn.Module | None, hidden: torch.Tensor
@@ -911,6 +987,12 @@ class V3LM(nn.Module):
                     + self.mtp_now[idx]
                     + position_anchor
                 )
+                if self.mtp_hd_time and idx < len(self.mtp_hd_proj):
+                    hd_signal = self._hd_future_signal(
+                        x, positions, idx + 2
+                    )
+                    if hd_signal is not None:
+                        cond = cond + self.mtp_hd_proj[idx](hd_signal)
                 branch, block_aux = self.mtp_blocks[idx](
                     cond, context=route_ctx
                 )

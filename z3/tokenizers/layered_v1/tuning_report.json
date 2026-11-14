@@ -42,8 +42,9 @@
       "selected": {
         "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
         "backend": "native",
-        "vocab_size": 64000,
+        "vocab_size": 64060,
         "bytes_per_token": 4.652199418951132,
+        "score": 0.29136091577020173,
         "tokens": 107392,
         "roundtrip": true,
         "byte_coverage": 1.0,
@@ -62,8 +63,9 @@
         {
           "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
           "backend": "native",
-          "vocab_size": 64000,
+          "vocab_size": 64060,
           "bytes_per_token": 4.652199418951132,
+          "score": 0.29136091577020173,
           "tokens": 107392,
           "roundtrip": true,
           "byte_coverage": 1.0,
@@ -81,7 +83,9 @@
       ],
       "gate": {
         "min_bytes_per_token": 4.5,
-        "passed": true
+        "max_vocab": 64000,
+        "objective": "efficiency",
+        "passed": false
       }
     },
     "token": {
@@ -107,6 +111,23 @@
         "unique_specials": true,
         "ids_in_vocab": true,
         "document_frame": true,
+        "passed": true
+      }
+    },
+    "math": {
+      "spans": 1408,
+      "by_kind": {
+        "operator": 728,
+        "number": 668,
+        "inline": 12
+      },
+      "byte_coverage": 0.558022373496074,
+      "mean_subword_per_span": 43.7734375,
+      "max_subword_per_span": 50448,
+      "atomic_number_operator_command_rate": 0.9376790830945558,
+      "gate": {
+        "applicable": true,
+        "min_atomic_rate": 0.0,
         "passed": true
       }
     },
@@ -217,11 +238,12 @@
   "gates": {
     "bit": true,
     "byte": true,
-    "subword": true,
+    "subword": false,
     "token": true,
+    "math": true,
     "word": true,
     "sentence": true
   },
-  "artifact": "/kaggle/working/layered_tokenizer/layered_tokenizer.json",
-  "all_passed": true
+  "artifact": "/kaggle/working/layered_tokenizer_v3/layered_tokenizer.json",
+  "all_passed": false
 }

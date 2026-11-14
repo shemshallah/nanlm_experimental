@@ -201,8 +201,11 @@ class MathLayer:
         occupied = [False] * len(text)
         found: list[MathSpan] = []
         for kind, pattern in (("display", self._DISPLAY), ("inline", self._INLINE)):
+            max_span = 4096 if kind == "display" else 512
             for match in pattern.finditer(text):
                 start, end = match.span()
+                if end - start > max_span:
+                    continue
                 if any(occupied[max(0, start):end]):
                     continue
                 found.append(MathSpan(match.group(0), start, end, kind))

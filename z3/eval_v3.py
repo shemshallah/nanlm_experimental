@@ -167,6 +167,7 @@ def parse_config(raw: Any) -> V3Config:
     for key in (
         "moe_hierarchical", "moe_context_router",
         "moe_route_feedback", "moe_route_to_attention",
+        "moe_associative_memory", "moe_hyperdimensional", "mtp_hd_time",
     ):
         if key not in kwargs:
             kwargs[key] = False

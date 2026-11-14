@@ -37,6 +37,8 @@ the same. Tests use ``dropout=0``.
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -72,6 +74,12 @@ class VectorizedSparseMoE(nn.Module):
         hierarchical: bool = False,
         branches: int = 0,
         context_router: bool = False,
+        hyperdimensional: bool = False,
+        hd_dim: int = 256,
+        hd_scale: float = 0.5,
+        associative_memory: bool = False,
+        memory_keys: int = 16,
+        memory_dim: int = 0,
     ):
         super().__init__()
         if d_model <= 0:
@@ -102,6 +110,19 @@ class VectorizedSparseMoE(nn.Module):
         self.dense_dispatch = bool(dense_dispatch)
         self.hierarchical = bool(hierarchical)
         self.context_router = bool(context_router)
+        self.hyperdimensional = bool(hyperdimensional)
+        self.hd_dim = int(hd_dim)
+        self.hd_scale = float(hd_scale)
+        self.associative_memory = bool(associative_memory)
+        self.memory_keys = int(memory_keys)
+        self.memory_dim = int(
+            memory_dim
+            or (self.hd_dim if self.hyperdimensional else self.d_model)
+        )
+        if self.hyperdimensional and self.hd_dim < 8:
+            raise ValueError("hd_dim must be at least 8")
+        if self.associative_memory and self.memory_keys < 1:
+            raise ValueError("memory_keys must be positive")
         self.branches = 0
         self.experts_per_branch = 0
         if self.hierarchical:
@@ -144,6 +165,44 @@ class VectorizedSparseMoE(nn.Module):
             nn.Parameter(torch.empty(self.n_experts, self.d_model))
             if self.hierarchical else None
         )
+        self.hd_proj = (
+            nn.Linear(self.d_model, self.hd_dim, bias=False)
+            if self.hyperdimensional else None
+        )
+        self.hd_context = (
+            nn.Linear(self.d_model, self.hd_dim, bias=False)
+            if self.hyperdimensional else None
+        )
+        self.hd_expert_codes = (
+            nn.Parameter(torch.empty(self.n_experts, self.hd_dim))
+            if self.hyperdimensional else None
+        )
+        self.hd_branch_codes = (
+            nn.Parameter(torch.empty(self.branches, self.hd_dim))
+            if self.hyperdimensional and self.hierarchical else None
+        )
+        if self.associative_memory:
+            self.mem_keys = nn.Parameter(
+                torch.empty(
+                    self.n_experts, self.memory_keys, self.memory_dim
+                )
+            )
+            self.mem_values = nn.Parameter(
+                torch.empty(
+                    self.n_experts, self.memory_keys, self.d_model
+                )
+            )
+            self.mem_query = nn.Linear(
+                self.d_model, self.memory_dim, bias=False
+            )
+            self.mem_gate_logit = nn.Parameter(
+                torch.full((self.n_experts,), -4.0)
+            )
+        else:
+            self.mem_keys = None
+            self.mem_values = None
+            self.mem_query = None
+            self.mem_gate_logit = None
 
         self.router = nn.Linear(self.d_model, self.n_experts, bias=False)
 
@@ -192,6 +251,14 @@ class VectorizedSparseMoE(nn.Module):
             hierarchical=getattr(cfg, "moe_hierarchical", False),
             branches=getattr(cfg, "moe_branches", 0),
             context_router=getattr(cfg, "moe_context_router", False),
+            hyperdimensional=getattr(cfg, "moe_hyperdimensional", False),
+            hd_dim=getattr(cfg, "moe_hd_dim", 256),
+            hd_scale=getattr(cfg, "moe_hd_scale", 0.5),
+            associative_memory=getattr(
+                cfg, "moe_associative_memory", False
+            ),
+            memory_keys=getattr(cfg, "moe_memory_keys", 16),
+            memory_dim=getattr(cfg, "moe_memory_dim", 0),
         )
 
     @torch.no_grad()
@@ -207,6 +274,19 @@ class VectorizedSparseMoE(nn.Module):
             nn.init.normal_(self.branch_embedding, std=0.02)
         if self.expert_embedding is not None:
             nn.init.normal_(self.expert_embedding, std=0.02)
+        if self.hd_proj is not None:
+            nn.init.xavier_uniform_(self.hd_proj.weight)
+        if self.hd_context is not None:
+            nn.init.xavier_uniform_(self.hd_context.weight)
+        if self.hd_expert_codes is not None:
+            nn.init.normal_(self.hd_expert_codes, std=1.0)
+        if self.hd_branch_codes is not None:
+            nn.init.normal_(self.hd_branch_codes, std=1.0)
+        if self.mem_keys is not None:
+            nn.init.normal_(self.mem_keys, std=0.02)
+            nn.init.normal_(self.mem_values, std=0.02)
+            nn.init.xavier_uniform_(self.mem_query.weight)
+            nn.init.constant_(self.mem_gate_logit, -4.0)
         # Xavier per expert slice, matching SwiGLU's Linear initialization.
         for e in range(self.n_experts):
             nn.init.xavier_uniform_(self.gate_w[e])
@@ -248,6 +328,26 @@ class VectorizedSparseMoE(nn.Module):
                     "router context must be expanded to (tokens, d_model)"
                 )
             logits = logits + self.expert_context(context)
+        if self.hyperdimensional:
+            assert self.hd_proj is not None
+            assert self.hd_expert_codes is not None
+            hd_query = F.normalize(self.hd_proj(flat), dim=-1)
+            if context is not None and self.hd_context is not None:
+                hd_query = F.normalize(
+                    hd_query + self.hd_context(context), dim=-1
+                )
+            hd_codes = F.normalize(self.hd_expert_codes, dim=-1)
+            hd_logits = (
+                (hd_query @ hd_codes.T)
+                * math.sqrt(self.hd_dim)
+                * self.hd_scale
+            )
+            logits = logits + hd_logits
+            self._last_hd_query = hd_query
+            self._last_hd_codes = hd_codes
+        else:
+            self._last_hd_query = None
+            self._last_hd_codes = None
         probs = F.softmax(logits, dim=-1)
 
         if not self.hierarchical:
@@ -262,6 +362,17 @@ class VectorizedSparseMoE(nn.Module):
         branch_logits = self.branch_router(flat)
         if self.branch_context is not None and context is not None:
             branch_logits = branch_logits + self.branch_context(context)
+        if (
+            self.hyperdimensional
+            and self.hd_branch_codes is not None
+            and self._last_hd_query is not None
+        ):
+            hd_branch_codes = F.normalize(self.hd_branch_codes, dim=-1)
+            branch_logits = branch_logits + (
+                (self._last_hd_query @ hd_branch_codes.T)
+                * math.sqrt(self.hd_dim)
+                * self.hd_scale
+            )
         m = flat.shape[0]
         pair_logits = logits.reshape(
             m, self.branches, self.experts_per_branch
@@ -417,6 +528,26 @@ class VectorizedSparseMoE(nn.Module):
                     dtype=out.dtype
                 )
 
+        memory_gate_mean = None
+        if self.associative_memory:
+            assert self.mem_query is not None
+            assert self.mem_keys is not None
+            assert self.mem_values is not None
+            assert self.mem_gate_logit is not None
+            query = F.normalize(self.mem_query(flat), dim=-1)
+            keys = self.mem_keys[topi]       # (M, K, keys, H)
+            values = self.mem_values[topi]   # (M, K, keys, D)
+            mem_scores = torch.einsum(
+                "mh,mkqh->mkq", query, keys
+            ) / math.sqrt(self.memory_dim)
+            mem_weights = F.softmax(mem_scores, dim=-1)
+            mem = torch.einsum(
+                "mkq,mkqd->mkd", mem_weights, values
+            )
+            gate = torch.sigmoid(self.mem_gate_logit[topi])
+            memory_gate_mean = gate.mean()
+            out = out + (mem * gate.unsqueeze(-1)).sum(dim=1)
+
         # Switch-style load balance and router z-loss.  Hierarchical routers
         # get an additional branch balance term; otherwise the branch router
         # collapses to whichever branch happens to fit the first batches.
@@ -429,6 +560,14 @@ class VectorizedSparseMoE(nn.Module):
             "load_balance": expert_load_balance,
             "router_z": router_z,
         }
+        if self.hyperdimensional and self._last_hd_codes is not None:
+            gram = self._last_hd_codes @ self._last_hd_codes.T
+            eye = torch.eye(
+                gram.shape[0], device=gram.device, dtype=gram.dtype
+            )
+            aux["hd_code_diversity"] = ((gram - eye) ** 2).mean()
+        if memory_gate_mean is not None:
+            aux["memory_gate_mean"] = memory_gate_mean
         if self.hierarchical and self._last_branch_idx is not None:
             branch_idx = self._last_branch_idx
             branch_counts = F.one_hot(

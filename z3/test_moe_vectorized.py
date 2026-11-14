@@ -194,6 +194,46 @@ class TestVectorizedSparseMoE(unittest.TestCase):
         self.assertIsNotNone(model.branch_context.weight.grad)
         self.assertIsNotNone(model.expert_context.weight.grad)
 
+    def test_hyperdimensional_codebook_router(self):
+        model = self._model(
+            n_experts=8, topk=2, hierarchical=True, branches=4,
+            context_router=True, hyperdimensional=True,
+            hd_dim=16, hd_scale=0.5,
+        )
+        x = torch.randn(self.B, self.T, self.D, requires_grad=True)
+        context = torch.randn(self.B, self.D, requires_grad=True)
+        out, aux = model(x, context=context)
+        self.assertTrue(torch.isfinite(out).all())
+        self.assertIn("hd_code_diversity", aux)
+        self.assertTrue(torch.isfinite(aux["hd_code_diversity"]))
+        self.assertIsNotNone(model.hd_proj)
+        self.assertEqual(model.hd_expert_codes.shape, (8, 16))
+        self.assertEqual(model.hd_branch_codes.shape, (4, 16))
+        loss = out.sum() + aux["load_balance"] + aux["hd_code_diversity"]
+        loss.backward()
+        self.assertIsNotNone(model.hd_proj.weight.grad)
+        self.assertIsNotNone(model.hd_expert_codes.grad)
+        self.assertIsNotNone(model.hd_branch_codes.grad)
+        self.assertTrue(torch.isfinite(model.hd_expert_codes.grad).all())
+
+    def test_associative_memory_experts(self):
+        model = self._model(
+            associative_memory=True, memory_keys=4, memory_dim=8
+        )
+        x = torch.randn(self.B, self.T, self.D, requires_grad=True)
+        out, aux = model(x)
+        self.assertTrue(torch.isfinite(out).all())
+        self.assertIn("memory_gate_mean", aux)
+        self.assertTrue(torch.isfinite(aux["memory_gate_mean"]))
+        self.assertEqual(model.mem_keys.shape, (self.E, 4, 8))
+        self.assertEqual(model.mem_values.shape, (self.E, 4, self.D))
+        out.sum().backward()
+        self.assertIsNotNone(model.mem_keys.grad)
+        self.assertIsNotNone(model.mem_values.grad)
+        self.assertIsNotNone(model.mem_query.weight.grad)
+        self.assertIsNotNone(model.mem_gate_logit.grad)
+        self.assertTrue(torch.isfinite(model.mem_keys.grad).all())
+
     def test_matches_per_expert_reference(self):
         vec, ref = self._pair()
         x = torch.randn(self.B, self.T, self.D, dtype=torch.float64)

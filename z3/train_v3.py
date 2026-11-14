@@ -808,6 +808,19 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--moe-route-to-attention", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="feed routing context back into each attention block")
+    model.add_argument("--moe-hyperdimensional", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="fuse HD expert/branch codebook similarities into routing")
+    model.add_argument("--moe-hd-dim", type=int, default=256)
+    model.add_argument("--moe-hd-scale", type=float, default=0.5)
+    model.add_argument("--moe-hd-diversity-coef", type=float, default=1e-3,
+                       help="orthogonality pressure on the HD codebook")
+    model.add_argument("--moe-associative-memory", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="add learned key/value hypervectors inside each expert")
+    model.add_argument("--moe-memory-keys", type=int, default=16)
+    model.add_argument("--moe-memory-dim", type=int, default=0,
+                       help="hypervector width for expert memory (0 = D/H)")
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
@@ -837,6 +850,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--mtp-position-embed", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="add a learned per-position anchor to each MTP lag")
+    model.add_argument("--mtp-hd-time", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="use fixed HD <now> + permutation future rails")
     model.add_argument("--mtp-gate-prior", type=float, default=0.7,
                        help="initial confidence-gate reliability prior")
     model.add_argument("--dropout", type=float, default=0.1)
@@ -1060,6 +1076,14 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--moe-group-size must be between 1 and --n-experts")
     if args.moe_max_rows < 1:
         raise SystemExit("--moe-max-rows must be positive")
+    if args.moe_hyperdimensional and args.moe_hd_dim < 8:
+        raise SystemExit("--moe-hd-dim must be at least 8")
+    if args.moe_hd_scale < 0:
+        raise SystemExit("--moe-hd-scale must be non-negative")
+    if args.moe_associative_memory and args.moe_memory_keys < 1:
+        raise SystemExit("--moe-memory-keys must be positive")
+    if args.moe_memory_dim < 0:
+        raise SystemExit("--moe-memory-dim must be non-negative")
     if args.mtp < 1:
         raise SystemExit("--mtp must be at least 1")
     if args.mtp_adapter_rank < 0:
@@ -1134,6 +1158,12 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_context_router=bool(args.moe_context_router),
         moe_route_feedback=bool(args.moe_route_feedback),
         moe_route_to_attention=bool(args.moe_route_to_attention),
+        moe_hyperdimensional=bool(args.moe_hyperdimensional),
+        moe_hd_dim=int(args.moe_hd_dim),
+        moe_hd_scale=float(args.moe_hd_scale),
+        moe_associative_memory=bool(args.moe_associative_memory),
+        moe_memory_keys=int(args.moe_memory_keys),
+        moe_memory_dim=int(args.moe_memory_dim),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_block=bool(args.mtp_block),
@@ -1141,6 +1171,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_block_hidden=int(args.mtp_block_hidden),
         mtp_teacher_prob=float(args.mtp_teacher_prob),
         mtp_aux_layer=int(args.mtp_aux_layer),
+        mtp_hd_time=bool(args.mtp_hd_time),
         mtp_aux_layers=tuple(
             int(x) for x in str(args.mtp_aux_layers).split(",") if x.strip()
         ),
@@ -1392,6 +1423,9 @@ def main(argv: list[str] | None = None) -> int:
                 ("moe_context_router", "--moe-context-router"),
                 ("moe_route_feedback", "--moe-route-feedback"),
                 ("moe_route_to_attention", "--moe-route-to-attention"),
+                ("moe_associative_memory", "--moe-associative-memory"),
+                ("moe_hyperdimensional", "--moe-hyperdimensional"),
+                ("mtp_hd_time", "--mtp-hd-time"),
             ):
                 if (
                     key not in saved_model_config
@@ -1749,6 +1783,9 @@ def main(argv: list[str] | None = None) -> int:
             mtp_router_z = (
                 _aux_scalar(aux.get("mtp_router_z")) if aux else None
             )
+            hd_diversity = (
+                _aux_scalar(aux.get("hd_code_diversity")) if aux else None
+            )
             if load_balance is not None:
                 loss = loss + args.load_balance_coef * load_balance
             if router_z is not None:
@@ -1760,6 +1797,8 @@ def main(argv: list[str] | None = None) -> int:
                 loss = loss + args.load_balance_coef * mtp_load_balance
             if mtp_router_z is not None:
                 loss = loss + args.router_z_coef * mtp_router_z
+            if hd_diversity is not None:
+                loss = loss + args.moe_hd_diversity_coef * hd_diversity
             if aux.get("mtp_gate_loss") is not None:
                 loss = loss + args.mtp_gate_coef * aux["mtp_gate_loss"]
             loss_value = float(loss.detach())
@@ -1852,6 +1891,9 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "mtp_router_z": (
                 _finite(mtp_router_z) if mtp_router_z is not None else None
+            ),
+            "hd_code_diversity": (
+                _finite(hd_diversity) if hd_diversity is not None else None
             ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),

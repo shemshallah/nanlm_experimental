@@ -196,6 +196,7 @@ def stage_subword(
             {
                 "path": str(path),
                 "backend": encoded.backend,
+                "base_vocab_size": layer.base_vocab_size,
                 "vocab_size": layer.vocab_size,
                 "bytes_per_token": bpt,
                 "score": _subword_score(bpt, layer.vocab_size, objective),
@@ -211,7 +212,9 @@ def stage_subword(
         if row.get("roundtrip")
         and row.get("byte_coverage", 0.0) == 1.0
         and row.get("bytes_per_token", 0.0) >= min_bytes_per_token
-        and row.get("vocab_size", 0) <= max_vocab
+        # Added one-byte fallbacks do not count against the BPE vocabulary
+        # budget; the base tokenizer must still fit.
+        and row.get("base_vocab_size", row.get("vocab_size", 0)) <= max_vocab
     ]
     chosen = (
         max(valid, key=lambda row: (row["score"], row["bytes_per_token"]))
