@@ -908,7 +908,7 @@ USE_CHUNK_CONV = bool(ARGS.chunk_conv)
 # projected back into every tower layer for another pass.
 DIM_M = 128
 FF_M = 256
-META_LOOPS = 1
+META_LOOPS = 2
 
 
 class MoE(tf.keras.layers.Layer):
@@ -991,6 +991,7 @@ class TripleStaged(tf.keras.Model):
         self.byte_emb = tf.keras.layers.Embedding(256, DIM_B)
         self.byte_pos = tf.keras.layers.Embedding(BYTE_CHUNKS, DIM_B)
         self.byte_moe = MoE(256, DIM_B, 2)
+        self.byte_moe3 = MoE(256, DIM_B, 3)
         if USE_CHUNK_CONV:
             self.byte_chunk_stem = ChunkConv(DIM_B, BYTE_CHUNK)
         else:
@@ -1000,6 +1001,7 @@ class TripleStaged(tf.keras.Model):
         self.word_emb = tf.keras.layers.Embedding(vocab, DIM_W)
         self.word_pos = tf.keras.layers.Embedding(WORD_CHUNKS, DIM_W)
         self.word_moe = MoE(256, DIM_W, 2)
+        self.word_moe3 = MoE(256, DIM_W, 3)
         if USE_CHUNK_CONV:
             self.word_chunk_stem = ChunkConv(DIM_W, 8)
         else:
@@ -1011,6 +1013,7 @@ class TripleStaged(tf.keras.Model):
         self.sent_word_pos = tf.keras.layers.Embedding(SENT_LEN, DIM_S)
         self.sent_content_attn = Micro(DIM_S, 4, FF_S, ARGS.dropout)
         self.sent_moe = MoE(256, DIM_S, 2)
+        self.sent_moe3 = MoE(256, DIM_S, 3)
         self.sent_blocks = [
             Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(SENT_DEPTH)
         ]
@@ -1037,6 +1040,8 @@ class TripleStaged(tf.keras.Model):
         self.meta_bit = tf.keras.layers.Dense(DIM_M)
         self.meta_subword = tf.keras.layers.Dense(DIM_M)
         self.meta_sentence = tf.keras.layers.Dense(DIM_M)
+        self.meta_bit_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_subword_raw = tf.keras.layers.Dense(DIM_M)
         self.meta_bus = tf.keras.layers.Dense(DIM_M)
         self.meta_moe2 = MoE(256, DIM_M, 2)
         self.meta_moe3 = MoE(256, DIM_M, 3)
@@ -1044,6 +1049,15 @@ class TripleStaged(tf.keras.Model):
         self.meta_blocks = [
             Micro(DIM_M, 4, FF_M, ARGS.dropout) for _ in range(2)
         ]
+        self.meta_cross_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=max(1, DIM_M // 4), output_shape=DIM_M
+        )
+        self.meta_cross_ln = tf.keras.layers.LayerNormalization()
+        self.meta_word_head = tf.keras.layers.Dense(vocab)
+        self.meta_word_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-1.0),
+            name="meta_word_gate",
+        )
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
         self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1059,6 +1073,27 @@ class TripleStaged(tf.keras.Model):
             shape=(), initializer=tf.keras.initializers.Constant(-0.85),
             name="meta_gate_sent",
         )
+        self.meta_byte_layers = [
+            tf.keras.layers.Dense(DIM_B) for _ in range(DEPTH)
+        ]
+        self.meta_word_layers = [
+            tf.keras.layers.Dense(DIM_W) for _ in range(DEPTH)
+        ]
+        self.meta_sent_layers = [
+            tf.keras.layers.Dense(DIM_S) for _ in range(SENT_DEPTH)
+        ]
+        self.meta_byte_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_byte_layer_gate_{i}") for i in range(DEPTH)
+        ]
+        self.meta_word_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_word_layer_gate_{i}") for i in range(DEPTH)
+        ]
+        self.meta_sent_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_sent_layer_gate_{i}") for i in range(SENT_DEPTH)
+        ]
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1081,7 +1116,7 @@ class TripleStaged(tf.keras.Model):
             b_chunk = self.byte_proj(tf.reduce_mean(
                 tf.reshape(b_emb, (-1, BYTE_CHUNKS, BYTE_CHUNK, DIM_B)), axis=2))
         b_chunk = b_chunk + self.byte_pos(tf.range(BYTE_CHUNKS))[None, :, :]
-        b_h = self.byte_moe(b_chunk) + b_chunk
+        b_h = self.byte_moe(b_chunk) + self.byte_moe3(b_chunk) + b_chunk
         for block in self.byte_blocks:
             b_h = block(b_h, training=training)
         b_last = b_h[:, -1, :]
@@ -1094,7 +1129,7 @@ class TripleStaged(tf.keras.Model):
             w_chunk = self.word_proj(tf.reduce_mean(
                 tf.reshape(w_emb, (-1, WORD_CHUNKS, 8, DIM_W)), axis=2))
         w_chunk = w_chunk + self.word_pos(tf.range(WORD_CHUNKS))[None, :, :]
-        w_h = self.word_moe(w_chunk) + w_chunk
+        w_h = self.word_moe(w_chunk) + self.word_moe3(w_chunk) + w_chunk
         for block in self.word_blocks:
             w_h = block(w_h, training=training)
         w_last = w_h[:, -1, :]
@@ -1106,7 +1141,7 @@ class TripleStaged(tf.keras.Model):
         s_emb = tf.reduce_mean(s_flat, axis=1)
         s_emb = tf.reshape(s_emb, (-1, WIN_S, DIM_S))
         s_emb = s_emb + self.sent_pos(tf.range(WIN_S))[None, :, :]
-        s_h = self.sent_moe(s_emb) + s_emb
+        s_h = self.sent_moe(s_emb) + self.sent_moe3(s_emb) + s_emb
         for block in self.sent_blocks:
             s_h = block(s_h, training=training)
 
@@ -1114,32 +1149,49 @@ class TripleStaged(tf.keras.Model):
         # temporal +0/+1/+2/+3 -> feedback into every tower layer.
         meta_now = None
         meta_future = None
+        bit_pool = tf.reduce_mean(b_emb, axis=1)
+        subword_pool = tf.reduce_mean(w_emb, axis=1)
         for _ in range(META_LOOPS):
             b_pool = tf.reduce_mean(b_h, axis=1)
             w_pool = tf.reduce_mean(w_h, axis=1)
             s_pool = tf.reduce_mean(s_h, axis=1)
             meta = self.meta_bus(
                 tf.concat(
-                    [self.meta_bit(b_pool), self.meta_subword(w_pool),
-                     self.meta_sentence(s_pool)],
+                    [self.meta_bit_raw(bit_pool), self.meta_bit(b_pool),
+                     self.meta_subword_raw(subword_pool),
+                     self.meta_subword(w_pool), self.meta_sentence(s_pool)],
                     axis=-1,
                 )
             )
+            meta = meta[:, None, :]
             meta = self.meta_moe2(meta) + self.meta_moe3(meta) + meta
+            meta = meta[:, 0, :]
             slots = self.meta_temporal(tf.range(4))[None, :, :] + meta[:, None, :]
             for block in self.meta_blocks:
                 slots = block(slots, training=training)
+            tower_tokens = tf.concat(
+                [self.meta_bit(b_pool)[:, None, :],
+                 self.meta_subword(w_pool)[:, None, :],
+                 self.meta_sentence(s_pool)[:, None, :]], axis=1,
+            )
+            tokens = tf.concat([slots, tower_tokens], axis=1)
+            meta_attn = self.meta_cross_attn(tokens, tokens)
+            tokens = self.meta_cross_ln(tokens + meta_attn)
+            slots = tokens[:, :4, :]
             meta_now = slots[:, 0, :]
             meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
-            fb_b = self.meta_to_byte(meta_now) * tf.sigmoid(self.meta_gate_byte)
-            fb_w = self.meta_to_word(meta_now) * tf.sigmoid(self.meta_gate_word)
-            fb_s = self.meta_to_sent(meta_now) * tf.sigmoid(self.meta_gate_sent)
-            for block in self.byte_blocks:
-                b_h = block(b_h + fb_b[:, None, :], training=training)
-            for block in self.word_blocks:
-                w_h = block(w_h + fb_w[:, None, :], training=training)
-            for block in self.sent_blocks:
-                s_h = block(s_h + fb_s[:, None, :], training=training)
+            for l, block in enumerate(self.byte_blocks):
+                fb = self.meta_byte_layers[l](meta_now) * tf.sigmoid(
+                    self.meta_byte_layer_gates[l])
+                b_h = block(b_h + fb[:, None, :], training=training)
+            for l, block in enumerate(self.word_blocks):
+                fb = self.meta_word_layers[l](meta_now) * tf.sigmoid(
+                    self.meta_word_layer_gates[l])
+                w_h = block(w_h + fb[:, None, :], training=training)
+            for l, block in enumerate(self.sent_blocks):
+                fb = self.meta_sent_layers[l](meta_now) * tf.sigmoid(
+                    self.meta_sent_layer_gates[l])
+                s_h = block(s_h + fb[:, None, :], training=training)
         b_last = b_h[:, -1, :]
         w_last = w_h[:, -1, :]
 
@@ -1150,10 +1202,15 @@ class TripleStaged(tf.keras.Model):
         # The final slot is the current-sentence prefix, not a completed
         # sentence. A learned boundary vector tells the sentence head which
         # representation is being asked to predict the next sentence.
-        s_last = s_h[:, -1, :] + self.sent_boundary + self.meta_to_sent(meta_future)
+        s_last = (s_h[:, -1, :] + self.sent_boundary
+                  + self.meta_to_sent(meta_future)
+                  + 0.5 * self.meta_to_sent(meta_now))
 
-        b_last = b_last + self.meta_to_byte(meta_future)
-        w_up = w_last + self.byte_to_word(b_last) + self.meta_to_word(meta_future)
+        b_last = (b_last + self.meta_to_byte(meta_future)
+                  + 0.5 * self.meta_to_byte(meta_now))
+        w_up = (w_last + self.byte_to_word(b_last)
+                + self.meta_to_word(meta_future)
+                + 0.5 * self.meta_to_word(meta_now))
         s_up = s_last + self.word_to_sent(w_last)
         if two_way:
             w_cond = w_up + self.sent_to_word(s_up)
@@ -1184,7 +1241,8 @@ class TripleStaged(tf.keras.Model):
         sent_logits = tf.math.log(
             (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob + 1e-9
         )
-        return self.byte_head(b_cond), self.word_head(w_cond), sent_logits, self.intro(b_cond)
+        word_logits = self.word_head(w_cond) + tf.sigmoid(self.meta_word_gate) * self.meta_word_head(meta_now)
+        return self.byte_head(b_cond), word_logits, sent_logits, self.intro(b_cond)
 
 
 model = TripleStaged(VOCAB)
@@ -1222,6 +1280,8 @@ SIGNATURE = json.dumps({
     "meta_feedback": "temporal4_recursive_tokenizer_bus",
     "meta_loops": META_LOOPS,
     "meta_dim": DIM_M,
+    "meta_tower_experts": "C(256,2)+C(256,3)",
+    "meta_now_head": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
