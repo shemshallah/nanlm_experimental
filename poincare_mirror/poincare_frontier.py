@@ -77,6 +77,7 @@ class Config:
     curvature_aux_weight: float = 0.02  # directly supervise geometric writes on next byte
     holonomy_retrieval: bool = False  # opt-in phase-keyed causal associative memory
     holonomy_aux_weight: float = 0.02
+    reciprocal_scales: bool = False  # causal five-scale tokenizer <-> existing simplex/meta geometry
 
     def check(self):
         if self.legacy_attention_dim:
@@ -108,6 +109,10 @@ class Config:
         assert not self.simplex_transfer or self.micro_meta
         assert not self.triangle_curvature or self.simplex_transfer
         assert not self.holonomy_retrieval or self.triangle_curvature
+        assert not self.reciprocal_scales or (self.hierarchy_rank and self.symbiotic_rank and
+                                              self.micro_meta and self.simplex_transfer)
+        assert not self.reciprocal_scales or self.layers >= self.moe_every
+        assert not self.reciprocal_scales or self.vocab_size == 257  # byte+EOS, not arbitrary BPE IDs
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -243,6 +248,130 @@ class CausalTokenHierarchy(nn.Module):
             levels = F.layer_norm(levels + scores.softmax(-1) @ v, (self.rank,))
         pooled = (levels * self.scale_logits.softmax(0).view(1, 1, 4, 1)).sum(2)
         return self.to_hidden(pooled)
+
+
+class ReciprocalScaleGeometry(nn.Module):
+    """Sparse, causal five-scale <-> point/edge/triangle/apex recurrent bridge.
+
+    Reuse the *same* learned hierarchy projector and the final MoE block's
+    existing geometric point/pair/triangle/meta parameters. This is not a new
+    predictor, a dense triangle bank or a replacement tokenizer. Every scale
+    is computed online from byte-aligned hidden states; the 2/4-byte scales
+    are proxies (not fitted BPE). Both recurrent passes are same-position,
+    with temporal history supplied only by the causal backbone and optional
+    existing completed-chunk geometric memory.
+    """
+    SCALES = ('byte', 'byte_pair', 'byte_quad', 'word_prefix', 'sentence_prefix')
+
+    def __init__(self, dim, token_rank, geometry_rank):
+        super().__init__()
+        self.token_rank, self.geometry_rank = token_rank, geometry_rank
+        self.scale_qkv = nn.Linear(token_rank, 3 * token_rank, bias=False)
+        self.scale_to_geo = nn.Linear(token_rank, geometry_rank, bias=False)
+        self.geo_to_scale = nn.Linear(geometry_rank, token_rank, bias=False)
+        self.signed_orientation = nn.Linear(token_rank, 1, bias=False)
+        self.to_hidden = nn.Linear(token_rank, dim, bias=False)
+        self.scale_weights = nn.Parameter(torch.zeros(5))
+        self.gate = nn.Parameter(torch.zeros(()))
+        self.enabled = True  # inference ablation only; not a checkpoint weight
+
+    @staticmethod
+    def causal_scales(z, ids):
+        """All five fields at position t depend exclusively on positions <=t."""
+        b, t, r = z.shape
+        previous = F.pad(ids[:, :-1], (1, 0), value=256)
+        word_start = ((previous == 32) | (previous == 9) |
+                      (previous == 10) | (previous == 13) | (previous == 256))
+        sentence_start = ((previous == 46) | (previous == 33) |
+                          (previous == 63) | (previous == 10) | (previous == 256))
+        pair = torch.cat((z[:, :1], (z[:, :-1] + z[:, 1:]) * .5), 1)
+        # Four-byte *causal rolling* prefix, not a right-looking n-gram.
+        cursor = torch.arange(t, device=z.device)
+        start = (cursor - 3).clamp_min(0)
+        prefix = F.pad(z.cumsum(1), (0, 0, 1, 0))
+        quad = ((prefix[:, cursor+1] - prefix[:, start]) /
+                (cursor-start+1).to(z.dtype).view(1, t, 1))
+        word = CausalTokenHierarchy.prefix_mean(z, word_start)
+        sentence = CausalTokenHierarchy.prefix_mean(z, sentence_start)
+        return torch.stack((z, pair, quad, word, sentence), dim=2)
+
+    def attend_scales(self, levels):
+        b, t, _, r = levels.shape
+        q, k, v = self.scale_qkv(levels).reshape(b,t,5,3,r).unbind(3)
+        attn = (q @ k.transpose(-1,-2) / math.sqrt(r)).softmax(-1)
+        return F.layer_norm(levels + attn @ v, (r,))
+
+    def forward(self, hidden, ids, hierarchy, geometry):
+        if not self.enabled:
+            return torch.zeros_like(hidden)
+        b, t, _ = hidden.shape
+        r = self.geometry_rank
+        levels = self.causal_scales(hierarchy.input(hidden), ids)
+        n = b*t
+        # Exact indices are drawn from the original 256-point geometry.
+        point_query = self.scale_to_geo(levels.mean(2)).reshape(n,r)
+        point_logits = point_query @ geometry.point_keys.T / math.sqrt(r)
+        point_score, selected = point_logits.topk(geometry.ACTIVE, dim=-1)
+        selected, order = selected.sort(-1)
+        weights = point_score.softmax(-1).gather(1,order)
+        point = geometry.point_values[selected]
+        if geometry.point_micro_enabled:
+            point = geometry.run_microtransformers(point,selected)
+        i,j = geometry.choose2.unbind(-1)
+        a,c = point[:,i],point[:,j]
+        pair_ids = geometry.pair_address(selected[:,i],selected[:,j])
+        signed = torch.tanh(self.signed_orientation(levels.mean(2)).reshape(n,1,1))
+        pair = (a+c)*.5 + signed*(c-a)*.5
+        if geometry.simplex_enabled:
+            pair = pair + .1*(geometry.simplex.pair_shared(pair_ids) +
+                              signed*geometry.simplex.pair_anti(pair_ids))
+        i,j,k = geometry.choose3.unbind(-1)
+        a,c,d = point[:,i],point[:,j],point[:,k]
+        address = geometry.triangle_address(selected[:,i], selected[:,j], selected[:,k])
+        phase = address.float().unsqueeze(-1)*(geometry.triangle_freq/2763520.)
+        triangle = (a+c+d)/3
+        if geometry.triangle_abstract_enabled:
+            triangle = triangle + .1*(geometry.triangle_table(address%8192) +
+                                       torch.cat((phase.sin(),phase.cos()),-1))
+        pmean = geometry.pool(point,weights)
+        emean = geometry.pool(pair,weights[:,geometry.choose2].prod(-1))
+        fmean = geometry.pool(triangle,weights[:,geometry.choose3].prod(-1))
+        geo = F.layer_norm(pmean+emean+fmean,(r,))
+        scale_weights = self.scale_weights.softmax(0).view(1,1,5,1)
+        # Each pass completes scale->point->pair->triangle->256-apex->scale.
+        # No tensor indexed by the full 2.76M conceptual triangle count.
+        for _ in range(2):
+            levels = self.attend_scales(levels)
+            summary = (levels*scale_weights).sum(2)
+            geo_query = self.scale_to_geo(summary).reshape(n,r)
+            apex_query = geo + geo_query
+            if geometry.meta_moe_enabled:
+                apex_query = apex_query + geometry.meta_query(fmean)
+            apex_scores = apex_query @ geometry.apex_keys.T/math.sqrt(r)
+            best, apex_ids = apex_scores.topk(geometry.ACTIVE,-1)
+            meta_values = geometry.apex_values[apex_ids]
+            if geometry.meta_moe_enabled:
+                meta_hidden = F.silu(torch.einsum('nkr,nkrh->nkh',
+                    apex_query[:,None,:].expand(-1,geometry.ACTIVE,-1),geometry.meta_up[apex_ids]))
+                meta_values = meta_values + torch.einsum('nkh,nkhr->nkr',
+                                                         meta_hidden,geometry.meta_down[apex_ids])
+            apex = (meta_values*best.softmax(-1).unsqueeze(-1)).sum(1)
+            # Signed descent from meta through the *same* active simplices.
+            down_face = (triangle*apex[:,None,:]).sum(-1)/math.sqrt(r)
+            face_read = (triangle*down_face.softmax(-1).unsqueeze(-1)).sum(1)
+            down_pair = (pair*face_read[:,None,:]).sum(-1)/math.sqrt(r)
+            edge_read = (pair*down_pair.softmax(-1).unsqueeze(-1)).sum(1)
+            down_point = (point*edge_read[:,None,:]).sum(-1)/math.sqrt(r)
+            point_read = (point*down_point.softmax(-1).unsqueeze(-1)).sum(1)
+            geo = F.layer_norm(geo+apex+face_read+edge_read+point_read,(r,))
+            if geometry.memory is not None:
+                geo = geometry.memory(geo.reshape(b,t,r)).reshape(n,r)
+            levels = F.layer_norm(levels + self.geo_to_scale(geo).reshape(b,t,1,-1),
+                                  (self.token_rank,))
+        pooled = (levels*scale_weights).sum(2)
+        # Larger cold-gate slope exposes learned feedback within short pilots,
+        # while keeping EXACT zero output at migration.
+        return torch.tanh(8.*self.gate)*self.to_hidden(pooled)
 
 
 class SwiGLU(nn.Module):
@@ -922,6 +1051,8 @@ class MirrorLM(nn.Module):
         self.head = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         self.head.weight = self.embed.weight  # a single shared vocabulary head
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
+        self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank)
+                           if cfg.reciprocal_scales else None)
         # SAME causal rail/head for future +2 / +3, without observing future tokens.
         self.future_offsets = nn.Parameter(torch.zeros(2, cfg.dim))
         self.future_adapter = (IsolatedFutureAdapter(cfg.dim, cfg.future_adapter_rank)
@@ -952,6 +1083,12 @@ class MirrorLM(nn.Module):
             aux = aux + a
         if self.hierarchy is not None:
             x = x + self.hierarchy(x, ids)
+        if self.reciprocal is not None:
+            # Share *existing* trained geometric memory, pair/triangle tables
+            # and meta nodes; a second independent geometry is never created.
+            geometry = next(block.ff.symbiotic for block in reversed(self.blocks)
+                            if block.use_moe and block.ff.symbiotic is not None)
+            x = x + self.reciprocal(x, ids, self.hierarchy, geometry)
         h = self.norm(x)
         logits = self.head(h)
         metrics = {'balancing': aux}
@@ -1417,6 +1554,7 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.simplex_transfer == previous_cfg.simplex_transfer
             and model.cfg.triangle_curvature == previous_cfg.triangle_curvature
             and model.cfg.holonomy_retrieval == previous_cfg.holonomy_retrieval
+            and model.cfg.reciprocal_scales == previous_cfg.reciprocal_scales
             and model.cfg.future_adapter_rank == previous_cfg.future_adapter_rank):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
@@ -1434,6 +1572,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Cannot discard trained triangle curvature memory')
     if previous_cfg.holonomy_retrieval and not model.cfg.holonomy_retrieval:
         raise ValueError('Cannot discard trained holonomy retrieval memory')
+    if previous_cfg.reciprocal_scales and not model.cfg.reciprocal_scales:
+        raise ValueError('Cannot discard trained reciprocal tokenizer-geometry bridge')
     if previous_cfg.future_adapter_rank != model.cfg.future_adapter_rank and previous_cfg.future_adapter_rank:
         raise ValueError('Cannot resize or discard a trained future adapter')
     if model.cfg.moe_every != previous_cfg.moe_every:
@@ -1477,6 +1617,7 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         for name, target in new_state.items():
             if name not in saved['model']:
                 if (name.startswith('future_adapter.') and not previous_cfg.future_adapter_rank
+                    ) or (name.startswith('reciprocal.') and not previous_cfg.reciprocal_scales
                     ) or name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
                     not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
@@ -1586,6 +1727,7 @@ def configure(args, vocab_size):
                   simplex_transfer=getattr(args,'simplex_transfer',False),
                   triangle_curvature=getattr(args,'triangle_curvature',False),
                   holonomy_retrieval=getattr(args,'holonomy_retrieval',False),
+                   reciprocal_scales=getattr(args,'reciprocal_scales',False),
                   future_adapter_rank=getattr(args, 'future_adapter_rank', None) or 0,
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
@@ -1706,6 +1848,12 @@ def train(args):
                            not cfg.holonomy_retrieval)
     if enable_holonomy:
         cfg.holonomy_retrieval = True
+    enable_reciprocal = bool(saved and getattr(args,'reciprocal_scales',False) and
+                             not cfg.reciprocal_scales)
+    if enable_reciprocal:
+        cfg.reciprocal_scales = True
+    if cfg.reciprocal_scales and meta.get('unit') != 'UTF8_bytes_plus_eos':
+        raise ValueError('Reciprocal scales require verified UTF-8 byte+EOS training data')
     history = list(saved.get('growth_history', [])) if saved else []
     if enable_future_adapter:
         history.append({'kind':'isolated_causal_future_adapter', 'step':saved['step'],
@@ -1759,6 +1907,13 @@ def train(args):
                         'step':saved['step'],'harmonics':[1,4,16,64],
                         'key_channels':4,'strict_prior_reads':True,
                         'auxiliary_next_byte_weight':cfg.holonomy_aux_weight,
+                        'residual_gate_init':0.})
+    if enable_reciprocal:
+        history.append({'kind':'five_scale_reciprocal_simplex_feedback',
+                        'step':saved['step'],'scales':list(ReciprocalScaleGeometry.SCALES),
+                        'conceptual_points':256,'conceptual_pairs':32640,
+                        'conceptual_triangles':2763520,'active_per_token':[8,28,56],
+                        'attention_passes':2,'reuse_original_geometry':True,
                         'residual_gate_init':0.})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
@@ -1851,7 +2006,8 @@ def train(args):
     if saved:
         if (growing or deepen or widening or expert_growing or enable_symbiotic or
                 enable_hierarchy or enable_geometry_memory or enable_micro_meta or
-                enable_simplex or enable_curvature or enable_holonomy or enable_future_adapter):
+                enable_simplex or enable_curvature or enable_holonomy or
+                enable_reciprocal or enable_future_adapter):
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -2130,8 +2286,16 @@ def evaluate(args):
         if model.hierarchy is not None:
             original_hierarchy = model.hierarchy
             model.hierarchy = None
+            if model.reciprocal is not None:
+                model.reciprocal.enabled = False
             results['no_token_hierarchy'] = measure()
             model.hierarchy = original_hierarchy
+            if model.reciprocal is not None:
+                model.reciprocal.enabled = True
+        if model.reciprocal is not None:
+            model.reciprocal.enabled = False
+            results['no_reciprocal_scale_geometry'] = measure()
+            model.reciprocal.enabled = True
         geometric_memories = [m.symbiotic.memory for m in moes
                               if m.symbiotic is not None and m.symbiotic.memory is not None]
         if geometric_memories:
@@ -2143,11 +2307,16 @@ def evaluate(args):
                 memory.gate.copy_(value)
         original_geometry = [m.symbiotic for m in moes]
         if any(g is not None for g in original_geometry):
+            reciprocal_enabled = model.reciprocal.enabled if model.reciprocal is not None else False
+            if model.reciprocal is not None:
+                model.reciprocal.enabled = False
             for m in moes:
                 m.symbiotic = None
             results['no_symbiotic_geometry'] = measure()
             for m, g in zip(moes, original_geometry):
                 m.symbiotic = g
+            if model.reciprocal is not None:
+                model.reciprocal.enabled = reciprocal_enabled
         prev = [m.strength for m in moes]
         for m in moes:
             m.strength = 0.
@@ -2207,6 +2376,9 @@ def count_parameters_exact(cfg):
     if cfg.hierarchy_rank:
         r = cfg.hierarchy_rank
         total += 2*d*r + 3*r*r + 4
+    if cfg.reciprocal_scales:
+        s, r = cfg.hierarchy_rank, cfg.symbiotic_rank
+        total += 3*s*s + 2*s*r + s + s*d + 5 + 1
     return total
 
 
@@ -2315,6 +2487,8 @@ def grow_checkpoint(args):
         cfg.triangle_curvature = True
     if getattr(args, 'holonomy_retrieval', False):
         cfg.holonomy_retrieval = True
+    if getattr(args, 'reciprocal_scales', False):
+        cfg.reciprocal_scales = True
     if getattr(args, 'future_adapter_rank', None) is not None:
         if original.future_adapter_rank and args.future_adapter_rank != original.future_adapter_rank:
             raise ValueError('Cannot resize a trained future adapter')
@@ -2336,6 +2510,8 @@ def grow_checkpoint(args):
             raise ValueError('Cannot resize a trained token hierarchy')
         cfg.hierarchy_rank = requested_hierarchy_rank
     cfg.check()
+    if cfg.reciprocal_scales and saved['data'].get('unit') != 'UTF8_bytes_plus_eos':
+        raise ValueError('Reciprocal scales require UTF-8 byte+EOS checkpoint tokenizer identity')
     expanded = any((cfg.dim != original.dim, cfg.layers != original.layers,
                     cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
                     cfg.symbiotic_rank != original.symbiotic_rank,
@@ -2345,6 +2521,7 @@ def grow_checkpoint(args):
                     cfg.simplex_transfer != original.simplex_transfer,
                     cfg.triangle_curvature != original.triangle_curvature,
                     cfg.holonomy_retrieval != original.holonomy_retrieval,
+                     cfg.reciprocal_scales != original.reciprocal_scales,
                     cfg.future_adapter_rank != original.future_adapter_rank))
     changed = (expanded or cfg.context != original.context or
                cfg.dispatch_mode != original.dispatch_mode or
@@ -2455,6 +2632,7 @@ def grow_checkpoint(args):
               'simplex_transfer':cfg.simplex_transfer,
               'triangle_curvature':cfg.triangle_curvature,
               'holonomy_retrieval':cfg.holonomy_retrieval,
+              'reciprocal_scales':cfg.reciprocal_scales,
               'future_adapter_rank':cfg.future_adapter_rank,
               'future_mode':cfg.future_mode,
               'future_head_reinitialized':forecast_replaced,
@@ -2506,6 +2684,8 @@ def main():
                     help='hyperbolic triangle angle/rotation memory with causal phase-aligned reads')
     gr.add_argument('--holonomy-retrieval', action='store_true',
                     help='four-harmonic causal phase-keyed memory; requires triangle curvature')
+    gr.add_argument('--reciprocal-scales', action='store_true',
+                    help='causal five-scale tokenizer feedback through shared point/edge/triangle/apex layers')
     gr.add_argument('--future-adapter-rank',type=int,
                     help='attach a separately trainable expected-byte causal forecast adapter')
     gr.add_argument('--future-mode',choices=('offset','rollout','isolated'),default=None)
@@ -2580,6 +2760,8 @@ def main():
                     help='activate supervised curvature-phase memory; requires simplex transfer')
     tr.add_argument('--holonomy-retrieval', action='store_true',
                     help='activate phase-selective retrieval with separate auxiliary byte supervision')
+    tr.add_argument('--reciprocal-scales', action='store_true',
+                    help='share signed 256-point / 32640-pair / 2.76M-triangle meta feedback with tokenizer')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None,
                     help='expand width without changing learned head geometry, including 192D to 256D')
