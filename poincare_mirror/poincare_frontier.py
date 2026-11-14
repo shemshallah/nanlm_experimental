@@ -72,6 +72,8 @@ class Config:
     geometry_memory_chunk: int = 0  # 0 = inherited geometry; nonzero enables causal apex-memory loops
     micro_meta: bool = False  # 256 point microtransformers -> sparse triangle cloud -> 256 apex MoE
     simplex_transfer: bool = False  # sparse signed boundary transport, simplex memory, apex tetra bridges
+    triangle_curvature: bool = False  # opt-in hyperbolic triangle phase/rotation memory
+    curvature_aux_weight: float = 0.02  # directly supervise geometric writes on next byte
 
     def check(self):
         if self.legacy_attention_dim:
@@ -99,6 +101,8 @@ class Config:
         assert not self.micro_meta or self.symbiotic_rank
         assert not self.micro_meta or self.symbiotic_rank % 2 == 0
         assert not self.simplex_transfer or self.micro_meta
+        assert not self.triangle_curvature or self.simplex_transfer
+        assert 0 <= self.curvature_aux_weight <= 1
 
 
 class RMSNorm(nn.Module):
@@ -399,6 +403,98 @@ class SparseSimplexTransfer(nn.Module):
         return F.layer_norm(point.mean(1)+edge.mean(1)+face.mean(1)+tet.mean(1), (rank,))
 
 
+class TriangleCurvatureMemory(nn.Module):
+    """Curvature-aware complex/rotary memory over the 56 active triangle faces.
+
+    Vertices are learned points in a radius-.75 Poincare disk (K=-1).
+    Angles are between geodesic tangent directions from Mobius subtraction.
+    Their Gauss--Bonnet defect is the hyperbolic triangle area, not the
+    arbitrary sum of angles around a non-manifold vertex in the 8-clique.
+    A signed defect rotates complex coordinate pairs before a causal write;
+    the current phase conjugates the strictly-prior memory on readout.
+    """
+    def __init__(self, rank, vocab_size):
+        super().__init__()
+        if rank % 2:
+            raise ValueError('Rotary triangle memory needs an even rank')
+        self.rank = rank
+        self.coordinates = nn.Linear(rank, 2, bias=False)
+        self.angles = nn.Linear(10, rank, bias=False)
+        self.write = nn.Linear(rank, rank, bias=False)
+        self.read = nn.Linear(rank, rank, bias=False)
+        self.aux_head = nn.Linear(rank, vocab_size, bias=False)
+        self.gate = nn.Parameter(torch.zeros(()))
+        self.latest_logits = None
+
+    @staticmethod
+    def rotate(state, phase):
+        """Exact orthogonal 2D rotations in each even/odd feature pair."""
+        co, si = phase.cos().unsqueeze(-1), phase.sin().unsqueeze(-1)
+        x, y = state[..., ::2], state[..., 1::2]
+        return torch.stack((co*x-si*y, si*x+co*y), dim=-1).flatten(-2)
+
+    @staticmethod
+    def mobius_displacement(x, y):
+        """(-x) Mobius-add y: geodesic tangent direction at x in disk."""
+        xx = x.square().sum(-1, keepdim=True)
+        yy = y.square().sum(-1, keepdim=True)
+        dot = (x*y).sum(-1, keepdim=True)
+        return ((1-2*dot+yy)*(-x)+(1-xx)*y) / (1-2*dot+xx*yy).clamp_min(1e-7)
+
+    @staticmethod
+    def corner(x, y, z):
+        a = TriangleCurvatureMemory.mobius_displacement(x, y)
+        b = TriangleCurvatureMemory.mobius_displacement(x, z)
+        cross = a[...,0]*b[...,1] - a[...,1]*b[...,0]
+        dot = (a*b).sum(-1)
+        return torch.atan2(cross.abs().clamp_min(1e-9), dot)
+
+    @classmethod
+    def triangle_features(cls, disk, faces):
+        """Angle sin/cos, unsigned curvature defect, and oriented holonomy."""
+        i,j,k = faces.unbind(-1)
+        a,b,c = disk[:,i], disk[:,j], disk[:,k]
+        alpha = cls.corner(a,b,c)
+        beta = cls.corner(b,c,a)
+        gamma = cls.corner(c,a,b)
+        # K=-1 implies area = pi - (alpha+beta+gamma) by Gauss--Bonnet.
+        defect = (math.pi-alpha-beta-gamma).clamp(0., math.pi)
+        ab,ac = b-a,c-a
+        orientation = ab[...,0]*ac[...,1]-ab[...,1]*ac[...,0]
+        sign = torch.tanh(20.*orientation)  # smooth, differentiable orientation
+        phase = sign*defect
+        features = torch.stack((alpha.sin(),alpha.cos(),beta.sin(),beta.cos(),
+                                gamma.sin(),gamma.cos(),phase.sin(),phase.cos(),
+                                defect/math.pi,sign),dim=-1)
+        return features, phase, defect
+
+    def forward(self, point, triangle, face_indices, weights, batch, length):
+        raw = self.coordinates(point.float())
+        radius = torch.linalg.vector_norm(raw, dim=-1, keepdim=True)
+        disk = .75*torch.tanh(radius)*raw/radius.clamp_min(1e-8)
+        features, phase, _ = self.triangle_features(disk, face_indices)
+        i,j,k = face_indices.unbind(-1)
+        face_weight = weights[:,i]*weights[:,j]*weights[:,k]
+        face_weight = face_weight/face_weight.sum(1,keepdim=True).clamp_min(1e-12)
+        rotated = self.rotate(triangle.float(), phase)
+        face = F.layer_norm(triangle.float()+.5*rotated+self.angles(features), (self.rank,))
+        current = (face*face_weight.unsqueeze(-1)).sum(1)
+        current_phase = (phase*face_weight).sum(1)
+        write = self.rotate(self.write(current),current_phase)
+        write = write.reshape(batch,length,self.rank)
+        current_phase = current_phase.reshape(batch,length)
+        # Read *prior* positions only. Every document/window is a new batch row.
+        previous = write.cumsum(1)-write
+        divisor = torch.arange(length,device=write.device,dtype=write.dtype).clamp_min(1)
+        previous = previous/divisor.view(1,length,1)
+        read = self.rotate(F.layer_norm(self.read(previous),(self.rank,)),-current_phase)
+        # Directly supervise the *retrieved* historical signal; otherwise an
+        # auxiliary head can solve its task from the current write and never
+        # make the memory read predictively useful.
+        self.latest_logits = self.aux_head(read)
+        return read
+
+
 class SymbioticGeometry(nn.Module):
     """Causal, sparsely addressed point/pair/triangle/tetra/apex feedback.
 
@@ -411,7 +507,7 @@ class SymbioticGeometry(nn.Module):
     ACTIVE = 8
 
     def __init__(self, dim, rank, memory_chunk=0, micro_meta=False,
-                 simplex_transfer=False):
+                 simplex_transfer=False, triangle_curvature=False, vocab_size=257):
         super().__init__()
         self.rank = rank
         self.micro_meta = micro_meta
@@ -421,6 +517,8 @@ class SymbioticGeometry(nn.Module):
         self.meta_moe_enabled = True
         self.simplex_enabled = True
         self.simplex = SparseSimplexTransfer(rank) if simplex_transfer else None
+        self.curvature_enabled = True
+        self.curvature = TriangleCurvatureMemory(rank,vocab_size) if triangle_curvature else None
         self.point_query = nn.Linear(dim, rank, bias=False)
         self.expert_query = nn.Linear(dim, rank, bias=False)
         self.point_keys = nn.Parameter(torch.randn(256, rank) * .02)
@@ -508,6 +606,14 @@ class SymbioticGeometry(nn.Module):
             exact_features = torch.cat((phase.sin(),phase.cos()),dim=-1)
             triangle = triangle + .1 * (self.triangle_table(addresses % 8192) + exact_features)
         tri_mean = self.pool(triangle, weights[:,i]*weights[:,j]*weights[:,k])
+        if self.curvature is not None:
+            self.curvature.latest_logits = None
+            if self.curvature_enabled:
+                curvature_read = self.curvature(point,triangle,self.choose3,weights,batch,length)
+                # A zero-valued cold gate guarantees migration parity. The
+                # larger slope lets an independently supervised curvature
+                # memory become measurable before millions of updates.
+                curvature_gate = torch.tanh(8.*self.curvature.gate)
 
         i, j, k, l = self.choose4.unbind(-1)
         a, b, c, d = point[:,i], point[:,j], point[:,k], point[:,l]
@@ -528,6 +634,8 @@ class SymbioticGeometry(nn.Module):
                  level[2]*tri_mean + level[3]*tetra_mean).reshape(batch,length,rank)
         if self.simplex is not None and self.simplex_enabled:
             local = local + simplex_gate*(simplex_up.reshape(batch,length,rank)+simplex_store)
+        if self.curvature is not None and self.curvature_enabled:
+            local = local + curvature_gate*curvature_read
         # Each position receives only its own or preceding concept states.
         positions = torch.arange(1,length+1,device=local.device,dtype=local.dtype)
         prefix = local.cumsum(1)/positions.view(1,length,1)
@@ -562,6 +670,8 @@ class SymbioticGeometry(nn.Module):
         if self.simplex is not None and self.simplex_enabled:
             back = self.simplex.downward(point, simplex_parts, down)
             feedback = feedback + simplex_gate*(back+simplex_store.reshape(-1,rank))
+        if self.curvature is not None and self.curvature_enabled:
+            feedback = feedback + curvature_gate*curvature_read.reshape(-1,rank)
         return self.to_hidden(feedback).reshape(batch,length,dim)
 
 
@@ -593,7 +703,8 @@ class MirrorPairMoE(nn.Module):
         self.out_anti = nn.Parameter(torch.randn(p, f, d) * (0.15 / math.sqrt(f)))
         self.normalizer = RMSNorm(d, cfg.norm_divisor or d)
         self.symbiotic = (SymbioticGeometry(d, cfg.symbiotic_rank, cfg.geometry_memory_chunk,
-                                          cfg.micro_meta, cfg.simplex_transfer)
+                                          cfg.micro_meta, cfg.simplex_transfer,
+                                          cfg.triangle_curvature, cfg.vocab_size)
                          if cfg.symbiotic_rank else None)
 
     @staticmethod
@@ -734,6 +845,18 @@ class MirrorLM(nn.Module):
         if targets is not None:
             metrics['next_ce'] = F.cross_entropy(logits.flatten(0, 1), targets.flatten())
             metrics['loss'] = metrics['next_ce'] + self.cfg.balance_weight * aux
+            if self.cfg.triangle_curvature and self.cfg.curvature_aux_weight:
+                aux_logits = [block.ff.symbiotic.curvature.latest_logits
+                              for block in self.blocks if block.use_moe and
+                              block.ff.symbiotic is not None and
+                              block.ff.symbiotic.curvature is not None and
+                              block.ff.symbiotic.curvature.latest_logits is not None]
+                if aux_logits:
+                    metrics['curvature_aux_ce'] = torch.stack([
+                        F.cross_entropy(p.flatten(0,1),targets.flatten())
+                        for p in aux_logits]).mean()
+                    metrics['loss'] = metrics['loss'] + (
+                        self.cfg.curvature_aux_weight*metrics['curvature_aux_ce'])
         return logits, h, metrics
 
     def future_logits(self, h, disable_temporal=False):
@@ -1163,7 +1286,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.hierarchy_rank == previous_cfg.hierarchy_rank
             and model.cfg.geometry_memory_chunk == previous_cfg.geometry_memory_chunk
             and model.cfg.micro_meta == previous_cfg.micro_meta
-            and model.cfg.simplex_transfer == previous_cfg.simplex_transfer):
+            and model.cfg.simplex_transfer == previous_cfg.simplex_transfer
+            and model.cfg.triangle_curvature == previous_cfg.triangle_curvature):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
         raise ValueError('Cannot reshape an already trained Diamond')
@@ -1176,6 +1300,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Cannot discard trained microtransformer or meta-MoE weights')
     if previous_cfg.simplex_transfer and not model.cfg.simplex_transfer:
         raise ValueError('Cannot discard trained simplex transfer and concept memory')
+    if previous_cfg.triangle_curvature and not model.cfg.triangle_curvature:
+        raise ValueError('Cannot discard trained triangle curvature memory')
     if model.cfg.moe_every != previous_cfg.moe_every:
         raise ValueError('Cannot change MoE placement during expansion')
     if model.cfg.expert_hidden < previous_cfg.expert_hidden:
@@ -1222,6 +1348,7 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
                     not previous_cfg.micro_meta and '.ff.symbiotic.' in name and any(
                         part in name for part in ('.micro_', '.meta_', '.triangle_table.'))) or (
                     not previous_cfg.simplex_transfer and '.ff.symbiotic.simplex.' in name) or (
+                    not previous_cfg.triangle_curvature and '.ff.symbiotic.curvature.' in name) or (
                     not previous_cfg.geometry_memory_chunk and '.ff.symbiotic.memory.' in name) or (
                     not previous_cfg.hierarchy_rank and name.startswith('hierarchy.')):
                     continue
@@ -1319,6 +1446,9 @@ def configure(args, vocab_size):
                   hierarchy_rank=getattr(args, 'hierarchy_rank', None) or 0,
                   attention_window=getattr(args, 'attention_window', None) or 0,
                   geometry_memory_chunk=getattr(args, 'geometry_memory_chunk', None) or 0,
+                  micro_meta=getattr(args,'micro_meta',False),
+                  simplex_transfer=getattr(args,'simplex_transfer',False),
+                  triangle_curvature=getattr(args,'triangle_curvature',False),
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
 
@@ -1416,6 +1546,10 @@ def train(args):
     enable_simplex = bool(saved and getattr(args, 'simplex_transfer', False) and not cfg.simplex_transfer)
     if enable_simplex:
         cfg.simplex_transfer = True
+    enable_curvature = bool(saved and getattr(args,'triangle_curvature',False) and
+                            not cfg.triangle_curvature)
+    if enable_curvature:
+        cfg.triangle_curvature = True
     history = list(saved.get('growth_history', [])) if saved else []
     new_attention_window = getattr(args, 'attention_window', None)
     if new_attention_window is not None and new_attention_window != cfg.attention_window:
@@ -1454,6 +1588,12 @@ def train(args):
                         'meta_anchored_tetra_per_token':56,
                         'direct_pair_storage':True,'hashed_tetra_storage':True,
                         'causal_prefix_state':True,'gate_init':0.})
+    if enable_curvature:
+        history.append({'kind':'triangle_hyperbolic_curvature_phase_memory',
+                        'step':saved['step'],'curvature':-1,'active_triangles':56,
+                        'memory':'phase_aligned_strictly_prior_causal',
+                        'auxiliary_next_byte_weight':cfg.curvature_aux_weight,
+                        'gate_init':0.,'preserves_logits_at_migration':True})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -1545,7 +1685,7 @@ def train(args):
     if saved:
         if (growing or deepen or widening or expert_growing or enable_symbiotic or
                 enable_hierarchy or enable_geometry_memory or enable_micro_meta or
-                enable_simplex):
+                enable_simplex or enable_curvature):
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -1776,6 +1916,14 @@ def evaluate(args):
             results['no_simplex_transfers'] = measure()
             for geometry in simplex_geometries:
                 geometry.simplex_enabled = True
+        curvature_geometries = [m.symbiotic for m in moes
+                                if m.symbiotic is not None and m.symbiotic.curvature is not None]
+        if curvature_geometries:
+            for geometry in curvature_geometries:
+                geometry.curvature_enabled = False
+            results['no_triangle_curvature_memory'] = measure()
+            for geometry in curvature_geometries:
+                geometry.curvature_enabled = True
         micro_meta = [m.symbiotic for m in moes
                       if m.symbiotic is not None and m.symbiotic.micro_meta]
         if micro_meta:
@@ -1857,6 +2005,8 @@ def count_parameters_exact(cfg):
                     total += 4*r*r + 8192*r + 512*r*(max(4,r//4)+max(8,r//2))
                 if cfg.simplex_transfer:
                     total += (65280+8192)*r + 8*r*r + 1
+                if cfg.triangle_curvature:
+                    total += 2*r*r + (12+cfg.vocab_size)*r + 1
         else:
             total += 16*d*d + 2*d
     if cfg.hierarchy_rank:
@@ -1966,6 +2116,8 @@ def grow_checkpoint(args):
         cfg.micro_meta = True
     if getattr(args, 'simplex_transfer', False):
         cfg.simplex_transfer = True
+    if getattr(args, 'triangle_curvature', False):
+        cfg.triangle_curvature = True
     if args.dispatch_mode is not None:
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
@@ -1987,7 +2139,8 @@ def grow_checkpoint(args):
                     cfg.hierarchy_rank != original.hierarchy_rank,
                     cfg.geometry_memory_chunk != original.geometry_memory_chunk,
                     cfg.micro_meta != original.micro_meta,
-                    cfg.simplex_transfer != original.simplex_transfer))
+                    cfg.simplex_transfer != original.simplex_transfer,
+                    cfg.triangle_curvature != original.triangle_curvature))
     changed = (expanded or cfg.context != original.context or
                cfg.dispatch_mode != original.dispatch_mode or
                cfg.attention_window != original.attention_window)
@@ -2089,6 +2242,7 @@ def grow_checkpoint(args):
               'new_geometry_memory_chunk':cfg.geometry_memory_chunk,
               'micro_meta':cfg.micro_meta,
               'simplex_transfer':cfg.simplex_transfer,
+              'triangle_curvature':cfg.triangle_curvature,
               'new_attention_heads':cfg.heads,
               'legacy_attention_heads':cfg.legacy_attention_heads,
               'max_abs_logit_drift_h1_h2_h3':differences,
@@ -2133,6 +2287,8 @@ def main():
                     help='256 point microtransformers feeding 256 apex MoE experts via sparse C(256,3)')
     gr.add_argument('--simplex-transfer', action='store_true',
                     help='oriented pair/face/tetra concept tokens, causal storage and meta tetra feedback')
+    gr.add_argument('--triangle-curvature', action='store_true',
+                    help='hyperbolic triangle angle/rotation memory with causal phase-aligned reads')
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
     gr.add_argument('--widen-noise',type=float,default=1e-4)
@@ -2196,6 +2352,8 @@ def main():
                     help='activate 256 sparse point microtransformers and triangle-fed apex MoE')
     tr.add_argument('--simplex-transfer', action='store_true',
                     help='activate sparse oriented simplex concept transport and causal storage')
+    tr.add_argument('--triangle-curvature', action='store_true',
+                    help='activate supervised curvature-phase memory; requires simplex transfer')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None,
                     help='expand width without changing learned head geometry, including 192D to 256D')
@@ -2246,3 +2404,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
