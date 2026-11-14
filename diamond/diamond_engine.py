@@ -909,6 +909,12 @@ USE_CHUNK_CONV = bool(ARGS.chunk_conv)
 DIM_M = 128
 FF_M = 256
 META_LOOPS = 2
+# 256-wide tokenizer micro-transformer and combinatorial concept storage.
+DIM_T = 256
+FF_T = 512
+CONCEPT_DIM = 4
+N_PAIR = 32640          # C(256, 2)
+N_TRIPLE = 2763520      # C(256, 3)
 
 
 class MoE(tf.keras.layers.Layer):
@@ -1060,6 +1066,29 @@ class TripleStaged(tf.keras.Model):
             shape=(), initializer=tf.keras.initializers.Constant(-1.0),
             name="meta_word_gate",
         )
+        # 256-wide tokenizer micro-transformer over bit/byte, subword,
+        # token, word, and sentence states.
+        self.tok_proj = [tf.keras.layers.Dense(DIM_T) for _ in range(6)]
+        self.tok_pos = tf.keras.layers.Embedding(6, DIM_T)
+        self.tok_blocks = [
+            Micro(DIM_T, 4, FF_T, ARGS.dropout) for _ in range(2)
+        ]
+        self.tok_to_meta = tf.keras.layers.Dense(DIM_M)
+        # Concept storage: one small embedding per pair/triple combination.
+        # This is the practical alternative to materializing a full matrix for
+        # every C(256,2) or C(256,3) combination.
+        self.concept_router = tf.keras.layers.Dense(256)
+        self.pair_bank = self.add_weight(
+            shape=(N_PAIR, CONCEPT_DIM),
+            initializer=tf.keras.initializers.RandomNormal(stddev=0.02),
+            name="concept_pair_bank",
+        )
+        self.triple_bank = self.add_weight(
+            shape=(N_TRIPLE, CONCEPT_DIM),
+            initializer=tf.keras.initializers.RandomNormal(stddev=0.02),
+            name="concept_triple_bank",
+        )
+        self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
         self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1158,13 +1187,46 @@ class TripleStaged(tf.keras.Model):
             b_pool = tf.reduce_mean(b_h, axis=1)
             w_pool = tf.reduce_mean(w_h, axis=1)
             s_pool = tf.reduce_mean(s_h, axis=1)
+            tok_states = tf.stack(
+                [
+                    self.tok_proj[0](bit_pool),
+                    self.tok_proj[1](b_pool),
+                    self.tok_proj[2](subword_pool),
+                    self.tok_proj[3](token_pool),
+                    self.tok_proj[4](w_pool),
+                    self.tok_proj[5](s_pool),
+                ],
+                axis=1,
+            )
+            tok_states = tok_states + self.tok_pos(tf.range(6))[None, :, :]
+            for block in self.tok_blocks:
+                tok_states = block(tok_states, training=training)
+            tok_meta = self.tok_to_meta(tf.reduce_mean(tok_states, axis=1))
+
+            # Select a pair and a triple of the 256 tokenizer feature slots.
+            scores = self.concept_router(tok_meta)
+            _, cidx = tf.math.top_k(scores, k=3)
+            cidx = tf.sort(cidx, axis=1)
+            ci = cidx[:, 0]
+            cj = cidx[:, 1]
+            ck = cidx[:, 2]
+            pair_idx = ci * (2 * 256 - ci - 1) // 2 + (cj - ci - 1)
+            triple_idx = tf.math.floormod(
+                ci * 73856093 + cj * 19349663 + ck * 83492791, N_TRIPLE
+            )
+            pair_vec = tf.gather(self.pair_bank, pair_idx)
+            triple_vec = tf.gather(self.triple_bank, triple_idx)
+            concept = self.concept_to_meta(
+                tf.concat([pair_vec, triple_vec], axis=-1)
+            )
+
             meta = self.meta_bus(
                 tf.concat(
                     [self.meta_bit_raw(bit_pool), self.meta_bit(b_pool),
                      self.meta_subword_raw(subword_pool),
                      self.meta_subword(w_pool),
                      self.meta_token_raw(token_pool), self.meta_token(w_pool),
-                     self.meta_sentence(s_pool)],
+                     self.meta_sentence(s_pool), tok_meta, concept],
                     axis=-1,
                 )
             )
@@ -1290,6 +1352,8 @@ SIGNATURE = json.dumps({
     "meta_now_head": True,
     "meta_tokenizer_bus": "bit+byte+subword+token+word+sentence",
     "meta_temporal_feedback": "now+future",
+    "tokenizer_micro": "256x6",
+    "concept_storage": "C(256,2)x4 + C(256,3)x4",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
