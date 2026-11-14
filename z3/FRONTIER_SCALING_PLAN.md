@@ -17,11 +17,11 @@ The old 6h byte checkpoint was **115M**. The 149M/310M presets are not
 regressions; they add per-lag MTP, hierarchical context routers, HD codebooks,
 associative-memory experts, and HD time rails.
 
-Measured on Kaggle 1×T4: the **312,069,396-parameter** max preset completed a
-5-step probe at batch 1 / ctx 512 in **17.9 s** without OOM. A 16-layer
-**322,609,557-parameter** probe completed 3 steps in 18.4 s. The **500,266,485
-parameter / 7-MoE-layer** probe completed 2 steps in **32.9 s** without OOM.
-That is the current single-T4 ceiling we have actually measured, not guessed.
+Measured on Kaggle 1×T4: the **312M-class** model fits at context 512, 1024,
+and **2048**; 4096 OOMs before the backward. The 2048 path requires activation
+checkpointing and the memory-safe MTP gate. The **500,266,485 parameter /
+7-MoE-layer** probe completed 2 steps at ctx 512 in 32.9 s without OOM. That is
+the current single-T4 ceiling we have actually measured, not guessed.
 
 Measured on the GitHub 6 GB CPU runner: the 38M preset is actually
 **39,616,286 params**, completed 5 steps in ~**21 s** with **3.53 GB peak
