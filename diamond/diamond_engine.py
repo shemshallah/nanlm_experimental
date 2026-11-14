@@ -86,6 +86,10 @@ def parse_args():
     p.add_argument("--sent-win", type=int, default=32, help="sentence window")
     p.add_argument("--sent-len", type=int, default=1,
                    help="words of content per sentence in the sentence tower (1 = first word only)")
+    p.add_argument("--sent-weight", type=float, default=0.3,
+                   help="training loss weight for the sentence head (combined metric stays 0.3)")
+    p.add_argument("--sent-depth", type=int, default=2,
+                   help="number of sentence-tower transformer blocks")
     p.add_argument("--depth", type=int, default=2,
                    help="transformer blocks per tower (1-6)")
     p.add_argument("--chunk-conv", action="store_true",
@@ -209,6 +213,8 @@ if ARGS.self_loop_start_epoch < 0:
     ARGS.self_loop_start_epoch = 0
 ARGS.depth = max(1, min(6, int(ARGS.depth)))
 SENT_LEN = max(1, min(32, int(ARGS.sent_len)))
+SENT_WEIGHT = max(0.0, min(2.0, float(ARGS.sent_weight)))
+SENT_DEPTH = max(1, min(6, int(ARGS.sent_depth)))
 if ARGS.doc_holdout_frac < 0.01:
     ARGS.doc_holdout_frac = 0.01
 if ARGS.doc_holdout_frac > 0.50:
@@ -319,6 +325,10 @@ def discover_corpus_roots(cli_dirs):
 
 def _corpus_category(path):
     p = path.replace("\\", "/").lower()
+    if "/wikitext" in p:
+        return "wikitext"
+    if "/fineweb" in p:
+        return "fineweb"
     if "/short_stories/" in p or "/short-stories/" in p or "/short stories/" in p:
         return "short_stories"
     if "/paragraphs/" in p:
@@ -469,10 +479,11 @@ def load_corpus(cap):
         rng.shuffle(groups[key])
 
     prose_cats = [
-        c for c in ("short_stories", "sentences", "paragraphs", "domains", "other")
+        c for c in ("wikitext", "fineweb", "short_stories", "sentences", "paragraphs", "domains", "other")
         if groups.get(c)
     ]
     base_weights = {
+        "wikitext": 0.50, "fineweb": 0.50,
         "short_stories": 0.40, "sentences": 0.25, "paragraphs": 0.25,
         "domains": 0.10, "other": 0.10,
     }
@@ -648,8 +659,15 @@ sent_tokens = []
 for s in sentences:
     row = np.zeros(SENT_LEN, dtype=np.int32)
     if s:
-        n = min(SENT_LEN, len(s))
-        row[:n] = np.asarray(s[:n], dtype=np.int32)
+        if len(s) <= SENT_LEN:
+            row[:len(s)] = np.asarray(s, dtype=np.int32)
+        else:
+            # Keep both the opening and closing words: the opening carries the
+            # sentence topic and the closing words are adjacent to the next
+            # sentence boundary that the sentence head predicts.
+            half = max(1, SENT_LEN // 2)
+            row[:half] = np.asarray(s[:half], dtype=np.int32)
+            row[half:] = np.asarray(s[-(SENT_LEN - half):], dtype=np.int32)
     sent_tokens.append(row)
 if not sent_tokens:
     sent_tokens = [np.zeros(SENT_LEN, dtype=np.int32)]
@@ -672,6 +690,12 @@ doc_word_end = np.searchsorted(word_doc, np.arange(nd), side="right")
 sent_first = [s[0] for s in sentences if s]
 if not sent_first:
     sent_first = [0]
+sent_word_start = np.zeros(len(sent_chars), dtype=np.int64)
+if sent_chars:
+    sent_word_start = np.searchsorted(
+        word_char_start, np.array(sent_chars, dtype=np.int64), side="left"
+    )
+    sent_word_start = np.clip(sent_word_start, 0, n_words)
 word_to_sent = np.zeros(n_words, dtype=np.int32)
 if sent_chars:
     sent_chars_arr = np.array(sent_chars, dtype=np.int64)
@@ -717,10 +741,24 @@ def make_example(pos):
     if s_hi > s_lo:
         si = int(word_to_sent[pos]) if pos < len(word_to_sent) else s_lo
         si = min(max(si, s_lo), s_hi - 1)
-        start = max(s_lo, si - WIN_S)
+        # Reserve the last sentence slot for the causal prefix of the sentence
+        # that contains the target word. The target itself is the first word of
+        # the *next* sentence, so only words before pos are visible here.
+        start = max(s_lo, si - (WIN_S - 1))
         seg = sent_tokens[start:si]
-        if len(seg) > 0:
-            swin[WIN_S - len(seg):] = np.asarray(seg, dtype=np.int32)
+        n_prev = min(len(seg), WIN_S - 1)
+        if n_prev > 0:
+            swin[WIN_S - 1 - n_prev:WIN_S - 1] = np.asarray(
+                seg[-n_prev:], dtype=np.int32
+            )
+        cur = np.zeros(SENT_LEN, dtype=np.int32)
+        if si < len(sent_word_start):
+            cs = min(int(sent_word_start[si]), pos)
+            if pos > cs:
+                segc = word_stream[max(cs, pos - SENT_LEN):pos]
+                if len(segc) > 0:
+                    cur[:len(segc)] = np.asarray(segc, dtype=np.int32)
+        swin[WIN_S - 1] = cur
         ys = int(sent_first[si + 1]) if si + 1 < s_hi else 0
     else:
         ys = 0
@@ -865,6 +903,12 @@ FF_W = ARGS.ff_w
 FF_S = ARGS.ff_s
 DEPTH = ARGS.depth
 USE_CHUNK_CONV = bool(ARGS.chunk_conv)
+# Recursive meta-feedback bus: bit/byte + subword/word + sentence states are
+# pooled into a meta state, expanded into temporal +0/+1/+2/+3 slots, then
+# projected back into every tower layer for another pass.
+DIM_M = 128
+FF_M = 256
+META_LOOPS = 2
 
 
 class MoE(tf.keras.layers.Layer):
@@ -947,6 +991,7 @@ class TripleStaged(tf.keras.Model):
         self.byte_emb = tf.keras.layers.Embedding(256, DIM_B)
         self.byte_pos = tf.keras.layers.Embedding(BYTE_CHUNKS, DIM_B)
         self.byte_moe = MoE(256, DIM_B, 2)
+        self.byte_moe3 = MoE(256, DIM_B, 3)
         if USE_CHUNK_CONV:
             self.byte_chunk_stem = ChunkConv(DIM_B, BYTE_CHUNK)
         else:
@@ -956,6 +1001,7 @@ class TripleStaged(tf.keras.Model):
         self.word_emb = tf.keras.layers.Embedding(vocab, DIM_W)
         self.word_pos = tf.keras.layers.Embedding(WORD_CHUNKS, DIM_W)
         self.word_moe = MoE(256, DIM_W, 2)
+        self.word_moe3 = MoE(256, DIM_W, 3)
         if USE_CHUNK_CONV:
             self.word_chunk_stem = ChunkConv(DIM_W, 8)
         else:
@@ -964,14 +1010,92 @@ class TripleStaged(tf.keras.Model):
 
         self.sent_emb = tf.keras.layers.Embedding(vocab, DIM_S)
         self.sent_pos = tf.keras.layers.Embedding(WIN_S, DIM_S)
-        self.sent_chunk_stem = ChunkConv(DIM_S, SENT_LEN)
+        self.sent_word_pos = tf.keras.layers.Embedding(SENT_LEN, DIM_S)
+        self.sent_content_attn = Micro(DIM_S, 4, FF_S, ARGS.dropout)
         self.sent_moe = MoE(256, DIM_S, 2)
-        self.sent_blocks = [Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(DEPTH)]
+        self.sent_moe3 = MoE(256, DIM_S, 3)
+        self.sent_blocks = [
+            Micro(DIM_S, 4, FF_S, ARGS.dropout) for _ in range(SENT_DEPTH)
+        ]
         self.sent_word_attn = tf.keras.layers.MultiHeadAttention(
             num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
         )
         self.sent_word_gate = tf.keras.layers.Dense(DIM_S)
         self.sent_word_ln = tf.keras.layers.LayerNormalization()
+        self.sent_byte_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=max(1, DIM_S // 4), output_shape=DIM_S
+        )
+        self.sent_byte_gate = tf.keras.layers.Dense(DIM_S)
+        self.sent_byte_ln = tf.keras.layers.LayerNormalization()
+        self.sent_boundary = self.add_weight(
+            shape=(DIM_S,), initializer="zeros", name="sent_boundary"
+        )
+        # Causal document-local cache of sentence-first words.
+        self.sent_cache_gain = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="sent_cache_gain",
+        )
+
+        # Combined tokenizer feedback bus and temporal meta slots.
+        self.meta_bit = tf.keras.layers.Dense(DIM_M)
+        self.meta_subword = tf.keras.layers.Dense(DIM_M)
+        self.meta_sentence = tf.keras.layers.Dense(DIM_M)
+        self.meta_bit_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_subword_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_token_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_token = tf.keras.layers.Dense(DIM_M)
+        self.meta_bus = tf.keras.layers.Dense(DIM_M)
+        self.meta_moe2 = MoE(256, DIM_M, 2)
+        self.meta_moe3 = MoE(256, DIM_M, 3)
+        self.meta_temporal = tf.keras.layers.Embedding(4, DIM_M)
+        self.meta_blocks = [
+            Micro(DIM_M, 4, FF_M, ARGS.dropout) for _ in range(2)
+        ]
+        self.meta_cross_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=max(1, DIM_M // 4), output_shape=DIM_M
+        )
+        self.meta_cross_ln = tf.keras.layers.LayerNormalization()
+        self.meta_word_head = tf.keras.layers.Dense(vocab)
+        self.meta_word_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-1.0),
+            name="meta_word_gate",
+        )
+        self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
+        self.meta_to_word = tf.keras.layers.Dense(DIM_W)
+        self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
+        self.meta_gate_byte = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_byte",
+        )
+        self.meta_gate_word = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_word",
+        )
+        self.meta_gate_sent = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_sent",
+        )
+        self.meta_byte_layers = [
+            tf.keras.layers.Dense(DIM_B) for _ in range(DEPTH)
+        ]
+        self.meta_word_layers = [
+            tf.keras.layers.Dense(DIM_W) for _ in range(DEPTH)
+        ]
+        self.meta_sent_layers = [
+            tf.keras.layers.Dense(DIM_S) for _ in range(SENT_DEPTH)
+        ]
+        self.meta_byte_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_byte_layer_gate_{i}") for i in range(DEPTH)
+        ]
+        self.meta_word_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_word_layer_gate_{i}") for i in range(DEPTH)
+        ]
+        self.meta_sent_layer_gates = [
+            self.add_weight(shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+                            name=f"meta_sent_layer_gate_{i}") for i in range(SENT_DEPTH)
+        ]
 
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -994,7 +1118,7 @@ class TripleStaged(tf.keras.Model):
             b_chunk = self.byte_proj(tf.reduce_mean(
                 tf.reshape(b_emb, (-1, BYTE_CHUNKS, BYTE_CHUNK, DIM_B)), axis=2))
         b_chunk = b_chunk + self.byte_pos(tf.range(BYTE_CHUNKS))[None, :, :]
-        b_h = self.byte_moe(b_chunk) + b_chunk
+        b_h = self.byte_moe(b_chunk) + self.byte_moe3(b_chunk) + b_chunk
         for block in self.byte_blocks:
             b_h = block(b_h, training=training)
         b_last = b_h[:, -1, :]
@@ -1007,24 +1131,92 @@ class TripleStaged(tf.keras.Model):
             w_chunk = self.word_proj(tf.reduce_mean(
                 tf.reshape(w_emb, (-1, WORD_CHUNKS, 8, DIM_W)), axis=2))
         w_chunk = w_chunk + self.word_pos(tf.range(WORD_CHUNKS))[None, :, :]
-        w_h = self.word_moe(w_chunk) + w_chunk
+        w_h = self.word_moe(w_chunk) + self.word_moe3(w_chunk) + w_chunk
         for block in self.word_blocks:
             w_h = block(w_h, training=training)
         w_last = w_h[:, -1, :]
 
         s_tok = self.sent_emb(s_in)
         s_flat = tf.reshape(s_tok, (-1, SENT_LEN, DIM_S))
-        s_emb = self.sent_chunk_stem(s_flat)
+        s_flat = s_flat + self.sent_word_pos(tf.range(SENT_LEN))[None, :, :]
+        s_flat = self.sent_content_attn(s_flat, training=training)
+        s_emb = tf.reduce_mean(s_flat, axis=1)
         s_emb = tf.reshape(s_emb, (-1, WIN_S, DIM_S))
         s_emb = s_emb + self.sent_pos(tf.range(WIN_S))[None, :, :]
-        s_h = self.sent_moe(s_emb) + s_emb
+        s_h = self.sent_moe(s_emb) + self.sent_moe3(s_emb) + s_emb
         for block in self.sent_blocks:
             s_h = block(s_h, training=training)
+
+        # Recursive meta feedback: combined tokenizer states -> meta ->
+        # temporal +0/+1/+2/+3 -> feedback into every tower layer.
+        meta_now = None
+        meta_future = None
+        bit_pool = tf.reduce_mean(b_emb, axis=1)
+        subword_pool = tf.reduce_mean(w_emb, axis=1)
+        token_pool = tf.reduce_mean(w_chunk, axis=1)
+        for _ in range(META_LOOPS):
+            b_pool = tf.reduce_mean(b_h, axis=1)
+            w_pool = tf.reduce_mean(w_h, axis=1)
+            s_pool = tf.reduce_mean(s_h, axis=1)
+            meta = self.meta_bus(
+                tf.concat(
+                    [self.meta_bit_raw(bit_pool), self.meta_bit(b_pool),
+                     self.meta_subword_raw(subword_pool),
+                     self.meta_subword(w_pool),
+                     self.meta_token_raw(token_pool), self.meta_token(w_pool),
+                     self.meta_sentence(s_pool)],
+                    axis=-1,
+                )
+            )
+            meta = meta[:, None, :]
+            meta = self.meta_moe2(meta) + self.meta_moe3(meta) + meta
+            meta = meta[:, 0, :]
+            slots = self.meta_temporal(tf.range(4))[None, :, :] + meta[:, None, :]
+            for block in self.meta_blocks:
+                slots = block(slots, training=training)
+            tower_tokens = tf.concat(
+                [self.meta_bit(b_pool)[:, None, :],
+                 self.meta_subword(w_pool)[:, None, :],
+                 self.meta_sentence(s_pool)[:, None, :]], axis=1,
+            )
+            tokens = tf.concat([slots, tower_tokens], axis=1)
+            meta_attn = self.meta_cross_attn(tokens, tokens)
+            tokens = self.meta_cross_ln(tokens + meta_attn)
+            slots = tokens[:, :4, :]
+            meta_now = slots[:, 0, :]
+            meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
+            meta_feedback = meta_now + 0.5 * meta_future
+            for l, block in enumerate(self.byte_blocks):
+                fb = self.meta_byte_layers[l](meta_feedback) * tf.sigmoid(
+                    self.meta_byte_layer_gates[l])
+                b_h = block(b_h + fb[:, None, :], training=training)
+            for l, block in enumerate(self.word_blocks):
+                fb = self.meta_word_layers[l](meta_feedback) * tf.sigmoid(
+                    self.meta_word_layer_gates[l])
+                w_h = block(w_h + fb[:, None, :], training=training)
+            for l, block in enumerate(self.sent_blocks):
+                fb = self.meta_sent_layers[l](meta_feedback) * tf.sigmoid(
+                    self.meta_sent_layer_gates[l])
+                s_h = block(s_h + fb[:, None, :], training=training)
+        b_last = b_h[:, -1, :]
+        w_last = w_h[:, -1, :]
+
         s_attn = self.sent_word_attn(s_h, w_h, w_h)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
-        s_last = s_h[:, -1, :]
+        s_battn = self.sent_byte_attn(s_h, b_h, b_h)
+        s_h = self.sent_byte_ln(s_h + tf.sigmoid(self.sent_byte_gate(s_h)) * s_battn)
+        # The final slot is the current-sentence prefix, not a completed
+        # sentence. A learned boundary vector tells the sentence head which
+        # representation is being asked to predict the next sentence.
+        s_last = (s_h[:, -1, :] + self.sent_boundary
+                  + self.meta_to_sent(meta_future)
+                  + 0.5 * self.meta_to_sent(meta_now))
 
-        w_up = w_last + self.byte_to_word(b_last)
+        b_last = (b_last + self.meta_to_byte(meta_future)
+                  + 0.5 * self.meta_to_byte(meta_now))
+        w_up = (w_last + self.byte_to_word(b_last)
+                + self.meta_to_word(meta_future)
+                + 0.5 * self.meta_to_word(meta_now))
         s_up = s_last + self.word_to_sent(w_last)
         if two_way:
             w_cond = w_up + self.sent_to_word(s_up)
@@ -1032,7 +1224,31 @@ class TripleStaged(tf.keras.Model):
         else:
             w_cond = w_up
             b_cond = b_last
-        return self.byte_head(b_cond), self.word_head(w_cond), self.sent_head(s_up), self.intro(b_cond)
+
+        sent_logits = self.sent_head(s_up)
+        # Causal first-word cache from the visible sentence window.
+        first = tf.cast(s_in[:, :, 0], tf.int32)
+        visible = tf.cast(first > 0, tf.float32)
+        B = tf.shape(first)[0]
+        flat = tf.reshape(first, (-1,))
+        batch_idx = tf.repeat(tf.range(B), tf.shape(first)[1])
+        valid = tf.reshape(visible, (-1,)) > 0.0
+        cache_idx = tf.boolean_mask(tf.stack([batch_idx, flat], axis=1), valid)
+        ones = tf.ones((tf.shape(cache_idx)[0],), dtype=tf.float32)
+        counts = tf.math.unsorted_segment_sum(
+            ones, cache_idx[:, 0] * VOCAB + cache_idx[:, 1], B * VOCAB
+        )
+        counts = tf.reshape(counts, (B, VOCAB))
+        total = tf.reduce_sum(counts, axis=-1, keepdims=True)
+        cache_prob = counts / tf.maximum(total, 1.0)
+        has_cache = tf.cast(total > 0.0, tf.float32)
+        cache_gate = tf.sigmoid(self.sent_cache_gain) * has_cache
+        sent_prob = tf.nn.softmax(sent_logits, axis=-1)
+        sent_logits = tf.math.log(
+            (1.0 - cache_gate) * sent_prob + cache_gate * cache_prob + 1e-9
+        )
+        word_logits = self.word_head(w_cond) + tf.sigmoid(self.meta_word_gate) * self.meta_word_head(meta_now)
+        return self.byte_head(b_cond), word_logits, sent_logits, self.intro(b_cond)
 
 
 model = TripleStaged(VOCAB)
@@ -1049,7 +1265,7 @@ print(
     f"[model] params {model.count_params()} byte {WIN_B}={BYTE_CHUNKS}x{BYTE_CHUNK} "
     f"word {WIN_W}={WORD_CHUNKS}x8 sent {WIN_S}x{SENT_LEN} "
     f"dims {DIM_B}/{DIM_W}/{DIM_S} ff {FF_B}/{FF_W}/{FF_S} "
-    f"depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
+    f"depth {DEPTH} sent_depth {SENT_DEPTH} chunk_conv {int(USE_CHUNK_CONV)}",
     flush=True,
 )
 opt = tf.keras.optimizers.AdamW(learning_rate=ARGS.lr, weight_decay=ARGS.weight_decay)
@@ -1064,6 +1280,18 @@ SIGNATURE = json.dumps({
     "word_win": WIN_W,
     "sent_win": WIN_S,
     "sent_len": SENT_LEN,
+    "sent_prefix": True,
+    "sent_content": "attention_first_last",
+    "sent_cache": "first_word_document_cache",
+    "meta_feedback": "temporal4_recursive_tokenizer_bus",
+    "meta_loops": META_LOOPS,
+    "meta_dim": DIM_M,
+    "meta_tower_experts": "C(256,2)+C(256,3)",
+    "meta_now_head": True,
+    "meta_tokenizer_bus": "bit+byte+subword+token+word+sentence",
+    "meta_temporal_feedback": "now+future",
+    "sent_depth": SENT_DEPTH,
+    "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
     "dim_b": DIM_B,
     "dim_w": DIM_W,
@@ -1229,7 +1457,7 @@ def train_step(b, w, s, yb, yw, ys, two_way):
         total = (
             tf.reduce_mean(per_b * wgt)
             + 0.5 * tf.reduce_mean(per_w)
-            + 0.3 * tf.reduce_mean(per_s)
+            + SENT_WEIGHT * tf.reduce_mean(per_s)
             + 0.1 * il
         )
     grads = tape.gradient(total, model.trainable_variables)
@@ -1442,6 +1670,7 @@ if start_epoch < ARGS.epochs:
         ybs, yws, yss = train_yb[perm], train_yw[perm], train_ys[perm]
         tot = 0.0
         steps = 0
+        budget_hit = False
         for i in range(0, len(Bs), ARGS.batch):
             loss = train_step(
                 Bs[i:i + ARGS.batch], Ws[i:i + ARGS.batch], Ss[i:i + ARGS.batch],
@@ -1456,8 +1685,19 @@ if start_epoch < ARGS.epochs:
                     f"loss {float(loss):.4f} elapsed {time.time() - t_epoch:.1f}s",
                     flush=True,
                 )
+            if budget_s and time.time() - T0 >= budget_s:
+                budget_hit = True
+                break
         train_loss = tot / max(1, steps)
         completed_epochs = epoch_no
+        if budget_hit:
+            save_state(epoch_no)
+            print(
+                f"[budget] reached {ARGS.time_budget_minutes:.0f} min mid-epoch "
+                f"{epoch_no} after {steps} steps; checkpoint saved",
+                flush=True,
+            )
+            break
 
         res = {}
         do_eval = (
@@ -1600,7 +1840,7 @@ print(
 )
 print(
     f"params {model.count_params()} byte {WIN_B} word {WIN_W} sent {WIN_S}x{SENT_LEN} "
-    f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
+    f"dims {DIM_B}/{DIM_W}/{DIM_S} depth {DEPTH} sent_depth {SENT_DEPTH} chunk_conv {int(USE_CHUNK_CONV)} "
     f"byte_chunk {BYTE_CHUNK} split {split_name} "
     f"completed {completed_epochs}/{ARGS.epochs} epochs "
     f"CPU time {time.time() - T0:.1f}s",
