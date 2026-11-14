@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -29,11 +30,17 @@ from torch.utils.checkpoint import checkpoint
 
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
+    from .concept_loop import (
+        CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
+    )
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
     from .rope_scaling import build_rope
 except ImportError:  # pragma: no cover - script execution path
     from combinatorial_objects import CombinatorialMemory
+    from concept_loop import (
+        CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
+    )
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
     from rope_scaling import build_rope
@@ -106,7 +113,14 @@ class V3Config:
     moe_memory_dim: int = 0
     # Growable C(V,2)/C(V,3) object memory.  Only vertex key/value
     # hypervectors are stored; pair objects are bound on demand.
-    use_combinatorial_memory: bool = True
+    use_combinatorial_memory: bool = False
+    use_concept_loop: bool = True
+    concept_loop_vertices: int = 256
+    concept_loop_dim: int = 128
+    concept_top_vertices: int = 8
+    concept_top_pairs: int = 4
+    concept_top_triples: int = 2
+    composition_head: bool = True
     grad_checkpoint: bool = False
     comb_vertices: int = 64
     comb_dim: int = 128
@@ -309,6 +323,11 @@ class Block(nn.Module):
             else SwiGLU(cfg.d_model, cfg.swiglu, cfg.d_model, cfg.dropout)
         )
         self.drop = nn.Dropout(cfg.dropout)
+        self.concept_loop = bool(cfg.use_concept_loop)
+        self.loop_to_state = (
+            nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+            if self.concept_loop else None
+        )
         self.route_feedback = bool(cfg.moe_route_feedback)
         self.route_to_attention = bool(
             cfg.moe_route_to_attention and self.route_feedback
@@ -327,7 +346,7 @@ class Block(nn.Module):
                     cfg.d_model, cfg.d_model, bias=False
                 )
 
-    def forward(self, x, route_ctx=None):
+    def forward(self, x, route_ctx=None, loop_ctx=None):
         if (
             self.route_to_attention
             and route_ctx is not None
@@ -337,12 +356,21 @@ class Block(nn.Module):
             # self-attention input, and the resulting attention summary
             # updates the context for the next layer.
             x = x + self.route_to_state(route_ctx).unsqueeze(1)
+        if loop_ctx is not None and self.loop_to_state is not None:
+            # Multi-resolution concept/object state modulates attention.
+            x = x + self.loop_to_state(loop_ctx).unsqueeze(1)
         attn_out = self.attn(self.n1(x))
         x = x + self.drop(attn_out)
         h = self.n2(x)
         lb = z = aux = None
         if self.is_moe:
-            h, lb, z, aux = self.mlp(h, context=route_ctx)
+            router_context = route_ctx
+            if loop_ctx is not None:
+                router_context = (
+                    loop_ctx if router_context is None
+                    else router_context + loop_ctx
+                )
+            h, lb, z, aux = self.mlp(h, context=router_context)
             x = x + self.drop(h)
         else:
             x = x + self.mlp(h)
@@ -595,6 +623,21 @@ class V3LM(nn.Module):
                 top_triples=cfg.comb_top_triples,
             )
             if cfg.use_combinatorial_memory else None
+        )
+        self.concept_loop = (
+            ConceptLoop(
+                d_model=cfg.d_model,
+                vertices=cfg.concept_loop_vertices,
+                dim=cfg.concept_loop_dim,
+                top_vertices=cfg.concept_top_vertices,
+                top_pairs=cfg.concept_top_pairs,
+                top_triples=cfg.concept_top_triples,
+            )
+            if cfg.use_concept_loop else None
+        )
+        self.composition_head = (
+            CompositionHead(cfg.d_model)
+            if cfg.composition_head else None
         )
         # Tied main head.  MTP heads are either separate full-vocab
         # projections or, for 64k vocabularies, tied to the main token
@@ -902,7 +945,8 @@ class V3LM(nn.Module):
                 mtp_teacher_prob: float | None = None,
                 mtp_next_tokens=None,
                 mtp_gt_mix: float | None = None,
-                return_diagnostics: bool = False):
+                return_diagnostics: bool = False,
+                sidecar=None):
         x = self.embed(tokens)
         lbs, zs = [], []
         branch_lbs: list[torch.Tensor] = []
@@ -913,12 +957,19 @@ class V3LM(nn.Module):
             x.shape[0], -1
         )
         for layer_index, block in enumerate(self.blocks):
+            loop_ctx = None
+            if self.concept_loop is not None:
+                _concept, _object_ctx, loop_ctx = self.concept_loop(
+                    x, sidecar, route_ctx
+                )
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
-                    block, x, route_ctx, use_reentrant=False
+                    block, x, route_ctx, loop_ctx, use_reentrant=False
                 )
             else:
-                x, lb, z, route_ctx, block_aux = block(x, route_ctx)
+                x, lb, z, route_ctx, block_aux = block(
+                    x, route_ctx, loop_ctx
+                )
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x
             if lb is not None:
@@ -1037,16 +1088,22 @@ class V3LM(nn.Module):
                     )
                     if hd_signal is not None:
                         cond = cond + 0.1 * self.mtp_hd_proj[idx](hd_signal)
+                mtp_context = route_ctx
+                if self.concept_loop is not None and loop_ctx is not None:
+                    mtp_context = (
+                        mtp_context + loop_ctx
+                        if mtp_context is not None else loop_ctx
+                    )
                 if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                     branch, block_aux = checkpoint(
                         self.mtp_blocks[idx],
                         cond,
-                        route_ctx,
+                        mtp_context,
                         use_reentrant=False,
                     )
                 else:
                     branch, block_aux = self.mtp_blocks[idx](
-                        cond, context=route_ctx
+                        cond, context=mtp_context
                     )
                 if self.mtp_branch_norm is not None:
                     branch = self.mtp_branch_norm(branch)
@@ -1162,9 +1219,53 @@ class V3LM(nn.Module):
             aux["hd_code_diversity"] = torch.stack(hd_diversities).mean()
         if memory_gates:
             aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
+        if self.composition_head is not None:
+            aux["composition_logits"] = self.composition_head(x)
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
         return main, mtp, aux
+
+    @torch.no_grad()
+    def generate(
+        self,
+        tokens: torch.Tensor,
+        max_new_tokens: int = 16,
+        temperature: float = 1.0,
+        seed: int | None = None,
+        tokenizer: Any = None,
+    ):
+        """Autoregressive loop with model and tokenizer composition events."""
+        if seed is not None:
+            torch.manual_seed(seed)
+        ids = tokens
+        events: list[int] = []
+        decoder = (
+            IncrementalCompositionDecoder(tokenizer.subword)
+            if tokenizer is not None else None
+        )
+        tokenizer_events: list[tuple[int, str]] = []
+        if decoder is not None:
+            for token_id in tokens[0].detach().cpu().tolist():
+                tokenizer_events.extend(decoder.feed(int(token_id)))
+        max_ctx = max(1, int(self.cfg.max_ctx))
+        for _ in range(max_new_tokens):
+            window = ids[:, -max_ctx:]
+            logits, _mtp, aux = self(window)
+            next_logits = logits[:, -1].float()
+            if temperature <= 0:
+                next_id = next_logits.argmax(dim=-1)
+            else:
+                probs = torch.softmax(next_logits / max(1e-3, temperature), dim=-1)
+                next_id = torch.multinomial(probs, num_samples=1).squeeze(-1)
+            ids = torch.cat([ids, next_id[:, None]], dim=1)
+            comp = aux.get("composition_logits")
+            if comp is not None:
+                events.append(int(comp[:, -1].argmax(dim=-1)[0]))
+            if decoder is not None:
+                tokenizer_events.extend(decoder.feed(int(next_id[0])))
+        if decoder is not None:
+            return ids, {"model": events, "tokenizer": tokenizer_events}
+        return ids, events
 
     def grow_combinatorial_vertices(self, new_vertices: int) -> "V3LM":
         if self.comb_memory is not None:

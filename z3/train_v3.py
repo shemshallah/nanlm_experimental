@@ -363,6 +363,7 @@ class TextBatchSource:
         eval_batches: int,
         seed: int,
         val_ids: np.ndarray | None = None,
+        sidecar_builder: Any = None,
     ) -> None:
         self.ids = ids
         self.split = int(split)
@@ -370,6 +371,7 @@ class TextBatchSource:
         self.batch_size = int(batch_size)
         self.rng = np.random.default_rng(seed)
         self.val_ids = val_ids
+        self.sidecar_builder = sidecar_builder
 
         if val_ids is None:
             val_source = ids
@@ -407,6 +409,17 @@ class TextBatchSource:
             self.ctx, self.split, size=self.batch_size, dtype=np.int64
         )
         return _window_batch(self.ids, positions, self.ctx)
+
+    def build_sidecar(self, ids: torch.Tensor):
+        if self.sidecar_builder is None:
+            return None
+        from concept_loop import SpanSidecar
+
+        rows = [
+            self.sidecar_builder(row.detach().cpu().tolist())
+            for row in ids
+        ]
+        return SpanSidecar.collate(rows, device=ids.device)
 
     def state(self) -> dict[str, Any]:
         return {"kind": "text", "rng": self.rng.bit_generator.state}
@@ -605,6 +618,7 @@ def evaluate(
     device: torch.device,
     amp: bool,
     mtp_weight: float,
+    sidecar_builder: Any = None,
 ) -> dict[str, Any]:
     """Evaluate on fixed windows; returns token-weighted metrics."""
     was_training = model.training
@@ -629,12 +643,30 @@ def evaluate(
     router_z_sum = 0.0
     aux_batches = 0
 
+    composition_sum = 0.0
+    composition_tokens = 0
     for xb in batches:
+        sidecar = (
+            sidecar_builder(xb) if sidecar_builder is not None else None
+        )
+        if sidecar is not None:
+            sidecar = sidecar.to(device)
         xb = xb.to(device, non_blocking=True)
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
-                xb, return_diagnostics=True
+                xb, return_diagnostics=True, sidecar=sidecar
             )
+        if sidecar is not None and aux.get("composition_logits") is not None:
+            comp_logits = aux["composition_logits"]
+            comp_targets = sidecar.event_ids
+            composition_sum += float(
+                F.cross_entropy(
+                    comp_logits.reshape(-1, comp_logits.size(-1)),
+                    comp_targets.reshape(-1).long(),
+                    reduction="sum",
+                )
+            )
+            composition_tokens += int(comp_targets.numel())
 
         vocab = logits.size(-1)
         main_logits = logits[:, :-1]
@@ -770,6 +802,10 @@ def evaluate(
             diag_gate_wrong / diag_wrong_tokens
             if diag_wrong_tokens else None
         ),
+        "composition_loss": (
+            composition_sum / composition_tokens
+            if composition_tokens else None
+        ),
         "bits_per_token": main_loss / math.log(2),
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
@@ -821,6 +857,9 @@ def build_parser() -> argparse.ArgumentParser:
                       default="uint16", help="dtype for --tokenizer bin")
     data.add_argument("--val-corpus", default="",
                       help="separate validation token file for --tokenizer bin")
+    data.add_argument("--sidecar", action=argparse.BooleanOptionalAction,
+                      default=True,
+                      help="build aligned word/sentence/math sidecars from token IDs")
     data.add_argument("--max-bytes", type=int, default=0, help="cap corpus bytes (0 = all)")
     data.add_argument("--train-fraction", type=float, default=0.95,
                       help="head fraction used for training; the tail is fixed validation")
@@ -888,9 +927,19 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--grad-checkpoint", action=argparse.BooleanOptionalAction,
                        default=False,
                        help="activation checkpointing for long-context training")
-    model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
+    model.add_argument("--concept-loop", action=argparse.BooleanOptionalAction,
                        default=True,
-                       help="sparse growable C(V,2)/C(V,3) object memory")
+                       help="multi-resolution concept/object feedback through all blocks")
+    model.add_argument("--concept-vertices", type=int, default=256)
+    model.add_argument("--concept-dim", type=int, default=128)
+    model.add_argument("--concept-top-vertices", type=int, default=8)
+    model.add_argument("--concept-top-pairs", type=int, default=4)
+    model.add_argument("--concept-top-triples", type=int, default=2)
+    model.add_argument("--composition-head", action=argparse.BooleanOptionalAction,
+                       default=True)
+    model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="legacy post-hoc C(V,2)/C(V,3) memory")
     model.add_argument("--comb-vertices", type=int, default=64)
     model.add_argument("--comb-dim", type=int, default=128)
     model.add_argument("--comb-top-vertices", type=int, default=16)
@@ -987,6 +1036,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--ema-decay", type=float, default=0.999)
     train.add_argument("--ema-start-frac", type=float, default=0.3)
     train.add_argument("--no-ema", action="store_true")
+    train.add_argument("--composition-weight", type=float, default=0.05,
+                       help="auxiliary composition-event CE weight")
     train.add_argument("--mtp-weight", type=float, default=0.3,
                        help="total MTP weight; each of k heads gets weight/k")
     train.add_argument("--mtp-gt-mix-start", type=float, default=0.85,
@@ -1166,6 +1217,15 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--moe-memory-keys must be positive")
     if args.moe_memory_dim < 0:
         raise SystemExit("--moe-memory-dim must be non-negative")
+    if args.concept_loop:
+        if args.concept_vertices < 2:
+            raise SystemExit("--concept-vertices must be at least 2")
+        if args.concept_dim < 8:
+            raise SystemExit("--concept-dim must be at least 8")
+        if not 2 <= args.concept_top_vertices <= args.concept_vertices:
+            raise SystemExit("--concept-top-vertices must be in [2, concept-vertices]")
+        if args.concept_top_pairs < 1 or args.concept_top_triples < 0:
+            raise SystemExit("invalid concept object top-k")
     if args.combinatorial_memory:
         if args.comb_vertices < 2:
             raise SystemExit("--comb-vertices must be at least 2")
@@ -1258,6 +1318,13 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_memory_keys=int(args.moe_memory_keys),
         moe_memory_dim=int(args.moe_memory_dim),
         grad_checkpoint=bool(args.grad_checkpoint),
+        use_concept_loop=bool(args.concept_loop),
+        concept_loop_vertices=int(args.concept_vertices),
+        concept_loop_dim=int(args.concept_dim),
+        concept_top_vertices=int(args.concept_top_vertices),
+        concept_top_pairs=int(args.concept_top_pairs),
+        concept_top_triples=int(args.concept_top_triples),
+        composition_head=bool(args.composition_head),
         use_combinatorial_memory=bool(args.combinatorial_memory),
         comb_vertices=int(args.comb_vertices),
         comb_dim=int(args.comb_dim),
@@ -1499,6 +1566,18 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
+    if args.sidecar and args.concept_loop and args.tokenizer in (
+        "bin", "v4", "layered",
+    ):
+        from concept_loop import SpanSidecar
+        from layered_tokenizer import load_artifact
+
+        side_tok = load_artifact(Path(args.layered_model).expanduser())
+        source.sidecar_builder = (
+            lambda ids: SpanSidecar.from_token_ids(ids, side_tok)
+        )
+        print("[sidecar] aligned word/sentence/math feed enabled", flush=True)
+
     overfit_batch = source.train_batch() if args.overfit_single_batch else None
     if resume_checkpoint is not None:
         saved_model_config = (
@@ -1529,6 +1608,8 @@ def main(argv: list[str] | None = None) -> int:
                 ("mtp_hd_time", "--mtp-hd-time"),
                 ("mtp_branch_norm", "--mtp-branch-norm"),
                 ("use_combinatorial_memory", "--combinatorial-memory"),
+                ("use_concept_loop", "--concept-loop"),
+                ("composition_head", "--composition-head"),
                 ("grad_checkpoint", "--grad-checkpoint"),
             ):
                 if (
@@ -1857,7 +1938,8 @@ def main(argv: list[str] | None = None) -> int:
     eval_before = None
     if args.eval_before:
         eval_before = evaluate(
-            model, source.eval_batches, device, amp, args.mtp_weight
+            model, source.eval_batches, device, amp, args.mtp_weight,
+            sidecar_builder=getattr(source, "build_sidecar", None),
         )
         print(
             f"[eval-before] model loss={eval_before['loss']:.4f} "
@@ -1898,11 +1980,19 @@ def main(argv: list[str] | None = None) -> int:
             overfit_batch
             if overfit_batch is not None
             else source.train_batch()
-        ).to(device, non_blocking=True)
+        )
+        sidecar = (
+            source.build_sidecar(xb)
+            if hasattr(source, "build_sidecar") else None
+        )
+        if sidecar is not None:
+            sidecar = sidecar.to(device)
+        xb = xb.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
-                xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix
+                xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
+                sidecar=sidecar,
             )
             loss, parts = lm_mtp_loss(
                 logits,
@@ -1939,6 +2029,16 @@ def main(argv: list[str] | None = None) -> int:
                 loss = loss + args.moe_hd_diversity_coef * hd_diversity
             if aux.get("mtp_gate_loss") is not None:
                 loss = loss + args.mtp_gate_coef * aux["mtp_gate_loss"]
+            composition_loss = None
+            if sidecar is not None and aux.get("composition_logits") is not None:
+                comp_logits = aux["composition_logits"]
+                comp_targets = sidecar.event_ids
+                composition_loss = F.cross_entropy(
+                    comp_logits.reshape(-1, comp_logits.size(-1)),
+                    comp_targets.reshape(-1).long(),
+                    ignore_index=-100,
+                )
+                loss = loss + args.composition_weight * composition_loss
             loss_value = float(loss.detach())
 
         amp_skip = False
@@ -2033,6 +2133,10 @@ def main(argv: list[str] | None = None) -> int:
             "hd_code_diversity": (
                 _finite(hd_diversity) if hd_diversity is not None else None
             ),
+            "composition": (
+                _finite(composition_loss)
+                if composition_loss is not None else None
+            ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),
             "tokens": int(args.batch_size * args.ctx),
@@ -2052,11 +2156,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         if should_eval:
             val = evaluate(
-                model, source.eval_batches, device, amp, args.mtp_weight
+                model, source.eval_batches, device, amp, args.mtp_weight,
+                sidecar_builder=getattr(source, "build_sidecar", None),
             )
             val_ema = (
                 evaluate(
-                    ema_model, source.eval_batches, device, amp, args.mtp_weight
+                    ema_model, source.eval_batches, device, amp,
+                    args.mtp_weight,
+                    sidecar_builder=getattr(source, "build_sidecar", None),
                 )
                 if ema_model is not None else None
             )
@@ -2122,10 +2229,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Final artifacts ------------------------------------------------------
     final_metrics = evaluate(
-        model, source.eval_batches, device, amp, args.mtp_weight
+        model, source.eval_batches, device, amp, args.mtp_weight,
+        sidecar_builder=getattr(source, "build_sidecar", None),
     )
     final_ema_metrics = (
-        evaluate(ema_model, source.eval_batches, device, amp, args.mtp_weight)
+        evaluate(
+            ema_model, source.eval_batches, device, amp, args.mtp_weight,
+            sidecar_builder=getattr(source, "build_sidecar", None),
+        )
         if ema_model is not None else None
     )
     consider_best(final_metrics, "model", last_step, force=True)
