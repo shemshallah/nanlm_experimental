@@ -4,6 +4,7 @@ import copy
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +102,43 @@ class ReciprocalScalesTest(unittest.TestCase):
                            ('meta',g.meta_up)]:
             self.assertIsNotNone(param.grad,name)
             self.assertGreater(param.grad.abs().sum().item(),0,name)
+
+    def test_every_geometric_return_edge_has_measurable_effect(self):
+        torch.manual_seed(432)
+        cfg = config(True)
+        cfg.layers = 4  # two geometric MoE blocks and two ordinary attention blocks
+        model = MirrorLM(cfg).eval()
+        model.reciprocal.gate.data.fill_(.4)
+        ids = torch.randint(0,256,(1,15))
+        with torch.no_grad():
+            reference = model(ids)[0]
+            for name in ('pair_to_micro_enabled','cloud_to_micro_enabled',
+                         'meta_to_micro_enabled','meta_tokenizer_enabled'):
+                setattr(model.reciprocal,name,False)
+                reduced = model(ids)[0]
+                setattr(model.reciprocal,name,True)
+                self.assertGreater((reference-reduced).abs().max().item(),1e-6,name)
+
+    def test_two_geometric_cycles_and_token_feedback_at_all_four_blocks(self):
+        torch.manual_seed(433)
+        cfg = config(True); cfg.layers = 4
+        model = MirrorLM(cfg)
+        model.reciprocal.gate.data.fill_(.2)
+        ids = torch.randint(0,256,(1,15))
+        outputs = []
+        original_emit = model.reciprocal.emit
+        def capture_feedback(*args,**kwargs):
+            result = original_emit(*args,**kwargs)
+            outputs.append(result)
+            return result
+        with patch.object(model.reciprocal,'ingest',wraps=model.reciprocal.ingest) as ingest, \
+             patch.object(model.reciprocal,'couple',wraps=model.reciprocal.couple) as couple, \
+             patch.object(model.reciprocal,'emit',side_effect=capture_feedback) as emit:
+            model(ids)
+            self.assertEqual(ingest.call_count,4)
+            self.assertEqual(emit.call_count,4)
+            self.assertEqual(couple.call_count,2)
+        self.assertTrue(all(float(v.abs().sum()) > 0 for v in outputs))
 
     def test_512d_mixed_head_reciprocal_forward_backward(self):
         torch.manual_seed(397)

@@ -24,30 +24,57 @@ vocabulary-migration study, and separate bits/token metrics. The new route
 rejects non-257-symbol and non-UTF-8-byte+EOS checkpoints to prevent interpreting
 subword IDs as raw ASCII punctuation.
 
-At each byte position the bridge performs two reciprocal, same-position loops:
+At each byte position **within every geometric MoE block**, the same
+`MirrorLM` now performs two reciprocal, same-position passes:
 
 ```
-five token scales -- cross-scale attention --> 256 point keys
-             --> 8 sparse active points (existing point microtransformers)
-             --> 28 signed pair tokens (existing 32,640 table)
-             --> 56 oriented triangle tokens (existing 2,763,520 exact IDs)
-             --> top-8 of 256 existing apex/meta specialist transforms
-             --> triangle attention --> signed pair attention --> point attention
-             --> tokenizer-scale feedback --> next loop --> byte decoder
+256 point microtransformers <--> 5-scale causal tokenizer
+    |       ^                             |
+    v       |                             v
+32,640 signed pair concept points ---+----> meta tokenizer
+    |       ^                             ^
+    v       |                             |
+2,763,520 virtual triangle-cloud addresses -----+
+    |       ^                             |
+    v       |                             v
+256 apex/meta MoE experts -----------------------+
+    |       |                             |
+    +-------+------ feedback to ALL tokenizer scales + next backbone block
 ```
+
+More precisely:
+
+1. Before **each backbone block**, token scales are recomputed from the
+   current causal hidden stream and updated using any returned meta state.
+2. In every geometric block, the original 256 address-specific
+   microtransformers process eight selected point concepts. The token scales
+   then participate in the **same** point→28 signed edge→56 triangle climb.
+3. The signed pair store has exactly 32,640 learned addresses. Its d1 incidence
+   map returns pair concepts to the active microtransformers. The sparse
+   triangle cloud has 2,763,520 possible exact addresses, backed by hashed
+   trainable vectors and exact Fourier phases. Its d2→d1 maps return
+   abstract-concept feedback to those same microtransformers.
+4. One **meta tokenizer** forms eight content tokens at each byte: five token
+   resolutions plus pooled point, pair, and triangle features. Two rounds of
+   shared cross-scale attention assemble the abstract concept and query the
+   existing 256 apex specialists, including their address-specific MoE FFNs.
+5. Apex feedback updates point microtransformers, pairs, triangle tokens,
+   and all five token scales. The next reciprocal pass uses these updated
+   states. The original tetrahedron/curvature/holonomy and apex paths then
+   continue with the returned geometric features.
+6. The latest apex state is propagated to the tokenizer at the next backbone
+   layer. Every backbone layer receives a gated token/meta residual, including
+   attention-only layers; this is **not** a post-decoder sidecar.
 
 All point, pair, triangle, and meta parameters come from the **same already
-registered geometric MoE block**. The bridge registers only its own small
-scale-attention/projection tensors and a single scalar residual gate. The
-geometric memory over *completed* chunks, when enabled in that block, is also
-shared with the bridge. There is no dense C(256,3) embedding allocation:
-at most 8/28/56 active addresses per byte are instantiated, selected by the
-same content-addressed point keys.
+registered geometric MoE blocks**. The meta tokenizer reuses the shared
+scale-attention/projection tensors and a single zero-initialized gate; it has
+no independent vocabulary head or optimizer. The original geometric memory
+over completed chunks remains in place. The new path does not allocate a
+dense triangle cloud: at most 8/28/56 active addresses per byte are used.
 
 The geometric MoE still performs its original point→pair→triangle→tetra→apex
-and downward feedback inside transformer blocks. The new route makes the
-tokenizer feedback and apex concept features converse directly after the final
-transformer block, without moving or resetting that older pathway. R37's
+and downward feedback inside transformer blocks. R37's
 isolated +2/+3 forecaster continues to detach NOW features from future losses;
 new reciprocal weights train from the existing NOW loss, preserving forecast
 isolation. The historical R36 holonomy and R35 curvature routes remain intact.
@@ -95,10 +122,11 @@ checkpoint are available.
 
 ## Validation gates
 
-The new `tests/test_reciprocal_scales.py` covers unchanged three-horizon
+The nine `tests/test_reciprocal_scales.py` tests cover unchanged three-horizon
 predictions, all inherited Adam moments and step/RNG metadata, exact parameter
 counts, active positive signed-pair/triangle/meta gradients, causal suffix
-invariance, trained-bridge ablation, CLI growth, and 512D mixed-head autograd.
+invariance, independent pair/cloud/meta return ablations, per-block traversal,
+CLI growth, and 512D mixed-head autograd.
 
 Run `python -m unittest discover -s tests -q` under `poincare_mirror/`.
 The existing GitHub Actions source-test job already uses that command on
@@ -116,23 +144,26 @@ reports +1/+2/+3 CE, bits/byte, top-1, top-5 on identical target bytes,
 plus endpoint feedback-disabled ablation. Results on this task are **not**
 reliable evidence of real-book gains and cannot promote a model.
 
-### Measured 128-update synthetic pilot
+### Corrected in-block topology — measured 128-update synthetic pilot
 
 Local reproducibility record: `reports/reciprocal_synthetic_128.json`.
 Sixteen independently generated held-out documents, 128 query-byte targets.
 
 | Held-out target | Control CE | Reciprocal CE | Control top-1 | Reciprocal top-1 | Control top-5 | Reciprocal top-5 |
 |---|---:|---:|---:|---:|---:|---:|
-| +1 | 2.353047 | **2.350482** | **14.06%** | 10.94% | **62.50%** | 60.16% |
-| +2 | 5.396919 | **5.344437** | 0% | 0% | 0% | 0% |
-| +3 | 6.197485 | **6.197475** | 0% | 0% | 0% | 0% |
+| +1 | **2.353047** | 2.354270 | **14.06%** | 9.38% | **62.50%** | 60.94% |
+| +2 | **5.396919** | 5.465668 | 0% | 0% | 0% | 0% |
+| +3 | 6.197485 | **6.052396** | 0% | 0% | 0% | 0% |
 
-Direct feedback ablation at the candidate endpoint changed +1 CE from
-2.350482 to 2.360541 (positive pathway effect), but *improved* +2 CE from
-5.344437 to 5.337389 (negative pathway effect). The inherited +1 top-1 and
-top-5 also decline. **The candidate fails promotion**, despite slightly
-better aggregate +1/+2 CE. This pilot should motivate supervision/recall
-improvements, not architectural gain claims.
+Direct feedback ablation at the candidate endpoint *worsened* +1 CE from
+2.354270 to 2.355620, +2 CE from 5.465668 to 5.518743, and +3 CE from
+6.052396 to 6.082287. Therefore the recursive feedback is genuinely useful
+**inside the candidate** on this tiny synthetic workload, but the control
+still beats it on +1/+2 CE and +1 top-1/top-5. **Promotion is rejected.**
+
+The prior endpoint-only bridge and its original pilot are preserved as a
+historical superseded control in `reports/reciprocal_synthetic_128_preclosure.json`.
+The corrected architecture above replaces that incomplete bridge.
 
 Before promotion, restore the actual full optimizer-carrying FA2 candidate;
 benchmark against its own unmodified ancestor on author/book-disjoint books,

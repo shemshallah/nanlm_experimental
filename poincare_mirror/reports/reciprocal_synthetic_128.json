@@ -1,5 +1,5 @@
 {
-  "experiment": "shared tokenizer-geometry feedback synthetic delayed-key recall",
+  "experiment": "FA2 same-model in-block micro/token/pair/cloud/meta reciprocal closure",
   "seed": 398,
   "updates_per_arm": 128,
   "heldout_documents": 16,
@@ -18,17 +18,18 @@
       "+2": {"ce_nats_per_byte": 5.396919, "bits_per_byte": 7.786108, "top1": 0.0, "top5": 0.0},
       "+3": {"ce_nats_per_byte": 6.197485, "bits_per_byte": 8.941081, "top1": 0.0, "top5": 0.0}
     },
-    "reciprocal": {
-      "+1": {"ce_nats_per_byte": 2.350482, "bits_per_byte": 3.391028, "top1": 0.109375, "top5": 0.601562},
-      "+2": {"ce_nats_per_byte": 5.344437, "bits_per_byte": 7.710392, "top1": 0.0, "top5": 0.0},
-      "+3": {"ce_nats_per_byte": 6.197475, "bits_per_byte": 8.941066, "top1": 0.0, "top5": 0.0}
+    "recursive_candidate": {
+      "+1": {"ce_nats_per_byte": 2.35427, "bits_per_byte": 3.396494, "top1": 0.09375, "top5": 0.609375},
+      "+2": {"ce_nats_per_byte": 5.465668, "bits_per_byte": 7.885292, "top1": 0.0, "top5": 0.0},
+      "+3": {"ce_nats_per_byte": 6.052396, "bits_per_byte": 8.731762, "top1": 0.0, "top5": 0.0}
     },
-    "reciprocal_feedback_disabled_at_endpoint": {
-      "+1": {"ce_nats_per_byte": 2.360541, "bits_per_byte": 3.405541, "top1": 0.125, "top5": 0.632812},
-      "+2": {"ce_nats_per_byte": 5.337389, "bits_per_byte": 7.700224, "top1": 0.0, "top5": 0.0},
-      "+3": {"ce_nats_per_byte": 6.21527, "bits_per_byte": 8.966739, "top1": 0.0, "top5": 0.0}
+    "recursive_feedback_disabled_at_endpoint": {
+      "+1": {"ce_nats_per_byte": 2.35562, "bits_per_byte": 3.398441, "top1": 0.101562, "top5": 0.609375},
+      "+2": {"ce_nats_per_byte": 5.518743, "bits_per_byte": 7.961863, "top1": 0.0, "top5": 0.0},
+      "+3": {"ce_nats_per_byte": 6.082287, "bits_per_byte": 8.774886, "top1": 0.0, "top5": 0.0}
     }
   },
-  "promotion_gate": "REJECTED: next-byte top-1/top-5 regress; +2 feedback ablation is unfavorable",
+  "feedback_effect_ce": {"+1": 0.00135, "+2": 0.053075, "+3": 0.029891},
+  "promotion_gate": "REJECTED: +1/+2 CE and next-byte top-1/top-5 regress against control",
   "reproduce": "python poincare_mirror/scripts/compare_reciprocal_scales.py --updates 128"
 }

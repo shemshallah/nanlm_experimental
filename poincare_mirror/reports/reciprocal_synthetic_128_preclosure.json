@@ -1,0 +1,36 @@
+{
+  "experiment": "shared tokenizer-geometry feedback synthetic delayed-key recall",
+  "superseded": true,
+  "interpretation": "Historical endpoint-only bridge; the in-block recursive topology corrected this implementation",
+  "seed": 398,
+  "updates_per_arm": 128,
+  "heldout_documents": 16,
+  "heldout_query_bytes": 128,
+  "model_dim": 32,
+  "attention_layers": 2,
+  "geometry_rank": 8,
+  "token_rank": 8,
+  "context": 128,
+  "checkpoint_source": "matched random initialization, NOT a restored FA2 trained checkpoint",
+  "corpus": "synthetic random mapping, NOT book-disjoint real text",
+  "gate": "tanh(8 * gate), gate starts at zero",
+  "metrics": {
+    "control": {
+      "+1": {"ce_nats_per_byte": 2.353047, "bits_per_byte": 3.394729, "top1": 0.140625, "top5": 0.625},
+      "+2": {"ce_nats_per_byte": 5.396919, "bits_per_byte": 7.786108, "top1": 0.0, "top5": 0.0},
+      "+3": {"ce_nats_per_byte": 6.197485, "bits_per_byte": 8.941081, "top1": 0.0, "top5": 0.0}
+    },
+    "reciprocal": {
+      "+1": {"ce_nats_per_byte": 2.350482, "bits_per_byte": 3.391028, "top1": 0.109375, "top5": 0.601562},
+      "+2": {"ce_nats_per_byte": 5.344437, "bits_per_byte": 7.710392, "top1": 0.0, "top5": 0.0},
+      "+3": {"ce_nats_per_byte": 6.197475, "bits_per_byte": 8.941066, "top1": 0.0, "top5": 0.0}
+    },
+    "reciprocal_feedback_disabled_at_endpoint": {
+      "+1": {"ce_nats_per_byte": 2.360541, "bits_per_byte": 3.405541, "top1": 0.125, "top5": 0.632812},
+      "+2": {"ce_nats_per_byte": 5.337389, "bits_per_byte": 7.700224, "top1": 0.0, "top5": 0.0},
+      "+3": {"ce_nats_per_byte": 6.21527, "bits_per_byte": 8.966739, "top1": 0.0, "top5": 0.0}
+    }
+  },
+  "promotion_gate": "REJECTED: next-byte top-1/top-5 regress; +2 feedback ablation is unfavorable",
+  "reproduce": "python poincare_mirror/scripts/compare_reciprocal_scales.py --updates 128"
+}

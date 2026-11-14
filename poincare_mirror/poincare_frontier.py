@@ -251,15 +251,14 @@ class CausalTokenHierarchy(nn.Module):
 
 
 class ReciprocalScaleGeometry(nn.Module):
-    """Sparse, causal five-scale <-> point/edge/triangle/apex recurrent bridge.
+    """One shared tokenizer/meta tokenizer woven through every geometric MoE.
 
-    Reuse the *same* learned hierarchy projector and the final MoE block's
-    existing geometric point/pair/triangle/meta parameters. This is not a new
-    predictor, a dense triangle bank or a replacement tokenizer. Every scale
-    is computed online from byte-aligned hidden states; the 2/4-byte scales
-    are proxies (not fitted BPE). Both recurrent passes are same-position,
-    with temporal history supplied only by the causal backbone and optional
-    existing completed-chunk geometric memory.
+    Token scales enter the original point microtransformers; exact signed
+    mirror pairs and millions-address triangle tokens feed *back* into those
+    microtransformers before the 256-apex meta MoE. The meta tokenizer
+    assembles five text resolutions + point/pair/triangle concept tokens.
+    Its output returns to every participating transformer block and the next
+    micro layer. No second independent geometry, head, or optimizer exists.
     """
     SCALES = ('byte', 'byte_pair', 'byte_quad', 'word_prefix', 'sentence_prefix')
 
@@ -274,6 +273,10 @@ class ReciprocalScaleGeometry(nn.Module):
         self.scale_weights = nn.Parameter(torch.zeros(5))
         self.gate = nn.Parameter(torch.zeros(()))
         self.enabled = True  # inference ablation only; not a checkpoint weight
+        self.pair_to_micro_enabled = True
+        self.cloud_to_micro_enabled = True
+        self.meta_to_micro_enabled = True
+        self.meta_tokenizer_enabled = True
 
     @staticmethod
     def causal_scales(z, ids):
@@ -296,82 +299,106 @@ class ReciprocalScaleGeometry(nn.Module):
         return torch.stack((z, pair, quad, word, sentence), dim=2)
 
     def attend_scales(self, levels):
-        b, t, _, r = levels.shape
-        q, k, v = self.scale_qkv(levels).reshape(b,t,5,3,r).unbind(3)
+        b, t, scales, r = levels.shape
+        q, k, v = self.scale_qkv(levels).reshape(b,t,scales,3,r).unbind(3)
         attn = (q @ k.transpose(-1,-2) / math.sqrt(r)).softmax(-1)
         return F.layer_norm(levels + attn @ v, (r,))
 
-    def forward(self, hidden, ids, hierarchy, geometry):
-        if not self.enabled:
-            return torch.zeros_like(hidden)
-        b, t, _ = hidden.shape
-        r = self.geometry_rank
+    def cold_gate(self):
+        return torch.tanh(8.*self.gate) if self.enabled else self.gate*0.
+
+    def ingest(self, hidden, ids, hierarchy, previous=None, meta=None):
+        """Refresh same-byte causal resolutions after EACH transformer layer."""
         levels = self.causal_scales(hierarchy.input(hidden), ids)
+        if previous is not None:
+            levels = F.layer_norm(levels + previous,(self.token_rank,))
+        if meta is not None:
+            levels = levels + self.cold_gate()*self.geo_to_scale(meta).unsqueeze(2)
+        return self.attend_scales(levels)
+
+    def couple(self, point, pair, triangle, selected, weights, geometry, levels):
+        """Two full micro/token/pair/cloud/meta reciprocal passes in-place.
+
+        All concept IDs and all learned micro/meta FF weights belong to the
+        already executing SymbioticGeometry, NOT to a parallel new decoder.
+        """
+        b,t,_,_ = levels.shape
+        r = self.geometry_rank
         n = b*t
-        # Exact indices are drawn from the original 256-point geometry.
-        point_query = self.scale_to_geo(levels.mean(2)).reshape(n,r)
-        point_logits = point_query @ geometry.point_keys.T / math.sqrt(r)
-        point_score, selected = point_logits.topk(geometry.ACTIVE, dim=-1)
-        selected, order = selected.sort(-1)
-        weights = point_score.softmax(-1).gather(1,order)
-        point = geometry.point_values[selected]
-        if geometry.point_micro_enabled:
-            point = geometry.run_microtransformers(point,selected)
+        gate = self.cold_gate()
         i,j = geometry.choose2.unbind(-1)
-        a,c = point[:,i],point[:,j]
         pair_ids = geometry.pair_address(selected[:,i],selected[:,j])
         signed = torch.tanh(self.signed_orientation(levels.mean(2)).reshape(n,1,1))
-        pair = (a+c)*.5 + signed*(c-a)*.5
+        pair_tokens = pair
         if geometry.simplex_enabled:
-            pair = pair + .1*(geometry.simplex.pair_shared(pair_ids) +
-                              signed*geometry.simplex.pair_anti(pair_ids))
-        i,j,k = geometry.choose3.unbind(-1)
-        a,c,d = point[:,i],point[:,j],point[:,k]
-        address = geometry.triangle_address(selected[:,i], selected[:,j], selected[:,k])
-        phase = address.float().unsqueeze(-1)*(geometry.triangle_freq/2763520.)
-        triangle = (a+c+d)/3
-        if geometry.triangle_abstract_enabled:
-            triangle = triangle + .1*(geometry.triangle_table(address%8192) +
-                                       torch.cat((phase.sin(),phase.cos()),-1))
-        pmean = geometry.pool(point,weights)
-        emean = geometry.pool(pair,weights[:,geometry.choose2].prod(-1))
-        fmean = geometry.pool(triangle,weights[:,geometry.choose3].prod(-1))
-        geo = F.layer_norm(pmean+emean+fmean,(r,))
-        scale_weights = self.scale_weights.softmax(0).view(1,1,5,1)
-        # Each pass completes scale->point->pair->triangle->256-apex->scale.
-        # No tensor indexed by the full 2.76M conceptual triangle count.
+            pair_tokens = pair_tokens + .1*(geometry.simplex.pair_shared(pair_ids) +
+                                            signed*geometry.simplex.pair_anti(pair_ids))
+        pw = weights[:,geometry.choose2].prod(-1)
+        tw = weights[:,geometry.choose3].prod(-1)
+        apex = point.new_zeros((n,r))
         for _ in range(2):
-            levels = self.attend_scales(levels)
-            summary = (levels*scale_weights).sum(2)
-            geo_query = self.scale_to_geo(summary).reshape(n,r)
-            apex_query = geo + geo_query
-            if geometry.meta_moe_enabled:
-                apex_query = apex_query + geometry.meta_query(fmean)
-            apex_scores = apex_query @ geometry.apex_keys.T/math.sqrt(r)
-            best, apex_ids = apex_scores.topk(geometry.ACTIVE,-1)
-            meta_values = geometry.apex_values[apex_ids]
+            point_mean = geometry.pool(point,weights)
+            pair_mean = geometry.pool(pair_tokens,pw)
+            triangle_mean = geometry.pool(triangle,tw)
+            concepts = torch.stack((point_mean,pair_mean,triangle_mean),1).reshape(b,t,3,r)
+            # Meta tokenizer assembles *all five* language scales and all
+            # three geometric levels, and learns their cross-attention.
+            meta_tokens = torch.cat((levels,self.geo_to_scale(concepts)),2)
+            if self.meta_tokenizer_enabled:
+                meta_tokens = self.attend_scales(self.attend_scales(meta_tokens))
+            meta_abstract = self.scale_to_geo(meta_tokens.mean(2)).reshape(n,r)
+            apex_query = meta_abstract + geometry.meta_query(triangle_mean)
+            apex_scores, apex_ids = (apex_query @ geometry.apex_keys.T / math.sqrt(r)).topk(
+                geometry.ACTIVE,dim=-1)
+            apex_values = geometry.apex_values[apex_ids]
             if geometry.meta_moe_enabled:
                 meta_hidden = F.silu(torch.einsum('nkr,nkrh->nkh',
-                    apex_query[:,None,:].expand(-1,geometry.ACTIVE,-1),geometry.meta_up[apex_ids]))
-                meta_values = meta_values + torch.einsum('nkh,nkhr->nkr',
-                                                         meta_hidden,geometry.meta_down[apex_ids])
-            apex = (meta_values*best.softmax(-1).unsqueeze(-1)).sum(1)
-            # Signed descent from meta through the *same* active simplices.
-            down_face = (triangle*apex[:,None,:]).sum(-1)/math.sqrt(r)
-            face_read = (triangle*down_face.softmax(-1).unsqueeze(-1)).sum(1)
-            down_pair = (pair*face_read[:,None,:]).sum(-1)/math.sqrt(r)
-            edge_read = (pair*down_pair.softmax(-1).unsqueeze(-1)).sum(1)
-            down_point = (point*edge_read[:,None,:]).sum(-1)/math.sqrt(r)
-            point_read = (point*down_point.softmax(-1).unsqueeze(-1)).sum(1)
-            geo = F.layer_norm(geo+apex+face_read+edge_read+point_read,(r,))
-            if geometry.memory is not None:
-                geo = geometry.memory(geo.reshape(b,t,r)).reshape(n,r)
-            levels = F.layer_norm(levels + self.geo_to_scale(geo).reshape(b,t,1,-1),
-                                  (self.token_rank,))
-        pooled = (levels*scale_weights).sum(2)
-        # Larger cold-gate slope exposes learned feedback within short pilots,
-        # while keeping EXACT zero output at migration.
-        return torch.tanh(8.*self.gate)*self.to_hidden(pooled)
+                    apex_query[:,None,:].expand(-1,geometry.ACTIVE,-1), geometry.meta_up[apex_ids]))
+                apex_values = apex_values + torch.einsum('nkh,nkhr->nkr',
+                                                        meta_hidden,geometry.meta_down[apex_ids])
+            apex = (apex_values*apex_scores.softmax(-1).unsqueeze(-1)).sum(1)
+            # Exact d1/d2 incidence returns signed C(256,2) edge messages and
+            # sparse C(256,3) cloud messages to the SAME microtransformers.
+            pair_to_point = point.new_zeros(point.shape)
+            cloud_to_point = point.new_zeros(point.shape)
+            if geometry.simplex_enabled:
+                if self.pair_to_micro_enabled:
+                    pair_to_point = geometry.simplex.edge_to_point(torch.einsum(
+                        'ep,ner->npr',geometry.simplex.d1.abs()+.5*geometry.simplex.d1,
+                        pair_tokens)/7.)
+                if self.cloud_to_micro_enabled:
+                    cloud_to_pair = geometry.simplex.face_to_edge(torch.einsum(
+                        'fe,nfr->ner',geometry.simplex.d2.abs()+.5*geometry.simplex.d2,
+                        triangle)/6.)
+                    cloud_to_point = geometry.simplex.edge_to_point(torch.einsum(
+                        'ep,ner->npr',geometry.simplex.d1.abs()+.5*geometry.simplex.d1,
+                        cloud_to_pair)/7.)
+            meta_to_point = apex[:,None,:] if self.meta_to_micro_enabled else 0.
+            source = (self.scale_to_geo(levels.mean(2)).reshape(n,1,r) +
+                      pair_to_point+cloud_to_point+meta_to_point)
+            if geometry.point_micro_enabled:
+                # The returned feedback is run THROUGH the existing 256
+                # address-specific microtransformers before updating points.
+                micro = geometry.run_microtransformers(point+gate*source,selected)
+                point = point+gate*(micro-point)
+            else:
+                point = point+gate*source
+            pair = pair + gate*(point[:,j]-point[:,i])*.5
+            triangle = triangle + gate*apex[:,None,:]
+            pair_tokens = pair_tokens + gate*pair
+            # All geometric levels and meta head send feedback to every
+            # tokenizer scale, not merely to the final LM hidden state.
+            level_feedback = point_mean+pair_mean+triangle_mean+apex
+            levels = levels + gate*self.geo_to_scale(level_feedback).reshape(b,t,1,-1)
+            levels = self.attend_scales(levels)
+        return point,pair,triangle,levels,apex.reshape(b,t,r)
+
+    def emit(self, levels, meta=None):
+        """Every backbone block receives the updated scale/meta context."""
+        pooled = (levels*self.scale_weights.softmax(0).view(1,1,5,1)).sum(2)
+        if meta is not None:
+            pooled = pooled + self.geo_to_scale(meta)
+        return self.cold_gate()*self.to_hidden(pooled)
 
 
 class SwiGLU(nn.Module):
@@ -776,7 +803,7 @@ class SymbioticGeometry(nn.Module):
     def pool(values, weights):
         return (values * weights.unsqueeze(-1)).sum(1) / weights.sum(1, keepdim=True).clamp_min(1e-12)
 
-    def forward(self, tokens, expert, signed_probability):
+    def forward(self, tokens, expert, signed_probability, bridge=None, scales=None):
         batch, length, dim = tokens.shape
         rank = self.rank
         query = self.point_query(tokens.reshape(-1, dim)) + self.expert_query(expert.reshape(-1, dim))
@@ -805,6 +832,10 @@ class SymbioticGeometry(nn.Module):
             phase = addresses.float().unsqueeze(-1) * (self.triangle_freq / 2763520.)
             exact_features = torch.cat((phase.sin(),phase.cos()),dim=-1)
             triangle = triangle + .1 * (self.triangle_table(addresses % 8192) + exact_features)
+        if bridge is not None and bridge.enabled:
+            point,pair,triangle,scales,_ = bridge.couple(
+                point,pair,triangle,point_ids,weights,self,scales)
+            pair_mean = self.pool(pair,weights[:,self.choose2].prod(-1))
         tri_mean = self.pool(triangle, weights[:,i]*weights[:,j]*weights[:,k])
         if self.curvature is not None:
             self.curvature.latest_logits = None
@@ -879,7 +910,10 @@ class SymbioticGeometry(nn.Module):
             if holonomy_read is not None and self.holonomy_feedback_enabled:
                 feedback = feedback + (torch.tanh(8.*self.curvature.holonomy.gate)*
                                        holonomy_read.reshape(-1,rank))
-        return self.to_hidden(feedback).reshape(batch,length,dim)
+        result = self.to_hidden(feedback).reshape(batch,length,dim)
+        if bridge is not None:
+            return result,scales,state
+        return result
 
 
 class MirrorPairMoE(nn.Module):
@@ -932,7 +966,7 @@ class MirrorPairMoE(nn.Module):
         cosh = 1 + 2 * diff2 / ((1 - q2).clamp_min(1e-6) * (1 - c2).clamp_min(1e-6))
         return torch.acosh(cosh.clamp_min(1 + 1e-6))
 
-    def forward(self, x):
+    def forward(self, x, bridge=None, scales=None):
         b, t, d = x.shape
         flat = self.normalizer(x).reshape(-1, d)
         scores = self.router(flat).float() + self.pair_bias.float()
@@ -986,9 +1020,17 @@ class MirrorPairMoE(nn.Module):
         mean_prob = scores.softmax(-1).mean(0)
         aux = self.pairs * (fraction * mean_prob).sum()
         out = out.reshape(b, t, d)
+        meta = None
         if self.symbiotic is not None:
             signed = (sign_probs.gather(1,top_idx)*routing_weights).sum(-1).reshape(b,t)
-            out = out + self.symbiotic(x,out,signed)
+            if bridge is not None:
+                geometry_out,scales,meta = self.symbiotic(
+                    x,out,signed,bridge=bridge,scales=scales)
+                out = out + geometry_out
+            else:
+                out = out + self.symbiotic(x,out,signed)
+        if bridge is not None:
+            return out,aux,scales,meta
         return out, aux
 
 
@@ -1003,9 +1045,12 @@ class Block(nn.Module):
         self.ff = MirrorPairMoE(cfg) if use_moe else SwiGLU(cfg.dim, 4 * cfg.dim)
         self.use_moe = use_moe
 
-    def forward(self, x):
+    def forward(self, x, bridge=None, scales=None):
         x = x + self.att(self.n1(x))
         if self.use_moe:
+            if bridge is not None:
+                y,aux,scales,meta = self.ff(self.n2(x),bridge=bridge,scales=scales)
+                return x+y,aux,scales,meta
             y, aux = self.ff(self.n2(x))
             return x + y, aux
         return x + self.ff(self.n2(x)), x.new_zeros(())
@@ -1078,17 +1123,27 @@ class MirrorLM(nn.Module):
     def forward(self, ids, targets=None):
         x = self.embed(ids)
         aux = x.new_zeros(())
-        for block in self.blocks:
-            x, a = block(x)
-            aux = aux + a
+        if self.reciprocal is not None and self.reciprocal.enabled:
+            scales,meta = None,None
+            for block in self.blocks:
+                # Language scales are refreshed at EVERY backbone layer.
+                # The latest geometric apex state returns to the tokenizer
+                # before the following attention/microtransformer layer.
+                scales = self.reciprocal.ingest(x,ids,self.hierarchy,scales,meta)
+                if block.use_moe:
+                    x,a,scales,latest_meta = block(x,bridge=self.reciprocal,scales=scales)
+                    if latest_meta is not None:
+                        meta = latest_meta
+                else:
+                    x,a = block(x)
+                x = x + self.reciprocal.emit(scales,meta)
+                aux = aux + a
+        else:
+            for block in self.blocks:
+                x, a = block(x)
+                aux = aux + a
         if self.hierarchy is not None:
             x = x + self.hierarchy(x, ids)
-        if self.reciprocal is not None:
-            # Share *existing* trained geometric memory, pair/triangle tables
-            # and meta nodes; a second independent geometry is never created.
-            geometry = next(block.ff.symbiotic for block in reversed(self.blocks)
-                            if block.use_moe and block.ff.symbiotic is not None)
-            x = x + self.reciprocal(x, ids, self.hierarchy, geometry)
         h = self.norm(x)
         logits = self.head(h)
         metrics = {'balancing': aux}
@@ -2296,6 +2351,14 @@ def evaluate(args):
             model.reciprocal.enabled = False
             results['no_reciprocal_scale_geometry'] = measure()
             model.reciprocal.enabled = True
+            for attr,label in (
+                    ('pair_to_micro_enabled','no_pair_to_micro_feedback'),
+                    ('cloud_to_micro_enabled','no_cloud_to_micro_feedback'),
+                    ('meta_to_micro_enabled','no_meta_to_micro_feedback'),
+                    ('meta_tokenizer_enabled','no_abstract_meta_tokenizer')):
+                setattr(model.reciprocal,attr,False)
+                results[label] = measure()
+                setattr(model.reciprocal,attr,True)
         geometric_memories = [m.symbiotic.memory for m in moes
                               if m.symbiotic is not None and m.symbiotic.memory is not None]
         if geometric_memories:
