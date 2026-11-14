@@ -160,6 +160,15 @@ class LayeredDiamondDecoder(nn.Module):
             # Diamond. Both outputs are zero at attachment, even if inherited
             # language and geometry gains have already been trained.
             word_delta, byte_delta = self.apex_feedback(point, apex, query)
+            if hasattr(self, 'apex_feedback_center_gain'):
+                # The inherited attention can learn a query-only response.
+                # Explicitly measure/subtract that shortcut through a new
+                # zero-initialized control, preserving its trained R7.35 state.
+                empty=torch.zeros_like(point)
+                word_empty, byte_empty = self.apex_feedback(empty,empty,query)
+                center=torch.tanh(self.apex_feedback_center_gain)
+                word_delta=word_delta-center*word_empty
+                byte_delta=byte_delta-center*byte_empty
             gain = torch.tanh(self.apex_feedback_gain) * route
             word = word + gain * word_trust * word_delta
             byte_condition = byte_condition + gain * byte_trust * byte_delta

@@ -85,6 +85,9 @@ class FactorizedContextualGeometry(ContextualGeometry):
             # addressed VALUES will be read only by the apex; otherwise the
             # new writer could bypass the requested apex specialization.
             state['history_triangle_values'] = torch.tanh(self.history_writer.gain) * delta
+            # Exact sparse addresses are needed to normalize the read over
+            # selected triangles, rather than all 56 possible faces.
+            state['history_triangle_indices'] = indices
             state['metrics']['history_value_norm'] = written.detach().norm(dim=-1).mean()
             state['metrics']['history_value_gain'] = self.history_writer.gain.detach().clone()
         state['factor_retrieved'] = retrieved

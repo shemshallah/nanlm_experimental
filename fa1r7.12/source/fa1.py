@@ -21,6 +21,7 @@ def canonical_args():
     args.matched_far_history = True
     args.apex_feedback = True
     args.history_value_writer = True
+    args.deep_wiring_r736 = True
     return args
 
 

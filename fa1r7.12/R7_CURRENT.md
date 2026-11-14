@@ -1,5 +1,14 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.36 source integration:** optional zero-initialized selected-triangle
+read normalization and query-only apex-feedback centering, strict far-eligible
+wrong-book donors, corrected eligible-book counting and per-path gradient
+health checks are now wired into the canonical FA1 stack. These preserve
+R7.35 predictions and inherited optimizer moments at migration; the new
+20th optimizer group does not imply a newly trained or promoted checkpoint.
+See `FA1_R7p36_DEEP_WIRING.md`. The strict independent-book promotion gate
+still fails pending a valid R7.36 continuation and held-out evaluation.
+
 **R7.35 research continuation:** causal distant modal values now enter only
 top-8 sparse triangle value addresses before the existing apex -> pair ->
 point readout. Writer-only donor swaps and book-level word/byte ablations,

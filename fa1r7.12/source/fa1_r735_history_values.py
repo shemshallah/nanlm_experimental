@@ -96,10 +96,11 @@ def open_new_causal_gates(model, source_round, history_gain=0.08,
                              if h is not None and hasattr(h,'apex_feedback_gain') else None,
               'resumed_override':bool(resume_override)}
     with torch.no_grad():
-        if source_round != ROUND or resume_override:
+        if source_round not in (ROUND, 'FA1_R7_36_DEEP_WIRING_V1') or resume_override:
             writer.gain.fill_(math.atanh(history_gain))
         if h is not None and hasattr(h,'apex_feedback_gain') and (
-                source_round not in (ROUND,'FA1_R7_UNIFIED_APEX_FEEDBACK_V1')
+                source_round not in (ROUND,'FA1_R7_36_DEEP_WIRING_V1',
+                                     'FA1_R7_UNIFIED_APEX_FEEDBACK_V1')
                 or resume_override):
             h.apex_feedback_gain.fill_(math.atanh(apex_gain))
     result['writer_after']=float(writer.gain.detach())
@@ -109,14 +110,29 @@ def open_new_causal_gates(model, source_round, history_gain=0.08,
 
 
 def different_book_writer_values(data, seed=735):
-    """Counterfactual far VALUES only, leaving original query/targets intact."""
+    """Counterfactual far VALUES only, with genuinely eligible foreign donors.
+
+    A masked donor is not counterfactual *content*: it would turn a content
+    comparison into an accidental writer-off comparison. Require a distinct
+    eligible book for every receiver with real far-history evidence.
+    """
     from fa1_r725_controls import different_book_donors
 
-    donors=different_book_donors(data['book_ids'],seed)
     ids=data.get('diamond_modal_ids',data.get('memory_modal_ids'))
     mask=data.get('diamond_modal_mask',data.get('memory_modal_mask'))
-    if ids is None or mask is None or ids.shape!=(len(donors),12) or mask.shape!=ids.shape:
+    books=torch.as_tensor(data['book_ids']).detach().cpu().reshape(-1)
+    if ids is None or mask is None or ids.shape!=(len(books),12) or mask.shape!=ids.shape:
         raise ValueError('expected twelve original near/far modal slots')
+    donors=different_book_donors(books,seed)
+    eligible=mask[:,8:].bool().any(1).detach().cpu()
+    rng=torch.Generator(device='cpu').manual_seed(int(seed)+103)
+    for book in torch.unique(books[eligible]):
+        receivers=torch.where((books==book)&eligible)[0]
+        candidates=torch.where((books!=book)&eligible)[0]
+        if not candidates.numel():
+            raise ValueError('writer-value contrast requires two distinct far-eligible books')
+        selected=torch.randint(len(candidates),(len(receivers),),generator=rng)
+        donors[receivers]=candidates[selected]
     wrong=dict(data)
     wrong['diamond_history_value_ids']=ids[donors.to(ids.device),8:].clone()
     wrong['diamond_history_value_mask']=mask[donors.to(mask.device),8:].clone()

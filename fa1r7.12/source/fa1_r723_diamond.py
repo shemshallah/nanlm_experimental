@@ -230,8 +230,16 @@ class CombinatorialDiamond(nn.Module):
             # Original face scores and direct triangle->pair messages remain
             # untouched by the writer, making apex/pair ablations meaningful.
             writes=geometric['history_triangle_values']
-            apex_in=apex_in+((triangle_weights.unsqueeze(-1)*writes).sum(1)
-                              *tri.size(1))
+            legacy_read=(triangle_weights.unsqueeze(-1)*writes).sum(1)*tri.size(1)
+            if hasattr(self.geometry, 'history_read_mix'):
+                from fa1_r736_deep_wiring import normalized_sparse_history_read
+                selected=geometric['history_triangle_indices']
+                normalized=normalized_sparse_history_read(triangle_weights,writes,selected)
+                # Zero control is EXACT old R7.35 behavior. Training can
+                # discover whether selected-mass normalization is preferable.
+                legacy_read=legacy_read+torch.tanh(self.geometry.history_read_mix)*(
+                    normalized-legacy_read)
+            apex_in=apex_in+legacy_read
         # Apex meta-mind: 256 trainable specializing operators inspect the
         # whole triangle summary, selecting four experts each token.
         route=F.normalize(self.sector_router(apex_in),dim=-1) @ F.normalize(self.sector_keys,dim=-1).T
