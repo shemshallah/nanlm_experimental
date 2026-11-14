@@ -11,6 +11,10 @@ def main():
     ap.add_argument('--checkpoint', type=Path, required=True)
     ap.add_argument('--expected-sha256')
     ap.add_argument('--expected-step', type=int, required=True)
+    ap.add_argument('--expected-dim', type=int, default=192)
+    ap.add_argument('--expected-heads', type=int, default=16)
+    ap.add_argument('--expected-layers', type=int, default=6)
+    ap.add_argument('--require-micro-meta', action='store_true')
     ap.add_argument('--minimum-adam-states', type=int, default=63)
     ap.add_argument('--report', type=Path)
     args = ap.parse_args()
@@ -31,11 +35,14 @@ def main():
     import torch
     saved = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
     config = saved['config']
-    for field, expected in [('vocab_size',257), ('dim',192), ('layers',6),
-                            ('heads',16), ('pairs',32), ('expert_hidden',256),
+    for field, expected in [('vocab_size',257), ('dim',args.expected_dim),
+                            ('layers',args.expected_layers), ('heads',args.expected_heads),
+                            ('pairs',32), ('expert_hidden',256),
                             ('context',4096)]:
         if config.get(field) != expected:
             raise ValueError(f'Incompatible architecture {field}: {config.get(field)}')
+    if args.require_micro_meta and (not config.get('micro_meta') or not config.get('symbiotic_rank')):
+        raise ValueError('Missing sparse point microtransformer / triangle-fed apex MoE')
     if saved['step'] != args.expected_step:
         raise ValueError(f'Unexpected checkpoint step {saved["step"]}, expected {args.expected_step}')
     optimizer = saved['optimizer']

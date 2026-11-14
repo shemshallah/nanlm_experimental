@@ -25,6 +25,7 @@ import argparse
 import copy
 from functools import lru_cache
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -69,6 +70,8 @@ class Config:
     hierarchy_rank: int = 0  # opt-in byte/pair/word/sentence causal feedback
     attention_window: int = 0  # 0 = inherited dense attention; nonzero bounds long-context work
     geometry_memory_chunk: int = 0  # 0 = inherited geometry; nonzero enables causal apex-memory loops
+    micro_meta: bool = False  # 256 point microtransformers -> sparse triangle cloud -> 256 apex MoE
+    simplex_transfer: bool = False  # sparse signed boundary transport, simplex memory, apex tetra bridges
 
     def check(self):
         if self.legacy_attention_dim:
@@ -93,6 +96,9 @@ class Config:
         assert self.attention_window == 0 or self.attention_window >= 4
         assert self.geometry_memory_chunk == 0 or self.geometry_memory_chunk >= 4
         assert not self.geometry_memory_chunk or self.symbiotic_rank
+        assert not self.micro_meta or self.symbiotic_rank
+        assert not self.micro_meta or self.symbiotic_rank % 2 == 0
+        assert not self.simplex_transfer or self.micro_meta
 
 
 class RMSNorm(nn.Module):
@@ -283,6 +289,116 @@ class CausalGeometricMemory(nn.Module):
         return states + torch.tanh(self.gate) * (memory - states)
 
 
+class SparseSimplexTransfer(nn.Module):
+    """Typed concept tokens and sparse up/down transport on oriented simplices.
+
+    Addresses are exact combinadic integers. Only 8/28/56/70 active
+    vertices/edges/faces/tetrahedra are materialized per token. Pair concepts
+    have exact trainable storage; tetrahedra use a hashed code plus their exact
+    174,792,640-way Fourier address, never a dense 174M-row weight tensor.
+    Boundary matrices preserve orientation (d2@d1=d3@d2=0). Unsigned
+    incidence also carries content, since a boundary of a boundary cancels.
+    """
+    def __init__(self, rank):
+        super().__init__()
+        self.rank = rank
+        self.pair_shared = nn.Embedding(32640, rank)
+        self.pair_anti = nn.Embedding(32640, rank)
+        self.tetra_table = nn.Embedding(8192, rank)
+        self.register_buffer('tetra_freq',
+            2 * math.pi * torch.pow(2., torch.arange(rank // 2)), persistent=False)
+        self.edge_to_face = nn.Linear(rank, rank, bias=False)
+        self.face_to_tetra = nn.Linear(rank, rank, bias=False)
+        self.tetra_to_face = nn.Linear(rank, rank, bias=False)
+        self.face_to_edge = nn.Linear(rank, rank, bias=False)
+        self.edge_to_point = nn.Linear(rank, rank, bias=False)
+        self.apex_bridge = nn.Linear(rank, rank, bias=False)
+        self.store_write = nn.Linear(rank, rank, bias=False)
+        self.store_read = nn.Linear(rank, rank, bias=False)
+        # Both the upward router and downward decoder see exactly the old
+        # activations at gate=0, even though prior to_hidden is already trained.
+        self.gate = nn.Parameter(torch.zeros(()))
+
+        pairs = list(itertools.combinations(range(8), 2))
+        faces = list(itertools.combinations(range(8), 3))
+        tetrahedra = list(itertools.combinations(range(8), 4))
+        self.register_buffer('edge_vertices', torch.tensor(pairs), persistent=False)
+        self.register_buffer('tetra_vertices', torch.tensor(tetrahedra), persistent=False)
+        self.register_buffer('face_vertices', torch.tensor(faces), persistent=False)
+        pair_index = {item: n for n, item in enumerate(pairs)}
+        face_index = {item: n for n, item in enumerate(faces)}
+        d1 = torch.zeros(28, 8)
+        d2 = torch.zeros(56, 28)
+        d3 = torch.zeros(70, 56)
+        for n, (a, b) in enumerate(pairs):
+            d1[n, a], d1[n, b] = -1., 1.
+        for n, (a, b, c) in enumerate(faces):
+            for edge, sign in [((b,c), 1.), ((a,c), -1.), ((a,b), 1.)]:
+                d2[n, pair_index[edge]] = sign
+        for n, (a, b, c, d) in enumerate(tetrahedra):
+            for face, sign in [((b,c,d),1.), ((a,c,d),-1.),
+                               ((a,b,d),1.), ((a,b,c),-1.)]:
+                d3[n, face_index[face]] = sign
+        self.register_buffer('d1', d1, persistent=False)
+        self.register_buffer('d2', d2, persistent=False)
+        self.register_buffer('d3', d3, persistent=False)
+
+    @staticmethod
+    def tetra_address(a, b, c, d):
+        """Exact 0..174792639 colex address for 0<=a<b<c<d<256."""
+        return d*(d-1)*(d-2)*(d-3)//24 + c*(c-1)*(c-2)//6 + b*(b-1)//2 + a
+
+    def upward(self, point, pair, triangle, tetra, addresses, sign):
+        """Compose typed edge->face->tetra tokens, with explicit signed incidence."""
+        n, _, rank = point.shape
+        a, b = self.edge_vertices.unbind(-1)
+        pa, pb = addresses[:, a], addresses[:, b]
+        pair_id = pa*(511-pa)//2 + pb-pa-1
+        edge = F.layer_norm(pair + self.pair_shared(pair_id) +
+                            (2*sign.reshape(n,1,1)-1)*self.pair_anti(pair_id), (rank,))
+        up_face = torch.einsum('fe,ner->nfr', self.d2.abs()+.5*self.d2, edge) / 3.
+        face = F.layer_norm(triangle + self.edge_to_face(up_face), (rank,))
+        up_tetra = torch.einsum('tf,nfr->ntr', self.d3.abs()+.5*self.d3, face) / 4.
+        a, b, c, d = self.tetra_vertices.unbind(-1)
+        tetra_id = self.tetra_address(addresses[:,a], addresses[:,b],
+                                      addresses[:,c], addresses[:,d])
+        phase = tetra_id.float().unsqueeze(-1) * (self.tetra_freq/174792640.)
+        exact_code = torch.cat((phase.sin(), phase.cos()), -1)
+        tet = F.layer_norm(tetra + self.face_to_tetra(up_tetra) +
+                           .1*(self.tetra_table(tetra_id % 8192)+exact_code), (rank,))
+        up = F.layer_norm(face.mean(1)+tet.mean(1), (rank,))
+        return up, (edge,face,tet)
+
+    def causal_store(self, upwards, batch, length):
+        """O(context) within-window associative history, strictly prefix-only."""
+        write = self.store_write(upwards.reshape(batch, length, self.rank))
+        n = torch.arange(1, length+1, device=write.device, dtype=write.dtype)
+        return self.store_read(write.cumsum(1)/n.view(1,length,1))
+
+    def downward(self, point, parts, apex):
+        """Meta->cross-level tetra bridge->faces->edges->intake points."""
+        edge, face, tet = parts
+        n, _, rank = point.shape
+        meta = apex.reshape(n, rank)
+        # The 256 meta expert layer acts as the fourth vertex of every
+        # selected lower-level triangle: 56 virtual bridge tetrahedra/token.
+        i, j, k = self.face_vertices.unbind(-1)
+        a, b, c = point[:,i], point[:,j], point[:,k]
+        u, v, w = b-a, c-a, meta[:,None,:]-a
+        det = (torch.cross(u[...,:3], v[...,:3], dim=-1)*w[...,:3]).sum(-1)
+        norm = (u.square().sum(-1)*v.square().sum(-1)*w.square().sum(-1)).clamp_min(1e-18).sqrt()
+        bridge = (a+b+c+meta[:,None,:])/4 + torch.tanh(det/norm).unsqueeze(-1)*w/8
+
+        tet = F.layer_norm(tet+meta[:,None,:],(rank,))
+        to_face = torch.einsum('tf,ntr->nfr',self.d3.abs()+.5*self.d3,tet)/5.
+        face = F.layer_norm(face + self.tetra_to_face(to_face) + self.apex_bridge(bridge), (rank,))
+        to_edge = torch.einsum('fe,nfr->ner',self.d2.abs()+.5*self.d2,face)/6.
+        edge = F.layer_norm(edge + self.face_to_edge(to_edge), (rank,))
+        to_point = torch.einsum('ep,ner->npr',self.d1.abs()+.5*self.d1,edge)/7.
+        point = F.layer_norm(point + self.edge_to_point(to_point), (rank,))
+        return F.layer_norm(point.mean(1)+edge.mean(1)+face.mean(1)+tet.mean(1), (rank,))
+
+
 class SymbioticGeometry(nn.Module):
     """Causal, sparsely addressed point/pair/triangle/tetra/apex feedback.
 
@@ -294,9 +410,17 @@ class SymbioticGeometry(nn.Module):
     POINTS = 256
     ACTIVE = 8
 
-    def __init__(self, dim, rank, memory_chunk=0):
+    def __init__(self, dim, rank, memory_chunk=0, micro_meta=False,
+                 simplex_transfer=False):
         super().__init__()
         self.rank = rank
+        self.micro_meta = micro_meta
+        # Inference-only ablation switches, never stored as learned parameters.
+        self.point_micro_enabled = True
+        self.triangle_abstract_enabled = True
+        self.meta_moe_enabled = True
+        self.simplex_enabled = True
+        self.simplex = SparseSimplexTransfer(rank) if simplex_transfer else None
         self.point_query = nn.Linear(dim, rank, bias=False)
         self.expert_query = nn.Linear(dim, rank, bias=False)
         self.point_keys = nn.Parameter(torch.randn(256, rank) * .02)
@@ -307,6 +431,23 @@ class SymbioticGeometry(nn.Module):
         self.feedback_query = nn.Linear(rank, rank, bias=False)
         self.to_hidden = nn.Linear(rank, dim, bias=False)
         self.memory = CausalGeometricMemory(rank, memory_chunk) if memory_chunk else None
+        if micro_meta:
+            # The 256 point addresses each own an FF adapter, while sharing
+            # attention projections. Only eight addressed points are executed.
+            micro_inner, meta_inner = max(4, rank // 4), max(8, rank // 2)
+            self.micro_qkv = nn.Linear(rank, 3 * rank, bias=False)
+            self.micro_up = nn.Parameter(torch.randn(256, rank, micro_inner) * .02)
+            self.micro_down = nn.Parameter(torch.randn(256, micro_inner, rank) * .02)
+            # Exact triangle IDs span C(256,3)=2,763,520 without an enormous
+            # parameter table; a hash embedding plus continuous exact-address
+            # Fourier features provides differentiable sparse representations.
+            self.triangle_table = nn.Embedding(8192, rank)
+            self.register_buffer('triangle_freq',
+                                 (2 * math.pi * torch.pow(2., torch.arange(rank // 2))),
+                                 persistent=False)
+            self.meta_query = nn.Linear(rank, rank, bias=False)
+            self.meta_up = nn.Parameter(torch.randn(256, rank, meta_inner) * .02)
+            self.meta_down = nn.Parameter(torch.randn(256, meta_inner, rank) * .02)
         for order in (2, 3, 4):
             self.register_buffer('choose'+str(order),
                                  torch.combinations(torch.arange(8), r=order), persistent=False)
@@ -319,6 +460,21 @@ class SymbioticGeometry(nn.Module):
         return a * (511 - a) // 2 + b - a - 1
 
     @staticmethod
+    def triangle_address(a, b, c):
+        """Colexicographic unique rank for a < b < c in 0..255."""
+        return c * (c - 1) * (c - 2) // 6 + b * (b - 1) // 2 + a
+
+    def run_microtransformers(self, point, selected):
+        """Two same-token attention/FF loops on eight active point nodes."""
+        for _ in range(2):
+            q, k, v = self.micro_qkv(point).chunk(3, dim=-1)
+            message = (q @ k.transpose(-1, -2) / math.sqrt(self.rank)).softmax(-1) @ v
+            hidden = F.silu(torch.einsum('nkr,nkrh->nkh', point, self.micro_up[selected]))
+            ff = torch.einsum('nkh,nkhr->nkr', hidden, self.micro_down[selected])
+            point = F.layer_norm(point + message + ff, (self.rank,))
+        return point
+
+    @staticmethod
     def pool(values, weights):
         return (values * weights.unsqueeze(-1)).sum(1) / weights.sum(1, keepdim=True).clamp_min(1e-12)
 
@@ -329,8 +485,11 @@ class SymbioticGeometry(nn.Module):
         scores = query @ self.point_keys.T / math.sqrt(rank)
         score, selected = scores.topk(self.ACTIVE, dim=-1)
         selected, order = selected.sort(dim=-1)  # canonical signed orientation
+        point_ids = selected
         weights = score.softmax(-1).gather(1, order)
         point = self.point_values[selected]
+        if self.micro_meta and self.point_micro_enabled:
+            point = self.run_microtransformers(point, selected)
         i, j = self.choose2.unbind(-1)
         a, b = point[:, i], point[:, j]
         symmetric, antisymmetric = (a+b)*.5, (b-a)*.5
@@ -343,6 +502,11 @@ class SymbioticGeometry(nn.Module):
         area = u[...,0]*v[...,1] - u[...,1]*v[...,0]
         norm = (u.square().sum(-1)*v.square().sum(-1)).clamp_min(1e-12).sqrt()
         triangle = (a+b+c)/3 + torch.tanh(area/norm).unsqueeze(-1)*(v-u)/6
+        if self.micro_meta and self.triangle_abstract_enabled:
+            addresses = self.triangle_address(selected[:,i],selected[:,j],selected[:,k])
+            phase = addresses.float().unsqueeze(-1) * (self.triangle_freq / 2763520.)
+            exact_features = torch.cat((phase.sin(),phase.cos()),dim=-1)
+            triangle = triangle + .1 * (self.triangle_table(addresses % 8192) + exact_features)
         tri_mean = self.pool(triangle, weights[:,i]*weights[:,j]*weights[:,k])
 
         i, j, k, l = self.choose4.unbind(-1)
@@ -353,17 +517,37 @@ class SymbioticGeometry(nn.Module):
         tetra = (a+b+c+d)/4 + torch.tanh(vol/norm).unsqueeze(-1)*w/8
         tetra_mean = self.pool(tetra, weights[:,i]*weights[:,j]*weights[:,k]*weights[:,l])
 
+        if self.simplex is not None and self.simplex_enabled:
+            simplex_up, simplex_parts = self.simplex.upward(
+                point, pair, triangle, tetra, point_ids, signed_probability)
+            simplex_store = self.simplex.causal_store(simplex_up, batch, length)
+            simplex_gate = torch.tanh(self.simplex.gate)
+
         level = self.level_logits.softmax(0)
         local = (level[0]*self.pool(point, weights) + level[1]*pair_mean +
                  level[2]*tri_mean + level[3]*tetra_mean).reshape(batch,length,rank)
+        if self.simplex is not None and self.simplex_enabled:
+            local = local + simplex_gate*(simplex_up.reshape(batch,length,rank)+simplex_store)
         # Each position receives only its own or preceding concept states.
         positions = torch.arange(1,length+1,device=local.device,dtype=local.dtype)
         prefix = local.cumsum(1)/positions.view(1,length,1)
         state = F.layer_norm(local+prefix,(rank,))
         for _ in range(2):
-            logits = self.feedback_query(state) @ self.apex_keys.T/math.sqrt(rank)
+            query = self.feedback_query(state)
+            if self.micro_meta and self.meta_moe_enabled:
+                # Meta routing depends explicitly on abstract triangle content.
+                query = query + self.meta_query(tri_mean.reshape(batch,length,rank))
+            logits = query @ self.apex_keys.T/math.sqrt(rank)
             score, selected = logits.topk(self.ACTIVE,dim=-1)
-            apex = (self.apex_values[selected]*score.softmax(-1).unsqueeze(-1)).sum(-2)
+            values = self.apex_values[selected]
+            if self.micro_meta and self.meta_moe_enabled:
+                meta_input = (state + tri_mean.reshape(batch,length,rank)).unsqueeze(-2)
+                meta_input = meta_input.expand(-1,-1,self.ACTIVE,-1)
+                meta_hidden = F.silu(torch.einsum('btkr,btkrh->btkh',
+                                                  meta_input, self.meta_up[selected]))
+                values = values + torch.einsum('btkh,btkhr->btkr',
+                                                meta_hidden, self.meta_down[selected])
+            apex = (values*score.softmax(-1).unsqueeze(-1)).sum(-2)
             state = F.layer_norm(state+apex+prefix,(rank,))
 
         if self.memory is not None:
@@ -375,6 +559,9 @@ class SymbioticGeometry(nn.Module):
             score = (values*down.unsqueeze(1)).sum(-1)/math.sqrt(rank)
             return (values*score.softmax(-1).unsqueeze(-1)).sum(1)
         feedback = F.layer_norm(down+read(triangle)+read(pair)+read(point),(rank,))
+        if self.simplex is not None and self.simplex_enabled:
+            back = self.simplex.downward(point, simplex_parts, down)
+            feedback = feedback + simplex_gate*(back+simplex_store.reshape(-1,rank))
         return self.to_hidden(feedback).reshape(batch,length,dim)
 
 
@@ -405,7 +592,8 @@ class MirrorPairMoE(nn.Module):
         self.out_shared = nn.Parameter(torch.randn(p, f, d) * (0.45 / math.sqrt(f)))
         self.out_anti = nn.Parameter(torch.randn(p, f, d) * (0.15 / math.sqrt(f)))
         self.normalizer = RMSNorm(d, cfg.norm_divisor or d)
-        self.symbiotic = (SymbioticGeometry(d, cfg.symbiotic_rank, cfg.geometry_memory_chunk)
+        self.symbiotic = (SymbioticGeometry(d, cfg.symbiotic_rank, cfg.geometry_memory_chunk,
+                                          cfg.micro_meta, cfg.simplex_transfer)
                          if cfg.symbiotic_rank else None)
 
     @staticmethod
@@ -973,7 +1161,9 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.expert_hidden == previous_cfg.expert_hidden
             and model.cfg.symbiotic_rank == previous_cfg.symbiotic_rank
             and model.cfg.hierarchy_rank == previous_cfg.hierarchy_rank
-            and model.cfg.geometry_memory_chunk == previous_cfg.geometry_memory_chunk):
+            and model.cfg.geometry_memory_chunk == previous_cfg.geometry_memory_chunk
+            and model.cfg.micro_meta == previous_cfg.micro_meta
+            and model.cfg.simplex_transfer == previous_cfg.simplex_transfer):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
         raise ValueError('Cannot reshape an already trained Diamond')
@@ -982,6 +1172,10 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Cannot reshape an already trained geometric memory')
     if previous_cfg.hierarchy_rank and model.cfg.hierarchy_rank != previous_cfg.hierarchy_rank:
         raise ValueError('Cannot reshape a trained token hierarchy')
+    if previous_cfg.micro_meta and not model.cfg.micro_meta:
+        raise ValueError('Cannot discard trained microtransformer or meta-MoE weights')
+    if previous_cfg.simplex_transfer and not model.cfg.simplex_transfer:
+        raise ValueError('Cannot discard trained simplex transfer and concept memory')
     if model.cfg.moe_every != previous_cfg.moe_every:
         raise ValueError('Cannot change MoE placement during expansion')
     if model.cfg.expert_hidden < previous_cfg.expert_hidden:
@@ -1025,6 +1219,9 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
                 if name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
                     not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
+                    not previous_cfg.micro_meta and '.ff.symbiotic.' in name and any(
+                        part in name for part in ('.micro_', '.meta_', '.triangle_table.'))) or (
+                    not previous_cfg.simplex_transfer and '.ff.symbiotic.simplex.' in name) or (
                     not previous_cfg.geometry_memory_chunk and '.ff.symbiotic.memory.' in name) or (
                     not previous_cfg.hierarchy_rank and name.startswith('hierarchy.')):
                     continue
@@ -1213,6 +1410,12 @@ def train(args):
         if cfg.geometry_memory_chunk or new_memory_chunk == 0:
             raise ValueError('Already trained geometric memory cannot be resized or disabled')
         cfg.geometry_memory_chunk = new_memory_chunk
+    enable_micro_meta = bool(saved and getattr(args, 'micro_meta', False) and not cfg.micro_meta)
+    if enable_micro_meta:
+        cfg.micro_meta = True
+    enable_simplex = bool(saved and getattr(args, 'simplex_transfer', False) and not cfg.simplex_transfer)
+    if enable_simplex:
+        cfg.simplex_transfer = True
     history = list(saved.get('growth_history', [])) if saved else []
     new_attention_window = getattr(args, 'attention_window', None)
     if new_attention_window is not None and new_attention_window != cfg.attention_window:
@@ -1238,6 +1441,19 @@ def train(args):
         history.append({'kind':'causal_geometric_memory','step':saved['step'],
                         'chunk_size':cfg.geometry_memory_chunk,
                         'apex_memory_attention_passes':2,'gate_initialized_to_zero':True})
+    if enable_micro_meta:
+        history.append({'kind':'sparse_point_microtransformers_triangle_meta_moe',
+                        'step':saved['step'],'point_nodes':256,'active_points':8,
+                        'implicit_triangle_addresses':2763520,'active_triangles':56,
+                        'meta_experts':256,'active_meta_experts':8})
+    if enable_simplex:
+        history.append({'kind':'causal_sparse_simplex_concept_transfer',
+                        'step':saved['step'],'pair_tokens':32640,
+                        'triangle_tokens':2763520,'tetra_tokens':174792640,
+                        'active_per_prediction':[8,28,56,70],
+                        'meta_anchored_tetra_per_token':56,
+                        'direct_pair_storage':True,'hashed_tetra_storage':True,
+                        'causal_prefix_state':True,'gate_init':0.})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -1328,7 +1544,8 @@ def train(args):
     rng = np.random.default_rng(args.seed)
     if saved:
         if (growing or deepen or widening or expert_growing or enable_symbiotic or
-                enable_hierarchy or enable_geometry_memory):
+                enable_hierarchy or enable_geometry_memory or enable_micro_meta or
+                enable_simplex):
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -1551,6 +1768,26 @@ def evaluate(args):
         results['unigram_prior'] = {'ce_1': round(base_ce, 6),
                                      'ppl_1': round(math.exp(base_ce), 4)}
     if args.ablations:
+        simplex_geometries = [m.symbiotic for m in moes
+                              if m.symbiotic is not None and m.symbiotic.simplex is not None]
+        if simplex_geometries:
+            for geometry in simplex_geometries:
+                geometry.simplex_enabled = False
+            results['no_simplex_transfers'] = measure()
+            for geometry in simplex_geometries:
+                geometry.simplex_enabled = True
+        micro_meta = [m.symbiotic for m in moes
+                      if m.symbiotic is not None and m.symbiotic.micro_meta]
+        if micro_meta:
+            for attr, result_name in (
+                    ('point_micro_enabled','no_point_microtransformers'),
+                    ('triangle_abstract_enabled','no_triangle_abstract_address'),
+                    ('meta_moe_enabled','no_triangle_fed_meta_moe')):
+                for geometry in micro_meta:
+                    setattr(geometry, attr, False)
+                results[result_name] = measure()
+                for geometry in micro_meta:
+                    setattr(geometry, attr, True)
         if model.hierarchy is not None:
             original_hierarchy = model.hierarchy
             model.hierarchy = None
@@ -1616,6 +1853,10 @@ def count_parameters_exact(cfg):
                 total += 3*d*r + 1024*r + r*r + 4
                 if cfg.geometry_memory_chunk:
                     total += 4*r*r + 1
+                if cfg.micro_meta:
+                    total += 4*r*r + 8192*r + 512*r*(max(4,r//4)+max(8,r//2))
+                if cfg.simplex_transfer:
+                    total += (65280+8192)*r + 8*r*r + 1
         else:
             total += 16*d*d + 2*d
     if cfg.hierarchy_rank:
@@ -1721,6 +1962,10 @@ def grow_checkpoint(args):
         if original.geometry_memory_chunk and args.geometry_memory_chunk != original.geometry_memory_chunk:
             raise ValueError('Cannot resize already trained geometric memory')
         cfg.geometry_memory_chunk = args.geometry_memory_chunk
+    if getattr(args, 'micro_meta', False):
+        cfg.micro_meta = True
+    if getattr(args, 'simplex_transfer', False):
+        cfg.simplex_transfer = True
     if args.dispatch_mode is not None:
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
@@ -1740,7 +1985,9 @@ def grow_checkpoint(args):
                     cfg.pairs != original.pairs, cfg.expert_hidden != original.expert_hidden,
                     cfg.symbiotic_rank != original.symbiotic_rank,
                     cfg.hierarchy_rank != original.hierarchy_rank,
-                    cfg.geometry_memory_chunk != original.geometry_memory_chunk))
+                    cfg.geometry_memory_chunk != original.geometry_memory_chunk,
+                    cfg.micro_meta != original.micro_meta,
+                    cfg.simplex_transfer != original.simplex_transfer))
     changed = (expanded or cfg.context != original.context or
                cfg.dispatch_mode != original.dispatch_mode or
                cfg.attention_window != original.attention_window)
@@ -1840,6 +2087,8 @@ def grow_checkpoint(args):
               'new_hierarchy_rank':cfg.hierarchy_rank,
               'new_attention_window':cfg.attention_window,
               'new_geometry_memory_chunk':cfg.geometry_memory_chunk,
+              'micro_meta':cfg.micro_meta,
+              'simplex_transfer':cfg.simplex_transfer,
               'new_attention_heads':cfg.heads,
               'legacy_attention_heads':cfg.legacy_attention_heads,
               'max_abs_logit_drift_h1_h2_h3':differences,
@@ -1880,6 +2129,10 @@ def main():
                     help='bounded causal attention; >= inherited context retains old logits')
     gr.add_argument('--geometry-memory-chunk',type=int,
                     help='two causal geometric apex-memory loops over completed chunks')
+    gr.add_argument('--micro-meta', action='store_true',
+                    help='256 point microtransformers feeding 256 apex MoE experts via sparse C(256,3)')
+    gr.add_argument('--simplex-transfer', action='store_true',
+                    help='oriented pair/face/tetra concept tokens, causal storage and meta tetra feedback')
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
     gr.add_argument('--widen-noise',type=float,default=1e-4)
@@ -1939,6 +2192,10 @@ def main():
                     help='limit attention to a sliding window (>= inherited context on migration)')
     tr.add_argument('--geometry-memory-chunk', type=int, default=None,
                     help='two loops of causal apex self-attention over completed memory blocks')
+    tr.add_argument('--micro-meta', action='store_true',
+                    help='activate 256 sparse point microtransformers and triangle-fed apex MoE')
+    tr.add_argument('--simplex-transfer', action='store_true',
+                    help='activate sparse oriented simplex concept transport and causal storage')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None,
                     help='expand width without changing learned head geometry, including 192D to 256D')

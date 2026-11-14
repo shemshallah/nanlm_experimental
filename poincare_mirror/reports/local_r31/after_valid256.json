@@ -1,0 +1,32 @@
+{
+  "checkpoint_step": 2833,
+  "split": "valid",
+  "data_split_sha256": "92f5ee996495a0c2f510af7ac3d0b2ba7487b45a1cc443b2aaa98113438ac68b",
+  "evaluation_seed": 2026,
+  "exhaustive": false,
+  "eval_stride": 256,
+  "checkpoint_context": 4096,
+  "evaluation_context": 256,
+  "future_mode": "rollout",
+  "evaluated_tokens": 2048,
+  "ablations_use_same_weights": true,
+  "results": {
+    "base": {
+      "ce_1": 2.16956,
+      "ce_2": 2.795661,
+      "ce_3": 3.015114,
+      "acc_1": 0.385254,
+      "acc_2": 0.223633,
+      "acc_3": 0.180664,
+      "top5_1": 0.749023,
+      "top5_2": 0.561523,
+      "top5_3": 0.476074,
+      "ppl_1": 8.7544,
+      "ppl_2": 16.3735,
+      "ppl_3": 20.3914,
+      "bits_per_token_1": 3.130013,
+      "bits_per_token_2": 4.033287,
+      "bits_per_token_3": 4.34989
+    }
+  }
+}

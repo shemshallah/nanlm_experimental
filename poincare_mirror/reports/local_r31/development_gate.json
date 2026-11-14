@@ -1,0 +1,31 @@
+{
+  "checkpoint_after": 2833,
+  "checkpoint_before": 2801,
+  "context": 256,
+  "evaluated_tokens": 2048,
+  "metrics": {
+    "acc_1": {
+      "after": 0.385254,
+      "before": 0.370605,
+      "improvement": -0.014648999999999968
+    },
+    "ce_1": {
+      "after": 2.16956,
+      "before": 2.195205,
+      "improvement": 0.025644999999999918
+    },
+    "ce_2": {
+      "after": 2.795661,
+      "before": 2.804769,
+      "improvement": 0.009107999999999894
+    },
+    "ce_3": {
+      "after": 3.015114,
+      "before": 3.020159,
+      "improvement": 0.005044999999999966
+    }
+  },
+  "minimum_ce_improvement": 0.0001,
+  "promotable_on_development": true,
+  "warning": "Development-only eligibility, not frontier quality or a final acceptance decision"
+}

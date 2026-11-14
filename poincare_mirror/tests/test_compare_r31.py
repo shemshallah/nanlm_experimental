@@ -25,6 +25,15 @@ class TestCompare(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(self.evaluation(),test,.0001)
 
+    def test_explicit_false_exhaustive_is_comparable(self):
+        a=self.evaluation()
+        a.update(data_split_sha256='1'*64, evaluation_seed=2026,
+                 exhaustive=False, eval_stride=256)
+        b=self.evaluation(2.0,2.7,3.0,.41)
+        b.update(data_split_sha256='1'*64, evaluation_seed=2026,
+                 exhaustive=False, eval_stride=256)
+        self.assertTrue(compare(a,b,.0001)['promotable_on_development'])
+
 
 if __name__=='__main__':
     unittest.main()

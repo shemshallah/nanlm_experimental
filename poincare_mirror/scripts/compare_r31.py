@@ -14,7 +14,8 @@ def compare(before, after, min_gain):
     # comparing a different book set or nonmatching sampling schedule.
     for field in ('data_split_sha256','evaluation_seed','exhaustive','eval_stride'):
         if field in before or field in after:
-            if not before.get(field) or before[field] != after.get(field):
+            # `exhaustive=False` is a valid explicit sampling protocol.
+            if field not in before or field not in after or before[field] != after[field]:
                 raise ValueError(f'Non-comparable evaluation: {field}')
     if before['split'] != 'valid':
         raise ValueError('Acceptance decisions must only use development books')

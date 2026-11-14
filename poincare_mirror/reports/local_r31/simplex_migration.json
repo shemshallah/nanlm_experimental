@@ -1,0 +1,31 @@
+{
+  "checkpoint": "poincare_mirror/run/latest.pt",
+  "step": 2833,
+  "tokens_seen": 1140272,
+  "prior_parameters": 69398128,
+  "expanded_parameters": 76476019,
+  "old_context": 4096,
+  "new_context": 4096,
+  "old_mirror_pairs": 32,
+  "new_mirror_pairs": 32,
+  "new_signed_experts": 64,
+  "new_hidden_dim": 512,
+  "new_layers": 6,
+  "new_expert_hidden": 256,
+  "new_symbiotic_rank": 32,
+  "new_hierarchy_rank": 32,
+  "new_attention_window": 0,
+  "new_geometry_memory_chunk": 0,
+  "micro_meta": true,
+  "simplex_transfer": true,
+  "new_attention_heads": 36,
+  "legacy_attention_heads": 16,
+  "max_abs_logit_drift_h1_h2_h3": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "adam_moment_fields_verified": 230,
+  "data_unchanged": true,
+  "growth_requires_training": false
+}
