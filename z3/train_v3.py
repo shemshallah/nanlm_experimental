@@ -745,7 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tokenizer",
         choices=("auto", "v4", "layered", "bpe", "bytes", "bin"),
         default="auto",
-        help="tokenizer; auto=v4 text or bin for *.bin; layered uses tuned artifact",
+        help="tokenizer; auto=layered text or bin for *.bin",
     )
     data.add_argument("--bpe-model", default="", help="tokenizer.json path for --tokenizer bpe")
     data.add_argument(
@@ -1265,7 +1265,7 @@ def main(argv: list[str] | None = None) -> int:
         args.tokenizer = (
             "bin"
             if len(paths) == 1 and paths[0].suffix.lower() == ".bin"
-            else "v4"
+            else "layered"
         )
     if args.random_smoke:
         source: TextBatchSource | RandomBatchSource = RandomBatchSource(

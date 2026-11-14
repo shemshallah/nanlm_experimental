@@ -271,6 +271,16 @@ class EvalV3Tests(unittest.TestCase):
         for layer in smoke["router_utilization"]["layers"]:
             self.assertAlmostEqual(sum(layer["utilization"]), 1.0, places=5)
 
+    def test_layered_tokenizer_loader(self) -> None:
+        path = ROOT / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
+        if not path.is_file():
+            self.skipTest("layered tokenizer artifact not present")
+        tokenizer = eval_v3.load_tokenizer("layered", layered_model=path)
+        ids = tokenizer.encode("Hello layered tokenizer! Second sentence.")
+        self.assertGreater(len(ids), 0)
+        self.assertEqual(tokenizer.vocab_size, 64000)
+        self.assertTrue(all(0 <= int(i) < tokenizer.vocab_size for i in ids))
+
     @unittest.skipUnless(BPE_PATH.is_file(), "z1 BPE tokenizer JSON not present")
     def test_bpe_tokenizer_loader(self) -> None:
         tokenizer = eval_v3.load_tokenizer("bpe", BPE_PATH)

@@ -63,6 +63,9 @@ DEFAULT_SEED = 20261112
 V4_TOKENIZER_PATH = Path(__file__).resolve().with_name(
     "tokenizers"
 ) / "v4_64k" / "tokenizer.json"
+LAYERED_TOKENIZER_PATH = Path(__file__).resolve().with_name(
+    "tokenizers"
+) / "layered_v1" / "layered_tokenizer.json"
 CONFIG_FIELD_NAMES = {f.name for f in fields(V3Config)}
 MODEL_KEYS = (
     "model",
@@ -492,22 +495,52 @@ class BPETokenizer:
         return self._fallback.encode(text)
 
 
-def load_tokenizer(kind: str | None, bpe_model: str | Path | None = None):
+class LayeredTokenizerAdapter:
+    """Flat subword stream backed by the tuned layered artifact."""
+
+    kind = "layered"
+
+    def __init__(self, path: str | Path):
+        from layered_tokenizer import load_artifact
+
+        self.path = Path(path)
+        self._layered = load_artifact(self.path)
+        self.vocab_size = self._layered.vocab_size
+        self.backend = "layered"
+
+    def encode(self, text: str) -> list[int]:
+        encoded = self._layered.encode(text, add_document_frame=False)
+        return list(encoded.subword.ids)
+
+
+def load_tokenizer(
+    kind: str | None,
+    bpe_model: str | Path | None = None,
+    layered_model: str | Path | None = None,
+):
     """Resolve ``--tokenizer``/``--bpe-model`` into a tokenizer object."""
 
     if kind is None or str(kind).lower() == "auto":
-        kind = "bpe" if bpe_model else "v4"
+        if layered_model:
+            kind = "layered"
+        else:
+            kind = "bpe" if bpe_model else "layered"
     kind = kind.lower()
     if kind == "bytes":
         return BytesTokenizer()
     if kind == "v4":
         return BPETokenizer(V4_TOKENIZER_PATH)
+    if kind == "layered":
+        return LayeredTokenizerAdapter(
+            layered_model or LAYERED_TOKENIZER_PATH
+        )
     if kind == "bpe":
         if not bpe_model:
             raise ValueError("--tokenizer bpe requires --bpe-model")
         return BPETokenizer(bpe_model)
     raise ValueError(
-        f"unknown tokenizer {kind!r}; expected 'auto', 'v4', 'bpe', or 'bytes'"
+        f"unknown tokenizer {kind!r}; expected 'auto', 'v4', 'layered', "
+        "'bpe', or 'bytes'"
     )
 
 
@@ -1044,11 +1077,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tokenizer",
-        choices=("auto", "v4", "bpe", "bytes"),
+        choices=("auto", "v4", "layered", "bpe", "bytes"),
         default="auto",
-        help="v4 is bundled; bpe uses --bpe-model; bytes for byte checkpoints",
+        help="v4 is bundled; layered uses the tuned six-level artifact",
     )
     parser.add_argument("--bpe-model", default="", help="BPE tokenizer JSON")
+    parser.add_argument(
+        "--layered-model",
+        default=str(LAYERED_TOKENIZER_PATH),
+        help="tuned layered tokenizer artifact",
+    )
     parser.add_argument("--ctx", type=int, default=0, help="context length; 0 uses the model config")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--batches", type=int, default=16)
@@ -1218,7 +1256,11 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         model = model.to(device)
         ctx = args.ctx if args.ctx > 0 else cfg.ctx
         tokenizer_kind = args.tokenizer or ("bpe" if args.bpe_model else "bytes")
-        tokenizer = load_tokenizer(tokenizer_kind, args.bpe_model or None)
+        tokenizer = load_tokenizer(
+            tokenizer_kind,
+            args.bpe_model or None,
+            args.layered_model or None,
+        )
         specs = _parse_corpus_specs(args.corpus)
 
         router_accumulator = RouterAccumulator()
