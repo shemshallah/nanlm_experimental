@@ -279,3 +279,23 @@ top-level 50/100-epoch reports are preserved.
 - `diamond/state/diamond_best.npz` - best held-out checkpoint (artifact, not committed)
 - `diamond/state/diamond_best.weights.h5` - best held-out inference weights (artifact, not committed)
 - GitHub Release assets - `diamond_best.npz`, `diamond_best.weights.h5`, latest checkpoint, metrics and history
+
+## Integrated recursive meta feedback
+
+The diamond engine now includes the recursive meta-feedback upgrade directly
+in `diamond/diamond_engine.py`; it is not a separate architecture.
+
+- A combined tokenizer bus pools bit/byte, subword/token/word, and sentence
+  states.
+- The meta state uses `C(256,2)` and `C(256,3)` experts and expands into
+  temporal `+0/+1/+2/+3` slots.
+- Meta self-attention links the temporal slots to all tokenizer states.
+- The `+0` and future slots are projected back into every byte, word, and
+  sentence tower layer through per-layer feedback gates.
+- The `+0` slot also drives a meta NOW word head; the future slots condition
+  the byte, word, and sentence heads.
+- The causal first-word sentence cache remains active.
+
+Colab and Kaggle tooling for this integrated engine lives under
+`diamond/colab/` and `diamond/kaggle/`. The z3, FA1, and FA2 architectures
+remain independent subdirectories and are not modified by diamond runs.
