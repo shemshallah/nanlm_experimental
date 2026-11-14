@@ -1531,6 +1531,7 @@ if start_epoch < ARGS.epochs:
         ybs, yws, yss = train_yb[perm], train_yw[perm], train_ys[perm]
         tot = 0.0
         steps = 0
+        budget_hit = False
         for i in range(0, len(Bs), ARGS.batch):
             loss = train_step(
                 Bs[i:i + ARGS.batch], Ws[i:i + ARGS.batch], Ss[i:i + ARGS.batch],
@@ -1545,8 +1546,19 @@ if start_epoch < ARGS.epochs:
                     f"loss {float(loss):.4f} elapsed {time.time() - t_epoch:.1f}s",
                     flush=True,
                 )
+            if budget_s and time.time() - T0 >= budget_s:
+                budget_hit = True
+                break
         train_loss = tot / max(1, steps)
         completed_epochs = epoch_no
+        if budget_hit:
+            save_state(epoch_no)
+            print(
+                f"[budget] reached {ARGS.time_budget_minutes:.0f} min mid-epoch "
+                f"{epoch_no} after {steps} steps; checkpoint saved",
+                flush=True,
+            )
+            break
 
         res = {}
         do_eval = (
