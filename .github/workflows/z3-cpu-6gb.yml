@@ -1,0 +1,66 @@
+name: z3 CPU 6GB smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "z3/**"
+      - ".github/workflows/z3-cpu-6gb.yml"
+  push:
+    branches: [master]
+    paths:
+      - "z3/**"
+
+jobs:
+  z3-cpu-6gb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU torch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy
+      - name: Generate a small tagged math corpus
+        run: |
+          python z3/build_math_corpus.py --examples 600 \
+            --out /tmp/z3_math_ci
+      - name: Run 38M CPU preset with RSS gate
+        run: |
+          /usr/bin/time -v python z3/train_v3.py \
+            --ctx 384 --d-model 256 --n-layers 6 --n-heads 8 --n-kv-heads 2 \
+            --swiglu 768 --window 384 --global-every 4 \
+            --moe-layers 2 --n-experts 8 --topk 2 --shared-experts 1 \
+            --expert-hidden 768 --no-use-memory \
+            --mtp 3 --mtp-block --mtp-block-experts 4 --mtp-block-hidden 512 \
+            --mtp-aux-layers 2,4 --mtp-weight 0.5 \
+            --moe-hd-dim 192 --moe-memory-keys 8 \
+            --batch-size 1 --steps 5 --eval-every 5 --eval-batches 1 \
+            --lr 1e-4 --warmup-steps 1 --no-ema \
+            --device cpu --threads 2 \
+            --corpus /tmp/z3_math_ci/train.txt \
+            --val-corpus /tmp/z3_math_ci/valid.txt \
+            --out /tmp/z3_cpu_6gb 2>&1 | tee /tmp/z3_cpu.log
+          python - <<'PY'
+          import pathlib, re, json, sys
+          log = pathlib.Path('/tmp/z3_cpu.log').read_text(errors='ignore')
+          match = re.search(r'Maximum resident set size \(kbytes\):\s*(\d+)', log)
+          if not match:
+              raise SystemExit('missing Maximum resident set size')
+          rss_mb = int(match.group(1)) / 1024
+          result = json.loads(pathlib.Path('/tmp/z3_cpu_6gb/result.json').read_text())
+          print({'peak_rss_mb': round(rss_mb, 1), 'status': result['status'],
+                 'steps': result['steps_completed'], 'params': result['params'],
+                 'nonfinite_skips': result.get('nonfinite_skips')})
+          if rss_mb > 5500:
+              raise SystemExit(f'RSS gate failed: {rss_mb:.1f} MB > 5500 MB')
+          if result['status'] != 'completed' or result['steps_completed'] != 5:
+              raise SystemExit('run did not complete 5 steps')
+          if result.get('nonfinite_skips', 0):
+              raise SystemExit('non-finite steps occurred')
+          PY

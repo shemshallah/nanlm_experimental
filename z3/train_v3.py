@@ -821,6 +821,13 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--moe-memory-keys", type=int, default=16)
     model.add_argument("--moe-memory-dim", type=int, default=0,
                        help="hypervector width for expert memory (0 = D/H)")
+    model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="sparse growable C(V,2)/C(V,3) object memory")
+    model.add_argument("--comb-vertices", type=int, default=64)
+    model.add_argument("--comb-dim", type=int, default=128)
+    model.add_argument("--comb-top-vertices", type=int, default=16)
+    model.add_argument("--comb-top-pairs", type=int, default=8)
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
@@ -1091,6 +1098,15 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--moe-memory-keys must be positive")
     if args.moe_memory_dim < 0:
         raise SystemExit("--moe-memory-dim must be non-negative")
+    if args.combinatorial_memory:
+        if args.comb_vertices < 2:
+            raise SystemExit("--comb-vertices must be at least 2")
+        if args.comb_dim < 8:
+            raise SystemExit("--comb-dim must be at least 8")
+        if not 2 <= args.comb_top_vertices <= args.comb_vertices:
+            raise SystemExit("--comb-top-vertices must be in [2, comb-vertices]")
+        if args.comb_top_pairs < 1:
+            raise SystemExit("--comb-top-pairs must be positive")
     if args.mtp < 1:
         raise SystemExit("--mtp must be at least 1")
     if args.mtp_adapter_rank < 0:
@@ -1171,6 +1187,11 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_associative_memory=bool(args.moe_associative_memory),
         moe_memory_keys=int(args.moe_memory_keys),
         moe_memory_dim=int(args.moe_memory_dim),
+        use_combinatorial_memory=bool(args.combinatorial_memory),
+        comb_vertices=int(args.comb_vertices),
+        comb_dim=int(args.comb_dim),
+        comb_top_vertices=int(args.comb_top_vertices),
+        comb_top_pairs=int(args.comb_top_pairs),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_block=bool(args.mtp_block),
@@ -1435,6 +1456,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("moe_hyperdimensional", "--moe-hyperdimensional"),
                 ("mtp_hd_time", "--mtp-hd-time"),
                 ("mtp_branch_norm", "--mtp-branch-norm"),
+                ("use_combinatorial_memory", "--combinatorial-memory"),
             ):
                 if (
                     key not in saved_model_config

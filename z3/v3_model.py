@@ -27,10 +27,12 @@ import torch.nn.functional as F
 from torch import nn
 
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
+    from .combinatorial_objects import CombinatorialMemory
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
     from .rope_scaling import build_rope
 except ImportError:  # pragma: no cover - script execution path
+    from combinatorial_objects import CombinatorialMemory
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
     from rope_scaling import build_rope
@@ -101,6 +103,13 @@ class V3Config:
     moe_associative_memory: bool = True
     moe_memory_keys: int = 16
     moe_memory_dim: int = 0
+    # Growable C(V,2)/C(V,3) object memory.  Only vertex key/value
+    # hypervectors are stored; pair objects are bound on demand.
+    use_combinatorial_memory: bool = True
+    comb_vertices: int = 64
+    comb_dim: int = 128
+    comb_top_vertices: int = 16
+    comb_top_pairs: int = 8
     force_manual_attention: bool = False
     attn_gate: bool = True
     # Frontier MTP defaults.  The branch is a real, separately parameterised
@@ -572,6 +581,16 @@ class V3LM(nn.Module):
         self.blocks = nn.ModuleList([Block(cfg, i) for i in range(cfg.n_layers)])
         self.norm = RMSNorm(cfg.d_model)
         self.route_init = nn.Parameter(torch.zeros(cfg.d_model))
+        self.comb_memory = (
+            CombinatorialMemory(
+                d_model=cfg.d_model,
+                vertices=cfg.comb_vertices,
+                dim=cfg.comb_dim,
+                top_vertices=cfg.comb_top_vertices,
+                top_pairs=cfg.comb_top_pairs,
+            )
+            if cfg.use_combinatorial_memory else None
+        )
         # Tied main head.  MTP heads are either separate full-vocab
         # projections or, for 64k vocabularies, tied to the main token
         # geometry through project_logits().
@@ -901,6 +920,8 @@ class V3LM(nn.Module):
                     hd_diversities.append(block_aux["hd_code_diversity"])
                 if block_aux.get("memory_gate_mean") is not None:
                     memory_gates.append(block_aux["memory_gate_mean"])
+        if self.comb_memory is not None:
+            x = x + self.comb_memory(x)
         mem_aux = {}
         if self.memory_path is not None:
             x, mem_aux = self.memory_path.cross(x)
@@ -1076,6 +1097,11 @@ class V3LM(nn.Module):
         if memory_gates:
             aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
         return main, mtp, aux
+
+    def grow_combinatorial_vertices(self, new_vertices: int) -> "V3LM":
+        if self.comb_memory is not None:
+            self.comb_memory.grow(new_vertices)
+        return self
 
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
