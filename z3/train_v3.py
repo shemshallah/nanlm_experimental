@@ -805,6 +805,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--moe-route-feedback", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="carry attention/routing context through all blocks")
+    model.add_argument("--moe-route-to-attention", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="feed routing context back into each attention block")
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
@@ -1130,6 +1133,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_branches=int(args.moe_branches),
         moe_context_router=bool(args.moe_context_router),
         moe_route_feedback=bool(args.moe_route_feedback),
+        moe_route_to_attention=bool(args.moe_route_to_attention),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_block=bool(args.mtp_block),
@@ -1387,6 +1391,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("moe_hierarchical", "--moe-hierarchical"),
                 ("moe_context_router", "--moe-context-router"),
                 ("moe_route_feedback", "--moe-route-feedback"),
+                ("moe_route_to_attention", "--moe-route-to-attention"),
             ):
                 if (
                     key not in saved_model_config

@@ -107,6 +107,8 @@ class V3IntegrationTest(unittest.TestCase):
         self.assertEqual(len(mtp), 2)
         self.assertEqual(tuple(mtp[0].shape), (2, 32, 512))
         self.assertIn("mtp_aux_logits", aux)
+        self.assertIn("mtp_load_balance", aux)
+        self.assertTrue(torch.isfinite(aux["mtp_load_balance"]))
         self.assertTrue(torch.isfinite(logits).all())
 
         loss = logits.float().log_softmax(-1).gather(
@@ -137,6 +139,11 @@ class V3IntegrationTest(unittest.TestCase):
         tokens = torch.randint(0, 64, (2, 32))
         logits, _mtp, _aux = model(tokens)
         self.assertTrue(torch.isfinite(logits).all())
+        logits.float().logsumexp(dim=-1).mean().backward()
+        self.assertIsNotNone(model.blocks[-1].route_to_state.weight.grad)
+        self.assertTrue(
+            torch.isfinite(model.blocks[-1].route_to_state.weight.grad).all()
+        )
 
         x = model.embed(tokens)
         ctx = model.route_init.unsqueeze(0).expand(x.shape[0], -1)

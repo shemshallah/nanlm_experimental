@@ -164,7 +164,10 @@ def parse_config(raw: Any) -> V3Config:
         kwargs["factorized_embedding"] = False
     if "mtp_tie_heads" not in kwargs:
         kwargs["mtp_tie_heads"] = False
-    for key in ("moe_hierarchical", "moe_context_router", "moe_route_feedback"):
+    for key in (
+        "moe_hierarchical", "moe_context_router",
+        "moe_route_feedback", "moe_route_to_attention",
+    ):
         if key not in kwargs:
             kwargs[key] = False
     try:

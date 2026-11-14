@@ -91,6 +91,7 @@ class V3Config:
     moe_branches: int = 8
     moe_context_router: bool = True
     moe_route_feedback: bool = True
+    moe_route_to_attention: bool = True
     force_manual_attention: bool = False
     attn_gate: bool = True
     # Frontier MTP defaults.  The branch is a real, separately parameterised
@@ -284,6 +285,9 @@ class Block(nn.Module):
         )
         self.drop = nn.Dropout(cfg.dropout)
         self.route_feedback = bool(cfg.moe_route_feedback)
+        self.route_to_attention = bool(
+            cfg.moe_route_to_attention and self.route_feedback
+        )
         if self.route_feedback:
             self.route_attn_proj = nn.Linear(
                 cfg.d_model, cfg.d_model, bias=False
@@ -293,8 +297,21 @@ class Block(nn.Module):
                 if self.is_moe else None
             )
             self.route_norm = RMSNorm(cfg.d_model)
+            if self.route_to_attention:
+                self.route_to_state = nn.Linear(
+                    cfg.d_model, cfg.d_model, bias=False
+                )
 
     def forward(self, x, route_ctx=None):
+        if (
+            self.route_to_attention
+            and route_ctx is not None
+            and hasattr(self, "route_to_state")
+        ):
+            # Closed loop: the routing/context state modulates the
+            # self-attention input, and the resulting attention summary
+            # updates the context for the next layer.
+            x = x + self.route_to_state(route_ctx).unsqueeze(1)
         attn_out = self.attn(self.n1(x))
         x = x + self.drop(attn_out)
         h = self.n2(x)
@@ -462,6 +479,7 @@ class MTPBlock(nn.Module):
         hierarchical: bool = False,
         branches: int = 0,
         context_router: bool = False,
+        route_to_attention: bool = False,
     ):
         super().__init__()
         self.norm1 = RMSNorm(d_model)
@@ -492,8 +510,14 @@ class MTPBlock(nn.Module):
             context_router=context_router,
         )
         self.drop = nn.Dropout(dropout)
+        self.route_to_state = (
+            nn.Linear(d_model, d_model, bias=False)
+            if route_to_attention else None
+        )
 
     def forward(self, x, context=None):
+        if self.route_to_state is not None and context is not None:
+            x = x + self.route_to_state(context).unsqueeze(1)
         attn_out = self.attn(self.norm1(x))
         x = x + self.drop(attn_out)
         if context is None:
@@ -580,6 +604,7 @@ class V3LM(nn.Module):
                     hierarchical=cfg.moe_hierarchical,
                     branches=0,
                     context_router=cfg.moe_context_router,
+                    route_to_attention=cfg.moe_route_to_attention,
                 )
                 for lag in range(n_mtp)
             ]
@@ -661,6 +686,7 @@ class V3LM(nn.Module):
                     dropout=cfg.memory_dropout,
                 )
         self.apply(self._init)
+        nn.init.normal_(self.route_init, mean=0.0, std=0.02)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
         if self.tok_up is not None:
             # tok @ tok_up must have variance near the full-rank 0.02
@@ -695,6 +721,12 @@ class V3LM(nn.Module):
                     block.route_attn_proj.weight.mul_(0.01)
                     if block.route_moe_proj is not None:
                         block.route_moe_proj.weight.mul_(0.01)
+                    if getattr(block, "route_to_state", None) is not None:
+                        block.route_to_state.weight.mul_(0.01)
+        for block in self.mtp_blocks:
+            if getattr(block, "route_to_state", None) is not None:
+                with torch.no_grad():
+                    block.route_to_state.weight.mul_(0.01)
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
