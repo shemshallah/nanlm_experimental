@@ -221,7 +221,9 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
         with history_value_disabled(model):
             without_writer,no_writer_extra=forward(model,data)
         from fa1_r735_history_values import different_book_writer_values
-        wrong_values,value_donors=different_book_writer_values(data,seed+734)
+        wrong_values,value_donors=different_book_writer_values(
+            data,seed+734,preserve_receiver_mask=hasattr(
+                model.diamond.geometry,'history_read_mix'))
         foreign_values,foreign_value_extra=forward(model,wrong_values)
     else:
         without_writer,no_writer_extra=correct,extra
@@ -557,7 +559,9 @@ def train_step(model, optimizer, sample, step, args):
             getattr(args,'history_value_content_weight',0.) or
             getattr(args,'history_value_content_byte_weight',0.)):
         from fa1_r735_history_values import different_book_writer_values
-        writer_wrong,_=different_book_writer_values(sample,args.seed+step+735)
+        writer_wrong,_=different_book_writer_values(
+            sample,args.seed+step+735,
+            preserve_receiver_mask=getattr(args,'deep_wiring_r736',False))
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):

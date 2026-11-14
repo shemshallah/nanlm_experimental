@@ -126,6 +126,7 @@ class DeepWiringTests(unittest.TestCase):
         ids=torch.arange(36).reshape(3,12)%256
         mask=torch.zeros(3,12,dtype=torch.bool)
         mask[0,8]=True
+        mask[0,10]=True
         mask[1,9]=True
         data={'book_ids':torch.tensor([0,1,2]),'memory_modal_ids':ids,
               'memory_modal_mask':mask}
@@ -134,6 +135,13 @@ class DeepWiringTests(unittest.TestCase):
         self.assertEqual(int(donors[1]),0)
         self.assertTrue(wrong['diamond_history_value_mask'][0].any())
         self.assertTrue(wrong['diamond_history_value_mask'][1].any())
+        matched,again=different_book_writer_values(
+            data,736,preserve_receiver_mask=True)
+        self.assertTrue(torch.equal(donors,again))
+        self.assertTrue(torch.equal(matched['diamond_history_value_mask'],mask[:,8:]))
+        self.assertEqual(int(matched['diamond_history_value_ids'][0,0]),int(ids[1,9]))
+        self.assertEqual(int(matched['diamond_history_value_ids'][0,2]),int(ids[1,9]))
+        self.assertTrue(torch.equal(matched['memory_modal_ids'],data['memory_modal_ids']))
         mask[1,9]=False
         with self.assertRaisesRegex(ValueError,'two distinct far-eligible books'):
             different_book_writer_values(data,736)

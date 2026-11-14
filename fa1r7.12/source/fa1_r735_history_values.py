@@ -109,7 +109,7 @@ def open_new_causal_gates(model, source_round, history_gain=0.08,
     return result
 
 
-def different_book_writer_values(data, seed=735):
+def different_book_writer_values(data, seed=735, preserve_receiver_mask=False):
     """Counterfactual far VALUES only, with genuinely eligible foreign donors.
 
     A masked donor is not counterfactual *content*: it would turn a content
@@ -134,6 +134,24 @@ def different_book_writer_values(data, seed=735):
         selected=torch.randint(len(candidates),(len(receivers),),generator=rng)
         donors[receivers]=candidates[selected]
     wrong=dict(data)
-    wrong['diamond_history_value_ids']=ids[donors.to(ids.device),8:].clone()
-    wrong['diamond_history_value_mask']=mask[donors.to(mask.device),8:].clone()
+    foreign_ids=ids[donors.to(ids.device),8:].clone()
+    foreign_mask=mask[donors.to(mask.device),8:].bool()
+    if preserve_receiver_mask:
+        # R7.36 isolates CONTENT rather than accidentally measuring missing
+        # memory coverage. Keep each target's original eligibility pattern,
+        # filling its valid slots only with genuine eligible foreign tokens.
+        receiver_mask=mask[:,8:].bool()
+        for row in range(len(books)):
+            if not bool(receiver_mask[row].any()):
+                continue
+            eligible_foreign=foreign_ids[row,foreign_mask[row]]
+            if not eligible_foreign.numel():
+                raise AssertionError('eligible-donor selection was violated')
+            count=int(receiver_mask[row].sum())
+            foreign_ids[row,receiver_mask[row]]=eligible_foreign[
+                torch.arange(count,device=ids.device)%len(eligible_foreign)]
+        wrong['diamond_history_value_mask']=receiver_mask.clone()
+    else:
+        wrong['diamond_history_value_mask']=foreign_mask.clone()
+    wrong['diamond_history_value_ids']=foreign_ids
     return wrong,donors

@@ -81,7 +81,8 @@ def require_eligible_minibatch(data, indices, rng):
     distinct=books[eligible].unique()
     if len(distinct)<2:
         raise ValueError('writer contrast requires two far-eligible training books')
-    first,second=distinct[:2]
+    first,second=distinct[
+        torch.as_tensor(rng.choice(len(distinct),size=2,replace=False),dtype=torch.long)]
     first_positions=torch.where(eligible & (books==first))[0]
     second_positions=torch.where(eligible & (books==second))[0]
     updated=indices.clone()

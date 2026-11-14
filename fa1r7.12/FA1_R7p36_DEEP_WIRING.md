@@ -22,8 +22,11 @@ No new held-out language-model improvement is claimed by this source change.
 3. **Misleading donor controls.** An unrelated book with every far token
    ineligible is an *empty-memory* control, not a wrong-*content* control.
    Counterfactual writer donors now come from a distinct book with at least
-   one eligible far modal token. If no second eligible book exists, the probe
-   fails explicitly. R7.36 minibatches enforce at least two eligible books.
+   one eligible far modal token. In R7.36, recipient eligibility masks stay
+   **exactly fixed** and all replaced valid IDs come from eligible foreign
+   slots; this isolates actual content rather than memory coverage. If no
+   second eligible book exists, the probe fails explicitly. R7.36 minibatches
+   enforce at least two eligible books.
 4. **Book eligibility audit.** The diagnostic's `eligible_independent_books`
    now counts books with observed far-modal evidence rather than every book
    that supplied a target. Training reports separate finite/nonzero gradient
