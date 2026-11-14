@@ -1005,10 +1005,6 @@ class V3LM(nn.Module):
             if self.cfg.mtp_gate_use_hidden:
                 gate_parts.append(x)
             gate_features = torch.cat(gate_parts, dim=-1)
-            valid_t1 = tokens[:, 1:] >= 0
-            t1_ok = (
-                main.argmax(dim=-1)[:, :-1] == tokens[:, 1:]
-            ).to(dtype=pred_probs.dtype)
             positions = torch.arange(tokens.size(1), device=tokens.device)
             position_anchor = (
                 self.mtp_position_embed(positions).to(dtype=x.dtype).unsqueeze(0)
@@ -1057,15 +1053,44 @@ class V3LM(nn.Module):
                     mtp.append(
                         gate * branch_logits + (1.0 - gate) * base_logits
                     )
-                    gate_target = gate_logits[:, :-1].squeeze(-1)
-                    gate_loss = F.binary_cross_entropy_with_logits(
-                        gate_target, t1_ok, reduction="none"
-                    )
-                    if valid_t1.any():
-                        gate_loss = gate_loss[valid_t1].mean()
-                    else:
-                        gate_loss = gate_loss.sum() * 0.0
-                    gate_losses.append(gate_loss)
+                    # Supervise the gate on the actual t+2 utility of the
+                    # branch, not on t+1 correctness.  A correct t+1 token
+                    # does not imply that the future branch is better; the
+                    # old target was the reason correct-t1 positions could
+                    # have worse MTP loss than wrong-t1 positions.
+                    lag = idx + 2
+                    target_len = tokens.size(1) - lag
+                    if target_len > 0:
+                        targets = tokens[:, lag:]
+                        mask = targets >= 0
+                        branch_ce = F.cross_entropy(
+                            branch_logits[:, :target_len].reshape(
+                                -1, self.cfg.vocab_size
+                            ),
+                            targets.reshape(-1),
+                            reduction="none",
+                            ignore_index=-100,
+                        ).view(tokens.size(0), target_len)
+                        base_ce = F.cross_entropy(
+                            base_logits[:, :target_len].reshape(
+                                -1, self.cfg.vocab_size
+                            ),
+                            targets.reshape(-1),
+                            reduction="none",
+                            ignore_index=-100,
+                        ).view(tokens.size(0), target_len)
+                        advantage = (base_ce - branch_ce).detach()
+                        target_prob = torch.sigmoid(advantage / 0.1)
+                        gate_loss = F.binary_cross_entropy_with_logits(
+                            gate_logits[:, :target_len].squeeze(-1),
+                            target_prob,
+                            reduction="none",
+                        )
+                        if mask.any():
+                            gate_loss = gate_loss[mask].mean()
+                        else:
+                            gate_loss = gate_loss.sum() * 0.0
+                        gate_losses.append(gate_loss)
                 else:
                     mtp.append(branch_logits)
             gate_loss = (

@@ -1705,11 +1705,15 @@ def main(argv: list[str] | None = None) -> int:
             progress = elapsed / args.max_seconds
         else:
             progress = step / max(1, lr_total_steps)
+        # A wall-clock horizon should use the same stable/decay shape as the
+        # WSD step horizon.  Passing "time" directly used to fall through to
+        # cosine decay from step zero.
+        lr_shape = "wsd" if horizon == "time" else horizon
         scale = lr_scale(
             progress,
             effective_warmup_frac,
             args.min_lr_frac,
-            schedule=horizon,
+            schedule=lr_shape,
             decay_frac=args.decay_frac,
         )
         return args.lr * scale
