@@ -8,8 +8,10 @@ logs include failed runs and protocol corrections.
 tokenizer, factorized 128-d embeddings, tied low-rank MTP output, 1k context,
 and a tuned six-level layered tokenizer. The layered artifact aligns bits,
 UTF-8 bytes, subwords, model tokens/specials, words, and sentences losslessly.
-See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md) and
-[`z3/FRONTIER_FIX_PLAN.md`](z3/FRONTIER_FIX_PLAN.md).
+See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md),
+[`z3/FRONTIER_FIX_PLAN.md`](z3/FRONTIER_FIX_PLAN.md), and the
+[`z3/FRONTIER_SCALING_PLAN.md`](z3/FRONTIER_SCALING_PLAN.md) for the measured
+Kaggle/CPU parameter ladder and the C(256,2+3) object-growth path.
 
 **Previous experiment (2026-11-12):** R32 multidomain. A 151M-parameter hybrid
 using ~21M active MAC/token ties the 21M dense baseline on 16 domain releases

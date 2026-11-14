@@ -24,7 +24,7 @@ parameter / 7-MoE-layer** probe completed 2 steps in **32.9 s** without OOM.
 That is the current single-T4 ceiling we have actually measured, not guessed.
 
 Measured on the GitHub 6 GB CPU runner: the 38M preset is actually
-**39,616,285 params**, completed 5 steps in **21.3 s** with **3.28 GB peak
+**39,616,286 params**, completed 5 steps in ~**21 s** with **3.53 GB peak
 RSS**, zero non-finite skips. The CI gate is enforced at 5.5 GB.
 
 ### Memory rule of thumb
