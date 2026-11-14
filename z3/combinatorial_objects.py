@@ -173,6 +173,14 @@ class CombinatorialMemory(nn.Module):
         k = min(self.top_pairs, flat_scores.shape[-1])
         pair_weights, pair_idx = flat_scores.topk(k, dim=-1)
         pair_weights = F.softmax(pair_weights, dim=-1)
+        vc = self.top_vertices
+        u_local = torch.div(pair_idx, vc, rounding_mode="floor")
+        v_local = pair_idx % vc
+        u_global = torch.gather(top_ids, 2, u_local)
+        v_global = torch.gather(top_ids, 2, v_local)
+        lo = torch.minimum(u_global, v_global)
+        hi = torch.maximum(u_global, v_global)
+        pair_object_ids = lo + hi * (hi - 1) // 2
         flat_values = pair_values.reshape(b, t, -1, self.dim)
         flat_keys = pair_keys.reshape(b, t, -1, self.dim)
         selected = torch.gather(
@@ -188,9 +196,8 @@ class CombinatorialMemory(nn.Module):
                 2,
                 pair_idx.unsqueeze(-1).expand(-1, -1, -1, self.dim),
             )
-            vc = self.top_vertices
-            u = torch.div(pair_idx, vc, rounding_mode="floor")
-            v = pair_idx % vc
+            u = u_local
+            v = v_local
             # Extend each selected pair by each selected vertex, then keep
             # only the best exact triple candidates.  This never materializes
             # the full C(V,3) table.
@@ -225,7 +232,25 @@ class CombinatorialMemory(nn.Module):
                 self.triple_gate_logit
             ) * (triple_memory * t_weights.unsqueeze(-1)).sum(dim=2)
         out = self.out_proj(memory)
-        return torch.sigmoid(self.gate_logit) * out
+        return torch.sigmoid(self.gate_logit) * out, {
+            "pair_ids": pair_object_ids,
+            "pair_vertices": torch.stack([lo, hi], dim=-1),
+        }
+
+    @torch.no_grad()
+    def seed_vertices(
+        self, keys: torch.Tensor, values: torch.Tensor
+    ) -> "CombinatorialMemory":
+        """Seed the 256 vertex concepts from an external byte codebook."""
+        if keys.shape != self.vertex_keys.shape:
+            raise ValueError("key seed shape mismatch")
+        if values.shape != self.vertex_values.shape:
+            raise ValueError("value seed shape mismatch")
+        self.vertex_keys.copy_(keys.to(self.vertex_keys.device, self.vertex_keys.dtype))
+        self.vertex_values.copy_(
+            values.to(self.vertex_values.device, self.vertex_values.dtype)
+        )
+        return self
 
     @torch.no_grad()
     def grow(self, new_vertices: int, *, seed: int | None = None) -> "CombinatorialMemory":

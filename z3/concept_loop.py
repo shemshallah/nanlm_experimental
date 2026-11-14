@@ -339,6 +339,30 @@ class ConceptEncoder(nn.Module):
         return concept, concept.mean(dim=1)
 
 
+class CompositionVocabulary:
+    """Structural composition layer vocabulary.
+
+    These IDs are intentionally separate from the 64k subword vocabulary:
+    they describe boundaries/composition above the tokenizer, not new text
+    tokens that must round-trip through the subword decoder.
+    """
+
+    tokens = EVENT_NAMES
+    token_to_id = EVENT_IDS
+
+    @classmethod
+    def encode(cls, events: Iterable[str]) -> list[int]:
+        return [cls.token_to_id[event] for event in events]
+
+    @classmethod
+    def decode(cls, ids: Iterable[int]) -> list[str]:
+        return [cls.tokens[int(i)] for i in ids]
+
+    @classmethod
+    def manifest(cls) -> dict[str, Any]:
+        return {"tokens": list(cls.tokens), "size": len(cls.tokens)}
+
+
 class CompositionHead(nn.Module):
     """Predict a structural composition event at each token position."""
 
@@ -421,6 +445,16 @@ class ConceptLoop(nn.Module):
             top_pairs=top_pairs,
             top_triples=top_triples,
         )
+        # Seed the vertex space from a deterministic byte-symbol codebook.
+        # Pair/triple objects are then bindings of these 256 concept seeds.
+        generator = torch.Generator().manual_seed(20261113)
+        byte_keys = F.normalize(
+            torch.randn(vertices, dim, generator=generator), dim=-1
+        )
+        byte_values = F.normalize(
+            torch.randn(vertices, dim, generator=generator), dim=-1
+        )
+        self.object_memory.seed_vertices(byte_keys, byte_values)
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
         self.route_to_state = nn.Linear(d_model, d_model, bias=False)
@@ -440,7 +474,9 @@ class ConceptLoop(nn.Module):
         route_ctx: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         concept, global_ctx = self.encoder(x, sidecar)
-        object_ctx = self.object_memory(x + concept)
+        object_ctx, object_aux = self.object_memory(x + concept)
+        self.last_object_ids = object_aux["pair_ids"].detach()
+        self.last_object_vertices = object_aux["pair_vertices"].detach()
         loop_ctx = self.state_norm(
             route_ctx
             + self.concept_to_state(global_ctx)

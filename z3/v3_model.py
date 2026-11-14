@@ -1221,6 +1221,10 @@ class V3LM(nn.Module):
             aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
         if self.composition_head is not None:
             aux["composition_logits"] = self.composition_head(x)
+        if self.concept_loop is not None and hasattr(
+            self.concept_loop, "last_object_ids"
+        ):
+            aux["object_pair_ids"] = self.concept_loop.last_object_ids
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
         return main, mtp, aux
@@ -1244,6 +1248,7 @@ class V3LM(nn.Module):
             if tokenizer is not None else None
         )
         tokenizer_events: list[tuple[int, str]] = []
+        object_events: list[list[int]] = []
         if decoder is not None:
             for token_id in tokens[0].detach().cpu().tolist():
                 tokenizer_events.extend(decoder.feed(int(token_id)))
@@ -1263,8 +1268,16 @@ class V3LM(nn.Module):
                 events.append(int(comp[:, -1].argmax(dim=-1)[0]))
             if decoder is not None:
                 tokenizer_events.extend(decoder.feed(int(next_id[0])))
+            if aux.get("object_pair_ids") is not None:
+                object_events.append(
+                    aux["object_pair_ids"][:, -1].reshape(-1).tolist()
+                )
         if decoder is not None:
-            return ids, {"model": events, "tokenizer": tokenizer_events}
+            return ids, {
+                "model": events,
+                "tokenizer": tokenizer_events,
+                "objects": object_events,
+            }
         return ids, events
 
     def grow_combinatorial_vertices(self, new_vertices: int) -> "V3LM":

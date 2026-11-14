@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from concept_loop import (
+    CompositionVocabulary,
     ConceptEncoder,
     ConceptLoop,
     IncrementalCompositionDecoder,
@@ -57,6 +58,12 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertTrue(torch.equal(from_ids.sentence_ids, from_text.sentence_ids))
         self.assertTrue(torch.equal(from_ids.math_kind, from_text.math_kind))
 
+    def test_composition_vocabulary_roundtrip(self):
+        events = ["<word_start>", "<word_end>", "<sentence_end>", "<compose>"]
+        ids = CompositionVocabulary.encode(events)
+        self.assertEqual(CompositionVocabulary.decode(ids), events)
+        self.assertEqual(CompositionVocabulary.manifest()["size"], 7)
+
     def test_sidecar_collate(self):
         a = SpanSidecar.from_text("One short sentence.", self.tokenizer)
         b = SpanSidecar.from_text("A much longer second sentence here.", self.tokenizer)
@@ -88,6 +95,10 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(loop_ctx).all())
         self.assertEqual(loop.counts()["pairs"], 32640)
         self.assertEqual(loop.counts()["triples"], 2763520)
+        self.assertEqual(loop.last_object_ids.shape[0], 1)
+        self.assertTrue(
+            (loop.last_object_ids < 32640).all()
+        )
 
     def test_model_sidecar_feedback_and_generation(self):
         encoded = self.tokenizer.encode(TEXT, add_document_frame=False)
@@ -131,6 +142,11 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertEqual(generated2.shape, (1, 6))
         self.assertIn("model", payload)
         self.assertIn("tokenizer", payload)
+        self.assertIn("objects", payload)
+        self.assertEqual(len(payload["objects"]), 2)
+        self.assertTrue(
+            all(0 <= object_id < 32640 for object_id in payload["objects"][0])
+        )
 
     def test_incremental_composition(self):
         encoded = self.tokenizer.encode(TEXT, add_document_frame=False)
