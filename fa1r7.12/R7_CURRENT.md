@@ -1,6 +1,6 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.32 calibrated layered Diamond with matched-history training/evaluation; one unified optimizer.**
+**Current source architecture: R7.34 verified-byte diagnostic layer on R7.33 calibrated multi-horizon Diamond; one unified optimizer.**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
@@ -89,6 +89,7 @@ research candidate has passed the independent-book promotion gates.
   admissibility over raw word-loss gains. The two R7.32 changes are integrated:
   matched-history constraints also apply to calibrated candidates.
   **No new accepted checkpoint or measured integrated R7.32 training result.**
+- R7.33 adds three matched far-history horizons (8/32/2, 16/64/4 and 24/96/6 recent words/bytes/sentences), a worst-horizon DEV contrast, and book-level specificity requirements. R7.34 corrects conditional-byte book confidence intervals to resample whole books using pooled literal-byte NLL ratios, matching the reported byte-weighted point estimator. It also rejects aliased source/report/candidate paths and verifies the original checkpoint hash after saving a candidate. These changes add **no model weights or optimizer groups**. Neither round claims a promoted model or new independent-book gain.
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -122,3 +123,5 @@ is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,
 `source/fa1_r724_unified.py`, `source/fa1_r724_train.py`,
 `source/fa1_r724_eval.py`, `source/fa1_r725_controls.py`, and
 `source/fa1_r726_factor_audit.py`.
+
+Read `FA1_R7p33_MATCHED_FAR_HISTORY.md` for the multi-horizon causal curriculum and `FA1_R7p34_BYTE_WEIGHTED_BOOTSTRAP.md` for the consistent byte-level book bootstrap and checkpoint protection.

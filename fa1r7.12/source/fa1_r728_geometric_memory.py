@@ -31,6 +31,8 @@ from fa1_r732_matched_history import (matched_history_context,
                                        geometry_specific_history_gain,
                                        context_specific_margin)
 from fa1_r733_far_history import HORIZONS, matched_far_history
+from fa1_r734_byte_bootstrap import book_byte_ratio_bootstrap
+from fa1_r734_checkpoint_guard import validate_artifact_paths
 
 
 @contextlib.contextmanager
@@ -267,7 +269,7 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             'conditional_byte_apex_gain_nats_per_byte':float((no_apex_bytes-full_bytes).sum()/counts.sum()),
             'conditional_byte_pair_gain_nats_per_byte':float((no_pair_bytes-full_bytes).sum()/counts.sum()),
             'conditional_byte_geometry_gain_nats_per_word_normalized':float(delta[valid].mean()),
-            'conditional_byte_geometry_gain_book_bootstrap':boot_books(delta[valid],data['book_ids'][valid],seed+7),
+            'conditional_byte_geometry_gain_book_bootstrap':book_byte_ratio_bootstrap(delta,counts,data['book_ids'],seed+7),
         })
         if matched is not None:
             matched_byte,_,matched_ce,_,_=layered_byte_losses(matched_extra,data)
@@ -281,8 +283,8 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
                     (matched_ce-full_bytes).sum()/counts.sum()),
                 'matched_geometry_byte_advantage_nats_per_byte':float(
                     matched_byte_gain_total.sum()/counts.sum()),
-                'matched_geometry_byte_book_bootstrap':boot_books(
-                    matched_byte_gain[valid],data['book_ids'][valid],seed+113),
+                'matched_geometry_byte_book_bootstrap':book_byte_ratio_bootstrap(
+                    matched_byte_gain,counts,data['book_ids'],seed+113),
             })
         result.update(metrics)
         if hasattr(model.diamond, 'hierarchy'):
@@ -314,8 +316,8 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             result.update({
                 'matched_far_byte_history_advantage_nats_per_byte':float((byte_advantage*counts).sum()/counts.sum()),
                 'matched_far_byte_geometry_specificity_nats_per_byte':float((geo_specific*counts).sum()/counts.sum()),
-                'matched_far_byte_history_bootstrap':boot_books(byte_advantage[valid],data['book_ids'][valid],seed+23),
-                'matched_far_byte_geometry_bootstrap':boot_books(geo_specific[valid],data['book_ids'][valid],seed+24),
+                'matched_far_byte_history_bootstrap':book_byte_ratio_bootstrap(byte_advantage,counts,data['book_ids'],seed+23),
+                'matched_far_byte_geometry_bootstrap':book_byte_ratio_bootstrap(geo_specific,counts,data['book_ids'],seed+24),
             })
     if with_matched_far:
         word_advantages=[]
@@ -641,6 +643,9 @@ def candidate_priority(reference, candidate, min_gain):
 
 
 def run(args):
+    # Guard paths before loading any large checkpoint or running a CPU update.
+    validate_artifact_paths(args.checkpoint,args.output,
+                            getattr(args,'candidate_checkpoint',''))
     t0 = time.monotonic()
     if any(getattr(args, n, 0.) > 0 for n in (
         'matched_far_weight','matched_far_byte_weight',
@@ -813,6 +818,10 @@ def run(args):
                                 'FA1_R7_29_CONTEXTUAL_GEOMETRY_V1' if args.contextual else ''))
     else:
         report['unpromoted_candidate_checkpoint'] = None
+    # Hash the immutable parent again after writing the successor file.
+    report['source_checkpoint_never_overwritten'] = digest(args.checkpoint)==parent_hash
+    if not report['source_checkpoint_never_overwritten']:
+        raise RuntimeError('FA1 protected parent checkpoint changed during continuation')
     output=Path(args.output)
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps(report,indent=2)+'\n')

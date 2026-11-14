@@ -1,4 +1,4 @@
-name: FA1 R7.33 - matched far-history causal controls
+name: FA1 R7.33/R7.34 - matched far-history and byte-ratio controls
 
 on:
   push:
@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/fa1-r733-matched-far-history.yml'
       - 'fa1r7.12/source/fa1_r733_far_history.py'
+      - 'fa1r7.12/source/fa1_r734_byte_bootstrap.py'
+      - 'fa1r7.12/source/fa1_r734_checkpoint_guard.py'
+      - 'fa1r7.12/source/test_fa1_r734_byte_bootstrap.py'
+      - 'fa1r7.12/FA1_R7p34_BYTE_WEIGHTED_BOOTSTRAP.md'
       - 'fa1r7.12/source/test_fa1_r733_far_history.py'
       - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
       - 'fa1r7.12/FA1_R7p33_MATCHED_FAR_HISTORY.md'
@@ -37,7 +41,8 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Run source and migration regressions
         run: |
-          python -m py_compile fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r728_geometric_memory.py
+          python -m py_compile fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r734_byte_bootstrap.py fa1r7.12/source/fa1_r734_checkpoint_guard.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r734_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r733_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r732_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
