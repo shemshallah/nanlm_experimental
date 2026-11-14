@@ -1090,6 +1090,11 @@ class TripleStaged(tf.keras.Model):
         )
         self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
         self.concept_to_tok = tf.keras.layers.Dense(DIM_T)
+        self.concept_tok_ln = tf.keras.layers.LayerNormalization()
+        self.concept_tok_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-1.0),
+            name="concept_tok_gate",
+        )
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
         self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1223,7 +1228,8 @@ class TripleStaged(tf.keras.Model):
 
             # Close the concept -> tokenizer loop: concept feedback re-enters
             # the 256-wide tokenizer micro-transformer before meta reads it.
-            tok_states = tok_states + self.concept_to_tok(concept)[:, None, :]
+            tok_feedback = self.concept_tok_ln(self.concept_to_tok(concept))
+            tok_states = tok_states + tf.sigmoid(self.concept_tok_gate) * tok_feedback[:, None, :]
             for block in self.tok_blocks:
                 tok_states = block(tok_states, training=training)
             tok_meta = self.tok_to_meta(tf.reduce_mean(tok_states, axis=1))
@@ -1365,7 +1371,7 @@ SIGNATURE = json.dumps({
     "meta_temporal_feedback": "now+future",
     "tokenizer_micro": "256x6",
     "concept_storage": "C(256,2)x4 + C(256,3)x4",
-    "concept_feedback": "concept->tokenizer->meta->layers",
+    "concept_feedback": "gated concept->tokenizer->meta->layers",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
