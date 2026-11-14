@@ -165,6 +165,127 @@ class ByteLayer:
 
 
 @dataclass
+class MathSpan:
+    text: str
+    start: int
+    end: int
+    kind: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "start": self.start,
+            "end": self.end,
+            "kind": self.kind,
+        }
+
+
+class MathLayer:
+    """Lossless math/notation spans and atom diagnostics.
+
+    This layer does not rewrite text.  It marks display/inline equations,
+    LaTeX commands, numbers, and operators so the word/subword layers and the
+    router can distinguish prose from notation.  A separate canonicalizer is
+    available for data preparation where normalization is allowed.
+    """
+
+    _DISPLAY = re.compile(r"\$\$.*?\$\$|\\\[.*?\\\]", re.DOTALL)
+    _INLINE = re.compile(r"(?<!\$)\$(?!\$).*?(?<!\$)\$(?!\$)", re.DOTALL)
+    _COMMAND = re.compile(r"\\[A-Za-z]+")
+    _NUMBER = re.compile(
+        r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?"
+    )
+    _OPERATOR = re.compile(r"[=+\-*/^_<>≤≥≈≠×÷]")
+
+    def spans(self, text: str) -> list[MathSpan]:
+        occupied = [False] * len(text)
+        found: list[MathSpan] = []
+        for kind, pattern in (("display", self._DISPLAY), ("inline", self._INLINE)):
+            for match in pattern.finditer(text):
+                start, end = match.span()
+                if any(occupied[max(0, start):end]):
+                    continue
+                found.append(MathSpan(match.group(0), start, end, kind))
+                for i in range(start, end):
+                    occupied[i] = True
+        for kind, pattern in (
+            ("command", self._COMMAND),
+            ("number", self._NUMBER),
+            ("operator", self._OPERATOR),
+        ):
+            for match in pattern.finditer(text):
+                start, end = match.span()
+                if any(occupied[max(0, start):end]):
+                    continue
+                found.append(MathSpan(match.group(0), start, end, kind))
+                for i in range(start, end):
+                    occupied[i] = True
+        return sorted(found, key=lambda span: (span.start, span.end))
+
+    def tune(
+        self,
+        text: str,
+        subword: "SubwordLayer",
+        *,
+        min_atomic_rate: float = 0.0,
+    ) -> dict[str, Any]:
+        spans = self.spans(text)
+        by_kind: dict[str, int] = {}
+        subword_counts = []
+        atom_total = 0
+        atomic = 0
+        for span in spans:
+            by_kind[span.kind] = by_kind.get(span.kind, 0) + 1
+            n_sub = len(subword.encode(span.text).ids)
+            subword_counts.append(n_sub)
+            if span.kind in ("number", "operator", "command"):
+                atom_total += 1
+                atomic += int(n_sub == 1)
+        raw = text.encode("utf-8", errors="ignore")
+        covered = 0
+        if raw:
+            # Math spans are char offsets; report coverage in characters as a
+            # cheap proxy and byte coverage for the final report.
+            covered_bytes = 0
+            for span in spans:
+                covered_bytes += len(
+                    text[span.start:span.end].encode("utf-8", errors="ignore")
+                )
+            covered = covered_bytes / len(raw)
+        atomic_rate = atomic / atom_total if atom_total else 0.0
+        return {
+            "spans": len(spans),
+            "by_kind": by_kind,
+            "byte_coverage": covered,
+            "mean_subword_per_span": (
+                sum(subword_counts) / len(subword_counts)
+                if subword_counts else 0.0
+            ),
+            "max_subword_per_span": max(subword_counts) if subword_counts else 0,
+            "atomic_number_operator_command_rate": atomic_rate,
+            "gate": {
+                "applicable": bool(spans),
+                "min_atomic_rate": min_atomic_rate,
+                "passed": bool(spans) and atomic_rate >= min_atomic_rate,
+            },
+        }
+
+    @staticmethod
+    def canonicalize(text: str) -> str:
+        """Optional data-preparation normalization (not used for lossless IDs)."""
+        import unicodedata
+
+        value = unicodedata.normalize("NFKC", text)
+        replacements = {
+            "×": "*", "÷": "/", "−": "-", "–": "-", "—": "-",
+            "≤": "<=", "≥": ">=", "≠": "!=", "≈": "~",
+        }
+        for old, new in replacements.items():
+            value = value.replace(old, new)
+        return value
+
+
+@dataclass
 class SubwordEncoding:
     text: str
     ids: list[int]
@@ -209,7 +330,24 @@ class SubwordLayer:
             str(item["content"]) for item in sorted(added, key=lambda x: int(x["id"]))
         ]
         self.special_ids = {token: self.vocab[token] for token in self.special_tokens}
-        self.token_bytes: list[bytes] = [b""] * len(self.vocab)
+        self.base_vocab_size = (
+            max(self.vocab.values()) + 1 if self.vocab else 0
+        )
+
+        # The v4 BPE is not byte-complete: 60 byte values (including ``{``)
+        # never made it into the 64k vocabulary.  Add explicit one-byte
+        # fallback IDs above the base vocabulary.  This is lossless and keeps
+        # every existing base ID stable.
+        self.extra_byte_ids: dict[int, int] = {}
+        next_id = self.base_vocab_size
+        for byte_value, char in BYTE_ENCODER.items():
+            if char not in self.vocab:
+                self.vocab[char] = next_id
+                self.extra_byte_ids[byte_value] = next_id
+                next_id += 1
+        self.id_to_token = {v: k for k, v in self.vocab.items()}
+        self.extra_byte_count = len(self.extra_byte_ids)
+        self.token_bytes: list[bytes] = [b""] * (self.base_vocab_size + self.extra_byte_count)
         for token, token_id in self.vocab.items():
             if token in self.special_ids:
                 raw = token.encode("utf-8")
@@ -218,9 +356,8 @@ class SubwordLayer:
                     BYTE_DECODER[ch] for ch in token if ch in BYTE_DECODER
                 )
             self.token_bytes[token_id] = raw
-        # Byte fallback: every byte should have a single-byte token in a
-        # byte-level BPE.  Record it so the pure backend can never emit an
-        # unknown ID.
+        # Byte fallback: every byte has a single-byte token, either from the
+        # original vocabulary or from the added fallback ID block.
         self.byte_ids: dict[int, int] = {}
         for byte_value, char in BYTE_ENCODER.items():
             token_id = self.vocab.get(char)
@@ -237,14 +374,19 @@ class SubwordLayer:
     def vocab_size(self) -> int:
         return len(self.vocab)
 
-    def _token_id(self, token: str) -> int:
+    def _token_ids(self, token: str) -> list[int]:
         token_id = self.vocab.get(token)
         if token_id is not None:
-            return token_id
-        # Should only happen for a malformed external tokenizer.
-        if len(token) == 1 and ord(token) in self.byte_ids:
-            return self.byte_ids[ord(token)]
-        raise KeyError(f"BPE token missing from vocabulary: {token!r}")
+            return [token_id]
+        # A merged token that is absent from the vocabulary is decomposed
+        # back to complete bytes, including the added fallback IDs.
+        out: list[int] = []
+        for ch in token:
+            byte_value = BYTE_DECODER.get(ch)
+            if byte_value is None or byte_value not in self.byte_ids:
+                raise KeyError(f"BPE token missing from vocabulary: {token!r}")
+            out.append(self.byte_ids[byte_value])
+        return out
 
     def _native_encode(self, text: str) -> SubwordEncoding:
         assert self.native is not None
@@ -284,13 +426,13 @@ class SubwordLayer:
             raw = piece.encode("utf-8", errors="ignore")
             mapped = [BYTE_ENCODER[b] for b in raw]
             for token in _bpe_merge(mapped, self.ranks):
-                token_id = self._token_id(token)
-                raw_token = self.token_bytes[token_id]
-                ids.append(token_id)
-                tokens.append(token)
-                token_bytes.append(raw_token)
-                spans.append((byte_cursor, byte_cursor + len(raw_token)))
-                byte_cursor += len(raw_token)
+                for token_id in self._token_ids(token):
+                    raw_token = self.token_bytes[token_id]
+                    ids.append(token_id)
+                    tokens.append(self.id_to_token.get(token_id, token))
+                    token_bytes.append(raw_token)
+                    spans.append((byte_cursor, byte_cursor + len(raw_token)))
+                    byte_cursor += len(raw_token)
         return SubwordEncoding(
             text=text,
             ids=ids,
@@ -302,7 +444,13 @@ class SubwordLayer:
 
     def encode(self, text: str) -> SubwordEncoding:
         if self.native is not None:
-            return self._native_encode(text)
+            try:
+                return self._native_encode(text)
+            except Exception:
+                # Missing byte tokens (e.g. ``{``) can make the external
+                # tokenizer reject a string; the complete pure backend keeps
+                # the representation lossless.
+                return self._pure_encode(text)
         return self._pure_encode(text)
 
     def decode(self, ids: Iterable[int]) -> str:
@@ -314,7 +462,9 @@ class SubwordLayer:
         return {
             "path": str(self.path),
             "sha256": digest,
+            "base_vocab_size": self.base_vocab_size,
             "vocab_size": self.vocab_size,
+            "extra_byte_fallbacks": self.extra_byte_count,
             "backend": "native" if self.native is not None else "pure",
             "special_tokens": self.special_tokens,
         }
@@ -556,6 +706,7 @@ class LayerEncoding:
     token_ids: list[int]
     word_units: list[WordUnit]
     sentence_spans: list[tuple[int, int]]
+    math_spans: list[MathSpan] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self, include_bits: bool = False) -> dict[str, Any]:
@@ -570,6 +721,7 @@ class LayerEncoding:
             "token_ids": self.token_ids,
             "words": [unit.as_dict() for unit in self.word_units],
             "sentences": [[s, e] for s, e in self.sentence_spans],
+            "math": [span.as_dict() for span in self.math_spans],
             "metadata": self.metadata,
         }
 
@@ -595,6 +747,7 @@ class LayeredTokenizer:
         self.sentence = SentenceLayer(
             max_chars=sentence_max_chars, min_chars=sentence_min_chars
         )
+        self.math = MathLayer()
         default_specials = self.subword.special_tokens
         self.specials = list(default_specials if specials is None else specials)
         for token in self.specials:
@@ -646,6 +799,7 @@ class LayeredTokenizer:
             token_ids=token_ids,
             word_units=words,
             sentence_spans=sentence_spans,
+            math_spans=self.math.spans(text),
             metadata={
                 "add_document_frame": add_document_frame,
                 "token_offset": token_offset,
@@ -685,6 +839,11 @@ class LayeredTokenizer:
                     "max_chars": self.sentence.max_chars,
                     "min_chars": self.sentence.min_chars,
                     "boundary_regex": self.sentence._BOUNDARY.pattern,
+                },
+                "math": {
+                    "spans": "display|inline|command|number|operator",
+                    "lossless": True,
+                    "canonicalize": "optional data preparation only",
                 },
             },
         }

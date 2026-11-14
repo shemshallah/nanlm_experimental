@@ -120,6 +120,38 @@ class V3IntegrationTest(unittest.TestCase):
         self.assertIsNotNone(compact.tok_up.weight.grad)
         self.assertTrue(torch.isfinite(compact.tok_up.weight.grad).all())
 
+    def test_hierarchical_router_feedback_through_blocks(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=32, max_ctx=32, d_model=32,
+            n_layers=4, n_heads=4, swiglu=64, window=16,
+            global_every=2, moe_layers=2, n_experts=8, topk=2,
+            shared_experts=1, expert_hidden=64, mtp=1,
+            moe_hierarchical=True, moe_branches=4,
+            moe_context_router=True, moe_route_feedback=True,
+            dropout=0.0, use_memory=False,
+        )
+        model = V3LM(cfg)
+        moe = model.blocks[-1].mlp.inner
+        self.assertEqual(moe.branches, 4)
+        self.assertEqual(moe.experts_per_branch, 2)
+        tokens = torch.randint(0, 64, (2, 32))
+        logits, _mtp, _aux = model(tokens)
+        self.assertTrue(torch.isfinite(logits).all())
+
+        x = model.embed(tokens)
+        ctx = model.route_init.unsqueeze(0).expand(x.shape[0], -1)
+        _x, _lb, _z, next_ctx, _aux = model.blocks[0](x, ctx)
+        self.assertGreater(float(next_ctx.abs().sum()), 0.0)
+        self.assertTrue(torch.isfinite(next_ctx).all())
+
+        # The router context must reach the last MoE block and the MTP path
+        # must be able to condition on it.
+        self.assertTrue(model.blocks[-1].route_feedback)
+        self.assertEqual(
+            model.blocks[-1].mlp.inner.expert_context.weight.shape[1],
+            cfg.d_model,
+        )
+
     def test_sparse_moe_uses_vectorized_inner(self):
         cfg = V3Config(
             vocab_size=64, ctx=32, max_ctx=32, d_model=32,

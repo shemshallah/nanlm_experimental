@@ -156,6 +156,44 @@ class TestVectorizedSparseMoE(unittest.TestCase):
         self.assertGreaterEqual(aux["load_balance"].item(), 0.0)
         self.assertGreaterEqual(aux["router_z"].item(), 0.0)
 
+    def test_hierarchical_context_routing(self):
+        model = self._model(
+            n_experts=8, topk=2, hierarchical=True, branches=4,
+            context_router=True,
+        )
+        x = torch.randn(self.B, self.T, self.D, requires_grad=True)
+        context = torch.randn(self.B, self.D, requires_grad=True)
+        out, aux = model(x, context=context)
+        self.assertEqual(out.shape, x.shape)
+        self.assertEqual(model.branches, 4)
+        self.assertEqual(model.experts_per_branch, 2)
+        for key in (
+            "load_balance", "router_z", "branch_load_balance",
+            "branch_router_z", "route_summary",
+        ):
+            self.assertIn(key, aux)
+        self.assertEqual(aux["route_summary"].shape, (self.D,))
+        self.assertTrue(torch.isfinite(out).all())
+        self.assertTrue(torch.isfinite(aux["branch_load_balance"]))
+        # The selected experts must belong to the selected branch.
+        flat = x.detach().reshape(-1, self.D)
+        ctx = context.detach()[:, None, :].expand(
+            self.B, self.T, self.D
+        ).reshape(-1, self.D)
+        _, _, _, topi, _ = model.route(flat, ctx)
+        branch = model._last_branch_idx
+        self.assertTrue(
+            torch.equal(
+                topi // model.experts_per_branch,
+                branch[:, None].expand_as(topi),
+            )
+        )
+        loss = out.sum() + aux["load_balance"] + aux["route_summary"].sum()
+        loss.backward()
+        self.assertIsNotNone(model.branch_router.weight.grad)
+        self.assertIsNotNone(model.branch_context.weight.grad)
+        self.assertIsNotNone(model.expert_context.weight.grad)
+
     def test_matches_per_expert_reference(self):
         vec, ref = self._pair()
         x = torch.randn(self.B, self.T, self.D, dtype=torch.float64)

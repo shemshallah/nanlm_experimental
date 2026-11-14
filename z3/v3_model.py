@@ -84,6 +84,13 @@ class V3Config:
     moe_group_size: int = 4
     moe_max_rows: int = 512
     moe_dense_dispatch: bool = False
+    # Context-aware domain -> branch -> expert routing.  The branch router is
+    # conditioned on an attention/routing summary that is carried through all
+    # blocks and updated by every MoE block's selected branch/expert state.
+    moe_hierarchical: bool = True
+    moe_branches: int = 8
+    moe_context_router: bool = True
+    moe_route_feedback: bool = True
     force_manual_attention: bool = False
     attn_gate: bool = True
     # Frontier MTP defaults.  The branch is a real, separately parameterised
@@ -259,9 +266,9 @@ class SparseMoE(nn.Module):
         self.cfg = cfg
         self.inner = VectorizedSparseMoE.from_config(cfg)
 
-    def forward(self, x):
-        out, aux = self.inner(x)
-        return out, aux["load_balance"], aux["router_z"]
+    def forward(self, x, context=None):
+        out, aux = self.inner(x, context=context)
+        return out, aux["load_balance"], aux["router_z"], aux
 
 
 class Block(nn.Module):
@@ -276,15 +283,39 @@ class Block(nn.Module):
             else SwiGLU(cfg.d_model, cfg.swiglu, cfg.d_model, cfg.dropout)
         )
         self.drop = nn.Dropout(cfg.dropout)
+        self.route_feedback = bool(cfg.moe_route_feedback)
+        if self.route_feedback:
+            self.route_attn_proj = nn.Linear(
+                cfg.d_model, cfg.d_model, bias=False
+            )
+            self.route_moe_proj = (
+                nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+                if self.is_moe else None
+            )
+            self.route_norm = RMSNorm(cfg.d_model)
 
-    def forward(self, x):
-        x = x + self.drop(self.attn(self.n1(x)))
+    def forward(self, x, route_ctx=None):
+        attn_out = self.attn(self.n1(x))
+        x = x + self.drop(attn_out)
         h = self.n2(x)
+        lb = z = aux = None
         if self.is_moe:
-            h, lb, z = self.mlp(h)
+            h, lb, z, aux = self.mlp(h, context=route_ctx)
             x = x + self.drop(h)
-            return x, lb, z
-        return x + self.mlp(h), None, None
+        else:
+            x = x + self.mlp(h)
+        if self.route_feedback:
+            if route_ctx is None:
+                route_ctx = attn_out.new_zeros(
+                    attn_out.shape[0], attn_out.shape[-1]
+                )
+            feedback = self.route_attn_proj(attn_out.mean(dim=1))
+            if aux is not None and aux.get("route_summary") is not None:
+                feedback = feedback + self.route_moe_proj(
+                    aux["route_summary"]
+                )
+            route_ctx = self.route_norm(route_ctx + feedback)
+        return x, lb, z, route_ctx, aux
 
 
 class MTPAdapter(nn.Module):
@@ -428,6 +459,9 @@ class MTPBlock(nn.Module):
         attn_gate: bool = False,
         group_size: int = 4,
         max_rows: int = 512,
+        hierarchical: bool = False,
+        branches: int = 0,
+        context_router: bool = False,
     ):
         super().__init__()
         self.norm1 = RMSNorm(d_model)
@@ -453,12 +487,18 @@ class MTPBlock(nn.Module):
             dropout=dropout,
             group_size=group_size,
             max_rows=max_rows,
+            hierarchical=hierarchical,
+            branches=branches,
+            context_router=context_router,
         )
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, x):
-        x = x + self.drop(self.attn(self.norm1(x)))
-        y, aux = self.moe(self.norm2(x))
+    def forward(self, x, context=None):
+        attn_out = self.attn(self.norm1(x))
+        x = x + self.drop(attn_out)
+        if context is None:
+            context = attn_out.mean(dim=1)
+        y, aux = self.moe(self.norm2(x), context=context)
         x = x + self.drop(y)
         return x, aux
 
@@ -482,6 +522,7 @@ class V3LM(nn.Module):
             self.tok_up = None
         self.blocks = nn.ModuleList([Block(cfg, i) for i in range(cfg.n_layers)])
         self.norm = RMSNorm(cfg.d_model)
+        self.route_init = nn.Parameter(torch.zeros(cfg.d_model))
         # Tied main head.  MTP heads are either separate full-vocab
         # projections or, for 64k vocabularies, tied to the main token
         # geometry through project_logits().
@@ -536,6 +577,9 @@ class V3LM(nn.Module):
                     attn_gate=cfg.mtp_attention_gate,
                     group_size=cfg.moe_group_size,
                     max_rows=cfg.moe_max_rows,
+                    hierarchical=cfg.moe_hierarchical,
+                    branches=0,
+                    context_router=cfg.moe_context_router,
                 )
                 for lag in range(n_mtp)
             ]
@@ -632,6 +676,25 @@ class V3LM(nn.Module):
                         head.weight.copy_(self.tok_up.weight.T)
                     if self.mtp_output is not None:
                         self.mtp_output.copy_(self.tok.weight)
+        # The global apply() initializes every Linear, including the router
+        # context and inter-block feedback projections.  Keep those neutral
+        # at step zero so the hierarchy itself is exercised first.
+        for module in self.modules():
+            if getattr(module, "expert_context", None) is not None:
+                with torch.no_grad():
+                    module.expert_context.weight.mul_(0.01)
+            if getattr(module, "branch_context", None) is not None:
+                with torch.no_grad():
+                    module.branch_context.weight.mul_(0.01)
+        for block in self.blocks:
+            if getattr(block, "route_feedback", False):
+                with torch.no_grad():
+                    # Small non-zero feedback breaks the zero-gradient
+                    # symmetry while keeping the initial routing conditional
+                    # close to the uncontextualized router.
+                    block.route_attn_proj.weight.mul_(0.01)
+                    if block.route_moe_proj is not None:
+                        block.route_moe_proj.weight.mul_(0.01)
         for proj, block in zip(self.mtp_cond_proj, self.mtp_blocks):
             with torch.no_grad():
                 proj.weight.zero_()
@@ -705,8 +768,11 @@ class V3LM(nn.Module):
         x = self.embed(tokens)
         lbs, zs = [], []
         aux_hidden: dict[int, torch.Tensor] = {}
+        route_ctx = self.route_init.to(dtype=x.dtype).unsqueeze(0).expand(
+            x.shape[0], -1
+        )
         for layer_index, block in enumerate(self.blocks):
-            x, lb, z = block(x)
+            x, lb, z, route_ctx, block_aux = block(x, route_ctx)
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x
             if lb is not None:
@@ -813,7 +879,9 @@ class V3LM(nn.Module):
                     + self.mtp_now[idx]
                     + position_anchor
                 )
-                branch, block_aux = self.mtp_blocks[idx](cond)
+                branch, block_aux = self.mtp_blocks[idx](
+                    cond, context=route_ctx
+                )
                 if block_aux:
                     if block_aux.get("load_balance") is not None:
                         mtp_block_lb.append(block_aux["load_balance"])

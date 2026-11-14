@@ -794,6 +794,17 @@ def build_parser() -> argparse.ArgumentParser:
                        help="experts dispatched per batched einsum group")
     model.add_argument("--moe-max-rows", type=int, default=512,
                        help="token-row chunk size for MoE peak memory")
+    model.add_argument("--moe-hierarchical", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="use context-conditioned domain->branch->expert routing")
+    model.add_argument("--moe-branches", type=int, default=8,
+                       help="branch count for hierarchical MoE (0 = auto)")
+    model.add_argument("--moe-context-router", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="condition routers on attention/routing context")
+    model.add_argument("--moe-route-feedback", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="carry attention/routing context through all blocks")
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
@@ -1115,6 +1126,10 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         expert_hidden=int(args.expert_hidden),
         moe_group_size=int(args.moe_group_size),
         moe_max_rows=int(args.moe_max_rows),
+        moe_hierarchical=bool(args.moe_hierarchical),
+        moe_branches=int(args.moe_branches),
+        moe_context_router=bool(args.moe_context_router),
+        moe_route_feedback=bool(args.moe_route_feedback),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_block=bool(args.mtp_block),
@@ -1368,6 +1383,16 @@ def main(argv: list[str] | None = None) -> int:
                 and not _was_provided(raw_argv, "--mtp-tie-heads")
             ):
                 args.mtp_tie_heads = False
+            for key, arg_name in (
+                ("moe_hierarchical", "--moe-hierarchical"),
+                ("moe_context_router", "--moe-context-router"),
+                ("moe_route_feedback", "--moe-route-feedback"),
+            ):
+                if (
+                    key not in saved_model_config
+                    and not _was_provided(raw_argv, arg_name)
+                ):
+                    setattr(args, key, False)
     cfg = make_config(args, vocab_size)
     model_config = asdict(cfg)
 

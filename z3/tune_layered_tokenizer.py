@@ -273,6 +273,25 @@ def stage_token(
     return passed
 
 
+def stage_math(
+    text: str,
+    tokenizer: LayeredTokenizer,
+    min_atomic_rate: float,
+    report: dict[str, Any],
+) -> bool:
+    detail = tokenizer.math.tune(
+        text, tokenizer.subword, min_atomic_rate=min_atomic_rate
+    )
+    # A prose-only corpus legitimately has no equations.  Report that as
+    # non-applicable rather than failing the whole tokenizer.
+    passed = (not detail["gate"]["applicable"]) or bool(
+        detail["gate"]["passed"]
+    )
+    detail["gate"]["passed"] = passed
+    report["math"] = detail
+    return passed
+
+
 def stage_word(
     train_text: str,
     eval_text: str,
@@ -353,7 +372,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--eval-fraction", type=float, default=0.1)
     parser.add_argument(
         "--stage",
-        choices=("all", "bit", "byte", "subword", "token", "word", "sentence"),
+        choices=(
+            "all", "bit", "byte", "subword", "token", "math",
+            "word", "sentence",
+        ),
         default="all",
     )
     parser.add_argument(
@@ -377,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--word-vocab-sizes", default="16000,32000,64000,128000"
     )
+    parser.add_argument("--math-min-atomic-rate", type=float, default=0.0)
     parser.add_argument("--word-min-coverage", type=float, default=0.90)
     parser.add_argument(
         "--sentence-max-chars", default="256,512,1024,2048"
@@ -454,6 +477,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.stage in ("all", "token"):
         run["gates"]["token"] = stage_token(base, eval_text, run["layers"])
+    if args.stage in ("all", "math"):
+        run["gates"]["math"] = stage_math(
+            eval_text, base, args.math_min_atomic_rate, run["layers"]
+        )
 
     word_sizes = [
         int(x) for x in str(args.word_vocab_sizes).split(",") if x.strip()

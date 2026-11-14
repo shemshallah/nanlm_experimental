@@ -69,6 +69,9 @@ class VectorizedSparseMoE(nn.Module):
         group_size: int = 4,
         max_rows: int = 512,
         dense_dispatch: bool = False,
+        hierarchical: bool = False,
+        branches: int = 0,
+        context_router: bool = False,
     ):
         super().__init__()
         if d_model <= 0:
@@ -97,6 +100,50 @@ class VectorizedSparseMoE(nn.Module):
         self.group_size = int(group_size)
         self.max_rows = int(max_rows)
         self.dense_dispatch = bool(dense_dispatch)
+        self.hierarchical = bool(hierarchical)
+        self.context_router = bool(context_router)
+        self.branches = 0
+        self.experts_per_branch = 0
+        if self.hierarchical:
+            candidates = [
+                b
+                for b in range(1, self.n_experts + 1)
+                if self.n_experts % b == 0
+                and self.n_experts // b >= self.topk
+            ]
+            if not candidates:
+                raise ValueError(
+                    "hierarchical routing needs at least topk experts per branch"
+                )
+            requested = int(branches or 0)
+            if requested <= 0:
+                requested = min(8, max(1, self.n_experts // max(1, self.topk)))
+            valid = [b for b in candidates if b <= requested]
+            self.branches = max(valid) if valid else min(candidates)
+            self.experts_per_branch = self.n_experts // self.branches
+        self.branch_router = (
+            nn.Linear(self.d_model, self.branches, bias=False)
+            if self.hierarchical else None
+        )
+        # Both context projections start at zero: the hierarchy is active
+        # from step zero, but the attention/routing feedback can only grow
+        # into the router as the trunk learns to use it.
+        self.branch_context = (
+            nn.Linear(self.d_model, self.branches, bias=False)
+            if self.hierarchical and self.context_router else None
+        )
+        self.expert_context = (
+            nn.Linear(self.d_model, self.n_experts, bias=False)
+            if self.context_router else None
+        )
+        self.branch_embedding = (
+            nn.Parameter(torch.empty(self.branches, self.d_model))
+            if self.hierarchical else None
+        )
+        self.expert_embedding = (
+            nn.Parameter(torch.empty(self.n_experts, self.d_model))
+            if self.hierarchical else None
+        )
 
         self.router = nn.Linear(self.d_model, self.n_experts, bias=False)
 
@@ -142,11 +189,24 @@ class VectorizedSparseMoE(nn.Module):
             group_size=getattr(cfg, "moe_group_size", 4),
             max_rows=getattr(cfg, "moe_max_rows", 512),
             dense_dispatch=getattr(cfg, "moe_dense_dispatch", False),
+            hierarchical=getattr(cfg, "moe_hierarchical", False),
+            branches=getattr(cfg, "moe_branches", 0),
+            context_router=getattr(cfg, "moe_context_router", False),
         )
 
     @torch.no_grad()
     def reset_parameters(self) -> None:
         nn.init.xavier_uniform_(self.router.weight)
+        if self.branch_router is not None:
+            nn.init.xavier_uniform_(self.branch_router.weight)
+        if self.branch_context is not None:
+            self.branch_context.weight.zero_()
+        if self.expert_context is not None:
+            self.expert_context.weight.zero_()
+        if self.branch_embedding is not None:
+            nn.init.normal_(self.branch_embedding, std=0.02)
+        if self.expert_embedding is not None:
+            nn.init.normal_(self.expert_embedding, std=0.02)
         # Xavier per expert slice, matching SwiGLU's Linear initialization.
         for e in range(self.n_experts):
             nn.init.xavier_uniform_(self.gate_w[e])
@@ -158,18 +218,19 @@ class VectorizedSparseMoE(nn.Module):
                 nn.init.xavier_uniform_(self.shared_up_w[s])
                 nn.init.xavier_uniform_(self.shared_down_w[s])
 
-    def route(self, flat: torch.Tensor):
-        """Route flattened tokens.
+    def route(self, flat: torch.Tensor, context: torch.Tensor | None = None):
+        """Route flattened tokens, optionally with a context/branch hierarchy.
 
         Args:
             flat: (M, D) tokens.
+            context: optional (M, D) attention/routing feedback summary.
 
         Returns:
-            logits: (M, E) router logits.
-            probs: (M, E) full softmax router distribution.
-            topv: (M, K) selected logits.
-            topi: (M, K) selected expert indices.
-            weights: (M, K) softmax over selected logits (sums to 1).
+            logits: (M, E) expert router logits (context-conditioned).
+            probs: (M, E) full expert distribution.
+            topv: (M, K) selected branch-adjusted logits.
+            topi: (M, K) selected global expert indices.
+            weights: (M, K) softmax over selected logits.
         """
         # The module call keeps forward hooks (used by eval_v3's router
         # utilization tracker) working.  The explicit F.linear branch is only
@@ -178,9 +239,45 @@ class VectorizedSparseMoE(nn.Module):
             logits = self.router(flat)
         else:
             logits = F.linear(flat, self.router.weight.to(dtype=flat.dtype))
+        if self.expert_context is not None and context is not None:
+            context = context.to(dtype=flat.dtype)
+            if context.ndim == 3:
+                context = context.reshape(-1, context.shape[-1])
+            if context.shape[0] != flat.shape[0]:
+                raise ValueError(
+                    "router context must be expanded to (tokens, d_model)"
+                )
+            logits = logits + self.expert_context(context)
         probs = F.softmax(logits, dim=-1)
-        topv, topi = torch.topk(logits, k=self.topk, dim=-1)
+
+        if not self.hierarchical:
+            topv, topi = torch.topk(logits, k=self.topk, dim=-1)
+            weights = F.softmax(topv, dim=-1)
+            self._last_branch_idx = None
+            self._last_branch_logits = None
+            self._last_branch_probs = None
+            return logits, probs, topv, topi, weights
+
+        assert self.branch_router is not None
+        branch_logits = self.branch_router(flat)
+        if self.branch_context is not None and context is not None:
+            branch_logits = branch_logits + self.branch_context(context)
+        m = flat.shape[0]
+        pair_logits = logits.reshape(
+            m, self.branches, self.experts_per_branch
+        )
+        branch_idx = branch_logits.argmax(dim=-1)
+        rows = torch.arange(m, device=flat.device)
+        selected_pairs = pair_logits[rows, branch_idx]
+        selected_scores = selected_pairs + branch_logits[
+            rows, branch_idx
+        ].unsqueeze(-1)
+        topv, local_idx = selected_scores.topk(self.topk, dim=-1)
+        topi = branch_idx.unsqueeze(-1) * self.experts_per_branch + local_idx
         weights = F.softmax(topv, dim=-1)
+        self._last_branch_idx = branch_idx
+        self._last_branch_logits = branch_logits
+        self._last_branch_probs = F.softmax(branch_logits, dim=-1)
         return logits, probs, topv, topi, weights
 
     def _chunked_group_dispatch(self, flat, topi, weights):
@@ -255,15 +352,20 @@ class VectorizedSparseMoE(nn.Module):
             out = out + (y_sel * (weights * selected).unsqueeze(-1)).sum(dim=1)
         return out
 
-    def forward(self, x: torch.Tensor):
-        """Forward pass.
+    def forward(
+        self, x: torch.Tensor, context: torch.Tensor | None = None
+    ):
+        """Forward pass with optional attention/routing context.
 
         Args:
             x: (B, T, D) token states.
+            context: optional (B, D) or (B, T, D) route context.  When present
+                it conditions both the branch and expert routers.
 
         Returns:
             out: (B, T, D) MoE output.
-            aux: dict with scalar ``load_balance`` and ``router_z`` terms.
+            aux: scalar balance/z terms plus the route summary consumed by
+                the next block's context feedback.
         """
         if x.ndim != 3:
             raise ValueError(f"x must be (B, T, D), got shape {tuple(x.shape)}")
@@ -273,7 +375,15 @@ class VectorizedSparseMoE(nn.Module):
 
         flat = x.reshape(-1, d)
         m = flat.shape[0]
-        logits, probs, _, topi, weights = self.route(flat)
+        route_context = None
+        if context is not None:
+            route_context = context.to(dtype=x.dtype)
+            if route_context.ndim == 2:
+                route_context = route_context[:, None, :].expand(b, t, d)
+            route_context = route_context.reshape(-1, d)
+            if route_context.shape[0] != m:
+                raise ValueError("route context does not match token shape")
+        logits, probs, _, topi, weights = self.route(flat, route_context)
 
         # Grouped dispatch.  A group of experts is applied to every token
         # routed to that group; no (tokens, d_model, expert_hidden) gather is
@@ -307,17 +417,38 @@ class VectorizedSparseMoE(nn.Module):
                     dtype=out.dtype
                 )
 
-        # Switch-style load balance and router z-loss.
+        # Switch-style load balance and router z-loss.  Hierarchical routers
+        # get an additional branch balance term; otherwise the branch router
+        # collapses to whichever branch happens to fit the first batches.
         mask = torch.zeros_like(logits).scatter_(1, topi, 1.0)
         f = mask.mean(dim=0)
         p = probs.mean(dim=0)
-        load_balance = self.n_experts * (f * p).sum()
+        expert_load_balance = self.n_experts * (f * p).sum()
         router_z = torch.logsumexp(logits, dim=-1).pow(2).mean()
-
-        return out.view(b, t, d), {
-            "load_balance": load_balance,
+        aux = {
+            "load_balance": expert_load_balance,
             "router_z": router_z,
         }
+        if self.hierarchical and self._last_branch_idx is not None:
+            branch_idx = self._last_branch_idx
+            branch_counts = F.one_hot(
+                branch_idx, num_classes=self.branches
+            ).to(dtype=logits.dtype).mean(dim=0)
+            branch_p = self._last_branch_probs.mean(dim=0)
+            branch_lb = self.branches * (branch_counts * branch_p).sum()
+            aux["branch_load_balance"] = branch_lb
+            aux["branch_router_z"] = torch.logsumexp(
+                self._last_branch_logits, dim=-1
+            ).pow(2).mean()
+            aux["load_balance"] = expert_load_balance + branch_lb
+            aux["router_z"] = router_z + aux["branch_router_z"]
+            assert self.branch_embedding is not None
+            assert self.expert_embedding is not None
+            aux["route_summary"] = (
+                self.branch_embedding[branch_idx].mean(dim=0)
+                + self.expert_embedding[topi].mean(dim=(0, 1))
+            )
+        return out.view(b, t, d), aux
 
     def extra_repr(self) -> str:
         return (

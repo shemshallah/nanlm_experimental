@@ -64,6 +64,12 @@ class LayeredTokenizerTests(unittest.TestCase):
             self.tokenizer.subword.decode(encoded.subword.ids), TEXT
         )
         self.assertEqual(encoded.subword.n_bytes, len(TEXT.encode("utf-8")))
+        self.assertEqual(set(self.tokenizer.subword.byte_ids), set(range(256)))
+        for byte_value, token_id in self.tokenizer.subword.byte_ids.items():
+            self.assertEqual(
+                self.tokenizer.subword.token_bytes[token_id],
+                bytes([byte_value]),
+            )
         self.assertEqual(len(encoded.bits), len(encoded.bytes) * 8)
         cursor = 0
         for start, end in encoded.subword.spans:
@@ -75,6 +81,24 @@ class LayeredTokenizerTests(unittest.TestCase):
         self.assertEqual(encoded.token_ids[0], self.tokenizer.doc_id)
         self.assertEqual(encoded.token_ids[-1], self.tokenizer.eos_id)
         self.assertEqual(self.tokenizer.decode_token_ids(encoded.token_ids), TEXT)
+
+    def test_math_spans_and_canonicalization(self):
+        text = r"Einstein wrote $E=mc^2$ and \frac{1}{2} = 0.5 in 1905."
+        encoded = self.tokenizer.encode(text)
+        kinds = {span.kind for span in encoded.math_spans}
+        self.assertIn("inline", kinds)
+        self.assertIn("command", kinds)
+        self.assertIn("number", kinds)
+        self.assertIn("operator", kinds)
+        self.assertTrue(all(span.end > span.start for span in encoded.math_spans))
+        detail = self.tokenizer.math.tune(text, self.tokenizer.subword)
+        self.assertTrue(detail["gate"]["applicable"])
+        self.assertGreater(detail["spans"], 0)
+        self.assertGreaterEqual(detail["atomic_number_operator_command_rate"], 0.0)
+        canonical = self.tokenizer.math.canonicalize("1 × 2 ≤ 3 − 1")
+        self.assertIn("*", canonical)
+        self.assertIn("<=", canonical)
+        self.assertIn("-", canonical)
 
     def test_words_and_sentences_tile_the_input(self):
         encoded = self.tokenizer.encode(TEXT)
@@ -128,7 +152,7 @@ class LayeredTokenizerTests(unittest.TestCase):
         path = ROOT / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
         self.assertTrue(path.is_file())
         tokenizer = load_artifact(path, prefer_native=False)
-        self.assertEqual(tokenizer.vocab_size, 64000)
+        self.assertEqual(tokenizer.vocab_size, 64060)
         self.assertEqual(tokenizer.word.vocab_size, 16000)
         self.assertEqual(tokenizer.sentence.max_chars, 512)
         encoded = tokenizer.encode(TEXT)
@@ -149,7 +173,7 @@ class LayeredTokenizerTests(unittest.TestCase):
             path = Path(tmp) / "layered.json"
             write_artifact(tokenizer, path)
             raw = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["layers"]["subword"]["vocab_size"], 64000)
+            self.assertEqual(raw["layers"]["subword"]["vocab_size"], 64060)
             loaded = load_artifact(path)
             self.assertEqual(loaded.word.vocab, tokenizer.word.vocab)
             self.assertEqual(loaded.sentence.max_chars, 64)

@@ -147,6 +147,11 @@ def parse_config(raw: Any) -> V3Config:
         for key, value in mapping.items()
         if key in CONFIG_FIELD_NAMES and value is not None
     }
+    if not kwargs:
+        raise ValueError(
+            "no V3Config fields found in model config "
+            f"(expected some of: {', '.join(sorted(CONFIG_FIELD_NAMES))})"
+        )
     # JSON has no tuples.  Normalize tuple-typed fields so a config loaded
     # from a checkpoint round-trips equal to the in-memory V3Config.
     for key in ("mtp_aux_layers", "mtp_aux_layer_weights"):
@@ -159,11 +164,9 @@ def parse_config(raw: Any) -> V3Config:
         kwargs["factorized_embedding"] = False
     if "mtp_tie_heads" not in kwargs:
         kwargs["mtp_tie_heads"] = False
-    if not kwargs:
-        raise ValueError(
-            "no V3Config fields found in model config "
-            f"(expected some of: {', '.join(sorted(CONFIG_FIELD_NAMES))})"
-        )
+    for key in ("moe_hierarchical", "moe_context_router", "moe_route_feedback"):
+        if key not in kwargs:
+            kwargs[key] = False
     try:
         cfg = V3Config(**kwargs)
     except TypeError as exc:  # pragma: no cover - defensive

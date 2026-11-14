@@ -278,7 +278,7 @@ class EvalV3Tests(unittest.TestCase):
         tokenizer = eval_v3.load_tokenizer("layered", layered_model=path)
         ids = tokenizer.encode("Hello layered tokenizer! Second sentence.")
         self.assertGreater(len(ids), 0)
-        self.assertEqual(tokenizer.vocab_size, 64000)
+        self.assertEqual(tokenizer.vocab_size, 64060)
         self.assertTrue(all(0 <= int(i) < tokenizer.vocab_size for i in ids))
 
     @unittest.skipUnless(BPE_PATH.is_file(), "z1 BPE tokenizer JSON not present")
