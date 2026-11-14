@@ -57,6 +57,7 @@ class Config:
     future2_weight: float = 0.10
     future3_weight: float = 0.05
     future_mode: str = 'offset'
+    future_adapter_rank: int = 0  # optional auxiliary-only autoregressive expectation rollout
     future_block_index: int = -1  # fixed transition anchor when growing model depth
     norm_divisor: int = 0  # old width when growing; preserves RMSNorm exactly
     dispatch_mode: str = 'grouped'  # prototype loop or chunked batched gather
@@ -91,7 +92,9 @@ class Config:
         assert 1 <= self.topk_pairs <= self.pairs
         assert self.moe_every >= 1 and self.layers >= 1
         assert self.context >= 4
-        assert self.future_mode in ('offset', 'rollout')
+        assert self.future_mode in ('offset', 'rollout', 'isolated')
+        assert self.future_adapter_rank == 0 or 8 <= self.future_adapter_rank <= self.dim
+        assert self.future_mode != 'isolated' or self.future_adapter_rank > 0
         assert self.future_block_index == -1 or 0 <= self.future_block_index < self.layers
         assert self.norm_divisor == 0 or 0 < self.norm_divisor <= self.dim
         assert self.dispatch_mode in ('grouped', 'gather') and self.gather_chunk > 0
@@ -879,6 +882,35 @@ class Block(nn.Module):
         return x + self.ff(self.n2(x)), x.new_zeros(())
 
 
+class IsolatedFutureAdapter(nn.Module):
+    """Two causal expected-byte transitions with no gradient into the NOW LM.
+
+    This is a learned approximation to marginalizing over unknown next bytes,
+    not teacher forcing. The shared byte embedding/readout is detached so that
+    future objectives cannot modify the current prediction distribution.
+    """
+    def __init__(self, dim, rank):
+        super().__init__()
+        self.norm = RMSNorm(dim)
+        self.down = nn.Linear(2 * dim, rank)
+        self.up = nn.Linear(rank, dim, bias=False)
+        self.step_offsets = nn.Parameter(torch.zeros(2, dim))
+
+    def forward(self, hidden, vocabulary):
+        state = hidden.detach()
+        vocabulary = vocabulary.detach()
+        outputs = []
+        for step in range(2):
+            # The unknown next byte is integrated over the entire 257-class
+            # predictive distribution: no ground-truth future bytes are read.
+            next_logits = F.linear(state, vocabulary)
+            expected_byte = next_logits.float().softmax(-1).to(vocabulary.dtype) @ vocabulary
+            features = torch.cat((self.norm(state), expected_byte), dim=-1)
+            state = state + self.up(F.silu(self.down(features))) + self.step_offsets[step]
+            outputs.append(F.linear(state, vocabulary))
+        return tuple(outputs)
+
+
 class MirrorLM(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -892,7 +924,12 @@ class MirrorLM(nn.Module):
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         # SAME causal rail/head for future +2 / +3, without observing future tokens.
         self.future_offsets = nn.Parameter(torch.zeros(2, cfg.dim))
+        self.future_adapter = (IsolatedFutureAdapter(cfg.dim, cfg.future_adapter_rank)
+                               if cfg.future_adapter_rank else None)
         self.apply(self._init)
+        if self.future_adapter is not None:
+            # The candidate's new head starts as a NOW-identical residual.
+            nn.init.zeros_(self.future_adapter.up.weight)
         # Exact old-logit preservation when opting into geometry on a checkpoint.
         for block in self.blocks:
             if block.use_moe and block.ff.symbiotic is not None:
@@ -959,6 +996,8 @@ class MirrorLM(nn.Module):
         """
         if disable_temporal:
             return self.head(h), self.head(h)
+        if self.cfg.future_mode == 'isolated':
+            return self.future_adapter(h, self.embed.weight)
         if self.cfg.future_mode == 'offset':
             return (self.head(h + self.future_offsets[0]),
                     self.head(h + self.future_offsets[1]))
@@ -1270,7 +1309,7 @@ def save_checkpoint(path, model, optimizer, step, seen_tokens, meta, rng, cfg,
 
 
 def load_v25_compatible(model, state):
-    """Allow only the v26 pair_bias buffer absent in prior v25 checkpoints."""
+    """Load legacy checkpoints; new future-adapter weights require migration."""
     missing, unexpected = model.load_state_dict(state, strict=False)
     if unexpected or any(not x.endswith('.pair_bias') for x in missing):
         raise ValueError(f'Unsupported checkpoint schema: missing={missing}, unexpected={unexpected}')
@@ -1377,7 +1416,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.micro_meta == previous_cfg.micro_meta
             and model.cfg.simplex_transfer == previous_cfg.simplex_transfer
             and model.cfg.triangle_curvature == previous_cfg.triangle_curvature
-            and model.cfg.holonomy_retrieval == previous_cfg.holonomy_retrieval):
+            and model.cfg.holonomy_retrieval == previous_cfg.holonomy_retrieval
+            and model.cfg.future_adapter_rank == previous_cfg.future_adapter_rank):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
         raise ValueError('Cannot reshape an already trained Diamond')
@@ -1394,6 +1434,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Cannot discard trained triangle curvature memory')
     if previous_cfg.holonomy_retrieval and not model.cfg.holonomy_retrieval:
         raise ValueError('Cannot discard trained holonomy retrieval memory')
+    if previous_cfg.future_adapter_rank != model.cfg.future_adapter_rank and previous_cfg.future_adapter_rank:
+        raise ValueError('Cannot resize or discard a trained future adapter')
     if model.cfg.moe_every != previous_cfg.moe_every:
         raise ValueError('Cannot change MoE placement during expansion')
     if model.cfg.expert_hidden < previous_cfg.expert_hidden:
@@ -1434,7 +1476,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         new_state = model.state_dict()
         for name, target in new_state.items():
             if name not in saved['model']:
-                if name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
+                if (name.startswith('future_adapter.') and not previous_cfg.future_adapter_rank
+                    ) or name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
                     not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
                     not previous_cfg.micro_meta and '.ff.symbiotic.' in name and any(
@@ -1543,6 +1586,7 @@ def configure(args, vocab_size):
                   simplex_transfer=getattr(args,'simplex_transfer',False),
                   triangle_curvature=getattr(args,'triangle_curvature',False),
                   holonomy_retrieval=getattr(args,'holonomy_retrieval',False),
+                  future_adapter_rank=getattr(args, 'future_adapter_rank', None) or 0,
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
 
@@ -1603,6 +1647,7 @@ def train(args):
             raise ValueError('Adopted corpora must have independently split whole books')
     if saved:
         cfg = Config(**saved['config'])
+        old_cfg = copy.deepcopy(cfg)
         if args.future_mode is not None and args.future_mode != cfg.future_mode:
             print(f'SWITCHED temporal objective: {cfg.future_mode} -> {args.future_mode}; same model and optimizer weights')
             cfg.future_mode = args.future_mode
@@ -1610,11 +1655,24 @@ def train(args):
             cfg.future2_weight = args.future2
         if args.future3 is not None:
             cfg.future3_weight = args.future3
+        requested_future_rank = getattr(args, 'future_adapter_rank', None)
+        if requested_future_rank is not None and requested_future_rank != cfg.future_adapter_rank:
+            if cfg.future_adapter_rank or requested_future_rank == 0:
+                raise ValueError('A learned future adapter cannot be reset or resized')
+            cfg.future_adapter_rank = requested_future_rank
     else:
         cfg = configure(args, meta['vocab_size'])
         torch.manual_seed(args.seed)
         random.seed(args.seed)
-    old_cfg = copy.deepcopy(cfg)
+        old_cfg = copy.deepcopy(cfg)
+    enable_future_adapter = bool(saved and cfg.future_adapter_rank != old_cfg.future_adapter_rank)
+    if getattr(args, 'future_only', False) and (
+            not saved or cfg.future_mode != 'isolated' or not cfg.future_adapter_rank):
+        raise ValueError('--future-only requires an existing checkpoint and isolated future adapter')
+    if getattr(args, 'future_only', False) and (
+            min(cfg.future2_weight, cfg.future3_weight) < 0 or
+            cfg.future2_weight + cfg.future3_weight <= 0):
+        raise ValueError('--future-only requires nonnegative horizon weights with a positive sum')
     enable_symbiotic = bool(saved and args.symbiotic_rank is not None and args.symbiotic_rank != cfg.symbiotic_rank)
     if enable_symbiotic:
         if cfg.symbiotic_rank or args.symbiotic_rank == 0:
@@ -1649,6 +1707,10 @@ def train(args):
     if enable_holonomy:
         cfg.holonomy_retrieval = True
     history = list(saved.get('growth_history', [])) if saved else []
+    if enable_future_adapter:
+        history.append({'kind':'isolated_causal_future_adapter', 'step':saved['step'],
+                        'rank':cfg.future_adapter_rank, 'preserve_now_logits':True,
+                        'detach_backbone_and_shared_vocabulary':True})
     new_attention_window = getattr(args, 'attention_window', None)
     if new_attention_window is not None and new_attention_window != cfg.attention_window:
         if saved and old_cfg.attention_window:
@@ -1789,7 +1851,7 @@ def train(args):
     if saved:
         if (growing or deepen or widening or expert_growing or enable_symbiotic or
                 enable_hierarchy or enable_geometry_memory or enable_micro_meta or
-                enable_simplex or enable_curvature or enable_holonomy):
+                enable_simplex or enable_curvature or enable_holonomy or enable_future_adapter):
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -1862,6 +1924,12 @@ def train(args):
         print(json.dumps(report))
         save_checkpoint(path, model, optim, start, seen, meta, rng, cfg, growth, history)
         return
+    if getattr(args, 'future_only', False):
+        for param in model.parameters():
+            param.requires_grad_(False)
+        for param in model.future_adapter.parameters():
+            param.requires_grad_(True)
+        print('ISOLATED future-only training: NOW backbone, tied vocabulary and their Adam moments frozen')
     model.train()
     for step in range(start + 1, start + args.steps + 1):
         update_growth_bias(model, growth, step)
@@ -1875,7 +1943,13 @@ def train(args):
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
                                 enabled=bool(args.bf16 and device.type == 'cuda')):
                 losses = model.loss_with_future(batch)
-                micro_loss = losses['loss'] / args.grad_accum
+                if getattr(args, 'future_only', False):
+                    micro_loss = sum((cfg.future2_weight * losses['future2_ce']
+                                      if cfg.future2_weight else 0.,
+                                      cfg.future3_weight * losses['future3_ce']
+                                      if cfg.future3_weight else 0.)) / args.grad_accum
+                else:
+                    micro_loss = losses['loss'] / args.grad_accum
             micro_loss.backward()
             train_ce_sum += losses['next_ce'].detach().item()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -2110,6 +2184,8 @@ def count_parameters_exact(cfg):
     cfg.check()
     d, p, f = cfg.dim, cfg.pairs, cfg.expert_hidden
     total = cfg.vocab_size * d + 3*d  # embedding, final norm, two future offsets
+    if cfg.future_adapter_rank:
+        total += 3*d*cfg.future_adapter_rank + cfg.future_adapter_rank + 3*d
     for i in range(cfg.layers):
         if (i + 1) % cfg.moe_every == 0:
             total += 5*d*d + 4*p*d*f + 3*p*d + p + 3*d
@@ -2239,6 +2315,12 @@ def grow_checkpoint(args):
         cfg.triangle_curvature = True
     if getattr(args, 'holonomy_retrieval', False):
         cfg.holonomy_retrieval = True
+    if getattr(args, 'future_adapter_rank', None) is not None:
+        if original.future_adapter_rank and args.future_adapter_rank != original.future_adapter_rank:
+            raise ValueError('Cannot resize a trained future adapter')
+        cfg.future_adapter_rank = args.future_adapter_rank
+    if getattr(args, 'future_mode', None) is not None:
+        cfg.future_mode = args.future_mode
     if args.dispatch_mode is not None:
         cfg.dispatch_mode = args.dispatch_mode
     if args.gather_chunk is not None:
@@ -2262,10 +2344,12 @@ def grow_checkpoint(args):
                     cfg.micro_meta != original.micro_meta,
                     cfg.simplex_transfer != original.simplex_transfer,
                     cfg.triangle_curvature != original.triangle_curvature,
-                    cfg.holonomy_retrieval != original.holonomy_retrieval))
+                    cfg.holonomy_retrieval != original.holonomy_retrieval,
+                    cfg.future_adapter_rank != original.future_adapter_rank))
     changed = (expanded or cfg.context != original.context or
                cfg.dispatch_mode != original.dispatch_mode or
-               cfg.attention_window != original.attention_window)
+               cfg.attention_window != original.attention_window or
+               cfg.future_mode != original.future_mode)
     if not changed:
         raise ValueError('No capacity/context/dispatch change requested')
     if expanded and saved.get('growth'):
@@ -2295,7 +2379,12 @@ def grow_checkpoint(args):
         new_future = new_model.future_logits(new_h)
     differences = [float((a-b).abs().max()) for a,b in
                    [(old_logits,new_logits), *zip(old_future,new_future)]]
-    if any(not math.isfinite(d) or d > args.max_logit_drift for d in differences):
+    # A newly attached forecast head intentionally changes only +2/+3.
+    # The previously accepted +1 distribution must remain exactly intact.
+    forecast_replaced = cfg.future_adapter_rank != original.future_adapter_rank or (
+        cfg.future_mode != original.future_mode)
+    guarded_differences = differences[:1] if forecast_replaced else differences
+    if any(not math.isfinite(d) or d > args.max_logit_drift for d in guarded_differences):
         raise AssertionError(f'Capacity growth changed learned logits: max abs drifts={differences}')
     # Require moment preservation for every previously learned coordinate;
     # optimizer state step, epoch and RNG histories survive untouched.
@@ -2366,6 +2455,9 @@ def grow_checkpoint(args):
               'simplex_transfer':cfg.simplex_transfer,
               'triangle_curvature':cfg.triangle_curvature,
               'holonomy_retrieval':cfg.holonomy_retrieval,
+              'future_adapter_rank':cfg.future_adapter_rank,
+              'future_mode':cfg.future_mode,
+              'future_head_reinitialized':forecast_replaced,
               'new_attention_heads':cfg.heads,
               'legacy_attention_heads':cfg.legacy_attention_heads,
               'max_abs_logit_drift_h1_h2_h3':differences,
@@ -2414,6 +2506,9 @@ def main():
                     help='hyperbolic triangle angle/rotation memory with causal phase-aligned reads')
     gr.add_argument('--holonomy-retrieval', action='store_true',
                     help='four-harmonic causal phase-keyed memory; requires triangle curvature')
+    gr.add_argument('--future-adapter-rank',type=int,
+                    help='attach a separately trainable expected-byte causal forecast adapter')
+    gr.add_argument('--future-mode',choices=('offset','rollout','isolated'),default=None)
     gr.add_argument('--dispatch-mode',choices=('grouped','gather'))
     gr.add_argument('--gather-chunk',type=int)
     gr.add_argument('--widen-noise',type=float,default=1e-4)
@@ -2464,8 +2559,12 @@ def main():
     tr.add_argument('--balance', type=float, default=0.01)
     tr.add_argument('--future2', type=float, default=None, help='aux loss weight, optional override on resume')
     tr.add_argument('--future3', type=float, default=None, help='aux loss weight, optional override on resume')
-    tr.add_argument('--future-mode', choices=('offset', 'rollout'), default=None,
-                    help='shared-state rollout or legacy offsets; existing weights are preserved on switch')
+    tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
+                    help='isolated forecast adapter, shared-state rollout or legacy offsets')
+    tr.add_argument('--future-adapter-rank', type=int, default=None,
+                    help='opt-in causal expectation adapter; preserves existing NOW weights on migration')
+    tr.add_argument('--future-only', action='store_true',
+                    help='freeze NOW backbone/embedding and train only isolated future adapter')
     tr.add_argument('--lr', type=float, default=None, help='initial or explicitly overridden optimizer LR')
     tr.add_argument('--grow-pairs', type=int, default=None, help='increase pair capacity within the same checkpoint')
     tr.add_argument('--set-context', type=int, default=None, help='expand causal context with the same learned weights')
