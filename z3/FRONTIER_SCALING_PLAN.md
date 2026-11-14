@@ -17,6 +17,10 @@ The old 6h byte checkpoint was **115M**. The 149M/310M presets are not
 regressions; they add per-lag MTP, hierarchical context routers, HD codebooks,
 associative-memory experts, and HD time rails.
 
+Measured on Kaggle 1×T4: the **312,069,396-parameter** max preset completed a
+5-step probe at batch 1 / ctx 512 in **17.9 s** without OOM. A 400M ladder probe
+is the next memory point.
+
 ### Memory rule of thumb
 
 AdamW mixed precision needs roughly **16 bytes/parameter**:

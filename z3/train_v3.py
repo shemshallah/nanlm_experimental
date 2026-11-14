@@ -828,6 +828,7 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--comb-dim", type=int, default=128)
     model.add_argument("--comb-top-vertices", type=int, default=16)
     model.add_argument("--comb-top-pairs", type=int, default=8)
+    model.add_argument("--comb-top-triples", type=int, default=8)
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
@@ -1107,6 +1108,8 @@ def validate_args(args: argparse.Namespace) -> None:
             raise SystemExit("--comb-top-vertices must be in [2, comb-vertices]")
         if args.comb_top_pairs < 1:
             raise SystemExit("--comb-top-pairs must be positive")
+        if args.comb_top_triples < 0:
+            raise SystemExit("--comb-top-triples must be non-negative")
     if args.mtp < 1:
         raise SystemExit("--mtp must be at least 1")
     if args.mtp_adapter_rank < 0:
@@ -1192,6 +1195,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         comb_dim=int(args.comb_dim),
         comb_top_vertices=int(args.comb_top_vertices),
         comb_top_pairs=int(args.comb_top_pairs),
+        comb_top_triples=int(args.comb_top_triples),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_block=bool(args.mtp_block),

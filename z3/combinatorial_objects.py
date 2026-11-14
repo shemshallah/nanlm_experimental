@@ -114,6 +114,7 @@ class CombinatorialMemory(nn.Module):
         *,
         top_vertices: int = 16,
         top_pairs: int = 8,
+        top_triples: int = 8,
         seed: int = 20261113,
     ) -> None:
         super().__init__()
@@ -121,12 +122,13 @@ class CombinatorialMemory(nn.Module):
             raise ValueError("vertices/top_vertices must be >= 2")
         if top_vertices > vertices:
             raise ValueError("top_vertices cannot exceed vertices")
-        if top_pairs < 1:
+        if top_pairs < 1 or top_triples < 0:
             raise ValueError("top_pairs must be positive")
         self.d_model = int(d_model)
         self.dim = int(dim)
         self.top_vertices = int(top_vertices)
         self.top_pairs = int(top_pairs)
+        self.top_triples = int(top_triples)
         gen = torch.Generator().manual_seed(seed)
         self.vertex_keys = nn.Parameter(
             F.normalize(torch.randn(vertices, dim, generator=gen), dim=-1)
@@ -137,6 +139,7 @@ class CombinatorialMemory(nn.Module):
         self.query_proj = nn.Linear(d_model, dim, bias=False)
         self.out_proj = nn.Linear(dim, d_model, bias=False)
         self.gate_logit = nn.Parameter(torch.tensor(-4.0))
+        self.triple_gate_logit = nn.Parameter(torch.tensor(-4.0))
 
     @property
     def vertices(self) -> int:
@@ -171,12 +174,56 @@ class CombinatorialMemory(nn.Module):
         pair_weights, pair_idx = flat_scores.topk(k, dim=-1)
         pair_weights = F.softmax(pair_weights, dim=-1)
         flat_values = pair_values.reshape(b, t, -1, self.dim)
+        flat_keys = pair_keys.reshape(b, t, -1, self.dim)
         selected = torch.gather(
             flat_values,
             2,
             pair_idx.unsqueeze(-1).expand(-1, -1, -1, self.dim),
         )
         memory = (selected * pair_weights.unsqueeze(-1)).sum(dim=2)
+
+        if self.top_triples > 0:
+            pair_keys_sel = torch.gather(
+                flat_keys,
+                2,
+                pair_idx.unsqueeze(-1).expand(-1, -1, -1, self.dim),
+            )
+            vc = self.top_vertices
+            u = torch.div(pair_idx, vc, rounding_mode="floor")
+            v = pair_idx % vc
+            # Extend each selected pair by each selected vertex, then keep
+            # only the best exact triple candidates.  This never materializes
+            # the full C(V,3) table.
+            triple_keys = F.normalize(
+                pair_keys_sel.unsqueeze(3) * keys.unsqueeze(2), dim=-1
+            )
+            triple_values = F.normalize(
+                selected.unsqueeze(3) * values.unsqueeze(2), dim=-1
+            )
+            triple_scores = torch.einsum(
+                "bth,btkwh->btkw", q, triple_keys
+            )
+            w = torch.arange(vc, device=hidden.device)
+            invalid = (w.view(1, 1, 1, vc) == u.unsqueeze(-1)) | (
+                w.view(1, 1, 1, vc) == v.unsqueeze(-1)
+            )
+            triple_scores = triple_scores.masked_fill(
+                invalid, float("-inf")
+            )
+            candidate_count = triple_scores.shape[-2] * triple_scores.shape[-1]
+            kt = min(self.top_triples, candidate_count)
+            t_weights, t_idx = triple_scores.reshape(b, t, -1).topk(
+                kt, dim=-1
+            )
+            t_weights = F.softmax(t_weights, dim=-1)
+            triple_memory = torch.gather(
+                triple_values.reshape(b, t, -1, self.dim),
+                2,
+                t_idx.unsqueeze(-1).expand(-1, -1, -1, self.dim),
+            )
+            memory = memory + torch.sigmoid(
+                self.triple_gate_logit
+            ) * (triple_memory * t_weights.unsqueeze(-1)).sum(dim=2)
         out = self.out_proj(memory)
         return torch.sigmoid(self.gate_logit) * out
 
@@ -205,6 +252,7 @@ class CombinatorialMemory(nn.Module):
             "dim": self.dim,
             "top_vertices": self.top_vertices,
             "top_pairs": self.top_pairs,
+            "top_triples": self.top_triples,
             "pairs": binomial(self.vertices, 2),
             "triples": binomial(self.vertices, 3),
         }

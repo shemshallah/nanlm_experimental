@@ -110,6 +110,7 @@ class V3Config:
     comb_dim: int = 128
     comb_top_vertices: int = 16
     comb_top_pairs: int = 8
+    comb_top_triples: int = 8
     force_manual_attention: bool = False
     attn_gate: bool = True
     # Frontier MTP defaults.  The branch is a real, separately parameterised
@@ -588,6 +589,7 @@ class V3LM(nn.Module):
                 dim=cfg.comb_dim,
                 top_vertices=cfg.comb_top_vertices,
                 top_pairs=cfg.comb_top_pairs,
+                top_triples=cfg.comb_top_triples,
             )
             if cfg.use_combinatorial_memory else None
         )
