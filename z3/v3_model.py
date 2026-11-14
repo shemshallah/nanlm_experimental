@@ -901,7 +901,8 @@ class V3LM(nn.Module):
     def forward(self, tokens, mtp_teacher: bool = False,
                 mtp_teacher_prob: float | None = None,
                 mtp_next_tokens=None,
-                mtp_gt_mix: float | None = None):
+                mtp_gt_mix: float | None = None,
+                return_diagnostics: bool = False):
         x = self.embed(tokens)
         lbs, zs = [], []
         branch_lbs: list[torch.Tensor] = []
@@ -1020,6 +1021,7 @@ class V3LM(nn.Module):
             )
             mtp = []
             gate_losses = []
+            mtp_diagnostics: list[dict[str, torch.Tensor]] = []
             for idx in range(self.n_mtp_heads):
                 head = self.mtp_heads[idx] if self.mtp_heads else None
                 cond = (
@@ -1069,6 +1071,14 @@ class V3LM(nn.Module):
                     mtp.append(
                         gate * branch_logits + (1.0 - gate) * base_logits
                     )
+                    if return_diagnostics:
+                        mtp_diagnostics.append(
+                            {
+                                "branch": branch_logits.detach(),
+                                "base": base_logits.detach(),
+                                "gate": gate.detach(),
+                            }
+                        )
                     # Supervise the gate on the actual t+2 utility of the
                     # branch, not on t+1 correctness.  A correct t+1 token
                     # does not imply that the future branch is better; the
@@ -1079,20 +1089,37 @@ class V3LM(nn.Module):
                     if target_len > 0:
                         targets = tokens[:, lag:]
                         mask = targets >= 0
-                        # Compare the target-token logit directly.  Full
-                        # vocab CE for both branch and base at 2k context
-                        # needs two extra 64k softmax temporaries and was
-                        # enough to OOM the T4.  The target-logit margin is
-                        # the same routing signal without that allocation.
-                        tgt = targets.clamp_min(0).unsqueeze(-1)
-                        branch_target = branch_logits[
-                            :, :target_len
-                        ].gather(-1, tgt).squeeze(-1)
-                        base_target = base_logits[
-                            :, :target_len
-                        ].gather(-1, tgt).squeeze(-1)
-                        advantage = (branch_target - base_target).detach()
-                        target_prob = torch.sigmoid(advantage / 0.1)
+                        # Exact branch-vs-fallback CE advantage, chunked so
+                        # 2k contexts do not create two more full-vocab
+                        # softmax tensors.  The target is detached: it
+                        # supervises the gate only.
+                        advantage = torch.empty(
+                            tokens.size(0),
+                            target_len,
+                            device=tokens.device,
+                            dtype=pred_probs.dtype,
+                        )
+                        with torch.no_grad():
+                            for start in range(0, target_len, 64):
+                                end = min(target_len, start + 64)
+                                tgt = targets[:, start:end]
+                                b = branch_logits[:, start:end].reshape(
+                                    -1, self.cfg.vocab_size
+                                )
+                                z = base_logits[:, start:end].reshape(
+                                    -1, self.cfg.vocab_size
+                                )
+                                t = tgt.reshape(-1)
+                                bce = F.cross_entropy(
+                                    b, t, reduction="none",
+                                    ignore_index=-100,
+                                ).view(tokens.size(0), end - start)
+                                zce = F.cross_entropy(
+                                    z, t, reduction="none",
+                                    ignore_index=-100,
+                                ).view(tokens.size(0), end - start)
+                                advantage[:, start:end] = zce - bce
+                        target_prob = torch.sigmoid(advantage.detach() / 0.1)
                         gate_loss = F.binary_cross_entropy_with_logits(
                             gate_logits[:, :target_len].squeeze(-1),
                             target_prob,
@@ -1135,6 +1162,8 @@ class V3LM(nn.Module):
             aux["hd_code_diversity"] = torch.stack(hd_diversities).mean()
         if memory_gates:
             aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
+        if return_diagnostics and "mtp_diagnostics" in locals():
+            aux["mtp_diagnostics"] = mtp_diagnostics
         return main, mtp, aux
 
     def grow_combinatorial_vertices(self, new_vertices: int) -> "V3LM":

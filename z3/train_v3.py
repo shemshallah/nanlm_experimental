@@ -622,6 +622,9 @@ def evaluate(
     mtp_wrong_tokens = 0
     mtp_accept = 0
     mtp_accept_tokens = 0
+    diag_branch_correct = diag_base_correct = diag_gate_correct = 0.0
+    diag_branch_wrong = diag_base_wrong = diag_gate_wrong = 0.0
+    diag_correct_tokens = diag_wrong_tokens = 0
     load_balance_sum = 0.0
     router_z_sum = 0.0
     aux_batches = 0
@@ -629,7 +632,9 @@ def evaluate(
     for xb in batches:
         xb = xb.to(device, non_blocking=True)
         with _amp_context(amp):
-            logits, mtp_logits, aux = model(xb)
+            logits, mtp_logits, aux = model(
+                xb, return_diagnostics=True
+            )
 
         vocab = logits.size(-1)
         main_logits = logits[:, :-1]
@@ -680,6 +685,41 @@ def evaluate(
                 accepted = (draft == main_next) & head_mask
                 mtp_accept += int(accepted.sum())
                 mtp_accept_tokens += int(head_mask.sum())
+                diag = aux.get("mtp_diagnostics") if aux else None
+                if diag:
+                    item = diag[0]
+                    branch_diag = item["branch"][:, :target_len]
+                    base_diag = item["base"][:, :target_len]
+                    gate_diag = item["gate"][:, :target_len].squeeze(-1)
+                    for start in range(0, target_len, 64):
+                        end = min(target_len, start + 64)
+                        tgt = head_targets[:, start:end]
+                        b = branch_diag[:, start:end].reshape(-1, vocab)
+                        z = base_diag[:, start:end].reshape(-1, vocab)
+                        t = tgt.reshape(-1)
+                        bce = F.cross_entropy(
+                            b, t, reduction="none", ignore_index=IGNORE_INDEX
+                        ).view(xb.size(0), end - start)
+                        zce = F.cross_entropy(
+                            z, t, reduction="none", ignore_index=IGNORE_INDEX
+                        ).view(xb.size(0), end - start)
+                        gm = gate_diag[:, start:end]
+                        ok = t1_correct[:, start:end]
+                        valid_m = (tgt != IGNORE_INDEX)
+                        correct_m = ok & valid_m
+                        wrong_m = (~ok) & valid_m
+                        if correct_m.any():
+                            diag_branch_correct += float(
+                                bce[correct_m].sum()
+                            )
+                            diag_base_correct += float(zce[correct_m].sum())
+                            diag_gate_correct += float(gm[correct_m].sum())
+                            diag_correct_tokens += int(correct_m.sum())
+                        if wrong_m.any():
+                            diag_branch_wrong += float(bce[wrong_m].sum())
+                            diag_base_wrong += float(zce[wrong_m].sum())
+                            diag_gate_wrong += float(gm[wrong_m].sum())
+                            diag_wrong_tokens += int(wrong_m.sum())
 
         if aux:
             if aux.get("load_balance") is not None:
@@ -705,6 +745,30 @@ def evaluate(
         "mtp_wrong_tokens": int(mtp_wrong_tokens),
         "mtp_accept": (
             mtp_accept / mtp_accept_tokens if mtp_accept_tokens else None
+        ),
+        "mtp_branch_correct_loss": (
+            diag_branch_correct / diag_correct_tokens
+            if diag_correct_tokens else None
+        ),
+        "mtp_base_correct_loss": (
+            diag_base_correct / diag_correct_tokens
+            if diag_correct_tokens else None
+        ),
+        "mtp_branch_wrong_loss": (
+            diag_branch_wrong / diag_wrong_tokens
+            if diag_wrong_tokens else None
+        ),
+        "mtp_base_wrong_loss": (
+            diag_base_wrong / diag_wrong_tokens
+            if diag_wrong_tokens else None
+        ),
+        "mtp_gate_correct": (
+            diag_gate_correct / diag_correct_tokens
+            if diag_correct_tokens else None
+        ),
+        "mtp_gate_wrong": (
+            diag_gate_wrong / diag_wrong_tokens
+            if diag_wrong_tokens else None
         ),
         "bits_per_token": main_loss / math.log(2),
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
