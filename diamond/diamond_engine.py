@@ -1069,7 +1069,17 @@ class TripleStaged(tf.keras.Model):
         # 256-wide tokenizer micro-transformer over bit/byte, subword,
         # token, word, and sentence states.
         self.tok_proj = [tf.keras.layers.Dense(DIM_T) for _ in range(6)]
-        self.tok_pos = tf.keras.layers.Embedding(6, DIM_T)
+        self.tok_pos = tf.keras.layers.Embedding(8, DIM_T)
+        self.tok_meta_proj = tf.keras.layers.Dense(DIM_T)
+        self.tok_concept_proj = tf.keras.layers.Dense(DIM_T)
+        self.tok_meta_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="tok_meta_gate",
+        )
+        self.tok_concept_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="tok_concept_gate",
+        )
         self.tok_blocks = [
             Micro(DIM_T, 4, FF_T, ARGS.dropout) for _ in range(2)
         ]
@@ -1092,6 +1102,10 @@ class TripleStaged(tf.keras.Model):
         self.concept_prev_gate = self.add_weight(
             shape=(), initializer=tf.keras.initializers.Constant(-4.0),
             name="concept_prev_gate",
+        )
+        self.meta_prev_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="meta_prev_gate",
         )
         self.tok_self = tf.keras.layers.Dense(DIM_M)
         self.tok_self_ln = tf.keras.layers.LayerNormalization()
@@ -1203,6 +1217,7 @@ class TripleStaged(tf.keras.Model):
         subword_pool = tf.reduce_mean(w_emb, axis=1)
         token_pool = tf.reduce_mean(w_chunk, axis=1)
         concept_prev = tf.zeros((tf.shape(b_h)[0], DIM_M), dtype=tf.float32)
+        meta_prev = tf.zeros((tf.shape(b_h)[0], DIM_M), dtype=tf.float32)
         for _ in range(META_LOOPS):
             b_pool = tf.reduce_mean(b_h, axis=1)
             w_pool = tf.reduce_mean(w_h, axis=1)
@@ -1218,7 +1233,15 @@ class TripleStaged(tf.keras.Model):
                 ],
                 axis=1,
             )
-            tok_states = tok_states + self.tok_pos(tf.range(6))[None, :, :]
+            tok_states = tf.concat(
+                [
+                    tok_states,
+                    tf.sigmoid(self.tok_meta_gate) * self.tok_meta_proj(meta_prev)[:, None, :],
+                    tf.sigmoid(self.tok_concept_gate) * self.tok_concept_proj(concept_prev)[:, None, :],
+                ],
+                axis=1,
+            )
+            tok_states = tok_states + self.tok_pos(tf.range(8))[None, :, :]
             for block in self.tok_blocks:
                 tok_states = block(tok_states, training=training)
             tok_meta = self.tok_to_meta(tf.reduce_mean(tok_states, axis=1))
@@ -1227,7 +1250,11 @@ class TripleStaged(tf.keras.Model):
             )
 
             # Select a pair and a triple of the 256 tokenizer feature slots.
-            concept_input = tok_meta + tf.sigmoid(self.concept_prev_gate) * concept_prev
+            concept_input = (
+                tok_meta
+                + tf.sigmoid(self.concept_prev_gate) * concept_prev
+                + tf.sigmoid(self.meta_prev_gate) * meta_prev
+            )
             scores = self.concept_router(concept_input)
             _, cidx = tf.math.top_k(scores, k=3)
             cidx = tf.sort(cidx, axis=1)
@@ -1266,6 +1293,7 @@ class TripleStaged(tf.keras.Model):
             for block in self.meta_self_blocks:
                 meta3 = block(meta3, training=training)
             meta = meta + tf.sigmoid(self.meta_self_gate) * self.meta_self_ln(meta3[:, 0, :])
+            meta_prev = meta
             slots = self.meta_temporal(tf.range(4))[None, :, :] + meta[:, None, :]
             for block in self.meta_blocks:
                 slots = block(slots, training=training)
@@ -1393,6 +1421,7 @@ SIGNATURE = json.dumps({
     "concept_feedback": "concept->meta-cross+per-layer+self-loop",
     "meta_self_loop": True,
     "tokenizer_self_loop": True,
+    "meta_concept_tokenizer_tokens": True,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
