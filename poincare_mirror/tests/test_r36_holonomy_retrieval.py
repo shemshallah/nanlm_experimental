@@ -102,6 +102,26 @@ class TestHolonomyRetrieval(unittest.TestCase):
             b=model(y)[0][:,:5]
             self.assertTrue(torch.allclose(a,b,atol=3e-5,rtol=0))
 
+    def test_auxiliary_only_control_does_not_feed_predictions(self):
+        torch.manual_seed(743)
+        model=MirrorLM(cfg(True))
+        g=model.blocks[-1].ff.symbiotic
+        with torch.no_grad():
+            g.to_hidden.weight.normal_(0,.03)
+            g.curvature.holonomy.gate.fill_(.2)
+        ids=torch.randint(0,48,(1,11))
+        g.holonomy_feedback_enabled=False
+        no_feedback=model(ids)[0].detach()
+        g.holonomy_enabled=False
+        disabled=model(ids)[0].detach()
+        self.assertTrue(torch.equal(no_feedback,disabled))
+        g.holonomy_enabled=True
+        loss=model.loss_with_future(ids)['loss']
+        loss.backward()
+        head=g.curvature.holonomy.aux_head.weight
+        self.assertIsNotNone(head.grad)
+        self.assertGreater(float(head.grad.abs().sum()),0.)
+
     def test_512d_mixed_attention_and_geometric_backward(self):
         # Match R34's mixed old/new attention head widths while bounding
         # expert count and depth for a deterministic local CPU smoke test.
