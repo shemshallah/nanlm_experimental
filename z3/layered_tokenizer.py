@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - exercised in dependency-free mode
 
 
 DEFAULT_SUBWORD_PATH = (
-    Path(__file__).resolve().parent / "tokenizers" / "v4_64k" / "tokenizer.json"
+    Path(__file__).resolve().parent / "tokenizers" / "v4_64k" / "tokenizer_complete.json"
 )
 
 # GPT-2 ByteLevel's reversible byte<->unicode alphabet.
@@ -329,10 +329,18 @@ class SubwordLayer:
             self.ranks[(str(left), str(right))] = rank
         self.id_to_token = {v: k for k, v in self.vocab.items()}
         added = payload.get("added_tokens", [])
+        # Complete v4 adds one-byte fallback tokens as non-special added
+        # tokens.  They must not be treated as text specials (their content
+        # is a ByteLevel character such as ``À``, not the literal UTF-8
+        # string).
         self.special_tokens = [
-            str(item["content"]) for item in sorted(added, key=lambda x: int(x["id"]))
+            str(item["content"])
+            for item in sorted(added, key=lambda x: int(x["id"]))
+            if bool(item.get("special", True))
         ]
-        self.special_ids = {token: self.vocab[token] for token in self.special_tokens}
+        self.special_ids = {
+            token: self.vocab[token] for token in self.special_tokens
+        }
         self.base_vocab_size = (
             max(self.vocab.values()) + 1 if self.vocab else 0
         )

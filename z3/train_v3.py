@@ -55,9 +55,9 @@ from v3_model import V3Config, V3LM  # noqa: E402
 IGNORE_INDEX = -100
 READ_BYTES = 1_000_000
 V4_TOKENIZER_PATH = (
-    SCRIPT_DIR / "tokenizers" / "v4_64k" / "tokenizer.json"
+    SCRIPT_DIR / "tokenizers" / "v4_64k" / "tokenizer_complete.json"
 )
-V4_VOCAB_SIZE = 64000
+V4_VOCAB_SIZE = 64060
 LAYERED_TOKENIZER_PATH = (
     SCRIPT_DIR / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
 )

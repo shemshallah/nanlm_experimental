@@ -10,7 +10,7 @@
       "vocab_size": 256
     },
     "subword": {
-      "path": "../v4_64k/tokenizer.json",
+      "path": "../v4_64k/tokenizer_complete.json",
       "sha256": "73ab8c94650f5c92b23c3e153f8fdeaf23c0b5c508529021846bfe0773d9989b",
       "base_vocab_size": 64000,
       "vocab_size": 64060,

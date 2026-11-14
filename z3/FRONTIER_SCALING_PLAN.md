@@ -18,8 +18,14 @@ regressions; they add per-lag MTP, hierarchical context routers, HD codebooks,
 associative-memory experts, and HD time rails.
 
 Measured on Kaggle 1×T4: the **312,069,396-parameter** max preset completed a
-5-step probe at batch 1 / ctx 512 in **17.9 s** without OOM. A 400M ladder probe
-is the next memory point.
+5-step probe at batch 1 / ctx 512 in **17.9 s** without OOM. A 16-layer
+**322,609,557-parameter** probe completed 3 steps in 18.4 s. The **500,266,485
+parameter / 7-MoE-layer** probe completed 2 steps in **32.9 s** without OOM.
+That is the current single-T4 ceiling we have actually measured, not guessed.
+
+Measured on the GitHub 6 GB CPU runner: the 38M preset is actually
+**39,616,285 params**, completed 5 steps in **21.3 s** with **3.28 GB peak
+RSS**, zero non-finite skips. The CI gate is enforced at 5.5 GB.
 
 ### Memory rule of thumb
 

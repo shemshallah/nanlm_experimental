@@ -62,7 +62,7 @@ VERSION = 1
 DEFAULT_SEED = 20261112
 V4_TOKENIZER_PATH = Path(__file__).resolve().with_name(
     "tokenizers"
-) / "v4_64k" / "tokenizer.json"
+) / "v4_64k" / "tokenizer_complete.json"
 LAYERED_TOKENIZER_PATH = Path(__file__).resolve().with_name(
     "tokenizers"
 ) / "layered_v1" / "layered_tokenizer.json"
