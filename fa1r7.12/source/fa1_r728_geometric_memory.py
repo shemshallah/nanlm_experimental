@@ -31,8 +31,7 @@ from fa1_r732_matched_history import (matched_history_context,
                                        geometry_specific_history_gain,
                                        context_specific_margin)
 from fa1_r733_far_history import HORIZONS, matched_far_history
-from fa1_r734_byte_bootstrap import book_byte_ratio_bootstrap
-from fa1_r734_checkpoint_guard import validate_artifact_paths
+from fa1_validation import book_byte_ratio_bootstrap, validate_artifact_paths
 
 
 @contextlib.contextmanager
@@ -53,6 +52,8 @@ def geometry_disabled(model):
         # geometry-only ablation: that would confound the measured effect.
         layer_gates=[getattr(h,n) for n in ('point_gain','pair_gain',
                             'triangle_gain','word_gain','byte_geometry_gain')]
+        if hasattr(h,'apex_feedback_gain'):
+            layer_gates.append(h.apex_feedback_gain)
     original_layers=[p.detach().clone() for p in layer_gates]
     with torch.no_grad():
         for param in gates+layer_gates:
@@ -150,6 +151,24 @@ def factor_read_disabled(model):
             for p,v in zip(gates,saved):p.copy_(v)
 
 
+@contextlib.contextmanager
+def apex_feedback_disabled(model):
+    """Ablate only the new cross-scale attention, preserving all old gains."""
+    h = getattr(model.diamond, 'hierarchy', None)
+    if h is None or not hasattr(h, 'apex_feedback_gain'):
+        yield
+        return
+    gain = h.apex_feedback_gain
+    saved = gain.detach().clone()
+    with torch.no_grad():
+        gain.zero_()
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            gain.copy_(saved)
+
+
 @torch.no_grad()
 def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
                         with_matched_far=False):
@@ -181,6 +200,12 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             without_factor,no_factor_extra=forward(model,data)
     else:
         without_factor,no_factor_extra=correct,extra
+    if (hasattr(model.diamond,'hierarchy') and
+            hasattr(model.diamond.hierarchy,'apex_feedback_gain')):
+        with apex_feedback_disabled(model):
+            without_feedback, no_feedback_extra = forward(model,data)
+    else:
+        without_feedback,no_feedback_extra=correct,extra
     foreign, donors = unrelated_book_context(data, seed)
     foreign_nll, foreign_extra = forward(model, foreign)
     no_apex, no_apex_extra = forward(model, data, 'no_apex')
@@ -240,6 +265,16 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
           'branch_vs_mixture_gap':float((extra['branch_nll']-correct).mean()),
           'branch_beats_inherited_fraction':float((extra['branch_nll']<old).float().mean()),
         })
+    if hasattr(model.diamond, 'hierarchy') and hasattr(model.diamond.hierarchy,
+                                                       'apex_feedback_gain'):
+        feedback_gain=without_feedback-correct
+        result.update({
+            'apex_feedback_gate':float(model.diamond.hierarchy.apex_feedback_gain.detach()),
+            'apex_feedback_word_gain':float(feedback_gain.mean()),
+            'apex_feedback_branch_gain':float((no_feedback_extra['branch_nll']-
+                                                 extra['branch_nll']).mean()),
+            'apex_feedback_word_bootstrap':boot_books(feedback_gain,data['book_ids'],seed+8),
+        })
     if matched is not None:
         matched_geo = geometry_specific_history_gain(
             correct, matched_nll, without_geometry, matched_off_nll)
@@ -263,14 +298,24 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
         delta=no_geo_per_word-full_per_word
         valid=counts>0
         metrics.update({
-            # Global byte-level gains must weight long spellings by their
-            # byte counts; book bootstrap still uses per-word observations.
+            # Both point estimates and whole-book uncertainty use the same
+            # pooled literal-byte loss/byte-count ratio.
             'conditional_byte_geometry_gain_nats_per_byte':float((no_geo_bytes-full_bytes).sum()/counts.sum()),
             'conditional_byte_apex_gain_nats_per_byte':float((no_apex_bytes-full_bytes).sum()/counts.sum()),
             'conditional_byte_pair_gain_nats_per_byte':float((no_pair_bytes-full_bytes).sum()/counts.sum()),
             'conditional_byte_geometry_gain_nats_per_word_normalized':float(delta[valid].mean()),
             'conditional_byte_geometry_gain_book_bootstrap':book_byte_ratio_bootstrap(delta,counts,data['book_ids'],seed+7),
         })
+        if hasattr(model.diamond, 'hierarchy') and hasattr(model.diamond.hierarchy,
+                                                           'apex_feedback_gain'):
+            feedback_per_word,_,feedback_ce,_,_=layered_byte_losses(no_feedback_extra,data)
+            feedback_byte_gain=feedback_per_word-full_per_word
+            metrics.update({
+                'apex_feedback_byte_gain_nats_per_byte':float(
+                    (feedback_ce-full_bytes).sum()/counts.sum()),
+                'apex_feedback_byte_bootstrap':book_byte_ratio_bootstrap(
+                    feedback_byte_gain,counts,data['book_ids'],seed+9),
+            })
         if matched is not None:
             matched_byte,_,matched_ce,_,_=layered_byte_losses(matched_extra,data)
             matched_off_byte,_,matched_off_ce,_,_=layered_byte_losses(matched_off_extra,data)
@@ -378,7 +423,8 @@ def warm_start_only_if_migrated(model, args, loaded_meta):
     """Never reset learned gate values when resuming R7.31/R7.32."""
     resuming = (getattr(args, 'layered', False) and loaded_meta.get(
         'architecture_round') in ('FA1_R7_31_LAYERED_DIAMOND_V1',
-                                  'FA1_R7_32_CALIBRATED_DIAMOND_V1'))
+                                  'FA1_R7_32_CALIBRATED_DIAMOND_V1',
+                                  'FA1_R7_UNIFIED_APEX_FEEDBACK_V1'))
     if resuming:
         return False
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
@@ -566,6 +612,13 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['factor_word_gain_bootstrap']['book_bootstrap_ci95'][0]<=0 or
                 candidate['factor_branch_gain_bootstrap']['book_bootstrap_ci95'][0]<=0):
             return False
+    if 'apex_feedback_word_gain' in candidate:
+        if (candidate['apex_feedback_word_gain'] <= 0 or
+                candidate['apex_feedback_branch_gain'] <= 0 or
+                candidate['apex_feedback_word_bootstrap']['book_bootstrap_ci95'][0] <= 0 or
+                candidate['apex_feedback_byte_gain_nats_per_byte'] <= 0 or
+                candidate['apex_feedback_byte_bootstrap']['book_bootstrap_ci95'][0] <= 0):
+            return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
                 candidate['conditional_byte_apex_gain_nats_per_byte']<=0 or
@@ -624,6 +677,10 @@ def candidate_priority(reference, candidate, min_gain):
         geometry_ready = (geometry_ready and
             candidate['conditional_spelling_bits_per_byte'] <
             reference['conditional_spelling_bits_per_byte'])
+    if 'apex_feedback_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate[k] > 0 for k in (
+            'apex_feedback_word_gain','apex_feedback_branch_gain',
+            'apex_feedback_byte_gain_nats_per_byte'))
     if 'matched_geometry_word_advantage' in candidate:
         # A candidate with context-insensitive geometry cannot earn the
         # intermediate geometry-ready tier merely by lowering word loss.
@@ -647,6 +704,9 @@ def run(args):
     validate_artifact_paths(args.checkpoint,args.output,
                             getattr(args,'candidate_checkpoint',''))
     t0 = time.monotonic()
+    if getattr(args, 'apex_feedback', False):
+        args.calibrated = True
+        args.layered = True
     if any(getattr(args, n, 0.) > 0 for n in (
         'matched_far_weight','matched_far_byte_weight',
         'matched_far_geometry_weight','matched_far_byte_geometry_weight')):
@@ -669,7 +729,9 @@ def run(args):
     parent_hash = digest(args.checkpoint)
     if getattr(args,'calibrated',False):
         from fa1_r732_geometry_calibration import load_calibrated
-        model, optimizer, base, compositor, parent_meta = load_calibrated(args.checkpoint,args.root,args.threads)
+        model, optimizer, base, compositor, parent_meta = load_calibrated(
+            args.checkpoint,args.root,args.threads,
+            with_apex_feedback=getattr(args,'apex_feedback',False))
     elif getattr(args,'layered',False):
         from fa1_r731_layered_decoder import load_layered
         model, optimizer, base, compositor, parent_meta = load_layered(args.checkpoint,args.root,args.threads)
@@ -681,6 +743,10 @@ def run(args):
         model, optimizer, base, compositor, parent_meta = load_contextual(args.checkpoint, args.root, args.threads)
     else:
         model, optimizer, base, compositor, parent_meta = load_unified(args.checkpoint, args.root, args.threads)
+    if (hasattr(getattr(model.diamond, 'hierarchy', None), 'apex_feedback') and
+            not getattr(args, 'apex_feedback', False)):
+        raise ValueError('FA1 apex-feedback checkpoint requires --apex-feedback '
+                         '(or the canonical source/fa1.py entry point)')
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
     if getattr(args,'layered',False):dev['layered_byte_supervision']=True
@@ -757,7 +823,8 @@ def run(args):
     # This is a scientific probe, not a checkpoint promotion. Its full result
     # stays in JSON, and future rounds may choose to save a guarded candidate.
     report = {
-        'format':('FA1_R7_33_MATCHED_FAR_HISTORY_DEV_PROBE_V1' if getattr(args,'matched_far_history',False) else
+        'format':('FA1_R7_UNIFIED_APEX_FEEDBACK_DEV_PROBE_V1' if getattr(args,'apex_feedback',False) else
+                  'FA1_R7_33_MATCHED_FAR_HISTORY_DEV_PROBE_V1' if getattr(args,'matched_far_history',False) else
                   'FA1_R7_32_CALIBRATED_DIAMOND_DEV_PROBE_V1' if getattr(args,'calibrated',False) else
                   'FA1_R7_31_LAYERED_DIAMOND_DEV_PROBE_V1' if getattr(args,'layered',False) else
                   'FA1_R7_30_FACTORIZED_GEOMETRY_DEV_PROBE_V1' if getattr(args,'factorized',False) else
@@ -771,6 +838,7 @@ def run(args):
         'resumed_learned_gates_unchanged':preserve_learned_gates,
         'matched_history_contrast':bool(getattr(args,'layered',False)),
         'calibrated_geometric_trust':bool(getattr(args,'calibrated',False)),
+        'causal_apex_feedback':bool(getattr(args,'apex_feedback',False)),
         'matched_far_history_controls':bool(getattr(args,'matched_far_history',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
@@ -798,7 +866,9 @@ def run(args):
         report['unpromoted_candidate_checkpoint'] = save_unpromoted(
             args.candidate_checkpoint, model, optimizer, args.root, args.checkpoint,
             source_metadata={'format':'FA1_R7_27_SINGLE_MODEL_SINGLE_HYBRID_OPTIMIZER_V1'},
-            candidate_trained=True, training_round=('FA1 R7.33 matched old-history geometry contrast'
+            candidate_trained=True, training_round=('FA1 unified causal apex feedback'
+                                                     if getattr(args,'apex_feedback',False) else
+                                                     'FA1 R7.33 matched old-history geometry contrast'
                                                      if getattr(args,'matched_far_history',False) else
                                                      'FA1 R7.32 calibrated geometric trust decoder'
                                                      if getattr(args,'calibrated',False) else
@@ -809,7 +879,9 @@ def run(args):
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_32_CALIBRATED_DIAMOND_V1'
+            architecture_round=('FA1_R7_UNIFIED_APEX_FEEDBACK_V1'
+                                if getattr(args,'apex_feedback',False) else
+                                'FA1_R7_32_CALIBRATED_DIAMOND_V1'
                                 if getattr(args,'calibrated',False) else
                                 'FA1_R7_31_LAYERED_DIAMOND_V1'
                                 if getattr(args,'layered',False) else
@@ -840,6 +912,7 @@ def parse_args():
     p.add_argument('--factorized',action='store_true',help='R7.30 continuation with point-factorized readout')
     p.add_argument('--layered',action='store_true',help='R7.31 continuation with full-word byte AR')
     p.add_argument('--calibrated',action='store_true',help='R7.32 continuation with identity-initialized word/byte geometric trust')
+    p.add_argument('--apex-feedback',action='store_true',help='in-place causal apex-to-word/byte cross-attention with zero-init gate')
     p.add_argument('--matched-far-history',action='store_true',help='R7.33 matched recent-context/far-history DEV controls')
     p.add_argument('--matched-far-weight',type=float,default=0.,help='TRAIN correct-vs-foreign far-history word contrast')
     p.add_argument('--matched-far-byte-weight',type=float,default=0.,help='TRAIN conditional byte far-history contrast')

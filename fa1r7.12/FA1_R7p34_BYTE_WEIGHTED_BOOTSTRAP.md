@@ -1,8 +1,11 @@
-# FA1 R7.34 — conditional-byte evaluation repair and immutable checkpoint guard
+# FA1 validation upgrade — historical R7.34 audit
 
-**Scope:** existing FA1 R7.33 layered, calibrated Diamond on `master` only.
+**Scope:** one continuing FA1 layered, calibrated Diamond on `master` only.
 No architecture split, new parameter, optimizer group, or automatic checkpoint
 promotion. FA2 is unchanged. R7.33's multi-horizon curriculum remains intact.
+The implementation is now shared by the canonical `source/fa1.py` entry point,
+through `source/fa1_validation.py`; R7.34 was an engineering change label,
+not a distinct architecture or checkpoint lineage.
 
 ## Why this is necessary before further training
 
@@ -56,7 +59,7 @@ Run the source verification with:
 
 ```bash
 PYTHONPATH=fa1r7.12/source python -m unittest discover \
-  -s fa1r7.12/source -p 'test_fa1_r734_*.py' -q
+  -s fa1r7.12/source -p 'test_fa1_validation.py' -q
 ```
 
 The added tests cover byte/word disagreement, book-cluster reproducibility,

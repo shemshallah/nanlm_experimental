@@ -1,4 +1,4 @@
-name: FA1 R7.33/R7.34 - matched far-history and byte-ratio controls
+name: FA1 unified - geometry, causality, and byte validation
 
 on:
   push:
@@ -6,9 +6,15 @@ on:
     paths:
       - '.github/workflows/fa1-r733-matched-far-history.yml'
       - 'fa1r7.12/source/fa1_r733_far_history.py'
-      - 'fa1r7.12/source/fa1_r734_byte_bootstrap.py'
-      - 'fa1r7.12/source/fa1_r734_checkpoint_guard.py'
-      - 'fa1r7.12/source/test_fa1_r734_byte_bootstrap.py'
+      - 'fa1r7.12/source/fa1.py'
+      - 'fa1r7.12/source/fa1_validation.py'
+      - 'fa1r7.12/source/test_fa1_validation.py'
+      - 'fa1r7.12/source/test_fa1_feedback.py'
+      - 'fa1r7.12/source/fa1_r731_layered_decoder.py'
+      - 'fa1r7.12/source/fa1_r732_geometry_calibration.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/R7_CURRENT.md'
+      - 'fa1r7.12/FA1_INPLACE_APEX_FEEDBACK.md'
       - 'fa1r7.12/FA1_R7p34_BYTE_WEIGHTED_BOOTSTRAP.md'
       - 'fa1r7.12/source/test_fa1_r733_far_history.py'
       - 'fa1r7.12/source/fa1_r728_geometric_memory.py'
@@ -19,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fa1-r733-master-source
+  group: fa1-unified-master-source
   cancel-in-progress: false
 
 jobs:
@@ -41,8 +47,9 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Run source and migration regressions
         run: |
-          python -m py_compile fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r734_byte_bootstrap.py fa1r7.12/source/fa1_r734_checkpoint_guard.py
-          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r734_*.py' -q
+          python -m py_compile fa1r7.12/source/fa1.py fa1r7.12/source/fa1_validation.py fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r731_layered_decoder.py fa1r7.12/source/fa1_r732_geometry_calibration.py fa1r7.12/source/fa1_r727_checkpoint.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_validation.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_feedback.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r733_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r732_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r731_*.py' -q
@@ -51,11 +58,11 @@ jobs:
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r728_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r727_*.py' -q
       - name: Protect inherited optimizer contract
-        run: python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/r733_optimizer_suite.json"
+        run: python fa1r7.12/source/fa1_r727_suite.py --output "$RUNNER_TEMP/fa1_optimizer_suite.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: fa1-r733-source-regression
-          path: ${{ runner.temp }}/r733_optimizer_suite.json
+          name: fa1-unified-source-regression
+          path: ${{ runner.temp }}/fa1_optimizer_suite.json
           retention-days: 30
       - name: No automatic promotion
         run: echo 'The accepted step-14,416 checkpoint and sealed TEST books are never touched by source CI.'

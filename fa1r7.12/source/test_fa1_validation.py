@@ -1,12 +1,13 @@
-"""R7.34 byte-normalized book bootstrap and output-path safeguards."""
+"""Shared FA1 byte-normalized bootstrap and checkpoint-path safeguards."""
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import torch
 
-from fa1_r734_byte_bootstrap import book_byte_ratio_bootstrap
-from fa1_r734_checkpoint_guard import validate_artifact_paths
+from fa1_validation import book_byte_ratio_bootstrap, validate_artifact_paths
 
 
 class BookWeightedByteBootstrapTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class BookWeightedByteBootstrapTests(unittest.TestCase):
         self.assertTrue(all(-.100001 <= v <= .800001 for v in a['book_bootstrap_ci95']))
 
     def test_zero_byte_targets_do_not_affect_estimate(self):
-        a = book_byte_ratio_bootstrap(torch.tensor([.4, -.5, 3.]),
+        a = book_byte_ratio_bootstrap(torch.tensor([.4, -.5, float('nan')]),
                                       torch.tensor([2, 4, 0]),
                                       torch.tensor([1, 2, 3]), 7)
         b = book_byte_ratio_bootstrap(torch.tensor([.4, -.5]),
@@ -53,6 +54,12 @@ class BookWeightedByteBootstrapTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'finite'):
             book_byte_ratio_bootstrap(torch.tensor([float('nan'), 1.]),
                                        torch.ones(2), torch.tensor([1, 2]), 1)
+        with self.assertRaisesRegex(ValueError, 'integers'):
+            book_byte_ratio_bootstrap(torch.ones(2), torch.tensor([1., 1.5]),
+                                      torch.tensor([1, 2]), 1)
+        with self.assertRaisesRegex(ValueError, 'integer resample'):
+            book_byte_ratio_bootstrap(torch.ones(2), torch.ones(2),
+                                      torch.tensor([1, 2]), 1, 2.5)
 
 
 class ArtifactSafetyTests(unittest.TestCase):
@@ -61,7 +68,7 @@ class ArtifactSafetyTests(unittest.TestCase):
             base = Path(root)
             parent = base / 'accepted.pt'
             parent.write_bytes(b'protected')
-            validate_artifact_paths(parent, base/'r734.json', base/'unpromoted.pt')
+            validate_artifact_paths(parent, base/'report.json', base/'unpromoted.pt')
             self.assertEqual(parent.read_bytes(), b'protected')
 
     def test_same_path_and_symlink_or_hardlink_rejected(self):
@@ -83,6 +90,16 @@ class ArtifactSafetyTests(unittest.TestCase):
             alias.hardlink_to(parent)
             with self.assertRaisesRegex(ValueError, 'alias'):
                 validate_artifact_paths(parent, base/'report.json', alias)
+
+
+class UnifiedFA1EntryTests(unittest.TestCase):
+    def test_default_cli_selects_all_inherited_layers_and_controls(self):
+        from fa1 import canonical_args
+        with mock.patch('fa1.parse_args', return_value=SimpleNamespace()):
+            args = canonical_args()
+        for feature in ('contextual', 'factorized', 'layered',
+                        'calibrated', 'matched_far_history', 'apex_feedback'):
+            self.assertTrue(getattr(args, feature), feature)
 
 
 if __name__ == '__main__':

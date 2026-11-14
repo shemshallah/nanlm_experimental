@@ -1,9 +1,20 @@
 # FA1 R7 — one unified architecture on `master`
 
-**Current source architecture: R7.34 verified-byte diagnostic layer on R7.33 calibrated multi-horizon Diamond; one unified optimizer.**
+**Current source architecture: one FA1 calibrated, multi-horizon Diamond, with causal apex feedback, byte-accurate evaluation and checkpoint guards; one unified optimizer.**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric
 research candidate has passed the independent-book promotion gates.
+
+Run the current source through **`source/fa1.py`**, the canonical FA1 CLI.
+It enables inherited contextual, factorized, layered, calibrated and matched
+far-history paths, plus the new zero-gated apex-to-word/byte attention loop,
+together on the *same model*. The numbered source modules
+are checkpoint-migration components and reproducibility history, not separate
+FA1 projects or independently accepted models. The original `fa1_r728_geometric_memory.py`
+CLI remains available for historical ablations and explicit source parity tests.
+The current CLI requires `--root`, `--checkpoint`, `--corpus-dir`, and `--output`
+and never promotes a candidate automatically. Use a distinct
+`--candidate-checkpoint` path for optional unpromoted saves.
 
 - Accepted ancestor SHA-256:
   `54e835b00642013d4f1bf486a8150eb1ff06c547565771bd21933e143d050f2d`.
@@ -89,7 +100,16 @@ research candidate has passed the independent-book promotion gates.
   admissibility over raw word-loss gains. The two R7.32 changes are integrated:
   matched-history constraints also apply to calibrated candidates.
   **No new accepted checkpoint or measured integrated R7.32 training result.**
-- R7.33 adds three matched far-history horizons (8/32/2, 16/64/4 and 24/96/6 recent words/bytes/sentences), a worst-horizon DEV contrast, and book-level specificity requirements. R7.34 corrects conditional-byte book confidence intervals to resample whole books using pooled literal-byte NLL ratios, matching the reported byte-weighted point estimator. It also rejects aliased source/report/candidate paths and verifies the original checkpoint hash after saving a candidate. These changes add **no model weights or optimizer groups**. Neither round claims a promoted model or new independent-book gain.
+- The R7.33 multi-horizon controls and the follow-up historically labeled R7.34 are now integrated in **the single FA1 source path**. The three far-history horizons (8/32/2, 16/64/4, 24/96/6 words/bytes/sentences), worst-horizon DEV contrast, pooled-literal-byte whole-book bootstrap, and checkpoint alias guards are enforced together. The reusable guards and byte validation live in `source/fa1_validation.py`, not a separate R7.34 implementation. These changes add **no model weights or optimizer groups** and claim no promoted model or independent-book gain.
+- The next *in-place* FA1 source upgrade adds query-conditioned cross-attention
+  from descended geometric point state, apex specialists, and their interaction
+  back to the existing word and autoregressive byte decoders. A zero-initialized
+  gate makes attachment prediction-identical. An 18th group is appended to the
+  **same** optimizer, without discarding any of the prior 17 groups or the five
+  inherited optimizer engines. Resuming a fully trained FA1 checkpoint does
+  not reopen inherited gates. Strict DEV eligibility additionally requires
+  positive whole-book apex-feedback word/byte ablations. No real-checkpoint
+  training result, independent-book improvement, or promotion is claimed.
 - Local 1,024-position **historical** smoke still showed a geometry regression
   of 0.000874 nats/vocabulary-word. That corpus has been consulted before;
   it is not a sealed generalization test. No new frontier capability or
@@ -124,4 +144,6 @@ is in `source/fa1_r723_diamond.py`, `source/fa1_r724_geometry.py`,
 `source/fa1_r724_eval.py`, `source/fa1_r725_controls.py`, and
 `source/fa1_r726_factor_audit.py`.
 
-Read `FA1_R7p33_MATCHED_FAR_HISTORY.md` for the multi-horizon causal curriculum and `FA1_R7p34_BYTE_WEIGHTED_BOOTSTRAP.md` for the consistent byte-level book bootstrap and checkpoint protection.
+Read `FA1_R7p33_MATCHED_FAR_HISTORY.md` for the multi-horizon causal curriculum and `FA1_R7p34_BYTE_WEIGHTED_BOOTSTRAP.md` for the historical audit of the now-integrated byte-level book bootstrap and checkpoint protection.
+Read `FA1_INPLACE_APEX_FEEDBACK.md` for the current source upgrade and its
+function-preserving migration, causal feedback, and diagnostic requirements.

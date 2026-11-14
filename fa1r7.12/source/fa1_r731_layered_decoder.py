@@ -40,6 +40,35 @@ class AttentionLoop(nn.Module):
         return x + self.ff(self.ff_norm(x))
 
 
+class CausalApexFeedback(nn.Module):
+    """Query-conditioned read from the *existing* descended Diamond state.
+
+    The three keys are the descended point message, the selected apex
+    specialists, and their interaction. No future bytes or target words are
+    available here. Both heads feed the same inherited decoder.
+    """
+
+    def __init__(self, width=WIDTH):
+        super().__init__()
+        self.query_norm = nn.LayerNorm(width)
+        self.key_norm = nn.LayerNorm(width)
+        self.cross = nn.MultiheadAttention(width, 4, batch_first=True, dropout=0.)
+        self.refine = nn.Sequential(nn.LayerNorm(width), nn.Linear(width, 2*width),
+                                    nn.GELU(), nn.Linear(2*width, width))
+        self.word = nn.Linear(width, 96, bias=False)
+        self.byte = nn.Linear(width, width, bias=False)
+
+    def forward(self, point, apex, query):
+        keys = torch.stack((point, apex, point * torch.tanh(apex)), dim=1)
+        normalized_keys = self.key_norm(keys)
+        read, _ = self.cross(self.query_norm(query).unsqueeze(1),
+                             normalized_keys, normalized_keys,
+                             need_weights=False)
+        state = query + read.squeeze(1)
+        state = state + self.refine(state)
+        return self.word(state), self.byte(state)
+
+
 class LayeredDiamondDecoder(nn.Module):
     """Byte, learned n-gram/subword, R7 token, word/sentence + geometry loops.
 
@@ -126,6 +155,14 @@ class LayeredDiamondDecoder(nn.Module):
                                                    torch.zeros_like(apex), query), -1))
         geometric = self.byte_condition(fused) - baseline
         byte_condition = baseline + torch.tanh(self.byte_geometry_gain) * route * byte_trust * geometric
+        if hasattr(self, 'apex_feedback'):
+            # One extra geometric->language attention loop inside the same
+            # Diamond. Both outputs are zero at attachment, even if inherited
+            # language and geometry gains have already been trained.
+            word_delta, byte_delta = self.apex_feedback(point, apex, query)
+            gain = torch.tanh(self.apex_feedback_gain) * route
+            word = word + gain * word_trust * word_delta
+            byte_condition = byte_condition + gain * byte_trust * byte_delta
         return word, byte_condition
 
     def autoregressive(self, byte_targets, condition):
