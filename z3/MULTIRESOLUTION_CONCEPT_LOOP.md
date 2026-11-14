@@ -301,20 +301,24 @@ Implemented in this integration:
 - multi-row sidecar collation
 - `ConceptEncoder` word/sentence pooling and concept vectors
 - shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
+- deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
 - concept state fed into MTP branch context
 - composition event head and auxiliary CE
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder
-- autoregressive `generate()` with model and tokenizer composition events
+- `CompositionVocabulary` structural layer
+- exact pair-object IDs exposed during generation
+- autoregressive `generate()` with model/tokenizer composition and object readouts
 
 Still pending, and should not be pretended otherwise:
 
-- seeding all 256 concept vertices from byte symbols (currently learned)
-- a real composition-token vocabulary inside the main tokenizer artifact
-- emitting/referencing object IDs from the decoder
-- full-corpus word/sentence retuning on the 300MB v4c shard
-- training validation of the full concept loss on a long run
+- mapping the 256 deterministic seeds to actual byte values through the
+  tokenizer's byte embedding (the current seed is a deterministic HD codebook)
+- a trained full-corpus word/sentence vocabulary on the 300MB v4c shard
+- long-run validation of the full concept loss and memory footprint
+- feeding generated object IDs back as an explicit token/pointer stream
+  (they are currently readouts, not vocabulary tokens)
 
 ## Frontier disconnects to avoid
 
