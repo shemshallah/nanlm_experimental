@@ -73,6 +73,20 @@ class FactorizedContextualGeometry(ContextualGeometry):
         # A second, explicitly measured triangle->apex->pair->point route.
         tri = tri + torch.tanh(self.factor_up_gain) * (FACTOR_TOPK * alpha.unsqueeze(-1) *
                                                     retrieved.unsqueeze(1))
+        if hasattr(self, 'history_writer') and state.get('far_modal_values') is not None:
+            # Only the top-K causal triangle addresses receive the observed
+            # distant contents. No dense C(256,3) allocation or decoder bypass.
+            chosen_keys = keys.gather(1, indices.unsqueeze(-1).expand(-1,-1,keys.size(-1)))
+            written = self.history_writer(chosen_keys, state['context_query'],
+                                          state['far_modal_values'],state['far_modal_mask'])
+            delta = torch.zeros_like(tri).scatter(1,
+                indices.unsqueeze(-1).expand(-1,-1,tri.size(-1)),written)
+            # Keep the existing direct triangle->pair path unchanged. These
+            # addressed VALUES will be read only by the apex; otherwise the
+            # new writer could bypass the requested apex specialization.
+            state['history_triangle_values'] = torch.tanh(self.history_writer.gain) * delta
+            state['metrics']['history_value_norm'] = written.detach().norm(dim=-1).mean()
+            state['metrics']['history_value_gain'] = self.history_writer.gain.detach().clone()
         state['factor_retrieved'] = retrieved
         state['metrics'].update({
             'factor_read_entropy': (-(alpha * alpha.clamp_min(1.e-20).log()).sum(1).mean()).detach(),

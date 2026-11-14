@@ -128,7 +128,8 @@ class CombinatorialDiamond(nn.Module):
 
     def forward(self,hidden,word_ids,byte_ids,sentence_ids,vertex_ids,trunk,
                 memory_features=None,modal_ids=None,modal_mask=None,
-                two_way=True,without_apex=False,without_pair=False,return_trace=False):
+                two_way=True,without_apex=False,without_pair=False,return_trace=False,
+                history_modal_ids=None,history_modal_mask=None):
         if word_ids.shape[1]!=32 or byte_ids.shape[1]!=128 or sentence_ids.shape[1]!=8 or vertex_ids.shape[1]!=ACTIVE:
             raise ValueError('expected 32 past words / 128 past bytes / 8 previous sentence starts / 8 distinct points')
         if bool((vertex_ids<0).any()) or bool((vertex_ids>=256).any()):raise ValueError('invalid points')
@@ -162,6 +163,24 @@ class CombinatorialDiamond(nn.Module):
             probs=probs/probs.sum(-1,keepdim=True).clamp_min(1e-12)
             retrieved=(probs.unsqueeze(-1)*values).sum(1)
             q=q+self.modal_fuse(torch.cat([q,retrieved],dim=-1))
+            # Keep the real four older-history VALUES separate from the
+            # query. R7.35 writes them into triangle memory rather than
+            # using the query as a surrogate for the retrieved content.
+            far_modal_values=values[:,8:12]
+            far_modal_mask=eligible[:,8:12]
+        else:
+            far_modal_values=None
+            far_modal_mask=None
+        if history_modal_ids is not None or history_modal_mask is not None:
+            if (modal_ids is None or history_modal_ids is None or history_modal_mask is None or
+                    history_modal_ids.shape!=(batch,4) or history_modal_mask.shape!=(batch,4)):
+                raise ValueError('writer-only donor override requires four causal modal IDs/masks')
+            # Separate intervention on the VALUE content alone: the inherited
+            # context query, near/far features, and normal modal fusion are
+            # unchanged. This is crucial for attributing a history benefit.
+            far_modal_values=self.modal_value(F.embedding(history_modal_ids.long(),
+                                                          trunk.E.detach()))
+            far_modal_mask=history_modal_mask.bool()
         if hasattr(self,'hierarchy'):
             # Attention over past bytes, learned subword n-grams, original
             # word-token IDs and sentence heads. Migration gain starts at 0.
@@ -187,6 +206,9 @@ class CombinatorialDiamond(nn.Module):
         if hasattr(self,'geometry'):
             pair,geometric=self.geometry.pairs(trunk,vertex_ids,pair_ix,
                                     ids_i,ids_j,pair,q)
+            if far_modal_values is not None:
+                geometric['far_modal_values']=far_modal_values
+                geometric['far_modal_mask']=far_modal_mask
         # C(256,2) -> C(256,3): every candidate triangle receives a unique
         # combinadic address and its own persistent trainable code.
         t=self.triangles
@@ -203,6 +225,13 @@ class CombinatorialDiamond(nn.Module):
         logits=self.triangle_score(torch.tanh(tri+self.triangle_query(q).unsqueeze(1))).squeeze(-1)
         triangle_weights=F.softmax(logits,dim=1)
         apex_in=(triangle_weights.unsqueeze(-1)*tri).sum(1)
+        if geometric is not None and 'history_triangle_values' in geometric:
+            # Separate value read: new causal content enters ONLY the apex.
+            # Original face scores and direct triangle->pair messages remain
+            # untouched by the writer, making apex/pair ablations meaningful.
+            writes=geometric['history_triangle_values']
+            apex_in=apex_in+((triangle_weights.unsqueeze(-1)*writes).sum(1)
+                              *tri.size(1))
         # Apex meta-mind: 256 trainable specializing operators inspect the
         # whole triangle summary, selecting four experts each token.
         route=F.normalize(self.sector_router(apex_in),dim=-1) @ F.normalize(self.sector_keys,dim=-1).T
@@ -301,10 +330,13 @@ class UnifiedR723Diamond(UnifiedR722):
             memory_features=torch.cat([data['near_features'],data['far_features']],dim=-1)
         modal_ids=data.get('diamond_modal_ids',data.get('memory_modal_ids'))
         modal_mask=data.get('diamond_modal_mask',data.get('memory_modal_mask'))
+        history_modal_ids=data.get('diamond_history_value_ids')
+        history_modal_mask=data.get('diamond_history_value_mask')
         h,b_logits,w_vec,trace=self.diamond(data['hidden'],data['word_ids'],
                  data['byte_ids'],data['sentence_ids'],data['vertex_ids'],
                  self.core.trunk,memory_features=memory_features,
                  modal_ids=modal_ids,modal_mask=modal_mask,
+                 history_modal_ids=history_modal_ids,history_modal_mask=history_modal_mask,
                  two_way=two_way,return_trace=True,**ablations)
         # Two normalized word distributions: inherited R7.22 distribution and
         # context-conditioned 32K-word hierarchical tree. Their probabilistic

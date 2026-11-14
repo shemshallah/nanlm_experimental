@@ -1,5 +1,14 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.35 research continuation:** causal distant modal values now enter only
+top-8 sparse triangle value addresses before the existing apex -> pair ->
+point readout. Writer-only donor swaps and book-level word/byte ablations,
+candidate-only gate warm starts, group-19 optimizer restoration and an honest
+four-eligible-book CPU DEV benchmark are documented in
+`FA1_R7p35_HISTORY_VALUE_REPAIR.md`. The final unpromoted checkpoint is
+recoverable; **the strict independent-book gate still fails** and the accepted
+step-14,416 ancestor is protected.
+
 **Current source architecture: one FA1 calibrated, multi-horizon Diamond, with causal apex feedback, byte-accurate evaluation and checkpoint guards; one unified optimizer.**
 **Accepted model: step 14,416, with all five historical optimizer-engine states preserved.**
 The accepted checkpoint is still the R7.13/R7.22 ancestor; no geometric

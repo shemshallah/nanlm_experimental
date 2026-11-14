@@ -93,7 +93,8 @@ def load_calibrated(path, root, threads=2, with_apex_feedback=False):
     """Restore or migrate one FA1 checkpoint without reinitializing history."""
     from fa1_r727_checkpoint import load_unified
     model, optimizer, base, comp, meta = load_unified(path, root, threads)
-    if meta.get('architecture_round') in (ROUND, APEX_FEEDBACK_ROUND):
+    if meta.get('architecture_round') in (ROUND, APEX_FEEDBACK_ROUND,
+                                          'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1'):
         if not hasattr(model.diamond.hierarchy, 'byte_geometry_router'):
             raise AssertionError('saved R7.32 trust router was not restored')
         if with_apex_feedback and not hasattr(model.diamond.hierarchy, 'apex_feedback'):

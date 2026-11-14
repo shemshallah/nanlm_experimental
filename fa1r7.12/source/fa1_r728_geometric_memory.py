@@ -42,7 +42,10 @@ def geometry_disabled(model):
         names.append('context_read_gain')
     if hasattr(model.diamond.geometry,'factor_up_gain'):
         names.extend(('factor_up_gain','factor_decoder_gain'))
-    gates = [getattr(model.diamond.geometry, n) for n in names]
+    if hasattr(model.diamond.geometry,'history_writer'):
+        names.append('history_writer.gain')
+    gates = [(model.diamond.geometry.history_writer.gain if n=='history_writer.gain'
+              else getattr(model.diamond.geometry, n)) for n in names]
     before = [p.detach().clone() for p in gates]
     layer_gates=[]
     if hasattr(model.diamond,'hierarchy'):
@@ -152,6 +155,20 @@ def factor_read_disabled(model):
 
 
 @contextlib.contextmanager
+def history_value_disabled(model):
+    """Isolate actual older-token triangle writes, keeping all other paths."""
+    writer=getattr(model.diamond.geometry,'history_writer',None)
+    if writer is None:
+        yield
+        return
+    old=writer.gain.detach().clone()
+    with torch.no_grad(): writer.gain.zero_()
+    try: yield
+    finally:
+        with torch.no_grad(): writer.gain.copy_(old)
+
+
+@contextlib.contextmanager
 def apex_feedback_disabled(model):
     """Ablate only the new cross-scale attention, preserving all old gains."""
     h = getattr(model.diamond, 'hierarchy', None)
@@ -200,6 +217,14 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             without_factor,no_factor_extra=forward(model,data)
     else:
         without_factor,no_factor_extra=correct,extra
+    if hasattr(model.diamond.geometry,'history_writer'):
+        with history_value_disabled(model):
+            without_writer,no_writer_extra=forward(model,data)
+        from fa1_r735_history_values import different_book_writer_values
+        wrong_values,value_donors=different_book_writer_values(data,seed+734)
+        foreign_values,foreign_value_extra=forward(model,wrong_values)
+    else:
+        without_writer,no_writer_extra=correct,extra
     if (hasattr(model.diamond,'hierarchy') and
             hasattr(model.diamond.hierarchy,'apex_feedback_gain')):
         with apex_feedback_disabled(model):
@@ -393,6 +418,34 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
     if 'book_ids' in data:
         result['book_geometry_gain'] = boot_books(gain, data['book_ids'], seed)
         result['book_correct_history'] = boot_books(history, data['book_ids'], seed+1)
+    if hasattr(model.diamond.geometry,'history_writer'):
+        word_writer=without_writer-correct
+        result['history_value_word_gain']=float(word_writer.mean())
+        result['history_value_branch_gain']=float((no_writer_extra['branch_nll']-extra['branch_nll']).mean())
+        result['history_value_word_bootstrap']=boot_books(word_writer,data['book_ids'],seed+32)
+        value_only=foreign_values-correct
+        result['history_value_content_advantage_nats_per_word']=float(value_only.mean())
+        result['history_value_content_book_bootstrap']=boot_books(
+            value_only,data['book_ids'],seed+34)
+        result['history_value_donors']=int(len(value_donors))
+        original_mask=data.get('diamond_modal_mask',data.get('memory_modal_mask'))[:,8:]
+        result['far_modal_eligibility_fraction']=float(original_mask.float().mean())
+        result['far_modal_examples_with_value']=int(original_mask.any(1).sum())
+        result['eligible_independent_books']=int(data['book_ids'].unique().numel())
+        if 'byte_ar_logits' in extra:
+            _,counts,correct_bytes,_,_=layered_byte_losses(extra,data)
+            _,_,off_bytes,_,_=layered_byte_losses(no_writer_extra,data)
+            result['history_value_byte_gain_nats_per_byte']=float(
+                (off_bytes-correct_bytes).sum()/counts.sum().clamp_min(1))
+            result['history_value_byte_bootstrap']=book_byte_ratio_bootstrap(
+                (off_bytes-correct_bytes)/counts.clamp_min(1),
+                counts,data['book_ids'],seed+33)
+            foreign_per_word,_,foreign_ce,_,_=layered_byte_losses(foreign_value_extra,data)
+            result['history_value_content_advantage_nats_per_byte']=float(
+                (foreign_ce-correct_bytes).sum()/counts.sum().clamp_min(1))
+            result['history_value_content_byte_book_bootstrap']=book_byte_ratio_bootstrap(
+                foreign_per_word-layered_byte_losses(extra,data)[0],
+                counts,data['book_ids'],seed+35)
     if with_topk:
         assert base is not None
         result['prediction_metrics'] = vocabulary_evaluate(model, base, data, seed+2)
@@ -424,7 +477,8 @@ def warm_start_only_if_migrated(model, args, loaded_meta):
     resuming = (getattr(args, 'layered', False) and loaded_meta.get(
         'architecture_round') in ('FA1_R7_31_LAYERED_DIAMOND_V1',
                                   'FA1_R7_32_CALIBRATED_DIAMOND_V1',
-                                  'FA1_R7_UNIFIED_APEX_FEEDBACK_V1'))
+                                  'FA1_R7_UNIFIED_APEX_FEEDBACK_V1',
+                                  'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1'))
     if resuming:
         return False
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
@@ -446,6 +500,8 @@ def train_step(model, optimizer, sample, step, args):
     no_geo_branch = None
     no_read_branch = None
     no_factor_branch = None
+    no_writer_branch = None
+    no_writer_bytes = None
     no_geo_bytes = None
     matched = None
     no_geo_matched_branch = None
@@ -460,6 +516,12 @@ def train_step(model, optimizer, sample, step, args):
     if getattr(args,'matched_far_weight',0.) > 0:
         far_horizon_index=(step-1)//max(1,args.ablate_every)%len(HORIZONS)
         far_matched, _ = matched_far_history(sample,args.seed+step+13,far_horizon_index)
+    writer_wrong=None
+    if getattr(args,'history_value_writer',False) and (
+            getattr(args,'history_value_content_weight',0.) or
+            getattr(args,'history_value_content_byte_weight',0.)):
+        from fa1_r735_history_values import different_book_writer_values
+        writer_wrong,_=different_book_writer_values(sample,args.seed+step+735)
     if step % args.ablate_every == 0:
         with torch.no_grad():
             with geometry_disabled(model):
@@ -484,6 +546,12 @@ def train_step(model, optimizer, sample, step, args):
                 with factor_read_disabled(model):
                     _,no_factor=forward(model,sample)
                 no_factor_branch=no_factor['branch_nll'].detach()
+            if hasattr(model.diamond.geometry,'history_writer'):
+                with history_value_disabled(model):
+                    _,no_writer=forward(model,sample)
+                no_writer_branch=no_writer['branch_nll'].detach()
+                if 'byte_ar_logits' in no_writer:
+                    no_writer_bytes=layered_byte_losses(no_writer,sample)[0].detach()
         no_geo_branch = no_geo['branch_nll'].detach()
     correct, extra = forward(model, sample)
     branch = extra['branch_nll'].mean()
@@ -499,6 +567,17 @@ def train_step(model, optimizer, sample, step, args):
     foreign, _ = unrelated_book_context(sample, args.seed + step)
     _, wrong_extra = forward(model, foreign)
     different_book = soft_margin(extra['branch_nll'], wrong_extra['branch_nll'], args.history_margin)
+    writer_content_loss=correct.new_zeros(())
+    writer_content_byte_loss=correct.new_zeros(())
+    if writer_wrong is not None:
+        _,writer_wrong_extra=forward(model,writer_wrong)
+        writer_content_loss=soft_margin(extra['branch_nll'],
+                                        writer_wrong_extra['branch_nll'],args.history_margin)
+        if 'byte_ar_logits' in writer_wrong_extra:
+            other_per_word=layered_byte_losses(writer_wrong_extra,sample)[0]
+            valid=counts>0
+            writer_content_byte_loss=soft_margin(per_word[valid],other_per_word[valid],
+                                                 args.history_margin)
     matched_geo_penalty=correct.new_zeros(())
     matched_byte_penalty=correct.new_zeros(())
     if matched is not None:
@@ -543,12 +622,19 @@ def train_step(model, optimizer, sample, step, args):
     pair_loss = correct.new_zeros(())
     read_loss = correct.new_zeros(())
     factor_loss = correct.new_zeros(())
+    writer_loss = correct.new_zeros(())
+    writer_byte_loss = correct.new_zeros(())
     if no_geo_branch is not None:
         geo_loss = soft_margin(extra['branch_nll'], no_geo_branch, args.geometry_margin)
         if no_read_branch is not None:
             read_loss=soft_margin(extra['branch_nll'],no_read_branch,args.geometry_margin)
         if no_factor_branch is not None:
             factor_loss=soft_margin(extra['branch_nll'],no_factor_branch,args.geometry_margin)
+        if no_writer_branch is not None:
+            writer_loss=soft_margin(extra['branch_nll'],no_writer_branch,args.geometry_margin)
+            if no_writer_bytes is not None:
+                valid=counts>0
+                writer_byte_loss=soft_margin(per_word[valid],no_writer_bytes[valid],args.geometry_margin)
         _, no_apex = forward(model, sample, 'no_apex')
         apex_loss = soft_margin(extra['branch_nll'], no_apex['branch_nll'], args.geometry_margin)
         _, no_pair = forward(model, sample, 'no_pair')
@@ -558,6 +644,10 @@ def train_step(model, optimizer, sample, step, args):
                  args.geometry_weight * geo_loss + args.apex_weight * apex_loss +
                  args.pair_weight * pair_loss + args.contextual_weight * read_loss +
                  getattr(args,'factor_weight',0.) * factor_loss +
+                 getattr(args,'history_value_weight',0.) * writer_loss +
+                 getattr(args,'history_value_byte_weight',0.) * writer_byte_loss +
+                 getattr(args,'history_value_content_weight',0.) * writer_content_loss +
+                 getattr(args,'history_value_content_byte_weight',0.) * writer_content_byte_loss +
                  getattr(args,'byte_ar_weight',0.) * byte_ar +
                  getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty +
                  getattr(args,'matched_geometry_weight',0.) * matched_geo_penalty +
@@ -576,6 +666,10 @@ def train_step(model, optimizer, sample, step, args):
             'train_branch_nll': float(branch.detach()), 'train_first_byte_nll': float(byte.detach()),
             'train_different_book_penalty': float(different_book.detach()),
             'train_factor_contrast':float(factor_loss.detach()),
+            'train_history_value_contrast':float(writer_loss.detach()),
+            'train_history_value_byte_contrast':float(writer_byte_loss.detach()),
+            'train_history_value_content_contrast':float(writer_content_loss.detach()),
+            'train_history_value_content_byte_contrast':float(writer_content_byte_loss.detach()),
             'train_layered_byte_ar_nll':float(byte_ar.detach()),
             'train_layered_byte_geometry_contrast':float(byte_geo_penalty.detach()),
             'train_matched_geometry_contrast':float(matched_geo_penalty.detach()),
@@ -618,6 +712,21 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['apex_feedback_word_bootstrap']['book_bootstrap_ci95'][0] <= 0 or
                 candidate['apex_feedback_byte_gain_nats_per_byte'] <= 0 or
                 candidate['apex_feedback_byte_bootstrap']['book_bootstrap_ci95'][0] <= 0):
+            return False
+    if 'history_value_word_gain' in candidate:
+        if (candidate['history_value_word_gain'] <= 0 or
+                candidate['history_value_branch_gain'] <= 0 or
+                candidate['history_value_word_bootstrap']['book_bootstrap_ci95'][0] <= 0 or
+                candidate.get('history_value_byte_gain_nats_per_byte', 0) <= 0 or
+                candidate['history_value_byte_bootstrap']['book_bootstrap_ci95'][0] <= 0):
+            return False
+        # At least twelve age-eligible, independent development books are
+        # required; a short-book subset cannot validate 128K memory claims.
+        if (candidate.get('eligible_independent_books',0) < 12 or
+                candidate.get('history_value_content_advantage_nats_per_word',0) <= 0 or
+                candidate['history_value_content_book_bootstrap']['book_bootstrap_ci95'][0] <= 0 or
+                candidate.get('history_value_content_advantage_nats_per_byte',0) <= 0 or
+                candidate['history_value_content_byte_book_bootstrap']['book_bootstrap_ci95'][0] <= 0):
             return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
@@ -707,6 +816,10 @@ def run(args):
     if getattr(args, 'apex_feedback', False):
         args.calibrated = True
         args.layered = True
+    if getattr(args,'history_value_writer',False):
+        args.apex_feedback=True
+        args.calibrated=True
+        args.layered=True
     if any(getattr(args, n, 0.) > 0 for n in (
         'matched_far_weight','matched_far_byte_weight',
         'matched_far_geometry_weight','matched_far_byte_geometry_weight')):
@@ -743,6 +856,12 @@ def run(args):
         model, optimizer, base, compositor, parent_meta = load_contextual(args.checkpoint, args.root, args.threads)
     else:
         model, optimizer, base, compositor, parent_meta = load_unified(args.checkpoint, args.root, args.threads)
+    if getattr(args,'history_value_writer',False):
+        if not hasattr(model.diamond.geometry,'history_writer'):
+            from fa1_r735_history_values import attach_history_values
+            attach_history_values(model,optimizer)
+    elif hasattr(model.diamond.geometry,'history_writer'):
+        raise ValueError('FA1 history-value checkpoint requires --history-value-writer')
     if (hasattr(getattr(model.diamond, 'hierarchy', None), 'apex_feedback') and
             not getattr(args, 'apex_feedback', False)):
         raise ValueError('FA1 apex-feedback checkpoint requires --apex-feedback '
@@ -771,6 +890,16 @@ def run(args):
     # Source-migrated candidates get the initial gate warm-start. Fully trained
     # R7.31/R7.32 candidates retain the learned gates and Adam moments.
     preserve_learned_gates = not warm_start_only_if_migrated(model,args,parent_meta)
+    causal_gate_warmup=None
+    if getattr(args,'history_value_writer',False):
+        from fa1_r735_history_values import open_new_causal_gates
+        causal_gate_warmup=open_new_causal_gates(
+            model,parent_meta.get('architecture_round',''),
+            history_gain=args.history_value_init,
+            apex_gain=args.apex_feedback_init,
+            resume_override=getattr(args,'resume_causal_gate_warmup',False))
+        if getattr(args,'resume_causal_gate_warmup',False):
+            preserve_learned_gates=False
     opened = geometry_diagnostic(model, dev, args.seed+3,
                                  with_matched_far=getattr(args,'matched_far_history',False))
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
@@ -836,10 +965,12 @@ def run(args):
         'factorized_geometric_read':bool(getattr(args,'factorized',False) or getattr(args,'layered',False)),
         'layered_autoregressive_decoder':bool(getattr(args,'layered',False)),
         'resumed_learned_gates_unchanged':preserve_learned_gates,
+        'causal_candidate_gate_warmup':causal_gate_warmup,
         'matched_history_contrast':bool(getattr(args,'layered',False)),
         'calibrated_geometric_trust':bool(getattr(args,'calibrated',False)),
         'causal_apex_feedback':bool(getattr(args,'apex_feedback',False)),
         'matched_far_history_controls':bool(getattr(args,'matched_far_history',False)),
+        'causal_history_value_writer':bool(getattr(args,'history_value_writer',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -867,6 +998,8 @@ def run(args):
             args.candidate_checkpoint, model, optimizer, args.root, args.checkpoint,
             source_metadata={'format':'FA1_R7_27_SINGLE_MODEL_SINGLE_HYBRID_OPTIMIZER_V1'},
             candidate_trained=True, training_round=('FA1 unified causal apex feedback'
+                                                     if getattr(args,'history_value_writer',False) else
+                                                     'FA1 unified causal apex feedback'
                                                      if getattr(args,'apex_feedback',False) else
                                                      'FA1 R7.33 matched old-history geometry contrast'
                                                      if getattr(args,'matched_far_history',False) else
@@ -879,7 +1012,9 @@ def run(args):
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_UNIFIED_APEX_FEEDBACK_V1'
+            architecture_round=('FA1_R7_35_CAUSAL_HISTORY_VALUES_V1'
+                                if getattr(args,'history_value_writer',False) else
+                                'FA1_R7_UNIFIED_APEX_FEEDBACK_V1'
                                 if getattr(args,'apex_feedback',False) else
                                 'FA1_R7_32_CALIBRATED_DIAMOND_V1'
                                 if getattr(args,'calibrated',False) else
@@ -913,6 +1048,18 @@ def parse_args():
     p.add_argument('--layered',action='store_true',help='R7.31 continuation with full-word byte AR')
     p.add_argument('--calibrated',action='store_true',help='R7.32 continuation with identity-initialized word/byte geometric trust')
     p.add_argument('--apex-feedback',action='store_true',help='in-place causal apex-to-word/byte cross-attention with zero-init gate')
+    p.add_argument('--history-value-writer',action='store_true',
+                   help='R7.35 causal far-token value writes at top-8 signed triangles')
+    p.add_argument('--history-value-weight',type=float,default=0.35)
+    p.add_argument('--history-value-byte-weight',type=float,default=0.15)
+    p.add_argument('--history-value-content-weight',type=float,default=.25,
+                   help='value-only correct vs foreign-book word contrast')
+    p.add_argument('--history-value-content-byte-weight',type=float,default=.10,
+                   help='value-only correct vs foreign-book conditional byte contrast')
+    p.add_argument('--history-value-init',type=float,default=.08)
+    p.add_argument('--apex-feedback-init',type=float,default=.06)
+    p.add_argument('--resume-causal-gate-warmup',action='store_true',
+                   help='explicitly open small learned writer/apex gates on an unpromoted R7.35 continuation')
     p.add_argument('--matched-far-history',action='store_true',help='R7.33 matched recent-context/far-history DEV controls')
     p.add_argument('--matched-far-weight',type=float,default=0.,help='TRAIN correct-vs-foreign far-history word contrast')
     p.add_argument('--matched-far-byte-weight',type=float,default=0.,help='TRAIN conditional byte far-history contrast')

@@ -20,6 +20,7 @@ def canonical_args():
     args.calibrated = True
     args.matched_far_history = True
     args.apex_feedback = True
+    args.history_value_writer = True
     return args
 
 
