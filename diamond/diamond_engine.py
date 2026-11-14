@@ -903,6 +903,12 @@ FF_W = ARGS.ff_w
 FF_S = ARGS.ff_s
 DEPTH = ARGS.depth
 USE_CHUNK_CONV = bool(ARGS.chunk_conv)
+# Recursive meta-feedback bus: bit/byte + subword/word + sentence states are
+# pooled into a meta state, expanded into temporal +0/+1/+2/+3 slots, then
+# projected back into every tower layer for another pass.
+DIM_M = 128
+FF_M = 256
+META_LOOPS = 1
 
 
 class MoE(tf.keras.layers.Layer):
@@ -1027,6 +1033,33 @@ class TripleStaged(tf.keras.Model):
             name="sent_cache_gain",
         )
 
+        # Combined tokenizer feedback bus and temporal meta slots.
+        self.meta_bit = tf.keras.layers.Dense(DIM_M)
+        self.meta_subword = tf.keras.layers.Dense(DIM_M)
+        self.meta_sentence = tf.keras.layers.Dense(DIM_M)
+        self.meta_bus = tf.keras.layers.Dense(DIM_M)
+        self.meta_moe2 = MoE(256, DIM_M, 2)
+        self.meta_moe3 = MoE(256, DIM_M, 3)
+        self.meta_temporal = tf.keras.layers.Embedding(4, DIM_M)
+        self.meta_blocks = [
+            Micro(DIM_M, 4, FF_M, ARGS.dropout) for _ in range(2)
+        ]
+        self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
+        self.meta_to_word = tf.keras.layers.Dense(DIM_W)
+        self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
+        self.meta_gate_byte = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_byte",
+        )
+        self.meta_gate_word = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_word",
+        )
+        self.meta_gate_sent = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-0.85),
+            name="meta_gate_sent",
+        )
+
         self.byte_to_word = tf.keras.layers.Dense(DIM_W)
         self.word_to_sent = tf.keras.layers.Dense(DIM_S)
         self.sent_to_word = tf.keras.layers.Dense(DIM_W)
@@ -1076,6 +1109,40 @@ class TripleStaged(tf.keras.Model):
         s_h = self.sent_moe(s_emb) + s_emb
         for block in self.sent_blocks:
             s_h = block(s_h, training=training)
+
+        # Recursive meta feedback: combined tokenizer states -> meta ->
+        # temporal +0/+1/+2/+3 -> feedback into every tower layer.
+        meta_now = None
+        meta_future = None
+        for _ in range(META_LOOPS):
+            b_pool = tf.reduce_mean(b_h, axis=1)
+            w_pool = tf.reduce_mean(w_h, axis=1)
+            s_pool = tf.reduce_mean(s_h, axis=1)
+            meta = self.meta_bus(
+                tf.concat(
+                    [self.meta_bit(b_pool), self.meta_subword(w_pool),
+                     self.meta_sentence(s_pool)],
+                    axis=-1,
+                )
+            )
+            meta = self.meta_moe2(meta) + self.meta_moe3(meta) + meta
+            slots = self.meta_temporal(tf.range(4))[None, :, :] + meta[:, None, :]
+            for block in self.meta_blocks:
+                slots = block(slots, training=training)
+            meta_now = slots[:, 0, :]
+            meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
+            fb_b = self.meta_to_byte(meta_now) * tf.sigmoid(self.meta_gate_byte)
+            fb_w = self.meta_to_word(meta_now) * tf.sigmoid(self.meta_gate_word)
+            fb_s = self.meta_to_sent(meta_now) * tf.sigmoid(self.meta_gate_sent)
+            for block in self.byte_blocks:
+                b_h = block(b_h + fb_b[:, None, :], training=training)
+            for block in self.word_blocks:
+                w_h = block(w_h + fb_w[:, None, :], training=training)
+            for block in self.sent_blocks:
+                s_h = block(s_h + fb_s[:, None, :], training=training)
+        b_last = b_h[:, -1, :]
+        w_last = w_h[:, -1, :]
+
         s_attn = self.sent_word_attn(s_h, w_h, w_h)
         s_h = self.sent_word_ln(s_h + tf.sigmoid(self.sent_word_gate(s_h)) * s_attn)
         s_battn = self.sent_byte_attn(s_h, b_h, b_h)
@@ -1083,9 +1150,10 @@ class TripleStaged(tf.keras.Model):
         # The final slot is the current-sentence prefix, not a completed
         # sentence. A learned boundary vector tells the sentence head which
         # representation is being asked to predict the next sentence.
-        s_last = s_h[:, -1, :] + self.sent_boundary
+        s_last = s_h[:, -1, :] + self.sent_boundary + self.meta_to_sent(meta_future)
 
-        w_up = w_last + self.byte_to_word(b_last)
+        b_last = b_last + self.meta_to_byte(meta_future)
+        w_up = w_last + self.byte_to_word(b_last) + self.meta_to_word(meta_future)
         s_up = s_last + self.word_to_sent(w_last)
         if two_way:
             w_cond = w_up + self.sent_to_word(s_up)
@@ -1151,6 +1219,9 @@ SIGNATURE = json.dumps({
     "sent_prefix": True,
     "sent_content": "attention_first_last",
     "sent_cache": "first_word_document_cache",
+    "meta_feedback": "temporal4_recursive_tokenizer_bus",
+    "meta_loops": META_LOOPS,
+    "meta_dim": DIM_M,
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
