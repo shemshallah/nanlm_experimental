@@ -1818,7 +1818,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             break
 
-        lr = current_lr(step, elapsed)
+        lr = current_lr(step, run_elapsed)
         for group in optimizer.param_groups:
             group["lr"] = lr * float(group.get("lr_scale", 1.0))
         if args.mtp_gt_mix_steps > 0:
