@@ -45,12 +45,32 @@ before very long 32K CPU training. The 256-point, 32,640-pair,
 
 `python -m unittest discover -s poincare_mirror/tests -p 'test_*.py' -q`
 
-**67 tests passed, 2 skipped** in the local environment. Six new R36 tests
+**68 tests passed, 2 skipped** in the local environment. Seven new R36 tests
 cover rotation-selective recall from otherwise identical histories,
 strict causality/document isolation, exact inherited +1/+2/+3 logits,
 identical old Adam state counts, direct gradient flow through
-Fourier key/query/value and readout, and a complete 512D/36 mixed-head
+Fourier key/query/value and readout, an auxiliary-only feedback-disabled
+control, and a complete 512D/36 mixed-head
 forward/backward pass (with bounded depth and expert count).
+
+### Separating auxiliary supervision from feedback (320 updates)
+
+`python poincare_mirror/scripts/r36_holonomy_pilot.py 320` now builds a
+third **auxiliary-only** arm. It starts from an identical migrated R36
+model and optimizer, trains its Fourier next-byte loss, but disconnects
+its geometry read from the main prediction state. All arms use identical
+windows. This is a training-time control, distinct from endpoint ablation.
+
+| Arm | DEV CE (nats/byte) | DEV bits/byte |
+| --- | ---: | ---: |
+| R35 continuing | 0.967514 | 1.395828 |
+| R36 full Fourier feedback | **0.965951** | **1.393573** |
+| R36 auxiliary-only (feedback off throughout) | 0.981170 | 1.415529 |
+
+This identifies a possible training-path benefit of the feedback, but
+single-seed tiny-corpus differences are not reliable evidence of a
+generalizable benefit. Turning off feedback **at the R36 endpoint** still
+improves DEV CE slightly (0.965951 to 0.965903). Both facts matter.
 
 ### Matched synthetic grammar (960 additional updates per model)
 
