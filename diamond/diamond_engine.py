@@ -325,6 +325,10 @@ def discover_corpus_roots(cli_dirs):
 
 def _corpus_category(path):
     p = path.replace("\\", "/").lower()
+    if "/wikitext" in p:
+        return "wikitext"
+    if "/fineweb" in p:
+        return "fineweb"
     if "/short_stories/" in p or "/short-stories/" in p or "/short stories/" in p:
         return "short_stories"
     if "/paragraphs/" in p:
@@ -475,10 +479,11 @@ def load_corpus(cap):
         rng.shuffle(groups[key])
 
     prose_cats = [
-        c for c in ("short_stories", "sentences", "paragraphs", "domains", "other")
+        c for c in ("wikitext", "fineweb", "short_stories", "sentences", "paragraphs", "domains", "other")
         if groups.get(c)
     ]
     base_weights = {
+        "wikitext": 0.50, "fineweb": 0.50,
         "short_stories": 0.40, "sentences": 0.25, "paragraphs": 0.25,
         "domains": 0.10, "other": 0.10,
     }
