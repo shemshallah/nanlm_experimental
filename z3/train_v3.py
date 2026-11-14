@@ -853,6 +853,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--mtp-hd-time", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="use fixed HD <now> + permutation future rails")
+    model.add_argument("--mtp-branch-norm", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="RMS-normalize the MTP branch before its output")
     model.add_argument("--mtp-gate-prior", type=float, default=0.7,
                        help="initial confidence-gate reliability prior")
     model.add_argument("--dropout", type=float, default=0.1)
@@ -889,6 +892,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--steps", type=int, default=2000)
     train.add_argument("--batch-size", type=int, default=8)
     train.add_argument("--lr", type=float, default=3e-4)
+    train.add_argument("--mtp-lr-scale", type=float, default=0.5,
+                       help="MTP branch learning-rate multiplier")
     train.add_argument("--weight-decay", type=float, default=0.05)
     train.add_argument("--grad-clip", type=float, default=1.0)
     train.add_argument("--warmup-frac", type=float, default=0.03)
@@ -1052,6 +1057,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--ema-start-frac must be in [0, 1]")
     if args.mtp_weight < 0 or args.load_balance_coef < 0 or args.router_z_coef < 0:
         raise SystemExit("loss coefficients must be non-negative")
+    if args.mtp_lr_scale < 0:
+        raise SystemExit("--mtp-lr-scale must be non-negative")
     if args.max_bytes < 0 or args.max_seconds < 0:
         raise SystemExit("--max-bytes and --max-seconds must be non-negative")
     if args.resume and args.init_from:
@@ -1172,6 +1179,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_teacher_prob=float(args.mtp_teacher_prob),
         mtp_aux_layer=int(args.mtp_aux_layer),
         mtp_hd_time=bool(args.mtp_hd_time),
+        mtp_branch_norm=bool(args.mtp_branch_norm),
         mtp_aux_layers=tuple(
             int(x) for x in str(args.mtp_aux_layers).split(",") if x.strip()
         ),
@@ -1426,6 +1434,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("moe_associative_memory", "--moe-associative-memory"),
                 ("moe_hyperdimensional", "--moe-hyperdimensional"),
                 ("mtp_hd_time", "--mtp-hd-time"),
+                ("mtp_branch_norm", "--mtp-branch-norm"),
             ):
                 if (
                     key not in saved_model_config
@@ -1505,7 +1514,8 @@ def main(argv: list[str] | None = None) -> int:
         last_prefix = f"blocks.{cfg.n_layers - 1}."
         for name, param in model.named_parameters():
             keep = (
-                name.startswith("mtp_heads.")
+                name.startswith("mtp_")
+                or name.startswith("mtp_heads.")
                 or name.startswith("mtp_adapters.")
                 or name.startswith("mtp_blocks.")
                 or name.startswith("mtp_now.")
@@ -1527,8 +1537,33 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
+    mtp_param_ids = {
+        id(parameter)
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+        and (
+            name.startswith("mtp_")
+            or name.startswith("mtp.")
+            or ".mtp_" in name
+        )
+    }
+    trunk_params = [
+        p for p in model.parameters()
+        if p.requires_grad and id(p) not in mtp_param_ids
+    ]
+    mtp_params = [
+        p for p in model.parameters()
+        if p.requires_grad and id(p) in mtp_param_ids
+    ]
     optimizer = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad],
+        [
+            {"params": trunk_params, "lr": args.lr, "lr_scale": 1.0},
+            {
+                "params": mtp_params,
+                "lr": args.lr * args.mtp_lr_scale,
+                "lr_scale": args.mtp_lr_scale,
+            },
+        ],
         lr=args.lr,
         weight_decay=args.weight_decay,
         fused=(device.type == "cuda" and not amp),
@@ -1746,7 +1781,7 @@ def main(argv: list[str] | None = None) -> int:
 
         lr = current_lr(step, elapsed)
         for group in optimizer.param_groups:
-            group["lr"] = lr
+            group["lr"] = lr * float(group.get("lr_scale", 1.0))
         if args.mtp_gt_mix_steps > 0:
             mix_frac = min(1.0, step / args.mtp_gt_mix_steps)
         else:

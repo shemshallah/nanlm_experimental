@@ -129,6 +129,7 @@ class V3Config:
     # Fixed hyperdimensional time rails: bundle context + <now>, then bind
     # with a fixed random permutation of <now> for each future lag.
     mtp_hd_time: bool = True
+    mtp_branch_norm: bool = True
     dropout: float = 0.1
     rope_base: float = 10000.0
 
@@ -675,6 +676,10 @@ class V3LM(nn.Module):
             self.hd_perm = None
             self.mtp_hd_proj = nn.ModuleList()
         self.mtp_next_norm = RMSNorm(cfg.d_model) if cfg.mtp_block else None
+        self.mtp_branch_norm = (
+            RMSNorm(cfg.d_model)
+            if cfg.mtp_block and cfg.mtp_branch_norm else None
+        )
         self.mtp_cond_proj = nn.ModuleList(
             [nn.Linear(2 * cfg.d_model, cfg.d_model, bias=False)
              for _ in range(n_mtp)]
@@ -875,6 +880,9 @@ class V3LM(nn.Module):
                 mtp_gt_mix: float | None = None):
         x = self.embed(tokens)
         lbs, zs = [], []
+        branch_lbs: list[torch.Tensor] = []
+        hd_diversities: list[torch.Tensor] = []
+        memory_gates: list[torch.Tensor] = []
         aux_hidden: dict[int, torch.Tensor] = {}
         route_ctx = self.route_init.to(dtype=x.dtype).unsqueeze(0).expand(
             x.shape[0], -1
@@ -886,6 +894,13 @@ class V3LM(nn.Module):
             if lb is not None:
                 lbs.append(lb)
                 zs.append(z)
+            if block_aux:
+                if block_aux.get("branch_load_balance") is not None:
+                    branch_lbs.append(block_aux["branch_load_balance"])
+                if block_aux.get("hd_code_diversity") is not None:
+                    hd_diversities.append(block_aux["hd_code_diversity"])
+                if block_aux.get("memory_gate_mean") is not None:
+                    memory_gates.append(block_aux["memory_gate_mean"])
         mem_aux = {}
         if self.memory_path is not None:
             x, mem_aux = self.memory_path.cross(x)
@@ -992,10 +1007,12 @@ class V3LM(nn.Module):
                         x, positions, idx + 2
                     )
                     if hd_signal is not None:
-                        cond = cond + self.mtp_hd_proj[idx](hd_signal)
+                        cond = cond + 0.1 * self.mtp_hd_proj[idx](hd_signal)
                 branch, block_aux = self.mtp_blocks[idx](
                     cond, context=route_ctx
                 )
+                if self.mtp_branch_norm is not None:
+                    branch = self.mtp_branch_norm(branch)
                 if block_aux:
                     if block_aux.get("load_balance") is not None:
                         mtp_block_lb.append(block_aux["load_balance"])
@@ -1052,6 +1069,12 @@ class V3LM(nn.Module):
         if lbs:
             aux["load_balance"] = torch.stack(lbs).mean()
             aux["router_z"] = torch.stack(zs).mean()
+        if branch_lbs:
+            aux["branch_load_balance"] = torch.stack(branch_lbs).mean()
+        if hd_diversities:
+            aux["hd_code_diversity"] = torch.stack(hd_diversities).mean()
+        if memory_gates:
+            aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
         return main, mtp, aux
 
     def parameter_count(self) -> int:
