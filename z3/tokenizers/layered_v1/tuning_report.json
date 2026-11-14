@@ -42,6 +42,7 @@
       "selected": {
         "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
         "backend": "native",
+        "base_vocab_size": 64000,
         "vocab_size": 64060,
         "bytes_per_token": 4.652199418951132,
         "score": 0.29136091577020173,
@@ -63,6 +64,7 @@
         {
           "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
           "backend": "native",
+          "base_vocab_size": 64000,
           "vocab_size": 64060,
           "bytes_per_token": 4.652199418951132,
           "score": 0.29136091577020173,
@@ -85,7 +87,7 @@
         "min_bytes_per_token": 4.5,
         "max_vocab": 64000,
         "objective": "efficiency",
-        "passed": false
+        "passed": true
       }
     },
     "token": {
@@ -115,16 +117,16 @@
       }
     },
     "math": {
-      "spans": 1408,
+      "spans": 3908,
       "by_kind": {
-        "operator": 728,
-        "number": 668,
-        "inline": 12
+        "operator": 1684,
+        "number": 2218,
+        "inline": 6
       },
-      "byte_coverage": 0.558022373496074,
-      "mean_subword_per_span": 43.7734375,
-      "max_subword_per_span": 50448,
-      "atomic_number_operator_command_rate": 0.9376790830945558,
+      "byte_coverage": 0.016534930315506725,
+      "mean_subword_per_span": 1.1727226202661207,
+      "max_subword_per_span": 77,
+      "atomic_number_operator_command_rate": 0.893900563813429,
       "gate": {
         "applicable": true,
         "min_atomic_rate": 0.0,
@@ -238,12 +240,12 @@
   "gates": {
     "bit": true,
     "byte": true,
-    "subword": false,
+    "subword": true,
     "token": true,
     "math": true,
     "word": true,
     "sentence": true
   },
-  "artifact": "/kaggle/working/layered_tokenizer_v3/layered_tokenizer.json",
-  "all_passed": false
+  "artifact": "/kaggle/working/layered_tokenizer_v4/layered_tokenizer.json",
+  "all_passed": true
 }
