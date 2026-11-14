@@ -58,6 +58,9 @@ V4_TOKENIZER_PATH = (
     SCRIPT_DIR / "tokenizers" / "v4_64k" / "tokenizer.json"
 )
 V4_VOCAB_SIZE = 64000
+LAYERED_TOKENIZER_PATH = (
+    SCRIPT_DIR / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -232,11 +235,44 @@ class BPETokenizer:
         return np.asarray(self._tokenizer.encode(text).ids, dtype=np.int32)
 
 
-def build_tokenizer(args: argparse.Namespace) -> ByteTokenizer | BPETokenizer:
+class LayeredFlatTokenizer:
+    """Flat subword stream from the tuned layered artifact.
+
+    The bit/byte/word/sentence layers remain available on the artifact for
+    aligned auxiliary objectives; the language-model trainer consumes the
+    subword/token stream through the same interface as v4.
+    """
+
+    kind = "layered"
+
+    def __init__(self, path: str | Path = LAYERED_TOKENIZER_PATH):
+        from layered_tokenizer import load_artifact
+
+        self.path = Path(path).expanduser()
+        if not self.path.is_file():
+            raise SystemExit(f"layered tokenizer not found: {self.path}")
+        self.layered = load_artifact(self.path)
+        self.vocab_size = self.layered.vocab_size
+        self.separator = (
+            self.layered.eos_id
+            if self.layered.eos_id is not None
+            else 2
+        )
+
+    def encode(self, text: str) -> np.ndarray:
+        encoded = self.layered.encode(text, add_document_frame=False)
+        return np.asarray(encoded.subword.ids, dtype=np.int32)
+
+
+def build_tokenizer(
+    args: argparse.Namespace,
+) -> ByteTokenizer | BPETokenizer | LayeredFlatTokenizer:
     if args.tokenizer == "bytes":
         return ByteTokenizer()
     if args.tokenizer == "v4":
         return BPETokenizer(V4_TOKENIZER_PATH)
+    if args.tokenizer == "layered":
+        return LayeredFlatTokenizer(args.layered_model)
     if not args.bpe_model:
         raise SystemExit("--bpe-model is required when --tokenizer bpe")
     return BPETokenizer(Path(args.bpe_model).expanduser())
@@ -244,7 +280,7 @@ def build_tokenizer(args: argparse.Namespace) -> ByteTokenizer | BPETokenizer:
 
 def load_text_ids(
     paths: list[str],
-    tokenizer: ByteTokenizer | BPETokenizer,
+    tokenizer: ByteTokenizer | BPETokenizer | LayeredFlatTokenizer,
     max_bytes: int,
 ) -> np.ndarray:
     """Encode corpus files in bounded chunks, with separators between files."""
@@ -706,11 +742,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="one or more UTF-8 text files (not used by --random-smoke)",
     )
     data.add_argument(
-        "--tokenizer", choices=("auto", "v4", "bpe", "bytes", "bin"),
+        "--tokenizer",
+        choices=("auto", "v4", "layered", "bpe", "bytes", "bin"),
         default="auto",
-        help="tokenizer; auto=v4 text or bin for *.bin; 'bin' reads IDs",
+        help="tokenizer; auto=v4 text or bin for *.bin; layered uses tuned artifact",
     )
     data.add_argument("--bpe-model", default="", help="tokenizer.json path for --tokenizer bpe")
+    data.add_argument(
+        "--layered-model",
+        default=str(LAYERED_TOKENIZER_PATH),
+        help="tuned layered tokenizer artifact",
+    )
     data.add_argument("--token-dtype", choices=("uint8", "uint16", "uint32", "int32"),
                       default="uint16", help="dtype for --tokenizer bin")
     data.add_argument("--val-corpus", default="",

@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "stage": "all",
+  "corpus": {
+    "paths": [
+      "/kaggle/working/fineweb_sample.txt"
+    ],
+    "raw_bytes": 5000000,
+    "train_chars": 4484403,
+    "eval_chars": 498050
+  },
+  "layers": {
+    "bit": {
+      "selected": "msb_first",
+      "candidates": [
+        {
+          "order": "msb_first",
+          "bits": 524288,
+          "bits_per_byte": 8.0,
+          "roundtrip": true
+        },
+        {
+          "order": "lsb_first",
+          "bits": 524288,
+          "bits_per_byte": 8.0,
+          "roundtrip": true
+        }
+      ],
+      "gate": {
+        "exact_roundtrip": true
+      }
+    },
+    "byte": {
+      "encoding": "utf-8",
+      "bytes": 262144,
+      "roundtrip": true,
+      "gate": {
+        "exact_roundtrip": true
+      }
+    },
+    "subword": {
+      "selected": {
+        "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
+        "backend": "native",
+        "vocab_size": 64000,
+        "bytes_per_token": 4.652199418951132,
+        "tokens": 107392,
+        "roundtrip": true,
+        "byte_coverage": 1.0,
+        "special_tokens": [
+          "<pad>",
+          "<bos>",
+          "<eos>",
+          "<doc>",
+          "<now>",
+          "<future_1>",
+          "<future_2>",
+          "<future_3>"
+        ]
+      },
+      "candidates": [
+        {
+          "path": "/kaggle/working/nanlm_experimental/z3/tokenizers/v4_64k/tokenizer.json",
+          "backend": "native",
+          "vocab_size": 64000,
+          "bytes_per_token": 4.652199418951132,
+          "tokens": 107392,
+          "roundtrip": true,
+          "byte_coverage": 1.0,
+          "special_tokens": [
+            "<pad>",
+            "<bos>",
+            "<eos>",
+            "<doc>",
+            "<now>",
+            "<future_1>",
+            "<future_2>",
+            "<future_3>"
+          ]
+        }
+      ],
+      "gate": {
+        "min_bytes_per_token": 4.5,
+        "passed": true
+      }
+    },
+    "token": {
+      "doc_id": 3,
+      "eos_id": 2,
+      "now_id": 4,
+      "specials": [
+        "<pad>",
+        "<bos>",
+        "<eos>",
+        "<doc>",
+        "<now>",
+        "<future_1>",
+        "<future_2>",
+        "<future_3>"
+      ],
+      "tokens": 42533,
+      "frame": {
+        "doc": true,
+        "eos": true
+      },
+      "gate": {
+        "unique_specials": true,
+        "ids_in_vocab": true,
+        "document_frame": true,
+        "passed": true
+      }
+    },
+    "word": {
+      "selected": {
+        "vocab_size": 16000,
+        "coverage": 1.0,
+        "fallback_rate": 0.0,
+        "units": 82642,
+        "bytes_per_unit": 6.045461145664432,
+        "types_covered": 13282,
+        "distinct_words": 13282
+      },
+      "fitted_vocab_size": 16000,
+      "candidates": [
+        {
+          "vocab_size": 16000,
+          "coverage": 1.0,
+          "fallback_rate": 0.0,
+          "units": 82642,
+          "bytes_per_unit": 6.045461145664432,
+          "types_covered": 13282,
+          "distinct_words": 13282
+        },
+        {
+          "vocab_size": 32000,
+          "coverage": 1.0,
+          "fallback_rate": 0.0,
+          "units": 82642,
+          "bytes_per_unit": 6.045461145664432,
+          "types_covered": 13282,
+          "distinct_words": 13282
+        },
+        {
+          "vocab_size": 64000,
+          "coverage": 1.0,
+          "fallback_rate": 0.0,
+          "units": 82642,
+          "bytes_per_unit": 6.045461145664432,
+          "types_covered": 13282,
+          "distinct_words": 13282
+        },
+        {
+          "vocab_size": 128000,
+          "coverage": 1.0,
+          "fallback_rate": 0.0,
+          "units": 82642,
+          "bytes_per_unit": 6.045461145664432,
+          "types_covered": 13282,
+          "distinct_words": 13282
+        }
+      ],
+      "gate": {
+        "min_coverage": 0.9,
+        "passed": true
+      }
+    },
+    "sentence": {
+      "candidates": [
+        {
+          "max_chars": 256,
+          "sentences": 4489,
+          "mean_chars": 110.94898641122745,
+          "max_observed_chars": 256,
+          "coverage": 1.0,
+          "over_target": 0
+        },
+        {
+          "max_chars": 512,
+          "sentences": 4218,
+          "mean_chars": 118.07728781412992,
+          "max_observed_chars": 511,
+          "coverage": 1.0,
+          "over_target": 0
+        },
+        {
+          "max_chars": 1024,
+          "sentences": 4188,
+          "mean_chars": 118.92311365807068,
+          "max_observed_chars": 1023,
+          "coverage": 1.0,
+          "over_target": 29
+        },
+        {
+          "max_chars": 2048,
+          "sentences": 4187,
+          "mean_chars": 118.95151659899689,
+          "max_observed_chars": 1155,
+          "coverage": 1.0,
+          "over_target": 29
+        }
+      ],
+      "selected": {
+        "max_chars": 512,
+        "sentences": 4218,
+        "mean_chars": 118.07728781412992,
+        "max_observed_chars": 511,
+        "coverage": 1.0,
+        "over_target": 0
+      },
+      "target_max_chars": 512,
+      "gate": {
+        "passed": true,
+        "min_coverage": 0.999
+      }
+    }
+  },
+  "gates": {
+    "bit": true,
+    "byte": true,
+    "subword": true,
+    "token": true,
+    "word": true,
+    "sentence": true
+  },
+  "artifact": "/kaggle/working/layered_tokenizer/layered_tokenizer.json",
+  "all_passed": true
+}

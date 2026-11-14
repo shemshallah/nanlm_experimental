@@ -124,6 +124,19 @@ class LayeredTokenizerTests(unittest.TestCase):
         self.assertEqual("".join(text[s:e] for s, e in spans), text)
         self.assertLessEqual(max(e - s for s, e in spans), 64)
 
+    def test_bundled_tuned_artifact_loads(self):
+        path = ROOT / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
+        self.assertTrue(path.is_file())
+        tokenizer = load_artifact(path, prefer_native=False)
+        self.assertEqual(tokenizer.vocab_size, 64000)
+        self.assertEqual(tokenizer.word.vocab_size, 16000)
+        self.assertEqual(tokenizer.sentence.max_chars, 512)
+        encoded = tokenizer.encode(TEXT)
+        self.assertEqual(tokenizer.decode_token_ids(encoded.token_ids), TEXT)
+        self.assertEqual(
+            tokenizer.decode_sentences(TEXT, encoded.sentence_spans), TEXT
+        )
+
     def test_artifact_roundtrip(self):
         fitted = WordLayer().fit(TEXT, 32)
         tokenizer = LayeredTokenizer(

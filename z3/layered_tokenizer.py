@@ -710,17 +710,30 @@ def write_artifact(
     return destination
 
 
-def load_artifact(path: str | Path) -> LayeredTokenizer:
-    payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+def load_artifact(
+    path: str | Path, *, prefer_native: bool = True
+) -> LayeredTokenizer:
+    artifact_path = Path(path).expanduser()
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     layers = payload.get("layers", {})
     subword = layers.get("subword", {})
     word = layers.get("word", {})
     sentence = layers.get("sentence", {})
+    subword_path = Path(
+        subword.get("path") or DEFAULT_SUBWORD_PATH
+    ).expanduser()
+    if not subword_path.is_absolute():
+        subword_path = (artifact_path.parent / subword_path).resolve()
+    if not subword_path.is_file():
+        # A tuned artifact may have been produced in a throwaway Kaggle
+        # workspace.  The bundled v4 tokenizer is the canonical fallback.
+        subword_path = DEFAULT_SUBWORD_PATH
     return LayeredTokenizer(
-        subword_path=subword.get("path", DEFAULT_SUBWORD_PATH),
+        subword_path=subword_path,
         word_vocab_size=int(word.get("vocab_size", 0)),
         word_vocab=payload.get("word_vocab"),
         sentence_max_chars=int(sentence.get("max_chars", 512)),
         sentence_min_chars=int(sentence.get("min_chars", 1)),
         specials=layers.get("token", {}).get("specials"),
+        prefer_native=prefer_native,
     )

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence
@@ -122,11 +123,63 @@ def stage_byte(sample: bytes, report: dict[str, Any]) -> bool:
     return exact
 
 
+def train_subword_candidates(
+    train_text: str,
+    sizes: Sequence[int],
+    out: Path,
+    specials: Sequence[str],
+) -> list[str]:
+    """Train additional byte-level BPE candidates on the tuning sample."""
+    if not sizes:
+        return []
+    try:
+        from tokenizers import Tokenizer, trainers
+        from tokenizers.decoders import ByteLevel as ByteLevelDecoder
+        from tokenizers.models import BPE
+        from tokenizers.pre_tokenizers import ByteLevel
+    except ModuleNotFoundError:
+        print("[subword] tokenizers missing; using existing candidates only", flush=True)
+        return []
+    directory = out / "subword_candidates"
+    directory.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for size in sorted(set(int(x) for x in sizes if int(x) > 0)):
+        tokenizer = Tokenizer(BPE(unk_token=None))
+        tokenizer.pre_tokenizer = ByteLevel(
+            add_prefix_space=False, use_regex=True
+        )
+        tokenizer.decoder = ByteLevelDecoder()
+        trainer = trainers.BpeTrainer(
+            vocab_size=size,
+            special_tokens=list(specials),
+            min_frequency=2,
+            show_progress=False,
+        )
+        tokenizer.train_from_iterator([train_text], trainer=trainer)
+        path = directory / f"bpe_{size}.json"
+        tokenizer.save(str(path))
+        paths.append(str(path))
+        print(f"[subword] trained {size}: {path}", flush=True)
+    return paths
+
+
+def _subword_score(
+    bytes_per_token: float, vocab_size: int, objective: str
+) -> float:
+    if objective == "compression":
+        return bytes_per_token
+    # Bytes per bit of embedding vocabulary: rewards compression without
+    # letting a huge vocabulary win by construction.
+    return bytes_per_token / max(1.0, math.log2(max(2, vocab_size)))
+
+
 def stage_subword(
     text: str,
     candidates: Sequence[str],
     min_bytes_per_token: float,
     report: dict[str, Any],
+    objective: str = "efficiency",
+    max_vocab: int = 64000,
 ) -> tuple[str, bool]:
     rows = []
     for candidate in candidates:
@@ -145,6 +198,7 @@ def stage_subword(
                 "backend": encoded.backend,
                 "vocab_size": layer.vocab_size,
                 "bytes_per_token": bpt,
+                "score": _subword_score(bpt, layer.vocab_size, objective),
                 "tokens": len(encoded.ids),
                 "roundtrip": decoded == text,
                 "byte_coverage": encoded.n_bytes / max(1, raw_bytes),
@@ -157,9 +211,10 @@ def stage_subword(
         if row.get("roundtrip")
         and row.get("byte_coverage", 0.0) == 1.0
         and row.get("bytes_per_token", 0.0) >= min_bytes_per_token
+        and row.get("vocab_size", 0) <= max_vocab
     ]
     chosen = (
-        max(valid, key=lambda row: row["bytes_per_token"])
+        max(valid, key=lambda row: (row["score"], row["bytes_per_token"]))
         if valid
         else max(
             (row for row in rows if "bytes_per_token" in row),
@@ -173,6 +228,8 @@ def stage_subword(
         "candidates": rows,
         "gate": {
             "min_bytes_per_token": min_bytes_per_token,
+            "max_vocab": max_vocab,
+            "objective": objective,
             "passed": passed,
         },
     }
@@ -307,6 +364,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--min-bytes-per-token", type=float, default=4.5)
     parser.add_argument(
+        "--train-subword-vocabs",
+        default="",
+        help="optional comma-separated BPE sizes to train on the tuning sample",
+    )
+    parser.add_argument(
+        "--subword-objective",
+        choices=("efficiency", "compression"),
+        default="efficiency",
+    )
+    parser.add_argument("--max-subword-vocab", type=int, default=64000)
+    parser.add_argument(
         "--word-vocab-sizes", default="16000,32000,64000,128000"
     )
     parser.add_argument("--word-min-coverage", type=float, default=0.90)
@@ -348,13 +416,29 @@ def main(argv: list[str] | None = None) -> int:
             train_text.encode("utf-8")[:262144], run["layers"]
         )
 
-    subword_candidates = args.subword_candidate or [str(DEFAULT_SUBWORD_PATH)]
+    subword_candidates = list(args.subword_candidate or [str(DEFAULT_SUBWORD_PATH)])
     if args.stage in ("all", "subword"):
+        train_sizes = [
+            int(x)
+            for x in str(args.train_subword_vocabs).split(",")
+            if x.strip()
+        ]
+        if train_sizes:
+            specials = SubwordLayer(
+                DEFAULT_SUBWORD_PATH, prefer_native=False
+            ).special_tokens
+            subword_candidates.extend(
+                train_subword_candidates(
+                    train_text, train_sizes, out, specials
+                )
+            )
         subword_path, subword_ok = stage_subword(
             eval_text,
             subword_candidates,
             args.min_bytes_per_token,
             run["layers"],
+            objective=args.subword_objective,
+            max_vocab=args.max_subword_vocab,
         )
         run["gates"]["subword"] = subword_ok
     else:
