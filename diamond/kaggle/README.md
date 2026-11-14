@@ -4,7 +4,7 @@ This branch is set up for a **2-hour, one-GPU Kaggle run**.
 
 ## Notebook
 
-`kaggle/frontier4_fineweb.ipynb`
+`diamond/kaggle/frontier4_fineweb.ipynb`
 
 Open it in Kaggle, or push it with the Kaggle API. The notebook:
 

@@ -2,7 +2,7 @@
 
 Open the notebook from GitHub:
 
-`https://colab.research.google.com/github/shemshallah/nanlm_experimental/blob/colab-wikitext/colab/frontier4_wikitext.ipynb`
+`https://colab.research.google.com/github/shemshallah/nanlm_experimental/blob/colab-wikitext/diamond/colab/frontier4_wikitext.ipynb`
 
 ## Why WikiText-103
 
