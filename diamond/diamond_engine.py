@@ -1089,11 +1089,7 @@ class TripleStaged(tf.keras.Model):
             name="concept_triple_bank",
         )
         self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
-        self.concept_to_tokmeta = tf.keras.layers.Dense(DIM_M)
-        self.concept_tok_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
-            name="concept_tok_gate",
-        )
+
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
         self.meta_to_sent = tf.keras.layers.Dense(DIM_S)
@@ -1227,7 +1223,7 @@ class TripleStaged(tf.keras.Model):
 
             # Close the concept -> tokenizer loop: concept feedback re-enters
             # the 256-wide tokenizer micro-transformer before meta reads it.
-            tok_meta = tok_meta + tf.sigmoid(self.concept_tok_gate) * self.concept_to_tokmeta(concept)
+
 
             meta = self.meta_bus(
                 tf.concat(
@@ -1366,7 +1362,7 @@ SIGNATURE = json.dumps({
     "meta_temporal_feedback": "now+future",
     "tokenizer_micro": "256x6",
     "concept_storage": "C(256,2)x4 + C(256,3)x4",
-    "concept_feedback": "near-zero-gated concept->tokenizer-output residual",
+    "concept_feedback": "concept->meta-cross+per-layer (tokenizer residual disabled by ablation)",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
