@@ -299,3 +299,19 @@ in `diamond/diamond_engine.py`; it is not a separate architecture.
 Colab and Kaggle tooling for this integrated engine lives under
 `diamond/colab/` and `diamond/kaggle/`. The z3, FA1, and FA2 architectures
 remain independent subdirectories and are not modified by diamond runs.
+
+### 10-minute WikiText loop ablation
+
+All runs use 5M WikiText characters, 3,000 examples/epoch, 1,024 test
+examples, and the 28.4M integrated model.
+
+| variant | eval nats | byte bits | word bits | sent bits | sent top-5 |
+|---|---:|---:|---:|---:|---:|
+| no tokenizer/self loops | **6.5332** | **4.1862** | **7.1644** | **5.5236** | 56.35% |
+| near-zero tokenizer residual | 6.5802 | 4.2164 | 7.2341 | 5.5325 | 56.35% |
+| full self-referential loops | 6.5800 | 4.2430 | 7.1685 | 5.5519 | 56.05% |
+
+The loops are wired and gated, but they do not improve the short-run loss at
+this scale. The best measured configuration remains the one without the extra
+self-loop residuals; the concept bank, 256-wide tokenizer micro-transformer,
+meta cross-attention, and per-layer feedback remain active.
