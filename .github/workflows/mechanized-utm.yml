@@ -78,6 +78,12 @@ jobs:
           "$COQBIN/coqc" --version | head -1
           "$COQBIN/coq_makefile" --version | head -1
 
+      - name: Cache Coq opam switch
+        uses: actions/cache@v4
+        with:
+          path: /home/coq/.opam
+          key: coq820-metacoq-template-v1
+
       - name: Ensure MetaCoq template plugin
         run: |
           set -euo pipefail
@@ -123,6 +129,47 @@ jobs:
             NaNLMind/formal/utm/UTMEquivalence.v
             NaNLMind/formal/utm/UTMEquivalence.vo
             NaNLMind/formal/utm/UTMEquivalence.glob
+            NaNLMind/formal/utm/InterpreterRefinement.v
+            NaNLMind/formal/utm/InterpreterRefinement.vo
+            NaNLMind/formal/utm/InterpreterRefinement.glob
+          if-no-files-found: warn
+          retention-days: 90
+
+  step-refinement:
+    runs-on: ubuntu-latest
+    container:
+      image: coqorg/coq:8.20
+      options: --user root
+    timeout-minutes: 30
+    steps:
+      - name: Check out NaNLMind proof source
+        uses: actions/checkout@v4
+        with:
+          repository: shemshallah/NaNLMind
+          path: NaNLMind
+          token: ${{ github.token }}
+
+      - name: Locate Coq toolchain
+        run: |
+          set -euo pipefail
+          COQBIN=$(dirname "$(find /home/coq/.opam -name coqc -type f | head -1)")
+          test -n "$COQBIN"
+          echo "$COQBIN" >> "$GITHUB_PATH"
+
+      - name: Check step-level interpreter refinement
+        run: |
+          set -euo pipefail
+          cd NaNLMind
+          coqc -w -notation-overridden,-stdlib-vector formal/utm/InterpreterRefinement.v
+          coqchk formal/utm/InterpreterRefinement.vo
+          echo "STEP-LEVEL REFINEMENT PASS"
+
+      - name: Upload step-level proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-refinement-${{ github.run_id }}
+          path: |
             NaNLMind/formal/utm/InterpreterRefinement.v
             NaNLMind/formal/utm/InterpreterRefinement.vo
             NaNLMind/formal/utm/InterpreterRefinement.glob
