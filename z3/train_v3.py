@@ -1796,6 +1796,10 @@ def main(argv: list[str] | None = None) -> int:
             f"top1={eval_before['accuracy'] * 100:.2f}%",
             flush=True,
         )
+        if device.type == "cuda":
+            # The eval graph is gone, but its reserved blocks can otherwise
+            # starve the first backward at long context.
+            torch.cuda.empty_cache()
 
     for step in range(start_step, args.steps):
         elapsed = time.time() - t0
@@ -2015,6 +2019,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"mtp={val_ema['mtp_loss']:.4f}",
                     flush=True,
                 )
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
             previous_best = best.get("loss") if best is not None else float("inf")
             consider_best(val, "model", step_done)
             if val_ema is not None:
