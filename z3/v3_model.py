@@ -1063,23 +1063,19 @@ class V3LM(nn.Module):
                     if target_len > 0:
                         targets = tokens[:, lag:]
                         mask = targets >= 0
-                        branch_ce = F.cross_entropy(
-                            branch_logits[:, :target_len].reshape(
-                                -1, self.cfg.vocab_size
-                            ),
-                            targets.reshape(-1),
-                            reduction="none",
-                            ignore_index=-100,
-                        ).view(tokens.size(0), target_len)
-                        base_ce = F.cross_entropy(
-                            base_logits[:, :target_len].reshape(
-                                -1, self.cfg.vocab_size
-                            ),
-                            targets.reshape(-1),
-                            reduction="none",
-                            ignore_index=-100,
-                        ).view(tokens.size(0), target_len)
-                        advantage = (base_ce - branch_ce).detach()
+                        # Compare the target-token logit directly.  Full
+                        # vocab CE for both branch and base at 2k context
+                        # needs two extra 64k softmax temporaries and was
+                        # enough to OOM the T4.  The target-logit margin is
+                        # the same routing signal without that allocation.
+                        tgt = targets.clamp_min(0).unsqueeze(-1)
+                        branch_target = branch_logits[
+                            :, :target_len
+                        ].gather(-1, tgt).squeeze(-1)
+                        base_target = base_logits[
+                            :, :target_len
+                        ].gather(-1, tgt).squeeze(-1)
+                        advantage = (branch_target - base_target).detach()
                         target_prob = torch.sigmoid(advantage / 0.1)
                         gate_loss = F.binary_cross_entropy_with_logits(
                             gate_logits[:, :target_len].squeeze(-1),
