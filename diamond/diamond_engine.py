@@ -1042,6 +1042,8 @@ class TripleStaged(tf.keras.Model):
         self.meta_sentence = tf.keras.layers.Dense(DIM_M)
         self.meta_bit_raw = tf.keras.layers.Dense(DIM_M)
         self.meta_subword_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_token_raw = tf.keras.layers.Dense(DIM_M)
+        self.meta_token = tf.keras.layers.Dense(DIM_M)
         self.meta_bus = tf.keras.layers.Dense(DIM_M)
         self.meta_moe2 = MoE(256, DIM_M, 2)
         self.meta_moe3 = MoE(256, DIM_M, 3)
@@ -1151,6 +1153,7 @@ class TripleStaged(tf.keras.Model):
         meta_future = None
         bit_pool = tf.reduce_mean(b_emb, axis=1)
         subword_pool = tf.reduce_mean(w_emb, axis=1)
+        token_pool = tf.reduce_mean(w_chunk, axis=1)
         for _ in range(META_LOOPS):
             b_pool = tf.reduce_mean(b_h, axis=1)
             w_pool = tf.reduce_mean(w_h, axis=1)
@@ -1159,7 +1162,9 @@ class TripleStaged(tf.keras.Model):
                 tf.concat(
                     [self.meta_bit_raw(bit_pool), self.meta_bit(b_pool),
                      self.meta_subword_raw(subword_pool),
-                     self.meta_subword(w_pool), self.meta_sentence(s_pool)],
+                     self.meta_subword(w_pool),
+                     self.meta_token_raw(token_pool), self.meta_token(w_pool),
+                     self.meta_sentence(s_pool)],
                     axis=-1,
                 )
             )
@@ -1180,16 +1185,17 @@ class TripleStaged(tf.keras.Model):
             slots = tokens[:, :4, :]
             meta_now = slots[:, 0, :]
             meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
+            meta_feedback = meta_now + 0.5 * meta_future
             for l, block in enumerate(self.byte_blocks):
-                fb = self.meta_byte_layers[l](meta_now) * tf.sigmoid(
+                fb = self.meta_byte_layers[l](meta_feedback) * tf.sigmoid(
                     self.meta_byte_layer_gates[l])
                 b_h = block(b_h + fb[:, None, :], training=training)
             for l, block in enumerate(self.word_blocks):
-                fb = self.meta_word_layers[l](meta_now) * tf.sigmoid(
+                fb = self.meta_word_layers[l](meta_feedback) * tf.sigmoid(
                     self.meta_word_layer_gates[l])
                 w_h = block(w_h + fb[:, None, :], training=training)
             for l, block in enumerate(self.sent_blocks):
-                fb = self.meta_sent_layers[l](meta_now) * tf.sigmoid(
+                fb = self.meta_sent_layers[l](meta_feedback) * tf.sigmoid(
                     self.meta_sent_layer_gates[l])
                 s_h = block(s_h + fb[:, None, :], training=training)
         b_last = b_h[:, -1, :]
@@ -1282,6 +1288,8 @@ SIGNATURE = json.dumps({
     "meta_dim": DIM_M,
     "meta_tower_experts": "C(256,2)+C(256,3)",
     "meta_now_head": True,
+    "meta_tokenizer_bus": "bit+byte+subword+token+word+sentence",
+    "meta_temporal_feedback": "now+future",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
