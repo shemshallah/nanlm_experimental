@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
@@ -106,6 +107,7 @@ class V3Config:
     # Growable C(V,2)/C(V,3) object memory.  Only vertex key/value
     # hypervectors are stored; pair objects are bound on demand.
     use_combinatorial_memory: bool = True
+    grad_checkpoint: bool = False
     comb_vertices: int = 64
     comb_dim: int = 128
     comb_top_vertices: int = 16
@@ -566,6 +568,7 @@ class V3LM(nn.Module):
     def __init__(self, cfg: V3Config):
         super().__init__()
         self.cfg = cfg
+        self.grad_checkpoint = bool(cfg.grad_checkpoint)
         self.factorized_embedding = bool(cfg.factorized_embedding)
         if self.factorized_embedding:
             self.embedding_rank = int(cfg.embedding_rank)
@@ -909,7 +912,12 @@ class V3LM(nn.Module):
             x.shape[0], -1
         )
         for layer_index, block in enumerate(self.blocks):
-            x, lb, z, route_ctx, block_aux = block(x, route_ctx)
+            if self.grad_checkpoint and self.training and torch.is_grad_enabled():
+                x, lb, z, route_ctx, block_aux = checkpoint(
+                    block, x, route_ctx, use_reentrant=False
+                )
+            else:
+                x, lb, z, route_ctx, block_aux = block(x, route_ctx)
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x
             if lb is not None:
@@ -1027,9 +1035,17 @@ class V3LM(nn.Module):
                     )
                     if hd_signal is not None:
                         cond = cond + 0.1 * self.mtp_hd_proj[idx](hd_signal)
-                branch, block_aux = self.mtp_blocks[idx](
-                    cond, context=route_ctx
-                )
+                if self.grad_checkpoint and self.training and torch.is_grad_enabled():
+                    branch, block_aux = checkpoint(
+                        self.mtp_blocks[idx],
+                        cond,
+                        route_ctx,
+                        use_reentrant=False,
+                    )
+                else:
+                    branch, block_aux = self.mtp_blocks[idx](
+                        cond, context=route_ctx
+                    )
                 if self.mtp_branch_norm is not None:
                     branch = self.mtp_branch_norm(branch)
                 if block_aux:

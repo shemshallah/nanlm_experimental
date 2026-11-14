@@ -821,6 +821,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--moe-memory-keys", type=int, default=16)
     model.add_argument("--moe-memory-dim", type=int, default=0,
                        help="hypervector width for expert memory (0 = D/H)")
+    model.add_argument("--grad-checkpoint", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="activation checkpointing for long-context training")
     model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="sparse growable C(V,2)/C(V,3) object memory")
@@ -1190,6 +1193,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_associative_memory=bool(args.moe_associative_memory),
         moe_memory_keys=int(args.moe_memory_keys),
         moe_memory_dim=int(args.moe_memory_dim),
+        grad_checkpoint=bool(args.grad_checkpoint),
         use_combinatorial_memory=bool(args.combinatorial_memory),
         comb_vertices=int(args.comb_vertices),
         comb_dim=int(args.comb_dim),
@@ -1461,6 +1465,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("mtp_hd_time", "--mtp-hd-time"),
                 ("mtp_branch_norm", "--mtp-branch-norm"),
                 ("use_combinatorial_memory", "--combinatorial-memory"),
+                ("grad_checkpoint", "--grad-checkpoint"),
             ):
                 if (
                     key not in saved_model_config
