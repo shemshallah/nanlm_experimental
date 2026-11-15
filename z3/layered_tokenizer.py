@@ -856,6 +856,14 @@ class LayeredTokenizer:
                     "lossless": True,
                     "canonicalize": "optional data preparation only",
                 },
+                "composition": {
+                    "tokens": [
+                        "<none>", "<word_start>", "<word_end>",
+                        "<sentence_end>", "<math_start>", "<math_end>",
+                        "<compose>",
+                    ],
+                    "feed": "SpanSidecar / CompositionHead",
+                },
             },
         }
         if include_word_vocab:

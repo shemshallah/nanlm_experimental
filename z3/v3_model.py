@@ -32,6 +32,7 @@ try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
     from .concept_loop import (
         CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
+        SpanSidecar,
     )
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
@@ -40,6 +41,7 @@ except ImportError:  # pragma: no cover - script execution path
     from combinatorial_objects import CombinatorialMemory
     from concept_loop import (
         CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
+        SpanSidecar,
     )
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
@@ -1255,9 +1257,21 @@ class V3LM(nn.Module):
             for token_id in tokens[0].detach().cpu().tolist():
                 tokenizer_events.extend(decoder.feed(int(token_id)))
         max_ctx = max(1, int(self.cfg.max_ctx))
+
+        def build_sidecar(window_ids: torch.Tensor):
+            if tokenizer is None:
+                return None
+            try:
+                return SpanSidecar.from_token_ids(
+                    window_ids[0].detach().cpu().tolist(), tokenizer
+                )
+            except Exception:
+                return None
+
+        sidecar = build_sidecar(ids[:, -max_ctx:])
         for _ in range(max_new_tokens):
             window = ids[:, -max_ctx:]
-            logits, _mtp, aux = self(window)
+            logits, _mtp, aux = self(window, sidecar=sidecar)
             next_logits = logits[:, -1].float()
             if temperature <= 0:
                 next_id = next_logits.argmax(dim=-1)
@@ -1279,6 +1293,7 @@ class V3LM(nn.Module):
                         aux["object_triple_ids"][:, -1].reshape(-1).tolist()
                     )
                 object_events.append(event)
+            sidecar = build_sidecar(ids[:, -max_ctx:])
         if decoder is not None:
             return ids, {
                 "model": events,
