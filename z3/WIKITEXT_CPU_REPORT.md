@@ -67,6 +67,7 @@ data and configuration:
 |---|---:|---:|---:|
 | baseline_no_concept | 6.24743 | 2.04570 | 30,847,070 |
 | **concept_router_only** | **6.22357** | **2.03789** | 31,731,104 |
+| concept_router_no_composition | 6.22435 | 2.03815 | 31,729,760 |
 | concept_full | 7.04421 | 2.30661 | 31,731,104 |
 | concept_no_composition (full attention) | 7.05788 | 2.31108 | 31,729,760 |
 
@@ -78,6 +79,10 @@ The result is consistent across horizons:
 Full attention injection is clearly harmful at this scale and duration
 (2.3066 at 1,000 steps).  Router-only concept feedback is therefore the
 promoted default; `--concept-loop-attention` remains the explicit control flag.
+
+Removing the composition auxiliary head in router-only mode changes BPB only
+from 2.03789 to 2.03815, so the composition head is neutral to slightly helpful
+at this horizon and stays enabled.
 
 The router-only gain over baseline is small (~0.008 BPB at 1,000 steps), so it
 is a validated architecture signal, not a frontier claim.

@@ -80,10 +80,11 @@ generation remains partial.**
 
 ### D3. Concept memory runs inside every block (active path)
 
-The active concept loop runs per block, feeds attention and every MoE router,
-and carries concept/object state across depth.  The legacy post-hoc
-`comb_memory` remains available as a separate optional path for old
-checkpoints, but it is not the multi-resolution route.
+The active concept loop runs per block, feeds every MoE router, and carries
+concept/object state across depth.  The attention residual is optional and
+defaults off: on WikiText CPU, router-only beat full attention injection at both
+200 and 1,000 steps.  The legacy post-hoc `comb_memory` remains available as a
+separate optional path for old checkpoints.
 
 **Severity: resolved for the active concept path.**
 
@@ -291,7 +292,9 @@ Implemented in this integration:
 - `ConceptEncoder` hierarchical subword → word → sentence pooling
 - shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
 - deterministic 256-vertex byte-concept seed
-- per-layer concept → object → route context → attention → MoE feedback
+- per-layer concept → object → route context → MoE router feedback
+- optional attention residual (`--concept-loop-attention`, default off)
+- router-only default validated on WikiText CPU at 200 and 1,000 steps
 - bidirectional route → concept/object/pointer conditioning
 - causal hard pointer stream with straight-through gradients
 - causal object-state recurrence along the token sequence
