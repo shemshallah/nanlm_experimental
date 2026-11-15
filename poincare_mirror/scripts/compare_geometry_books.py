@@ -9,6 +9,7 @@ import argparse
 import json
 import math
 import sys
+from time import perf_counter
 from pathlib import Path
 
 import numpy as np
@@ -54,7 +55,7 @@ def bootstrap_gain(before, after, seed=2026, resamples=2000, larger_better=False
             'books_improved':int((changes>0).sum()),'books':len(changes)}
 
 
-def passes_content_gate(comparison, feedback, split):
+def passes_content_gate(comparison, feedback, split, content_trust=None):
     """A significant easy-byte gain cannot hide a content-byte regression."""
     return bool(split == 'valid' and feedback is not None and
                 comparison['ce_1']['ci95'][0] > 0 and
@@ -64,7 +65,9 @@ def passes_content_gate(comparison, feedback, split):
                 comparison['top5_1']['ci95'][0] >= -.005 and
                 all(comparison[m]['mean_gain'] >= 0 for m in ('ce_2','ce_3')) and
                 feedback['ce_1']['ci95'][0] > 0 and
-                feedback['ce_nonspace_1']['ci95'][0] > 0)
+                feedback['ce_nonspace_1']['ci95'][0] > 0 and
+                (content_trust is None or
+                 content_trust['ce_nonspace_1']['ci95'][0] > 0))
 
 
 @torch.no_grad()
@@ -151,8 +154,20 @@ def main():
     second=MirrorLM(Config(**after['config'])).eval()
     load_v25_compatible(first,before['model'])
     load_v25_compatible(second,after['model'])
+    before_start=perf_counter()
     a=measure_books(first,mem,records,args.context,args.batch)
+    before_elapsed=perf_counter()-before_start
+    after_start=perf_counter()
     b=measure_books(second,mem,records,args.context,args.batch)
+    after_elapsed=perf_counter()-after_start
+    trust_ablated=None
+    if second.reciprocal is not None and second.reciprocal.context_trust is not None:
+        with torch.no_grad():
+            old_trust = second.reciprocal.context_trust.weight.detach().clone()
+            second.reciprocal.context_trust.weight.zero_()
+        trust_ablated=measure_books(second,mem,records,args.context,args.batch)
+        with torch.no_grad():
+            second.reciprocal.context_trust.weight.copy_(old_trust)
     ablated=None
     if second.reciprocal is not None:
         second.reciprocal.enabled=False
@@ -169,17 +184,27 @@ def main():
         feedback={m:bootstrap_gain([r[m] for r in ablated],[r[m] for r in b],
                                     args.seed,args.bootstrap,m.startswith(('acc_','top5_')))
                   for m in METRICS}
-    eligible=passes_content_gate(comparison,feedback,args.split)
+    trust_feedback=None
+    if trust_ablated is not None:
+        trust_feedback={m:bootstrap_gain([r[m] for r in trust_ablated],
+                            [r[m] for r in b],args.seed,args.bootstrap,
+                            m.startswith(('acc_','top5_')))
+                        for m in METRICS}
+    eligible=passes_content_gate(comparison,feedback,args.split,trust_feedback)
     report={'before_step':before['step'],'after_step':after['step'],'split':args.split,
             'split_sha256':expected,'context':args.context,'seed':args.seed,
             'books':len(records),'windows_per_book':args.windows_per_book,
             'target_bytes_per_model':len(records)*args.windows_per_book*args.context,
+            'throughput_bytes_per_second':{
+                'parent':round(len(records)*args.windows_per_book*args.context/max(before_elapsed,1e-9),1),
+                'candidate':round(len(records)*args.windows_per_book*args.context/max(after_elapsed,1e-9),1)},
             'bootstrap_unit':'whole book','bootstrap_replicates':args.bootstrap,
             'metric_direction':'positive gain favors trained candidate',
             'content_gate':'non-space CE book-bootstrap lower bound > 0; '
                            'non-space top1/top5 nondecreasing; enabled-memory '
                            'non-space CE lower bound > 0',
             'comparison':comparison,'reciprocal_feedback_versus_disabled':feedback,
+            'content_trust_versus_neutral':trust_feedback,
             'development_gate_pass':bool(eligible),
             'promotion':'not automatic; independent long-context and sealed test gates required'}
     text=json.dumps(report,indent=2)+'\n'
