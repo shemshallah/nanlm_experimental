@@ -61,6 +61,23 @@ data and configuration:
 
 <https://github.com/shemshallah/nanlm_experimental/actions/runs/43756422506>
 
-A 1,000-step router-only confirmation is queued after the 200-step control.
-The next architecture decision waits for that slope.  Full attention injection
-remains the control row; router-only is the promoted candidate.
+## 1,000-step convergence
+
+| Row | Loss | Bits/byte | Params |
+|---|---:|---:|---:|
+| baseline_no_concept | 6.24743 | 2.04570 | 30,847,070 |
+| **concept_router_only** | **6.22357** | **2.03789** | 31,731,104 |
+| concept_full | 7.04421 | 2.30661 | 31,731,104 |
+| concept_no_composition (full attention) | 7.05788 | 2.31108 | 31,729,760 |
+
+The result is consistent across horizons:
+
+- 200 steps: router-only 2.3299 vs baseline 2.3580.
+- 1,000 steps: router-only 2.0379 vs baseline 2.0457.
+
+Full attention injection is clearly harmful at this scale and duration
+(2.3066 at 1,000 steps).  Router-only concept feedback is therefore the
+promoted default; `--concept-loop-attention` remains the explicit control flag.
+
+The router-only gain over baseline is small (~0.008 BPB at 1,000 steps), so it
+is a validated architecture signal, not a frontier claim.
