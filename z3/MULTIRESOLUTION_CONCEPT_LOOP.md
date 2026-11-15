@@ -166,10 +166,12 @@ This layer needs its own vocabulary and generation rules. It does not exist.
 ### D9. Object IDs are not part of the model vocabulary
 
 The 32,640 pair IDs and 2.76M triple IDs are an internal memory space, not
-generation tokens. The decoder cannot emit or reference an object ID, and
-there is no copy/pointer path from object state back into token generation.
+generation tokens. The new pointer head predicts the two vertices of a pair
+and generation reports the resulting ID, but the decoder still cannot emit an
+object ID as a first-class next token. There is no object-ID vocabulary entry
+or recurrent object-token input yet.
 
-**Severity: high.**
+**Severity: high, partially mitigated.**
 
 ### D10. v4c corpus and layer tuning are on different data scopes
 
