@@ -118,6 +118,10 @@ class V3Config:
     use_combinatorial_memory: bool = False
     use_concept_loop: bool = True
     task_vocab_size: int = 16
+    # Scale of the concept/object residual injected into attention and MoE
+    # routers.  1.0 preserves the original full-strength loop; a small value
+    # lets the concept loop warm up without disturbing the early trunk.
+    concept_loop_scale: float = 1.0
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8
@@ -327,6 +331,7 @@ class Block(nn.Module):
         )
         self.drop = nn.Dropout(cfg.dropout)
         self.concept_loop = bool(cfg.use_concept_loop)
+        self.loop_scale = float(cfg.concept_loop_scale)
         self.loop_to_state = (
             nn.Linear(cfg.d_model, cfg.d_model, bias=False)
             if self.concept_loop else None
@@ -361,7 +366,7 @@ class Block(nn.Module):
             x = x + self.route_to_state(route_ctx).unsqueeze(1)
         if loop_ctx is not None and self.loop_to_state is not None:
             # Multi-resolution concept/object state modulates attention.
-            x = x + self.loop_to_state(loop_ctx).unsqueeze(1)
+            x = x + self.loop_scale * self.loop_to_state(loop_ctx).unsqueeze(1)
         attn_out = self.attn(self.n1(x))
         x = x + self.drop(attn_out)
         h = self.n2(x)
@@ -369,9 +374,10 @@ class Block(nn.Module):
         if self.is_moe:
             router_context = route_ctx
             if loop_ctx is not None:
+                scaled_loop = self.loop_scale * loop_ctx
                 router_context = (
-                    loop_ctx if router_context is None
-                    else router_context + loop_ctx
+                    scaled_loop if router_context is None
+                    else router_context + scaled_loop
                 )
             h, lb, z, aux = self.mlp(h, context=router_context)
             x = x + self.drop(h)
@@ -1139,9 +1145,12 @@ class V3LM(nn.Module):
                         cond = cond + 0.1 * self.mtp_hd_proj[idx](hd_signal)
                 mtp_context = route_ctx
                 if self.concept_loop is not None and loop_ctx is not None:
+                    scaled_loop = (
+                        float(self.cfg.concept_loop_scale) * loop_ctx
+                    )
                     mtp_context = (
-                        mtp_context + loop_ctx
-                        if mtp_context is not None else loop_ctx
+                        mtp_context + scaled_loop
+                        if mtp_context is not None else scaled_loop
                     )
                 if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                     branch, block_aux = checkpoint(

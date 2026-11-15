@@ -33,6 +33,7 @@ ROWS = {
     "concept_pair_only": ["--concept-top-triples", "0"],
     "concept_no_composition": ["--no-composition-head"],
     "concept_no_sidecar": ["--no-sidecar"],
+    "concept_loopscale10": ["--concept-loop-scale", "0.1"],
 }
 
 

@@ -21,7 +21,7 @@ on:
       rows:
         description: JSON array of architecture rows
         required: true
-        default: '["concept_full","baseline_no_concept","concept_no_mtp_structure","concept_pair_only","concept_no_composition","concept_no_sidecar"]'
+        default: '["concept_full","baseline_no_concept","concept_no_mtp_structure","concept_pair_only","concept_no_composition","concept_no_sidecar","concept_loopscale10"]'
         type: string
 
 env:
