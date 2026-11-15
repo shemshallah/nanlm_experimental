@@ -303,6 +303,7 @@ Implemented in this integration:
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
 - bidirectional route → concept/object/pointer conditioning
+- causal hard pointer stream with straight-through gradients
 - causal object-state recurrence along the token sequence
 - gated recurrent concept carry across all blocks
 - optional task/domain embedding in the initial route context

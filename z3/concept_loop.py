@@ -642,24 +642,34 @@ class ConceptLoop(nn.Module):
             x + 0.1 * route_bias if route_bias is not None else x
         )
         concept, global_ctx = self.encoder(concept_input, sidecar)
-        object_input = x + concept
-        if route_bias is not None:
-            object_input = object_input + 0.1 * route_bias
-        object_ctx, object_aux = self.object_memory(object_input)
         pointer_input = (
             x + 0.1 * route_bias if route_bias is not None else x
         )
         self.last_pointer_logits = self.object_pointer(pointer_input).view(
             x.shape[0], x.shape[1], 2, self.vertices
         )
-        # Close the pointer loop.  The pointer is not just a readout: its
-        # soft vertex distribution is projected back into the object stream,
-        # so the next block sees the object identity the pointer currently
-        # believes.  This uses the existing vertex codebook and out_proj, so
-        # older checkpoints keep their parameter shapes.
-        pointer_probs = F.softmax(
+        # Hard causal pointer stream.  The forward value is the selected
+        # pair; the gradient follows the soft pointer distribution through a
+        # straight-through estimator.  The selected pair at token t-1
+        # conditions object retrieval at token t.
+        pointer_soft = F.softmax(
             self.last_pointer_logits.float(), dim=-1
         ).to(dtype=x.dtype)
+        u_logits = self.last_pointer_logits[:, :, 0]
+        v_logits = self.last_pointer_logits[:, :, 1].clone()
+        u_hard = u_logits.argmax(dim=-1, keepdim=True)
+        v_logits.scatter_(
+            -1, u_hard, torch.finfo(v_logits.dtype).min
+        )
+        v_hard = v_logits.argmax(dim=-1, keepdim=True)
+        u_onehot = F.one_hot(
+            u_hard.squeeze(-1), self.vertices
+        ).to(dtype=x.dtype)
+        v_onehot = F.one_hot(
+            v_hard.squeeze(-1), self.vertices
+        ).to(dtype=x.dtype)
+        pointer_hard = torch.stack([u_onehot, v_onehot], dim=2)
+        pointer_st = pointer_hard + pointer_soft - pointer_soft.detach()
         vertex_keys = F.normalize(
             self.object_memory.vertex_keys.to(dtype=x.dtype), dim=-1
         )
@@ -667,10 +677,26 @@ class ConceptLoop(nn.Module):
             self.object_memory.vertex_values.to(dtype=x.dtype), dim=-1
         )
         pointer_state = (
-            torch.einsum("btv,vd->btd", pointer_probs[:, :, 0], vertex_keys)
-            + torch.einsum("btv,vd->btd", pointer_probs[:, :, 1], vertex_values)
+            torch.einsum("btv,vd->btd", pointer_st[:, :, 0], vertex_keys)
+            + torch.einsum("btv,vd->btd", pointer_st[:, :, 1], vertex_values)
         )
         pointer_ctx = self.object_memory.out_proj(pointer_state)
+        pointer_prev = (
+            torch.cat(
+                [torch.zeros_like(pointer_ctx[:, :1]), pointer_ctx[:, :-1]],
+                dim=1,
+            )
+            if pointer_ctx.shape[1] > 1 else torch.zeros_like(pointer_ctx)
+        )
+        pointer_prev = pointer_prev * torch.sigmoid(
+            self.object_memory.gate_logit
+        ).to(dtype=x.dtype)
+        object_input = x + concept + pointer_prev
+        if route_bias is not None:
+            object_input = object_input + 0.1 * route_bias
+        object_ctx, object_aux = self.object_memory(object_input)
+        # Current-layer pointer feedback.  This is the soft/current object
+        # identity; pointer_prev above is the hard recurrent stream.
         object_ctx = object_ctx + torch.sigmoid(
             self.object_memory.gate_logit
         ).to(dtype=x.dtype) * pointer_ctx
