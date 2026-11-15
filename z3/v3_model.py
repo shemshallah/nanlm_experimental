@@ -1268,10 +1268,14 @@ class V3LM(nn.Module):
         if seed is not None:
             torch.manual_seed(seed)
         ids = tokens
-        events: list[int] = []
-        decoder = (
-            IncrementalCompositionDecoder(tokenizer.subword)
+        events: list[list[int]] = []
+        layer_tokenizer = (
+            getattr(tokenizer, "layered", tokenizer)
             if tokenizer is not None else None
+        )
+        decoder = (
+            IncrementalCompositionDecoder(layer_tokenizer.subword)
+            if layer_tokenizer is not None else None
         )
         tokenizer_events: list[tuple[int, str]] = []
         object_events: list[list[int]] = []
@@ -1285,7 +1289,7 @@ class V3LM(nn.Module):
                 return None
             try:
                 return SpanSidecar.from_token_ids(
-                    window_ids[0].detach().cpu().tolist(), tokenizer
+                    window_ids[0].detach().cpu().tolist(), layer_tokenizer
                 )
             except Exception:
                 return None
