@@ -33,7 +33,7 @@ jobs:
   train-real-nanrouter-books:
     if: github.event_name == 'workflow_dispatch' && inputs.train_books
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     env:
       OMP_NUM_THREADS: '2'
       MKL_NUM_THREADS: '2'
@@ -78,14 +78,32 @@ jobs:
           done
           python -m terminal_rsi.byte_specialist.contextual train \
             --work corpus/work
+      - name: Train new confidence trust group with original optimizer moments intact
+        run: |
+          python -m terminal_rsi.byte_specialist.trustgate train \
+            --work corpus/work
+          python -m terminal_rsi.byte_specialist.trustgate evaluate \
+            --work corpus/work --split test3
       - name: Validate causal top-k guard on additional completely unseen books
         run: |
           python -m terminal_rsi.byte_specialist.contextual prepare-guard \
             --corpus corpus/books --work corpus/work
           python -m terminal_rsi.byte_specialist.residual tap \
-            --work corpus/work --split dev4
+            --work corpus/work --split dev4 --diskctx
           python -m terminal_rsi.byte_specialist.contextual eval-guard \
             --work corpus/work
+          python -m terminal_rsi.byte_specialist.trustgate evaluate \
+            --work corpus/work --split dev4
+      - name: Independent never-trained 64-book remainder audit
+        run: |
+          python -m terminal_rsi.byte_specialist.holdout prepare \
+            --corpus corpus/books --work corpus/work --books 64
+          python -m terminal_rsi.byte_specialist.residual tap \
+            --work corpus/work --split holdout4 --diskctx
+          python -m terminal_rsi.byte_specialist.holdout evaluate \
+            --work corpus/work
+          python -m terminal_rsi.byte_specialist.trustgate evaluate \
+            --work corpus/work --split holdout4
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,4 +119,9 @@ jobs:
             corpus/work/context_candidate_step*.npz
             corpus/work/guard_manifest.json
             corpus/work/guard_search.json
+            corpus/work/holdout_manifest.json
+            corpus/work/holdout_search.json
+            corpus/work/trust_search.json
+            corpus/work/trust_candidate.npz
+            corpus/work/trust_*_search.json
           retention-days: 14
