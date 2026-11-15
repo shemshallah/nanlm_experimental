@@ -682,9 +682,9 @@ class ConceptLoop(nn.Module):
             x + 0.1 * route_bias if route_bias is not None else x
         )
         concept, global_ctx = self.encoder(concept_input, sidecar)
-        pointer_input = (
-            x + 0.1 * route_bias if route_bias is not None else x
-        )
+        pointer_input = x + concept
+        if route_bias is not None:
+            pointer_input = pointer_input + 0.1 * route_bias
         self.last_pointer_logits = self.object_pointer(pointer_input).view(
             x.shape[0], x.shape[1], 2, self.vertices
         )
