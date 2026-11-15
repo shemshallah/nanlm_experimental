@@ -69,9 +69,10 @@ class CombinatorialObjectsTest(unittest.TestCase):
             top_vertices=6, top_pairs=4, seed=9,
         )
         x = torch.randn(2, 7, 32, requires_grad=True)
-        out = memory(x)
+        out, aux = memory(x)
         self.assertEqual(tuple(out.shape), (2, 7, 32))
         self.assertTrue(torch.isfinite(out).all())
+        self.assertIn("pair_vertices", aux)
         out.sum().backward()
         self.assertIsNotNone(memory.vertex_keys.grad)
         self.assertIsNotNone(memory.vertex_values.grad)
@@ -80,8 +81,9 @@ class CombinatorialObjectsTest(unittest.TestCase):
         self.assertEqual(memory.vertices, 20)
         self.assertTrue(torch.equal(memory.vertex_keys[:16], old))
         self.assertEqual(memory.counts()["pairs"], binomial(20, 2))
-        out2 = memory(x.detach())
+        out2, aux2 = memory(x.detach())
         self.assertTrue(torch.isfinite(out2).all())
+        self.assertIn("pair_ids", aux2)
 
     def test_future_permutation_and_scores(self):
         book = CombinatorialCodebook(vertices=16, dim=32, seed=5)
