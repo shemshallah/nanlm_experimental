@@ -1,9 +1,12 @@
 """v102 byte specialist transfers algorithms into RSI without donor checkpoint."""
 from pathlib import Path
+import hashlib
+import json
 import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import numpy as np
 
 from terminal_rsi.byte_specialist import nancm_v102 as donor
@@ -13,6 +16,7 @@ from terminal_rsi.byte_specialist.controller import (
 from terminal_rsi.byte_specialist.residual import (ResidualPolicy, build_executable,
                                                    instrumented_source)
 from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous_byte_classes
+from terminal_rsi.byte_specialist.holdout import prepare_remainder
 
 
 class SpecialistTests(unittest.TestCase):
@@ -164,6 +168,43 @@ class SpecialistTests(unittest.TestCase):
             self.assertEqual(len(cats),2*(len(left)-2))
             self.assertEqual(int(cats[0]),3)  # previous byte is space
             self.assertEqual(int(cats[len(left)-2]),3)
+
+    def test_holdout_excludes_donor_and_residual_training_books(self):
+        """A TRAIN-labelled file can be genuinely held out if never read to learn."""
+        books=[(f'b{i:03}.txt',(f'New independent book {i:03}.\n'*160).encode())
+               for i in range(82)]
+        parts={'train':books,'dev':[], 'test':[]}
+        ordered=sorted(books,key=lambda x:hashlib.sha256(x[0].encode()).hexdigest())
+        maxbytes=5000
+        stream=b'\n\n'.join(data for _,data in ordered)[:maxbytes]
+        consumed=0;prefix=set()
+        for name,data in ordered:
+            if consumed>=maxbytes:break
+            consumed+=len(data)+2;prefix.add(name)
+        bpe=donor.BPE([])
+        remaining=[(n,b) for n,b in books if n not in prefix]
+        calibrate=select_windows(remaining,bpe,count=48,width=256,skip=16,seed=3003)
+        calibration_names={n for n,_ in calibrate}
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            bpe.save(root/'bpe.txt')
+            (root/'split_manifest.json').write_text(json.dumps({
+                'max_train_bytes':maxbytes,'train_sha256':digest(stream),
+                'width':256,'skip':16,'split_counts':{'train':len(books)}}))
+            (root/'residual_manifest.json').write_text(json.dumps({'splits':{
+                'calibration':{'book_list_sha256':digest('\n'.join(sorted(calibration_names)).encode())}}}))
+            with patch('terminal_rsi.byte_specialist.holdout.assign_books',return_value=parts):
+                prepared=prepare_remainder(corpus=root,work=root,count=8)
+                again=prepare_remainder(corpus=root,work=root,count=8)
+                self.assertEqual(prepared,again)
+                self.assertEqual(prepared['original_donor_training_book_count'],len(prefix))
+                self.assertEqual(prepared['excluded_residual_calibration_books'],48)
+                self.assertEqual(prepared['split']['books'],8)
+                wrong=json.loads((root/'split_manifest.json').read_text())
+                wrong['train_sha256']='0'*64
+                (root/'split_manifest.json').write_text(json.dumps(wrong))
+                with self.assertRaisesRegex(ValueError,'training stream changed'):
+                    prepare_remainder(corpus=root,work=root,count=8)
 
 
 if __name__ == '__main__':

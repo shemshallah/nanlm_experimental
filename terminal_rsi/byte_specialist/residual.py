@@ -132,7 +132,7 @@ def prepare_unseen(*, corpus: Path, work: Path, calibration=48, dev2=24, test2=2
 
 def run_tap(work: Path, split: str, *, diskctx: bool = False):
     """Train the same original v102 model and dump strictly frozen distributions."""
-    if split not in ('calibration','dev2','test2','dev3','test3','dev4'):
+    if split not in ('calibration','dev2','test2','dev3','test3','dev4','holdout4'):
         raise ValueError('Non-whitelisted split')
     original = json.loads((work/'split_manifest.json').read_text())
     for suffix in ('bin','u'):
@@ -159,10 +159,12 @@ def run_tap(work: Path, split: str, *, diskctx: bool = False):
 
 def load_scored(work: Path, split: str):
     """All shapes, probabilities, targets, and donor NLL verified independently."""
-    manifest_name=('guard_manifest.json' if split=='dev4' else
+    manifest_name=('holdout_manifest.json' if split=='holdout4' else
+                   'guard_manifest.json' if split=='dev4' else
                    'context_manifest.json' if split in ('dev3','test3') else
                    'residual_manifest.json')
-    meta=json.loads((work/manifest_name).read_text())['splits'][split]
+    manifest=json.loads((work/manifest_name).read_text())
+    meta=(manifest['split'] if split=='holdout4' else manifest['splits'][split])
     n=meta['scored_bytes']; per=n//meta['books']
     probabilities=np.fromfile(work/f'residual_{split}.prob', dtype='<f4')
     if probabilities.size != n*256:
@@ -345,7 +347,7 @@ def main():
     parser.add_argument('command',choices=('prepare','tap','train'))
     parser.add_argument('--work',required=True,type=Path)
     parser.add_argument('--corpus',type=Path)
-    parser.add_argument('--split',choices=('calibration','dev2','test2','dev3','test3','dev4'))
+    parser.add_argument('--split',choices=('calibration','dev2','test2','dev3','test3','dev4','holdout4'))
     parser.add_argument('--diskctx',action='store_true',
                         help='Back context tables with an unlinked temporary disk file')
     args=parser.parse_args()

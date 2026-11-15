@@ -190,3 +190,32 @@ unlinked backing file remains allocated until the C process exits; the
 operating system releases it automatically at exit. Disk-backed training can
 be slower than RAM-backed training. No full-donor model or massive table file
 is included in the small source release.
+
+## Independent train-remainder holdout (fourth assessment)
+
+`holdout.py` prepares an additional set of 64 book-disjoint predictions from
+the **377 remaining eligible TRAIN-partition books that were never used** by
+the donor's 1 MiB training prefix or the residual's 48-book calibration.
+Although they were originally *assigned* to TRAIN, these books contributed
+no bytes to any fitted parameters, BPE merges, or token LM tables. The
+manifest recomputes and checks the original complete donor stream SHA-256,
+the frozen 48-book calibration selection, and the disjoint source-book sets.
+This is an auxiliary never-trained-on holdout, not a relabeling of the
+original sealed TEST split.
+
+```bash
+python -m terminal_rsi.byte_specialist.holdout prepare \
+  --corpus /path/to/nanrouter/books --work /path/to/local-work --books 64
+python -m terminal_rsi.byte_specialist.residual tap \
+  --work /path/to/local-work --split holdout4 --diskctx
+python -m terminal_rsi.byte_specialist.holdout evaluate \
+  --work /path/to/local-work
+```
+
+Evaluation reads the saved step-288 inherited residual, the saved step-480
+contextual candidate, and frozen donor distributions; it performs **zero
+training updates**. It reports parent/raw/guarded BPC and top-1/top-5 plus
+a 2,000-resample paired whole-book BPC confidence interval. No candidate can
+be promoted merely by doing well on this auxiliary holdout. Full-book
+evaluation, additional external books, and TerminalBench are still separate
+requirements.
