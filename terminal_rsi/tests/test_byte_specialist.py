@@ -19,10 +19,46 @@ from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous
 from terminal_rsi.byte_specialist.holdout import prepare_remainder
 from terminal_rsi.byte_specialist.trustgate import TrustGate
 from terminal_rsi.byte_specialist.causal_echo import CausalEcho, causal_counts
-from terminal_rsi.byte_specialist.feedback_core import FeedbackRSI, FeedbackState
+from terminal_rsi.byte_specialist.feedback_core import FeedbackRSI, FeedbackState, StreamingRSICore
 
 
 class SpecialistTests(unittest.TestCase):
+    def test_live_rsi_predict_then_observe_matches_offline_replay(self):
+        rng=np.random.default_rng(822)
+        a=b'abc abcabcabc XYZ! 12345 abcabc'
+        b=b'bcabcab xyz 789 000 bcabcabcabc'
+        windows=(a,b);skip=4
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            body=struct.pack('<II',len(windows),skip)
+            for window in windows:body+=struct.pack('<I',len(window))+window
+            (root/'win_dev3.bin').write_bytes(body)
+            counts,orders=causal_counts(root,'dev3')
+            classes=previous_byte_classes(root,'dev3')
+            targets=np.frombuffer(b''.join(w[skip:] for w in windows),dtype=np.uint8)
+            n=len(a)-skip
+            self.assertEqual(len(b)-skip,n)
+            p=rng.uniform(.01,1.,(len(targets),256));p/=p.sum(axis=1,keepdims=True)
+            model=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
+            model.echo.g[:]=(.1,-.1,.3)
+            model.weights[:,1:]=rng.normal(0.,.4,(2,5))
+            offline,_=model.distributions(p,targets,n,classes,counts,orders)
+            live=StreamingRSICore(model)
+            actual=[];idx=0
+            for book in windows:
+                live.reset_book()
+                for v in book[:skip]:live.warmup(int(v))
+                for target in book[skip:]:
+                    candidate=live.predict(p[idx])
+                    with self.assertRaisesRegex(ValueError,'awaiting observation'):
+                        live.predict(p[idx])
+                    actual.append(candidate)
+                    live.observe(int(target))
+                    idx+=1
+            np.testing.assert_allclose(np.stack(actual),offline,rtol=1e-13,atol=1e-13)
+            with self.assertRaisesRegex(ValueError,'without prior prediction'):
+                live.observe(97)
+
     def test_rsi_critic_observes_only_prior_target_and_resets_per_book(self):
         p=np.full((12,256),1/256.,np.float64)
         q=p.copy();r=p.copy()

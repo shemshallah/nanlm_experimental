@@ -331,6 +331,17 @@ proper-score objective and guarded ranking, with fixed-zero global biases so
 changes must depend on prior evidence. This is a byte-level RSI feedback
 analogue, **not PPO, TerminalBench RPR, or a universality claim**.
 
+The runtime also exposes `StreamingRSICore`, which owns the preceding-byte
+recall tables and recurrent critic state. Its contract is `warmup(byte)` for
+an observed prefix, then `predict(donor_distribution)` followed by
+`observe(actual_byte)` at every scored position. It rejects a second
+prediction before the first has been observed, forbids unknown-byte warmup,
+and requires a book reset between independent sources. An exact replay test
+checks streamed predictions against the labeled offline evaluator, including
+nonzero feedback-control weights; the caller never supplies future labels
+to `predict`. This makes the core usable for actual bytewise inference once
+the original v102 donor exposes its live probability stream.
+
 ```bash
 python -m terminal_rsi.byte_specialist.feedback_core train \
   --work /path/to/local-work

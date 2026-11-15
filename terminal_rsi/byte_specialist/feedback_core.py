@@ -13,6 +13,7 @@ of terminal-task RL or general recursive self-improvement.
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 import hashlib
 import io
 import json
@@ -206,6 +207,93 @@ class FeedbackRSI:
         out.step=int(rsi['rsi_step'])
         if out.step<0:raise ValueError('Bad RSI step')
         return out
+
+
+class StreamingRSICore:
+    """Production-shaped predict -> observe interface, with zero future access.
+
+    Owns the within-book suffix memories, previous-byte class, RSI critic,
+    and a pending prediction receipt. The caller supplies only a donor
+    distribution when it requests a prediction; no target is accepted until
+    after that distribution has been returned.
+    """
+    def __init__(self, model: FeedbackRSI):
+        self.model = model
+        self.reset_book()
+
+    def reset_book(self):
+        if getattr(self, '_pending', None) is not None:
+            raise ValueError('Observe pending prediction before book reset')
+        self.history = bytearray()
+        self.memories = [None] + [defaultdict(Counter) for _ in range(3)]
+        self.critic = FeedbackState(self.model.decay)
+        self._pending = None
+
+    def _record(self, byte):
+        if not isinstance(byte, (int, np.integer)) or not 0 <= int(byte) < 256:
+            raise ValueError('Expected an observed byte in [0,255]')
+        byte = int(byte)
+        for k in (1,2,3):
+            if len(self.history) >= k:
+                self.memories[k][bytes(self.history[-k:])][byte] += 1
+        self.history.append(byte)
+
+    def warmup(self, byte):
+        """Consume an already-observed prefix byte, before any prediction."""
+        if self._pending is not None:
+            raise ValueError('Cannot warm up before observing pending target')
+        self._record(byte)
+
+    @staticmethod
+    def _prior_class(byte):
+        if 97 <= byte <= 122:return 0
+        if 65 <= byte <= 90:return 1
+        if 48 <= byte <= 57:return 2
+        if byte == 32:return 3
+        if byte == 10:return 4
+        if byte >= 128:return 5
+        return 6
+
+    def _causal_recall(self):
+        row = np.zeros((1,256), np.uint16)
+        order = 0
+        for k in (3,2,1):
+            if len(self.history) >= k:
+                old = self.memories[k].get(bytes(self.history[-k:]))
+                if old:
+                    for byte, count in old.items():
+                        if count > np.iinfo(np.uint16).max:
+                            raise ValueError('Recall count overflow')
+                        row[0,byte] = count
+                    order = k
+                    break
+        return row, np.array([order], np.uint8)
+
+    def predict(self, donor_distribution):
+        if self._pending is not None:
+            raise ValueError('RSI prediction already awaiting observation')
+        if not self.history:
+            raise ValueError('At least one observed prefix byte required')
+        p = np.asarray(donor_distribution, np.float64)
+        if (p.shape!=(256,) or not np.isfinite(p).all() or
+                np.any(p<0) or abs(float(p.sum())-1.)>.003):
+            raise ValueError('Malformed frozen donor distribution')
+        counts,orders = self._causal_recall()
+        classes=np.array([self._prior_class(self.history[-1])],np.int64)
+        expert=self.model._experts(p.reshape(1,256), classes, counts, orders)
+        features=self.critic.features(int(orders[0])).reshape(1,6)
+        proposed,_=self.model._mix(expert,features,guard=True)
+        self._pending=tuple(channel[0].copy() for channel in expert)
+        return proposed[0].copy()
+
+    def observe(self, target_byte):
+        if self._pending is None:
+            raise ValueError('RSI observation without prior prediction')
+        if not isinstance(target_byte,(int,np.integer)) or not 0 <= int(target_byte) < 256:
+            raise ValueError('Invalid scored byte')
+        self.critic.observe(*self._pending,int(target_byte))
+        self._record(int(target_byte))
+        self._pending=None
 
 
 def train_stages(work:Path):
