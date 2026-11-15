@@ -1319,7 +1319,8 @@ class V3LM(nn.Module):
         )
         decoder = (
             IncrementalCompositionDecoder(layer_tokenizer.subword)
-            if layer_tokenizer is not None else None
+            if layer_tokenizer is not None
+            and hasattr(layer_tokenizer, "subword") else None
         )
         tokenizer_events: list[tuple[int, str]] = []
         object_events: list[list[int]] = []
@@ -1382,9 +1383,10 @@ class V3LM(nn.Module):
                     pointer = aux["object_pointer_logits"][:, -1]
                     pu = pointer[:, 0].argmax(dim=-1)
                     pv_logits = pointer[:, 1].clone()
-                    pv_logits[torch.arange(pv_logits.shape[0]), pu] = (
-                        torch.finfo(pv_logits.dtype).min
+                    rows = torch.arange(
+                        pv_logits.shape[0], device=pv_logits.device
                     )
+                    pv_logits[rows, pu] = torch.finfo(pv_logits.dtype).min
                     pv = pv_logits.argmax(dim=-1)
                     lo = torch.minimum(pu, pv)
                     hi = torch.maximum(pu, pv)
