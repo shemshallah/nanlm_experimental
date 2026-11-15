@@ -1037,6 +1037,7 @@ class V3LM(nn.Module):
 
         mtp_block_lb: list[torch.Tensor] = []
         mtp_block_rz: list[torch.Tensor] = []
+        mtp_composition_logits: list[torch.Tensor] = []
         if self.mtp_blocks:
             # Predicted t+1 distribution.  This is a distribution in both
             # train and eval; ground truth is only ever a soft teacher term.
@@ -1131,6 +1132,13 @@ class V3LM(nn.Module):
                     )
                 if self.mtp_branch_norm is not None:
                     branch = self.mtp_branch_norm(branch)
+                if self.composition_head is not None:
+                    # The future branch predicts future word/sentence/math
+                    # composition too, not only the next subword.  Sharing
+                    # the main structural head avoids a second vocabulary.
+                    mtp_composition_logits.append(
+                        self.composition_head(branch)
+                    )
                 if block_aux:
                     if block_aux.get("load_balance") is not None:
                         mtp_block_lb.append(block_aux["load_balance"])
@@ -1220,6 +1228,10 @@ class V3LM(nn.Module):
             mtp = []
             for idx, adapter in enumerate(self.mtp_adapters):
                 hidden = adapter(x)
+                if self.composition_head is not None:
+                    mtp_composition_logits.append(
+                        self.composition_head(hidden)
+                    )
                 head = self.mtp_heads[idx] if self.mtp_heads else None
                 mtp.append(self.mtp_head_logits(head, hidden))
             gate_loss = None
@@ -1245,6 +1257,11 @@ class V3LM(nn.Module):
             aux["memory_gate_mean"] = torch.stack(memory_gates).mean()
         if self.composition_head is not None:
             aux["composition_logits"] = self.composition_head(x)
+            if mtp_composition_logits:
+                aux["mtp_composition_logits"] = mtp_composition_logits
+                aux["mtp_composition_lags"] = [
+                    2 + idx for idx in range(len(mtp_composition_logits))
+                ]
         if self.concept_loop is not None and hasattr(
             self.concept_loop, "last_object_ids"
         ):

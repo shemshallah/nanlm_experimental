@@ -306,6 +306,7 @@ Implemented in this integration:
 - gated recurrent concept carry across all blocks
 - optional task/domain embedding in the initial route context
 - concept state fed into MTP branch context
+- MTP future-composition BCE through the shared structural head
 - multi-label composition event head and BCE supervision
 - multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator

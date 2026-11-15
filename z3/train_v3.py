@@ -1086,6 +1086,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--no-ema", action="store_true")
     train.add_argument("--composition-weight", type=float, default=0.05,
                        help="auxiliary composition-event CE weight")
+    train.add_argument("--mtp-composition-weight", type=float, default=0.02,
+                       help="future MTP structural-event BCE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
                        help="auxiliary C(256,2) object-pointer CE weight")
     train.add_argument("--task-id", type=int, default=-1,
@@ -2092,6 +2094,7 @@ def main(argv: list[str] | None = None) -> int:
             if aux.get("mtp_gate_loss") is not None:
                 loss = loss + args.mtp_gate_coef * aux["mtp_gate_loss"]
             composition_loss = None
+            mtp_composition_loss = None
             if sidecar is not None and aux.get("composition_logits") is not None:
                 comp_logits = aux["composition_logits"]
                 if getattr(sidecar, "event_multi", None) is not None:
@@ -2099,6 +2102,29 @@ def main(argv: list[str] | None = None) -> int:
                         comp_logits,
                         sidecar.event_multi.to(comp_logits.dtype),
                     )
+                    future_logits = aux.get("mtp_composition_logits") or []
+                    future_lags = aux.get("mtp_composition_lags") or []
+                    future_losses = []
+                    for lag, logits in zip(future_lags, future_logits):
+                        target_len = xb.size(1) - int(lag)
+                        if target_len <= 0:
+                            continue
+                        targets = sidecar.event_multi[:, int(lag):].to(
+                            logits.dtype
+                        )
+                        future_losses.append(
+                            F.binary_cross_entropy_with_logits(
+                                logits[:, :target_len], targets
+                            )
+                        )
+                    if future_losses:
+                        mtp_composition_loss = torch.stack(
+                            future_losses
+                        ).mean()
+                        loss = loss + (
+                            args.mtp_composition_weight
+                            * mtp_composition_loss
+                        )
                 else:
                     composition_loss = F.cross_entropy(
                         comp_logits.reshape(-1, comp_logits.size(-1)),
@@ -2226,6 +2252,10 @@ def main(argv: list[str] | None = None) -> int:
             "composition": (
                 _finite(composition_loss)
                 if composition_loss is not None else None
+            ),
+            "mtp_composition": (
+                _finite(mtp_composition_loss)
+                if mtp_composition_loss is not None else None
             ),
             "object_pointer": (
                 _finite(pointer_loss) if pointer_loss is not None else None
