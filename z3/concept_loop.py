@@ -664,6 +664,18 @@ class ConceptLoop(nn.Module):
         object_ctx = object_ctx + torch.sigmoid(
             self.object_memory.gate_logit
         ).to(dtype=x.dtype) * pointer_ctx
+        # Causal object recurrence along the sequence.  Token t+1 sees the
+        # object/pointer state selected at t; the shift is a one-token delay,
+        # so no future token can leak.  This is a feed-forward scan, not a
+        # second full attention pass.
+        if object_ctx.shape[1] > 1:
+            previous = torch.cat(
+                [torch.zeros_like(object_ctx[:, :1]), object_ctx[:, :-1]],
+                dim=1,
+            )
+            object_ctx = object_ctx + torch.sigmoid(
+                self.carry_gate
+            ).to(dtype=object_ctx.dtype) * previous
         self.last_object_ids = object_aux["pair_ids"].detach()
         self.last_object_vertices = object_aux["pair_vertices"].detach()
         self.last_triple_ids = (
