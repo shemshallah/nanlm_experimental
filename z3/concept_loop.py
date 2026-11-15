@@ -356,6 +356,16 @@ class ConceptEncoder(nn.Module):
                 value = value.unsqueeze(0).expand(x.shape[0], -1)
             elif value.shape[0] == 1 and x.shape[0] > 1:
                 value = value.expand(x.shape[0], -1)
+            if value.shape[1] != x.shape[1]:
+                width = min(value.shape[1], x.shape[1])
+                if value.shape[1] < x.shape[1]:
+                    pad = torch.zeros(
+                        value.shape[0], x.shape[1] - width,
+                        device=value.device, dtype=value.dtype,
+                    )
+                    value = torch.cat([value[:, :width], pad], dim=1)
+                else:
+                    value = value[:, :width]
             return value
 
         def align_multi(value: torch.Tensor) -> torch.Tensor | None:
