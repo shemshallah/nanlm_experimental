@@ -59,6 +59,29 @@ def content_balanced_ce(logits, targets, nonspace_weight=1.0):
     return (per_byte * weights).sum() / weights.sum()
 
 
+def trust_counterfactual_binary_loss(trust_logits, on_logits, off_logits, targets):
+    """R42: supervise causal trust using matched TRAIN on/off predictions.
+
+    Both comparison predictions are detached. Only the eight-weight trust
+    classifier receives gradient from this auxiliary loss. Future targets
+    are never used as inference inputs or as retrieval keys.
+    """
+    if trust_logits is None or trust_logits.shape != (*targets.shape, 1):
+        raise ValueError('Trust logits need one scalar per causal target')
+    if on_logits.shape != off_logits.shape or on_logits.shape[:2] != targets.shape:
+        raise ValueError('Counterfactual logits need matched target positions')
+    with torch.no_grad():
+        truth = targets.flatten()
+        on_ce = F.cross_entropy(on_logits.detach().flatten(0,1), truth,
+                                reduction='none').reshape_as(targets)
+        off_ce = F.cross_entropy(off_logits.detach().flatten(0,1), truth,
+                                 reduction='none').reshape_as(targets)
+        better = on_ce < off_ce
+        labels = torch.where(better, .9, .1).to(trust_logits.dtype)
+    return (F.binary_cross_entropy_with_logits(trust_logits.squeeze(-1), labels),
+            better.float().mean().detach())
+
+
 @torch.no_grad()
 def evaluate_byte_breakdown(model, batches):
     """Unweighted, causal +1/+2/+3 metrics on exactly the supplied windows.
@@ -355,6 +378,8 @@ class ReciprocalScaleGeometry(nn.Module):
         # Initial weight zero => confidence factor exactly 1 at migration.
         self.context_trust = (nn.Linear(token_rank, 1, bias=False)
                               if content_trust else None)
+        self.record_trust_for_aux = False
+        self.latest_trust_logits = None
         self.enabled = True  # inference ablation only; not a checkpoint weight
         self.pair_to_micro_enabled = True
         self.cloud_to_micro_enabled = True
@@ -398,7 +423,12 @@ class ReciprocalScaleGeometry(nn.Module):
         """
         if self.context_trust is None:
             return levels.new_ones((*levels.shape[:2], 1))
-        return 2. * torch.sigmoid(self.context_trust(levels.mean(2)))
+        features = levels.mean(2)
+        if self.record_trust_for_aux:
+            # Auxiliary supervision updates only the tiny classifier, not
+            # the inherited token hierarchy through this additional loss.
+            self.latest_trust_logits = self.context_trust(features.detach())
+        return 2. * torch.sigmoid(self.context_trust(features))
 
     def ingest(self, hidden, ids, hierarchy, previous=None, meta=None):
         """Refresh same-byte causal resolutions after EACH transformer layer."""
@@ -1314,10 +1344,12 @@ class MirrorLM(nn.Module):
             outputs.append(self.head(state))
         return outputs[0], outputs[1]
 
-    def loss_with_future(self, ids, nonspace_weight=1.0):
+    def loss_with_future(self, ids, nonspace_weight=1.0, return_next_logits=False):
         # ids has shape [B, context+3]. No label bytes enter the model input.
         x = ids[:, :-3]
         logits, h, m = self(x, ids[:, 1:-2], nonspace_weight=nonspace_weight)
+        if return_next_logits:
+            m['next_logits'] = logits
         loss = m['loss']
         if self.cfg.future2_weight or self.cfg.future3_weight:
             p2, p3 = self.future_logits(h)
@@ -1985,6 +2017,11 @@ def freeze_inherited_backbone_for_geometry(model):
 def train(args):
     if not math.isfinite(args.nonspace_loss_weight) or args.nonspace_loss_weight < 1.0:
         raise ValueError('--nonspace-loss-weight must be finite and >= 1')
+    trust_aux_weight = getattr(args, 'trust_counterfactual_weight', 0.0)
+    if not math.isfinite(trust_aux_weight) or trust_aux_weight < 0.:
+        raise ValueError('--trust-counterfactual-weight must be finite and nonnegative')
+    if trust_aux_weight and getattr(args, 'future_only', False):
+        raise ValueError('Counterfactual trust training cannot combine with --future-only')
     inherited_scale = getattr(args, 'inherited_step_scale', 1.0)
     if not math.isfinite(inherited_scale) or not 0. <= inherited_scale <= 1.:
         raise ValueError('--inherited-step-scale must be finite and within [0, 1]')
@@ -2102,6 +2139,8 @@ def train(args):
         if not cfg.reciprocal_scales:
             raise ValueError('--reciprocal-content-trust needs the existing reciprocal bridge')
         cfg.reciprocal_content_trust = True
+    if trust_aux_weight and not cfg.reciprocal_content_trust:
+        raise ValueError('--trust-counterfactual-weight requires R41 reciprocal content trust')
     if cfg.reciprocal_scales and meta.get('unit') != 'UTF8_bytes_plus_eos':
         raise ValueError('Reciprocal scales require verified UTF-8 byte+EOS training data')
     history = list(saved.get('growth_history', [])) if saved else []
@@ -2315,6 +2354,14 @@ def train(args):
                         'nonspace_weight':args.nonspace_loss_weight,
                         'space_byte':32,'normalization':'sum_target_weights',
                         'evaluation_objective':'ordinary_unweighted_ce'})
+    if args.steps > 0 and trust_aux_weight:
+        history.append({'kind':'causal_train_only_trust_counterfactual',
+                        'step':start,'updates':args.steps,
+                        'auxiliary_weight':trust_aux_weight,
+                        'teacher':'same_checkpoint_reciprocal_disabled',
+                        'soft_labels':[0.1,0.9],
+                        'logit_features_detached':True,
+                        'evaluation_objective':'ordinary_unweighted_ce'})
     protected_params = []
     if inherited_scale != 1.:
         if model.reciprocal is None or model.hierarchy is None or not any(
@@ -2374,11 +2421,15 @@ def train(args):
                         'inherited_adam_states_preserved':True})
         print(f'GEOMETRY-ONLY warm-up: {new_count:,} trainable new parameters; '
               f'{frozen_count:,} inherited parameters and their Adam states frozen')
+    if trust_aux_weight:
+        model.reciprocal.record_trust_for_aux = True
     model.train()
     for step in range(start + 1, start + args.steps + 1):
         update_growth_bias(model, growth, step)
         optim.zero_grad(set_to_none=True)
         train_ce_sum = 0.0
+        trust_aux_sum = 0.0
+        trust_better_sum = 0.0
         tokens_this_step = 0
         for _micro in range(args.grad_accum):
             selected_context = int(rng.choice(mix[0], p=mix[1])) if mix else active_context
@@ -2387,16 +2438,34 @@ def train(args):
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
                                 enabled=bool(args.bf16 and device.type == 'cuda')):
                 losses = model.loss_with_future(
-                    batch, nonspace_weight=args.nonspace_loss_weight)
+                    batch, nonspace_weight=args.nonspace_loss_weight,
+                    return_next_logits=bool(trust_aux_weight))
+                trust_aux = None
+                if trust_aux_weight:
+                    # Same frozen-at-this-step model supplies its matched
+                    # no-reciprocal counterfactual. Labels stay TRAIN-only.
+                    model.reciprocal.enabled = False
+                    try:
+                        with torch.no_grad():
+                            off_logits, _, _ = model(batch[:, :-3])
+                    finally:
+                        model.reciprocal.enabled = True
+                    trust_aux, better_fraction = trust_counterfactual_binary_loss(
+                        model.reciprocal.latest_trust_logits,
+                        losses.pop('next_logits'), off_logits, batch[:, 1:-2])
                 if getattr(args, 'future_only', False):
                     micro_loss = sum((cfg.future2_weight * losses['future2_ce']
                                       if cfg.future2_weight else 0.,
                                       cfg.future3_weight * losses['future3_ce']
                                       if cfg.future3_weight else 0.)) / args.grad_accum
                 else:
-                    micro_loss = losses['loss'] / args.grad_accum
+                    micro_loss = (losses['loss'] + trust_aux_weight * trust_aux
+                                  if trust_aux is not None else losses['loss']) / args.grad_accum
             micro_loss.backward()
             train_ce_sum += losses['next_ce'].detach().item()
+            if trust_aux is not None:
+                trust_aux_sum += trust_aux.detach().item()
+                trust_better_sum += better_fraction.item()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         prior_inherited = ([p.detach().clone() for p in protected_params]
                            if protected_params else [])
@@ -2416,6 +2485,10 @@ def train(args):
                 'validation_ce': round(val_ce, 5),
                 'validation_h2_ce': round(val_h2, 5), 'validation_h3_ce': round(val_h3, 5),
                 'validation_ppl': round(math.exp(min(val_ce, 30)), 3)}
+            if trust_aux_weight:
+                report['train_trust_aux_bce'] = round(trust_aux_sum / args.grad_accum, 6)
+                report['train_reciprocal_better_fraction'] = round(
+                    trust_better_sum / args.grad_accum, 6)
             if getattr(args, 'report_byte_metrics', False):
                 report['byte_metrics'] = evaluate_byte_breakdown(model, val_batches)
             print(json.dumps(report))
@@ -3047,6 +3120,8 @@ def main():
                     help='opt-in weight >=1 on target bytes other than ASCII space; training only')
     tr.add_argument('--inherited-step-scale', type=float, default=1.0,
                     help='R40: scale inherited Adam parameter displacement to [0,1], preserving all moment histories; newly attached geometry remains full rate')
+    tr.add_argument('--trust-counterfactual-weight', type=float, default=0.0,
+                    help='R42: train the existing causal reciprocal trust gate against matched on/off TRAIN-only next-byte loss')
     tr.add_argument('--report-byte-metrics', action='store_true',
                     help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
