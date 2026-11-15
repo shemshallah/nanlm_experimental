@@ -30,10 +30,18 @@ the run sees only ~51k training tokens (about 2% of one pass over the training
 split), so this is not evidence that the concept architecture is worse; it is
 evidence that the current concept injection is not free at very short horizons.
 
-The composition auxiliary loss is the most visible single cost in this short
-run: disabling the composition head improves BPB from 2.3789 to 2.3718.
-Removing the sidecar does **not** recover the baseline, so the cost is in the
-concept/object loop rather than tokenizer alignment alone.
+A second 200-step run tested `--concept-loop-scale 0.1`:
+
+| Row | Loss | Bits/byte |
+|---|---:|---:|
+| baseline_no_concept | 7.20125 | 2.35803 |
+| concept_loopscale10 | 7.26789 | 2.37985 |
+
+Scaling the loop down did not help.  The composition auxiliary loss is the most
+visible single cost in the short run: disabling the composition head improves
+BPB from 2.3789 to 2.3718.  Removing the sidecar does **not** recover the
+baseline, so the cost is in the concept/object loop rather than tokenizer
+alignment alone.
 
 ## Longer convergence run
 
