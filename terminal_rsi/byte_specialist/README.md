@@ -219,3 +219,46 @@ a 2,000-resample paired whole-book BPC confidence interval. No candidate can
 be promoted merely by doing well on this auxiliary holdout. Full-book
 evaluation, additional external books, and TerminalBench are still separate
 requirements.
+
+## Confidence-conditioned recursive trust (fifth exploratory round)
+
+`trustgate.py` extends the **same saved contextual candidate** with ten
+additional trainable Adam parameters: one bias, donor-distribution entropy,
+the donor's top-two probability margin, and seven previous-observed-byte
+class indicators. The contextual logit correction is multiplied by
+`1 + tanh(features @ gate_weights)`. At the zero initialization this is
+exactly one, preserving the inherited candidate's predictions. The new gate
+has its own Adam moments; the inherited 480 residual and 192 contextual
+Adam steps and every original tensor remain intact in the **single combined
+checkpoint**.
+
+```bash
+python -m terminal_rsi.byte_specialist.trustgate train \
+  --work /path/to/local-work
+python -m terminal_rsi.byte_specialist.trustgate evaluate \
+  --work /path/to/local-work --split test3
+```
+
+Only the previously designated 48 TRAIN calibration books update the ten
+new gate parameters. Staged proposals at 128, 256, and 512 total gate Adam
+updates were compared using DEV3; step 128 was selected using the predefined
+per-stage improvement threshold. Relative to the *guarded* step-480
+contextual candidate, DEV3 BPC improved **2.254258 to 2.252067** on 24
+books. Because DEV3 had already selected the contextual architecture,
+this gain is a development-only signal.
+
+A separately recorded, read-only TEST3 comparison scored the same 3,840
+positions from eight books and reported:
+
+| TEST3 | Guarded context | Guarded adaptive trust |
+| --- | ---: | ---: |
+| BPC (lower) | 2.290856 | **2.289669** |
+| Top-1 | 53.7760% | 53.7760% |
+| Top-5 | 83.6979% | 83.6979% |
+
+The paired whole-book bootstrap gain interval was `[0.000090,0.002516]`
+BPC; five of eight books improved. These TEST3 results are **post hoc / not
+independent for promotion**, since the earlier contextual top-k guard was
+designed after inspecting TEST3. The trust gate is not promoted. The frozen
+DEV4 replay and auxiliary 64-book holdout must be completed under a reliable
+v102 training state before any independent effect is claimed.

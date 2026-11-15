@@ -1,0 +1,16 @@
+{
+  "excluded_book_names_sha256": "550a495b378a2eaae67abef245cb0ed34b6589c75cc556ba121bc6ce4dbb32cf",
+  "excluded_residual_calibration_books": 48,
+  "original_donor_training_book_count": 3,
+  "original_manifest_sha256": "19d3b6f85c5ad736b71f26f7a4c175a7f7df2bd4945c05ce413e77f565df58e8",
+  "remaining_eligible_books": 377,
+  "residual_manifest_sha256": "c790c04c92eba1a284def43199b90f59cc2ddc12bc5943aa01d5c581944b5912",
+  "schema": "terminal-rsi-v102-train-remainder-holdout-v1",
+  "scope": "never-trained TRAIN partition remainder; separate from original DEV/TEST",
+  "split": {
+    "book_list_sha256": "2764e6fbd937eb1923a8551b5ac999cf022b7ac6c00d8860a745e39ec1f7385d",
+    "books": 64,
+    "scored_bytes": 30720,
+    "windows_sha256": "4b7ad81a1dd10c53b9ad5255a217ef1fedd3914a4cd67d537326051c053318f1"
+  }
+}

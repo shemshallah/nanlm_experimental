@@ -1,0 +1,51 @@
+{
+  "candidate_promoted": false,
+  "caveat": "DEV3 was previously used to select step-480; no independent test of this new gate yet",
+  "gate_dev_book_count": 24,
+  "gate_training_book_count": 48,
+  "inherited_context_adam_step": 192,
+  "inherited_residual_adam_step": 480,
+  "initial_dev3": {
+    "bpc": 2.2542580536138663,
+    "fraction_context_applied": 0.8885416666666667,
+    "top1": 0.5480034722222222,
+    "top5": 0.8427083333333333
+  },
+  "initial_gate_prediction_exact": true,
+  "parent_context_checkpoint_sha256": "1b1d9791a9d41f6a225417b38398fe90a03961c62394c62aa41c6c8ecef48762",
+  "schema": "terminal-rsi-v102-confidence-trust-adam-v1",
+  "selected_gate_dev3_bpc": 2.2520666108851337,
+  "selected_gate_step": 128,
+  "stages": [
+    {
+      "dev3": {
+        "bpc": 2.2520666108851337,
+        "fraction_context_applied": 0.8267361111111111,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "gate_adam_step": 128,
+      "learning_rate": 0.01
+    },
+    {
+      "dev3": {
+        "bpc": 2.2519372582137867,
+        "fraction_context_applied": 0.8221354166666667,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "gate_adam_step": 256,
+      "learning_rate": 0.005
+    },
+    {
+      "dev3": {
+        "bpc": 2.2520153457574,
+        "fraction_context_applied": 0.8254340277777777,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "gate_adam_step": 512,
+      "learning_rate": 0.002
+    }
+  ]
+}

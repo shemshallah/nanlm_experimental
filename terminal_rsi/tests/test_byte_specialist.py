@@ -17,6 +17,7 @@ from terminal_rsi.byte_specialist.residual import (ResidualPolicy, build_executa
                                                    instrumented_source)
 from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous_byte_classes
 from terminal_rsi.byte_specialist.holdout import prepare_remainder
+from terminal_rsi.byte_specialist.trustgate import TrustGate
 
 
 class SpecialistTests(unittest.TestCase):
@@ -205,6 +206,41 @@ class SpecialistTests(unittest.TestCase):
                 (root/'split_manifest.json').write_text(json.dumps(wrong))
                 with self.assertRaisesRegex(ValueError,'training stream changed'):
                     prepare_remainder(corpus=root,work=root,count=8)
+
+    def test_trust_gate_preserves_context_predictions_and_adam_history(self):
+        rng=np.random.default_rng(99)
+        p=rng.uniform(.002,1.,(140,256));p/=p.sum(axis=1,keepdims=True)
+        y=rng.integers(0,256,140);c=rng.integers(0,7,140)
+        original=ResidualPolicy()
+        original.train(p,y,steps=12,lr=.004,phase='RSR')
+        context=ContextualResidual(original)
+        context.train(p,y,c,steps=12,lr=.003)
+        checkpoint=(context.weights.copy(),context.m.copy(),context.v.copy(),
+                    context.context.copy(),context.cm.copy(),context.cv.copy(),
+                    context.t,context.ct)
+        gate=TrustGate(context)
+        self.assertAlmostEqual(gate.score(p,y,20,c,guard=False)['bpc'],
+                               context.score(p,y,20,c)['bpc'],places=12)
+        self.assertAlmostEqual(gate.score(p,y,20,c,guard=True)['bpc'],
+                               context.score_guarded(p,y,20,c)['bpc'],places=12)
+        gate.train(p,y,c,steps=20,lr=.01)
+        self.assertEqual(gate.step,20)
+        for old,now in zip(checkpoint[:6],(context.weights,context.m,context.v,
+                                            context.context,context.cm,context.cv)):
+            self.assertTrue(np.array_equal(old,now))
+        self.assertEqual(checkpoint[6:],(context.t,context.ct))
+        protected=gate.score(p,y,20,c,guard=True)
+        inherited=original.score(p,y,20)
+        self.assertEqual((protected['top1'],protected['top5']),
+                         (inherited['top1'],inherited['top5']))
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'unified_trust.npz'
+            gate.checkpoint(path)
+            loaded=TrustGate.from_checkpoint(path)
+            self.assertEqual(loaded.step,20)
+            self.assertEqual(loaded.candidate.t,24)
+            self.assertEqual(loaded.candidate.ct,12)
+            self.assertEqual(loaded.score(p,y,20,c),protected)
 
 
 if __name__ == '__main__':
