@@ -1892,6 +1892,45 @@ def parse_context_mix(spec, maximum):
             np.array([weight / total for _, weight in entries], dtype=np.float64))
 
 
+def is_attached_geometry_parameter(name):
+    """One identity rule for inherited versus newly attached geometric rails."""
+    return (name.startswith(('reciprocal.', 'hierarchy.')) or
+            '.ff.symbiotic.' in name)
+
+
+def inherited_step_parameters(model):
+    """Parameters whose *effective* Adam update can be attenuated for R40.
+
+    Adam's parameter groups and all moment tensors remain unchanged.  This
+    returns parameter references, not a second model or optimizer.
+    """
+    return [p for name, p in model.named_parameters()
+            if not is_attached_geometry_parameter(name)]
+
+
+@torch.no_grad()
+def attenuate_inherited_adam_step(parameters, snapshots, scale):
+    """Scale each inherited parameter's completed AdamW displacement.
+
+    Moments evolve according to the full observed gradients; only the actual
+    parameter displacement is scaled. In particular, this is not an EWC or
+    teacher-model penalty and changes no checkpoints when scale == 1.
+    """
+    if not (0. <= scale <= 1.) or not math.isfinite(scale):
+        raise ValueError('Inherited step scale must be finite and within [0, 1]')
+    if len(parameters) != len(snapshots):
+        raise ValueError('Parameter/snapshot count mismatch')
+    if scale == 1.:
+        return
+    for param, previous in zip(parameters, snapshots):
+        if param.shape != previous.shape:
+            raise ValueError('Parameter shape changed during Adam step')
+        if scale == 0.:
+            param.copy_(previous)
+        else:
+            param.lerp_(previous, 1. - scale)
+
+
 def freeze_inherited_backbone_for_geometry(model):
     """Warm up attached geometry while retaining inherited LM/Adam states."""
     if model.reciprocal is None or model.hierarchy is None or not any(
@@ -1899,8 +1938,7 @@ def freeze_inherited_backbone_for_geometry(model):
         raise ValueError('--geometry-only requires a migrated reciprocal Diamond checkpoint')
     trainable = frozen = 0
     for name, param in model.named_parameters():
-        geometry = (name.startswith(('reciprocal.', 'hierarchy.')) or
-                    '.ff.symbiotic.' in name)
+        geometry = is_attached_geometry_parameter(name)
         param.requires_grad_(geometry)
         if geometry:
             trainable += param.numel()
@@ -1914,6 +1952,12 @@ def freeze_inherited_backbone_for_geometry(model):
 def train(args):
     if not math.isfinite(args.nonspace_loss_weight) or args.nonspace_loss_weight < 1.0:
         raise ValueError('--nonspace-loss-weight must be finite and >= 1')
+    inherited_scale = getattr(args, 'inherited_step_scale', 1.0)
+    if not math.isfinite(inherited_scale) or not 0. <= inherited_scale <= 1.:
+        raise ValueError('--inherited-step-scale must be finite and within [0, 1]')
+    if inherited_scale != 1. and (getattr(args, 'geometry_only', False) or
+                                    getattr(args, 'future_only', False)):
+        raise ValueError('Two-speed Adam continuation cannot combine with frozen-path modes')
     if args.nonspace_loss_weight != 1.0 and getattr(args, 'future_only', False):
         raise ValueError('Non-space NOW weighting does not apply to --future-only')
     meta = load_meta(args.data_dir)
@@ -1973,6 +2017,8 @@ def train(args):
         raise ValueError('--geometry-only and --future-only are mutually exclusive')
     if getattr(args, 'geometry_only', False) and (not saved or args.steps == 0):
         raise ValueError('--geometry-only requires a migrated checkpoint and positive updates')
+    if inherited_scale != 1. and (not saved or args.steps == 0):
+        raise ValueError('Two-speed continuation requires a restored checkpoint and updates')
     if getattr(args, 'future_only', False) and (
             not saved or cfg.future_mode != 'isolated' or not cfg.future_adapter_rank):
         raise ValueError('--future-only requires an existing checkpoint and isolated future adapter')
@@ -2222,6 +2268,20 @@ def train(args):
                         'nonspace_weight':args.nonspace_loss_weight,
                         'space_byte':32,'normalization':'sum_target_weights',
                         'evaluation_objective':'ordinary_unweighted_ce'})
+    protected_params = []
+    if inherited_scale != 1.:
+        if model.reciprocal is None or model.hierarchy is None or not any(
+                b.use_moe and b.ff.symbiotic is not None for b in model.blocks):
+            raise ValueError('--inherited-step-scale requires reciprocal Diamond geometry')
+        protected_params = inherited_step_parameters(model)
+        if len(protected_params) == len(list(model.parameters())):
+            raise ValueError('No attached geometry parameters to train at full Adam rate')
+        history.append({'kind': 'two_speed_geometric_adam_displacement',
+                        'step': start, 'updates': args.steps,
+                        'inherited_step_scale': inherited_scale,
+                        'full_rate_geometry': ['reciprocal', 'hierarchy', 'symbiotic'],
+                        'optimizer_groups_changed': False,
+                        'adam_moments_reset': False})
     print(f'Window-safe sampling: training {train_sampler.eligible_documents}/'
           f'{train_sampler.total_documents} docs, validation {valid_sampler.eligible_documents}/'
           f'{valid_sampler.total_documents} docs')
@@ -2291,7 +2351,11 @@ def train(args):
             micro_loss.backward()
             train_ce_sum += losses['next_ce'].detach().item()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        prior_inherited = ([p.detach().clone() for p in protected_params]
+                           if protected_params else [])
         optim.step()
+        if protected_params:
+            attenuate_inherited_adam_step(protected_params, prior_inherited, inherited_scale)
         seen += tokens_this_step
         if step == start + 1 or step % args.eval_every == 0:
             model.eval()
@@ -2934,6 +2998,8 @@ def main():
     tr.add_argument('--future3', type=float, default=None, help='aux loss weight, optional override on resume')
     tr.add_argument('--nonspace-loss-weight', type=float, default=1.0,
                     help='opt-in weight >=1 on target bytes other than ASCII space; training only')
+    tr.add_argument('--inherited-step-scale', type=float, default=1.0,
+                    help='R40: scale inherited Adam parameter displacement to [0,1], preserving all moment histories; newly attached geometry remains full rate')
     tr.add_argument('--report-byte-metrics', action='store_true',
                     help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
