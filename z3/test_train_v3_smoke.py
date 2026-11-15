@@ -227,6 +227,69 @@ class TrainV3SmokeTest(unittest.TestCase):
             self.assertEqual(ema["source"], "ema")
             self.assertEqual(final["model"].keys(), ema["model"].keys())
 
+    def test_text_sidecar_eval_with_future_composition(self) -> None:
+        """Concept eval must keep main logits separate from future logits."""
+        with tempfile.TemporaryDirectory(prefix="v3_sidecar_eval_") as tmp:
+            root = Path(tmp)
+            corpus_a = root / "corpus_a.txt"
+            corpus_b = root / "corpus_b.txt"
+            line = (
+                "<math><translate_src>Solve 12 + 3 = 15.</translate_src>"
+                "<translate_tgt>15</translate_tgt></math>\n"
+            )
+            corpus_a.write_text(line * 80, encoding="utf-8")
+            corpus_b.write_text(line * 80, encoding="utf-8")
+            out = root / "run"
+            proc = self.run_cli(
+                "--corpus", str(corpus_a), str(corpus_b),
+                "--domain-mixture",
+                "--corpus-task-ids", "0,1",
+                "--task-vocab-size", "4",
+                "--tokenizer", "layered",
+                "--ctx", "32",
+                "--d-model", "64",
+                "--n-layers", "2",
+                "--n-heads", "4",
+                "--n-kv-heads", "2",
+                "--swiglu", "128",
+                "--window", "32",
+                "--global-every", "2",
+                "--moe-layers", "1",
+                "--n-experts", "4",
+                "--topk", "2",
+                "--shared-experts", "1",
+                "--expert-hidden", "128",
+                "--moe-group-size", "2",
+                "--concept-top-vertices", "4",
+                "--concept-top-pairs", "2",
+                "--concept-top-triples", "1",
+                "--mtp", "2",
+                "--mtp-block",
+                "--mtp-block-experts", "2",
+                "--mtp-block-hidden", "128",
+                "--mtp-aux-layers", "1",
+                "--mtp-weight", "0.2",
+                "--batch-size", "1",
+                "--steps", "1",
+                "--eval-every", "1",
+                "--eval-batches", "1",
+                "--log-every", "1",
+                "--lr", "1e-4",
+                "--warmup-steps", "1",
+                "--no-ema",
+                "--device", "cpu",
+                "--threads", "2",
+                "--out", str(out),
+            )
+            self.assert_ok(proc)
+            result = json.loads((out / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "completed")
+            self.assertTrue(result["data"]["domain_mixture"])
+            self.assertTrue(math.isfinite(result["final"]["loss"]))
+            self.assertIsNotNone(result["final"]["composition_loss"])
+            self.assertIsNotNone(result["final"]["mtp_composition_loss"])
+            self.assertIsInstance(result["final"]["per_task"], dict)
+
 
 if __name__ == "__main__":
     unittest.main()

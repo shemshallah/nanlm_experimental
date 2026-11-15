@@ -398,7 +398,9 @@ def load_text_ids_with_tasks(
     for index, (raw_path, task_id) in enumerate(zip(paths, task_ids)):
         ids = load_text_ids([raw_path], tokenizer, max_bytes)
         if parts:
-            separator = np.asarray(tokenizer.separator, dtype=np.int32)
+            separator = np.atleast_1d(
+                np.asarray(tokenizer.separator, dtype=np.int32)
+            ).reshape(-1)
             parts.append(separator)
             token_tasks.append(
                 np.full(separator.size, int(task_id), dtype=np.int32)
