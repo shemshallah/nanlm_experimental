@@ -1,0 +1,53 @@
+{
+  "schema": "terminal-rsi-v102-causal-context-round3-v1",
+  "date": "2026-11-15",
+  "host": "standalone Terminal-RSI; no FA2",
+  "parent_checkpoint": "residual_checkpoint_288.npz",
+  "parent_checkpoint_sha256": "dd2f1612d9375aabd20a7f170b33afac4d346a4036ddb8ec1a270b3a6d42fa12",
+  "context_candidate_checkpoint": "context_candidate_step480.npz",
+  "context_candidate_sha256": "1b1d9791a9d41f6a225417b38398fe90a03961c62394c62aa41c6c8ecef48762",
+  "migration_predictions_equal_at_zero": true,
+  "features": "previous observed byte mapped to seven causal classes; 7 by 256 context residual",
+  "new_params_initialized_to_zero": true,
+  "parent_global_adam_moments_inherited": true,
+  "stage_global_adam_steps": [288, 352, 416, 480, 544],
+  "selected_global_adam_step": 480,
+  "selected_context_adam_step": 192,
+  "source_train": "NaNROUTER 1M-byte donor, same frozen C model and previous 48-book TRAIN calibration",
+  "dev3": {
+    "books": 24,
+    "scored_bytes": 11520,
+    "window_sha256": "78aa83120988160da14b5301b4c1cbdaf8287a6ee02cae52d5c8b7f530e90945",
+    "parent_bpc": 2.26173930,
+    "stage_bpc": [2.25337743, 2.25360191, 2.25248436, 2.25264515],
+    "accepted_steps": [352, 480]
+  },
+  "test3": {
+    "books": 8,
+    "scored_bytes": 3840,
+    "window_sha256": "1bbd351785b7b187ef6dcd1c0ba8c5cb0a9d0fc691e516b327d73332d1b4dbe8",
+    "parent": {"bpc": 2.29645010, "top1": 0.53776042, "top5": 0.83697917},
+    "raw_context": {"bpc": 2.29019175, "top1": 0.53906250, "top5": 0.83463542},
+    "raw_context_bpc_gain_ci95": [0.00335628, 0.01050269],
+    "guarded_posthoc": {"bpc": 2.29085556, "top1": 0.53776042, "top5": 0.83697917},
+    "guarded_fraction_using_context": 0.878125,
+    "guarded_source":"Predicted argmax and predicted top-5 membership must match inherited model; no true target is consulted",
+    "guarded_metrics_status": "post-hoc; guard devised after viewing raw TEST3",
+    "accuracy_invariant": "Exact top-1 and top-5 match inherited parent by construction"
+  },
+  "fresh_dev4_validation": {
+    "books": 8,
+    "window_sha256": "6cb3fa26b7546b2a56f6d79ce7cdf06db137c7759689128b73853ed81ad5693e",
+    "status": "BLOCKED",
+    "reason": "Full v102 C inference terminated with signal 9 under transient container memory pressure three times; no valid scores collected",
+    "claim": "none"
+  },
+  "candidate_promoted": false,
+  "limitations": [
+    "Only 8 independently unseen TEST3 books remained in the first release",
+    "Raw context reduced held-out top-5 on TEST3, so candidate rejected",
+    "Guarded TEST3 numbers are post-hoc and not an independent promotion gate",
+    "The large donor C model still has no serializable optimizer checkpoint",
+    "No Terminal-Bench strict-success measurement"
+  ]
+}

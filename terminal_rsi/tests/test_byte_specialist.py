@@ -10,6 +10,7 @@ from terminal_rsi.byte_specialist.controller import (
     SOURCE_SHA256, assign_books, audit_records, digest, select_windows, write_windows,
 )
 from terminal_rsi.byte_specialist.residual import ResidualPolicy, instrumented_source
+from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous_byte_classes
 
 
 class SpecialistTests(unittest.TestCase):
@@ -92,6 +93,50 @@ class SpecialistTests(unittest.TestCase):
             # Resume from exactly the stored moments; no replacement model.
             restored.train(p,targets,steps=8,lr=.001,phase='RPR')
             self.assertEqual(restored.t,72)
+
+    def test_function_preserving_context_extension_and_optimizer_mapping(self):
+        rng=np.random.default_rng(555)
+        probs=rng.uniform(.001,1.,(80,256));probs/=probs.sum(axis=1,keepdims=True)
+        targets=rng.integers(0,256,80);categories=rng.integers(0,7,80)
+        parent=ResidualPolicy()
+        parent.train(probs,targets,steps=16,lr=.01,phase='RSR')
+        old_state=parent.state()
+        extended=ContextualResidual(parent)
+        self.assertEqual(extended.score(probs,targets,20,categories),
+                         parent.score(probs,targets,20))
+        self.assertEqual(extended.t,16)
+        extended.train(probs,targets,categories,steps=8,lr=.002)
+        self.assertEqual((extended.t,extended.ct),(24,8))
+        self.assertEqual(parent.state(),old_state)
+        guarded=extended.score_guarded(probs,targets,20,categories)
+        original=parent.score(probs,targets,20)
+        self.assertEqual(guarded['top1'],original['top1'])
+        self.assertEqual(guarded['top5'],original['top5'])
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'contextual.npz'
+            extended.checkpoint(path)
+            restored=ContextualResidual.from_checkpoint(path)
+            self.assertTrue(np.array_equal(restored.context,extended.context))
+            self.assertTrue(np.array_equal(restored.cm,extended.cm))
+            self.assertEqual(restored.t,24)
+            self.assertEqual(restored.ct,8)
+            self.assertEqual(restored.score(probs,targets,20,categories),
+                             extended.score(probs,targets,20,categories))
+            self.assertEqual(restored.score_guarded(probs,targets,20,categories),guarded)
+
+    def test_context_classes_use_only_previous_observed_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            left=b'A 0\n!'+b'b'*15
+            right=b'Z 9\n?'+b'c'*15
+            payload=struct.pack('<II',2,2)
+            payload+=struct.pack('<I',len(left))+left
+            payload+=struct.pack('<I',len(right))+right
+            (root/'win_dev3.bin').write_bytes(payload)
+            cats=previous_byte_classes(root,'dev3')
+            self.assertEqual(len(cats),2*(len(left)-2))
+            self.assertEqual(int(cats[0]),3)  # previous byte is space
+            self.assertEqual(int(cats[len(left)-2]),3)
 
 
 if __name__ == '__main__':

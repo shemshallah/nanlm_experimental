@@ -112,3 +112,48 @@ Two small, source-controlled reports are kept under `reports/`:
 These are diagnostic window measurements, not full-book perplexities. Both
 rounds leave the parent accepted model untouched. Candidate promotion requires
 further validation and no top-5 regression.
+
+## Causal context expansion (third exploratory round)
+
+`contextual.py` extends the **same saved step-288 correction** with seven
+additional conditional byte classes based solely on the *previous observed*
+character. The new 7 x 256 residual table starts at zero, preserving every
+parent prediction exactly. The original global 256-vector and Adam moments
+are inherited unchanged, and the new context table has its own Adam parameter
+group in the same model/optimizer timeline.
+
+```bash
+python -m terminal_rsi.byte_specialist.contextual prepare \
+  --corpus /path/to/nanrouter/books --work /path/to/local-work
+for split in dev3 test3; do
+  python -m terminal_rsi.byte_specialist.residual tap \
+    --work /path/to/local-work --split "$split"
+done
+python -m terminal_rsi.byte_specialist.contextual train \
+  --work /path/to/local-work
+```
+
+The expanded correction trains on the same permitted TRAIN calibration books,
+then compares stages on 24 **additional** DEV books. Strictly unseen TEST3
+contains the last eight suitable independent TEST books in this specific
+release. These eight test-book results are exploratory, not promotion-grade.
+The DEV gate simultaneously requires improving BPC and no drop in either
+top-1 or top-5. The saved step-288 parent remains available unchanged.
+
+### Deterministic accuracy-preserving inference gate
+
+The conditional correction's raw likelihood can improve while moving a true
+byte out of the top-5. `score_guarded` remedies that *without consulting true
+targets*: it uses the learned probabilities only at positions where the
+corrected model's argmax and the **membership** of its top-5 predictions both
+match the inherited model. Else it uses the inherited probabilities. Thus
+top-1 and top-5 match the parent exactly for **any** possible future target;
+only the calibrated likelihood may change. The code asserts this invariant.
+
+The guard was designed after inspecting exploratory TEST3, so TEST3 guarded
+metrics must be called **post hoc**. The extra 8 previously untouched DEV4
+books are reserved for assessment through `prepare-guard`, `tap --split dev4`
+and `eval-guard`, with a whole-book paired bootstrap. On the initial local
+attempts, v102 was killed three times by container memory pressure before
+those probabilities were produced; DEV4 therefore has **no measured result**.
+Another larger independent corpus is needed before any promotion claim.

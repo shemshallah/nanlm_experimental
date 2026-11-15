@@ -104,7 +104,7 @@ def prepare_unseen(*, corpus: Path, work: Path, calibration=48, dev2=24, test2=2
 
 def run_tap(work: Path, split: str):
     """Train the same original v102 model and dump strictly frozen distributions."""
-    if split not in ('calibration','dev2','test2'):
+    if split not in ('calibration','dev2','test2','dev3','test3','dev4'):
         raise ValueError('Non-whitelisted split')
     original = json.loads((work/'split_manifest.json').read_text())
     for suffix in ('bin','u'):
@@ -128,7 +128,10 @@ def run_tap(work: Path, split: str):
 
 def load_scored(work: Path, split: str):
     """All shapes, probabilities, targets, and donor NLL verified independently."""
-    meta=json.loads((work/'residual_manifest.json').read_text())['splits'][split]
+    manifest_name=('guard_manifest.json' if split=='dev4' else
+                   'context_manifest.json' if split in ('dev3','test3') else
+                   'residual_manifest.json')
+    meta=json.loads((work/manifest_name).read_text())['splits'][split]
     n=meta['scored_bytes']; per=n//meta['books']
     probabilities=np.fromfile(work/f'residual_{split}.prob', dtype='<f4')
     if probabilities.size != n*256:
@@ -311,7 +314,7 @@ def main():
     parser.add_argument('command',choices=('prepare','tap','train'))
     parser.add_argument('--work',required=True,type=Path)
     parser.add_argument('--corpus',type=Path)
-    parser.add_argument('--split',choices=('calibration','dev2','test2'))
+    parser.add_argument('--split',choices=('calibration','dev2','test2','dev3','test3','dev4'))
     args=parser.parse_args()
     if args.command=='prepare':
         if not args.corpus:parser.error('Missing --corpus')

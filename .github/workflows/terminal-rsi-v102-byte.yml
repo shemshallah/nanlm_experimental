@@ -68,6 +68,24 @@ jobs:
           done
           python -m terminal_rsi.byte_specialist.residual train \
             --work corpus/work
+      - name: Continue inherited Adam into causal previous-byte specialist
+        run: |
+          python -m terminal_rsi.byte_specialist.contextual prepare \
+            --corpus corpus/books --work corpus/work
+          for split in dev3 test3; do
+            python -m terminal_rsi.byte_specialist.residual tap \
+              --work corpus/work --split "$split"
+          done
+          python -m terminal_rsi.byte_specialist.contextual train \
+            --work corpus/work
+      - name: Validate causal top-k guard on additional completely unseen books
+        run: |
+          python -m terminal_rsi.byte_specialist.contextual prepare-guard \
+            --corpus corpus/books --work corpus/work
+          python -m terminal_rsi.byte_specialist.residual tap \
+            --work corpus/work --split dev4
+          python -m terminal_rsi.byte_specialist.contextual eval-guard \
+            --work corpus/work
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -78,4 +96,9 @@ jobs:
             corpus/work/residual_manifest.json
             corpus/work/residual_search.json
             corpus/work/residual_checkpoint.npz
+            corpus/work/context_manifest.json
+            corpus/work/context_search.json
+            corpus/work/context_candidate_step*.npz
+            corpus/work/guard_manifest.json
+            corpus/work/guard_search.json
           retention-days: 14
