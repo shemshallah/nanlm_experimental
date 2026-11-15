@@ -38,6 +38,7 @@ import math
 import random
 import sys
 import time
+from collections import OrderedDict
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,29 @@ def _model_core(model: torch.nn.Module) -> torch.nn.Module:
 
 def _model_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
     return _model_core(model).state_dict()
+
+
+# Parameters added after the first concept checkpoints.  Resume is allowed to
+# leave these at their initialized values; any other mismatch is still fatal.
+_RESUME_NEW_PARAMS = ("concept_loop.carry_gate",)
+
+
+def _load_resume_state(
+    module: torch.nn.Module,
+    state: dict[str, torch.Tensor],
+    *,
+    label: str,
+) -> None:
+    missing, unexpected = module.load_state_dict(state, strict=False)
+    allowed = set(_RESUME_NEW_PARAMS)
+    bad_missing = sorted(set(missing) - allowed)
+    if bad_missing or unexpected:
+        parts = []
+        if bad_missing:
+            parts.append(f"missing={bad_missing[:8]}")
+        if unexpected:
+            parts.append(f"unexpected={sorted(unexpected)[:8]}")
+        raise RuntimeError(f"{label}: {', '.join(parts)}")
 
 
 def _aux_scalar(value):
@@ -372,6 +396,10 @@ class TextBatchSource:
         self.rng = np.random.default_rng(seed)
         self.val_ids = val_ids
         self.sidecar_builder = sidecar_builder
+        # Random training windows rarely repeat, but fixed eval batches and
+        # --overfit-single-batch do.  Cache aligned rows on CPU, not device.
+        self._sidecar_cache: OrderedDict[bytes, Any] = OrderedDict()
+        self.sidecar_cache_size = 64
 
         if val_ids is None:
             val_source = ids
@@ -415,10 +443,19 @@ class TextBatchSource:
             return None
         from concept_loop import SpanSidecar
 
-        rows = [
-            self.sidecar_builder(row.detach().cpu().tolist())
-            for row in ids
-        ]
+        rows = []
+        for row in ids:
+            cpu_row = row.detach().cpu()
+            key = cpu_row.numpy().tobytes()
+            cached = self._sidecar_cache.get(key)
+            if cached is None:
+                cached = self.sidecar_builder(cpu_row.tolist())
+                self._sidecar_cache[key] = cached
+                if len(self._sidecar_cache) > self.sidecar_cache_size:
+                    self._sidecar_cache.popitem(last=False)
+            else:
+                self._sidecar_cache.move_to_end(key)
+            rows.append(cached)
         return SpanSidecar.collate(rows, device=ids.device)
 
     def state(self) -> dict[str, Any]:
@@ -1781,15 +1818,18 @@ def main(argv: list[str] | None = None) -> int:
     if resume_checkpoint is not None:
         resume_state = _extract_state_dict(resume_checkpoint)
         try:
-            _model_core(model).load_state_dict(resume_state, strict=True)
+            _load_resume_state(
+                _model_core(model), resume_state, label="resume checkpoint"
+            )
         except RuntimeError as exc:
             raise SystemExit(
                 f"resume checkpoint is incompatible with this model: {exc}"
             ) from exc
         if ema_model is not None and resume_checkpoint.get("ema") is not None:
             try:
-                _model_core(ema_model).load_state_dict(
-                    resume_checkpoint["ema"], strict=True
+                _load_resume_state(
+                    _model_core(ema_model), resume_checkpoint["ema"],
+                    label="resume EMA",
                 )
             except RuntimeError as exc:
                 raise SystemExit(f"resume EMA is incompatible: {exc}") from exc

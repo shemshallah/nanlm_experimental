@@ -820,6 +820,10 @@ class V3LM(nn.Module):
         self.apply(self._init)
         nn.init.normal_(self.route_init, mean=0.0, std=0.02)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
+        if self.task_embedding is not None:
+            # A task/domain code must start as a no-op; the embedding then
+            # learns only the domain signal that actually helps routing.
+            nn.init.zeros_(self.task_embedding.weight)
         if self.tok_up is not None:
             # tok @ tok_up must have variance near the full-rank 0.02
             # embedding initialisation.
@@ -1263,6 +1267,7 @@ class V3LM(nn.Module):
         temperature: float = 1.0,
         seed: int | None = None,
         tokenizer: Any = None,
+        task_id: int | None = None,
     ):
         """Autoregressive loop with model and tokenizer composition events."""
         if seed is not None:
@@ -1294,10 +1299,19 @@ class V3LM(nn.Module):
             except Exception:
                 return None
 
+        task_ids = (
+            torch.full(
+                (ids.size(0),), int(task_id), device=ids.device,
+                dtype=torch.long,
+            )
+            if task_id is not None else None
+        )
         sidecar = build_sidecar(ids[:, -max_ctx:])
         for _ in range(max_new_tokens):
             window = ids[:, -max_ctx:]
-            logits, _mtp, aux = self(window, sidecar=sidecar)
+            logits, _mtp, aux = self(
+                window, sidecar=sidecar, task_ids=task_ids
+            )
             next_logits = logits[:, -1].float()
             if temperature <= 0:
                 next_id = next_logits.argmax(dim=-1)
@@ -1306,6 +1320,7 @@ class V3LM(nn.Module):
                 next_id = torch.multinomial(probs, num_samples=1).squeeze(-1)
             ids = torch.cat([ids, next_id[:, None]], dim=1)
             comp = aux.get("composition_logits")
+            fired = None
             if comp is not None:
                 fired = torch.sigmoid(comp[:, -1]) > 0.5
                 events.append(
@@ -1338,7 +1353,18 @@ class V3LM(nn.Module):
                         lo + hi * (hi - 1) // 2
                     ).tolist()
                 object_events.append(event)
-            sidecar = build_sidecar(ids[:, -max_ctx:])
+            next_sidecar = build_sidecar(ids[:, -max_ctx:])
+            if next_sidecar is not None and fired is not None:
+                # Feed the model's composition prediction into the next
+                # step's concept state in addition to the deterministic
+                # tokenizer event.
+                with torch.no_grad():
+                    row = next_sidecar.event_multi[-1].to(fired.device)
+                    fused = torch.maximum(
+                        row, fired[0].to(row.dtype)
+                    ).detach().cpu()
+                    next_sidecar.event_multi[-1] = fused
+            sidecar = next_sidecar
         if decoder is not None:
             return ids, {
                 "model": events,

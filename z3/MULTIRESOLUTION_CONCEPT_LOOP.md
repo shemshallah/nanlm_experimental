@@ -47,7 +47,9 @@ This document separates what exists from what is disconnected.
   - MTP branch with HD `<now>`/permutation time rails
 - `z3/train_v3.py`:
   - v4c bin training and Wiki eval
-  - per-resume LR/WSD controls.
+  - per-resume LR/WSD controls
+- `z3/tune_word_vocab_bins.py`:
+  - streaming word-vocabulary retune from aligned token bins.
 
 ## Disconnects
 
@@ -95,20 +97,16 @@ post-hoc residual, not part of the routing loop.
 
 **Severity: high.**
 
-### D4. The router context is attention-only
+### D4. The router context is attention-only (addressed in the active path)
 
-`route_ctx` is updated from `attn_out.mean(1)` and the MoE route summary.
-It has no explicit:
+`route_ctx` is still updated from the attention summary and the MoE route
+summary, but the active path now conditions concept pooling, object retrieval,
+and the pointer query on that route state, then feeds the resulting multi-label
+word/sentence/math/composition concept back into every router.  This closes the
+loop in both directions.
 
-- word boundary
-- sentence boundary
-- math span
-- composition-token state
-
-The router can infer some of this from the hidden state, but it is not
-guaranteed, probeable, or aligned.
-
-**Severity: high.**
+**Severity: resolved in the active path; explicit boundary probes remain a
+validation gap.**
 
 ### D5. The word/sentence layers are not aligned to v4c token IDs
 
@@ -148,30 +146,29 @@ streaming sequence with composition.
 
 **Severity: critical for generation.**
 
-### D8. No composition/grammar tokenizer layer
+### D8. Composition layer (structural layer implemented; grammar rules pending)
 
-We have byte/subword/token/word/sentence/math, but no layer that maps a
-composition such as:
+The active path now has `CompositionVocabulary`, `CompositionTokenizer`, and a
+multi-label composition head aligned to token/byte spans.  It can emit and
+consume boundaries such as `<word_end>`, `<sentence_end>`, `<math_end>`, and
+`<compose>`.
 
-```text
-("x", "+", "3") -> "x + 3"
-("solve", eq) -> equation
-(word, word) -> phrase
-```
-
-This layer needs its own vocabulary and generation rules. It does not exist.
+What remains is a learned grammar/rewrite layer that maps a composition such as
+`("x", "+", "3") -> "x + 3"` or abstracts a phrase into a reusable structural
+token.  The structural vocabulary exists; the grammar rules do not.
 
 **Severity: high for mathematical translation.**
 
 ### D9. Object IDs are not part of the model vocabulary
 
 The 32,640 pair IDs and 2.76M triple IDs are an internal memory space, not
-generation tokens. The new pointer head predicts the two vertices of a pair
-and generation reports the resulting ID, but the decoder still cannot emit an
-object ID as a first-class next token. There is no object-ID vocabulary entry
-or recurrent object-token input yet.
+generation tokens. The pointer head predicts the two vertices of a pair,
+generation reports the resulting ID, and the pointer distribution now feeds
+back into the object stream, but the decoder still cannot emit an object ID as
+a first-class next vocabulary token. There is no object-ID vocabulary entry or
+hard recurrent object-token input yet.
 
-**Severity: high, partially mitigated.**
+**Severity: high, partially mitigated by the closed soft pointer.**
 
 ### D10. v4c corpus and layer tuning are on different data scopes
 
@@ -305,19 +302,28 @@ Implemented in this integration:
 - shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
-- recurrent concept carry across all blocks
+- bidirectional route → concept/object/pointer conditioning
+- gated recurrent concept carry across all blocks
 - optional task/domain embedding in the initial route context
 - concept state fed into MTP branch context
 - multi-label composition event head and BCE supervision
+- multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder
 - `CompositionVocabulary` structural layer
+- `CompositionTokenizer` encode/decode layer with token/byte alignment
 - exact pair/triple object IDs exposed during generation
 - learned object-pointer head over the 256 vertex pair space
+- pointer distribution fed back into the object stream
 - pointer pairs constrained to distinct vertices
 - generation streams the reconstructed sidecar back into the concept loop
+- generation feeds predicted composition events into the next concept state
 - adaptive top-k object candidates for 2048 context memory
 - autoregressive `generate()` with model/tokenizer composition and object readouts
+- task/domain id conditioning during generation
+- LRU reuse of aligned sidecars for repeated eval/overfit windows
+- streaming `tune_word_vocab_bins.py` for full-corpus word-vocabulary
+  retuning directly from v4c token bins
 
 Validated in 313M concept runs:
 
@@ -334,10 +340,14 @@ Still pending, and should not be pretended otherwise:
 
 - mapping the 256 deterministic seeds to actual byte values through the
   tokenizer's byte embedding (the current seed is a deterministic HD codebook)
-- a trained full-corpus word/sentence vocabulary on the 300MB v4c shard
+- running the new full-corpus word-vocabulary tuner on the 300MB v4c shard
+  (the script exists; no corpus is present on this phone)
 - long-run validation beyond 10-minute sessions
-- feeding generated object IDs back as an explicit token/pointer stream
-  (they are currently readouts, not vocabulary tokens)
+- feeding generated object IDs back as an explicit vocabulary token stream
+  (the soft pointer now conditions the object stream, but the pair/triple ID
+  is not yet a sampled vocabulary token)
+- a persistent precomputed sidecar cache for the random training stream
+  (the current cache only helps repeated eval/overfit windows)
 
 ## Frontier disconnects to avoid
 

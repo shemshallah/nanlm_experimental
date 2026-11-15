@@ -308,10 +308,14 @@ def load_checkpoint(
     model = V3LM(cfg)
     cleaned = _clean_state_dict(state)
     missing, unexpected = model.load_state_dict(cleaned, strict=False)
-    if missing or unexpected:
+    # Concept checkpoints created before the recurrent carry landed do not
+    # contain its gate.  Keep the initialized gate and accept that one key.
+    allowed_missing = {"concept_loop.carry_gate"}
+    bad_missing = sorted(set(missing) - allowed_missing)
+    if bad_missing or unexpected:
         details = []
-        if missing:
-            details.append(f"missing={sorted(missing)[:8]}")
+        if bad_missing:
+            details.append(f"missing={bad_missing[:8]}")
         if unexpected:
             details.append(f"unexpected={sorted(unexpected)[:8]}")
         raise RuntimeError(

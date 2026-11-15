@@ -356,12 +356,48 @@ class ConceptEncoder(nn.Module):
                 value = value.expand(x.shape[0], -1)
             return value
 
+        def align_multi(value: torch.Tensor) -> torch.Tensor | None:
+            if value is None:
+                return None
+            value = value.to(x.device)
+            if value.ndim == 2:
+                value = value.unsqueeze(0)
+            if value.ndim != 3:
+                return None
+            if value.shape[0] == 1 and x.shape[0] > 1:
+                value = value.expand(x.shape[0], -1, -1)
+            if value.shape[1] != x.shape[1]:
+                # Sidecars can be shorter than a padded batch window.  Use
+                # the aligned prefix and leave the tail as <none>.
+                width = min(value.shape[1], x.shape[1])
+                pad = torch.zeros(
+                    value.shape[0], x.shape[1] - width, value.shape[-1],
+                    device=value.device, dtype=value.dtype,
+                )
+                value = torch.cat([value[:, :width], pad], dim=1)
+            return value.to(dtype=x.dtype)
+
         word, _ = _segment_pool(x, align_ids(sidecar.word_ids))
         sent, _ = _segment_pool(x, align_ids(sidecar.sentence_ids))
         math_ids = align_ids(sidecar.math_kind).clamp(0, len(MATH_KINDS) - 1)
         event_ids = align_ids(sidecar.event_ids).clamp(0, len(EVENT_NAMES) - 1)
         math = self.math_embed(math_ids)
-        event = self.event_embed(event_ids)
+        event_multi = align_multi(getattr(sidecar, "event_multi", None))
+        if event_multi is not None:
+            # Multi-label composition: a token can end a word, sentence and
+            # math span at the same time.  Sum the event embeddings instead
+            # of collapsing to the last event id.
+            event = event_multi @ self.event_embed.weight.to(event_multi.dtype)
+            no_event = (event_multi.sum(dim=-1, keepdim=True) == 0).to(
+                event.dtype
+            )
+            event = event + no_event * self.event_embed(
+                torch.zeros(
+                    event_multi.shape[:-1], device=x.device, dtype=torch.long
+                )
+            ).to(event.dtype)
+        else:
+            event = self.event_embed(event_ids)
         concept = self.out(
             torch.cat(
                 [
@@ -375,6 +411,63 @@ class ConceptEncoder(nn.Module):
         )
         concept = F.normalize(concept, dim=-1)
         return concept, concept.mean(dim=1)
+
+
+@dataclass
+class CompositionEvent:
+    token_index: int
+    event_id: int
+    byte_start: int
+    byte_end: int
+
+    @property
+    def name(self) -> str:
+        return EVENT_NAMES[int(self.event_id)]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "token_index": int(self.token_index),
+            "event": self.name,
+            "event_id": int(self.event_id),
+            "byte_start": int(self.byte_start),
+            "byte_end": int(self.byte_end),
+        }
+
+
+class CompositionTokenizer:
+    """Tokenizer-side composition layer over a token-aligned sidecar."""
+
+    def __init__(self, tokenizer: Any):
+        # Accept either the raw layered tokenizer or the flat wrapper used by
+        # training; both expose the same layered encoding underneath.
+        self.tokenizer = getattr(tokenizer, "layered", tokenizer)
+
+    def encode(self, text: str) -> list[CompositionEvent]:
+        sidecar = SpanSidecar.from_text(text, self.tokenizer)
+        events: list[CompositionEvent] = []
+        for token_index in range(sidecar.event_multi.shape[0]):
+            start = int(sidecar.byte_start[token_index])
+            end = start + int(sidecar.byte_len[token_index])
+            for event_id, fired in enumerate(
+                sidecar.event_multi[token_index].tolist()
+            ):
+                if fired > 0.0:
+                    events.append(
+                        CompositionEvent(token_index, event_id, start, end)
+                    )
+        return events
+
+    @staticmethod
+    def decode(events: Iterable[CompositionEvent]) -> list[str]:
+        return [event.name for event in events]
+
+    @staticmethod
+    def manifest() -> dict[str, Any]:
+        return {
+            "events": list(EVENT_NAMES),
+            "alignment": "token_index + byte span",
+            "roundtrip": "event list -> names; tokenizer spans retain text",
+        }
 
 
 class CompositionVocabulary:
@@ -505,6 +598,10 @@ class ConceptLoop(nn.Module):
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_pointer = nn.Linear(d_model, 2 * self.vertices, bias=False)
+        # Per-dimension gate for the recurrent concept carry.  Starting at
+        # 0.5 keeps the first concept update visible while preventing the
+        # carry from being overwritten wholesale at every block.
+        self.carry_gate = nn.Parameter(torch.zeros(d_model))
         self.state_norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
 
     def counts(self) -> dict[str, int]:
@@ -521,11 +618,50 @@ class ConceptLoop(nn.Module):
         route_ctx: torch.Tensor,
         carry: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        concept, global_ctx = self.encoder(x, sidecar)
-        object_ctx, object_aux = self.object_memory(x + concept)
-        self.last_pointer_logits = self.object_pointer(x).view(
+        # Route/attention/MoE context conditions the concept abstraction and
+        # the object query.  Without this the loop was one-way: concept fed
+        # the router, but the router never fed concept.
+        route_bias = (
+            self.concept_to_state(route_ctx.to(dtype=x.dtype))
+            .unsqueeze(1).to(dtype=x.dtype)
+            if route_ctx is not None else None
+        )
+        concept_input = (
+            x + 0.1 * route_bias if route_bias is not None else x
+        )
+        concept, global_ctx = self.encoder(concept_input, sidecar)
+        object_input = x + concept
+        if route_bias is not None:
+            object_input = object_input + 0.1 * route_bias
+        object_ctx, object_aux = self.object_memory(object_input)
+        pointer_input = (
+            x + 0.1 * route_bias if route_bias is not None else x
+        )
+        self.last_pointer_logits = self.object_pointer(pointer_input).view(
             x.shape[0], x.shape[1], 2, self.vertices
         )
+        # Close the pointer loop.  The pointer is not just a readout: its
+        # soft vertex distribution is projected back into the object stream,
+        # so the next block sees the object identity the pointer currently
+        # believes.  This uses the existing vertex codebook and out_proj, so
+        # older checkpoints keep their parameter shapes.
+        pointer_probs = F.softmax(
+            self.last_pointer_logits.float(), dim=-1
+        ).to(dtype=x.dtype)
+        vertex_keys = F.normalize(
+            self.object_memory.vertex_keys.to(dtype=x.dtype), dim=-1
+        )
+        vertex_values = F.normalize(
+            self.object_memory.vertex_values.to(dtype=x.dtype), dim=-1
+        )
+        pointer_state = (
+            torch.einsum("btv,vd->btd", pointer_probs[:, :, 0], vertex_keys)
+            + torch.einsum("btv,vd->btd", pointer_probs[:, :, 1], vertex_values)
+        )
+        pointer_ctx = self.object_memory.out_proj(pointer_state)
+        object_ctx = object_ctx + torch.sigmoid(
+            self.object_memory.gate_logit
+        ).to(dtype=x.dtype) * pointer_ctx
         self.last_object_ids = object_aux["pair_ids"].detach()
         self.last_object_vertices = object_aux["pair_vertices"].detach()
         self.last_triple_ids = (
@@ -539,9 +675,13 @@ class ConceptLoop(nn.Module):
             self.concept_to_state(global_ctx)
             + self.object_to_state(object_ctx.mean(dim=1))
         )
-        loop_ctx = self.state_norm(
-            update if carry is None else carry + update
-        )
+        if carry is None:
+            loop_ctx = self.state_norm(update)
+        else:
+            gate = torch.sigmoid(self.carry_gate).to(dtype=update.dtype)
+            loop_ctx = self.state_norm(
+                (1.0 - gate) * carry + gate * update
+            )
         self.last_carry = loop_ctx
         return concept, object_ctx, loop_ctx
 
