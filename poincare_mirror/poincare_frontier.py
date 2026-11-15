@@ -155,6 +155,7 @@ class Config:
     holonomy_retrieval: bool = False  # opt-in phase-keyed causal associative memory
     holonomy_aux_weight: float = 0.02
     reciprocal_scales: bool = False  # causal five-scale tokenizer <-> existing simplex/meta geometry
+    reciprocal_content_trust: bool = False  # R41, causal confidence gate on reciprocal feedback
 
     def check(self):
         if self.legacy_attention_dim:
@@ -190,6 +191,7 @@ class Config:
                                               self.micro_meta and self.simplex_transfer)
         assert not self.reciprocal_scales or self.layers >= self.moe_every
         assert not self.reciprocal_scales or self.vocab_size == 257  # byte+EOS, not arbitrary BPE IDs
+        assert not self.reciprocal_content_trust or self.reciprocal_scales
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -339,7 +341,7 @@ class ReciprocalScaleGeometry(nn.Module):
     """
     SCALES = ('byte', 'byte_pair', 'byte_quad', 'word_prefix', 'sentence_prefix')
 
-    def __init__(self, dim, token_rank, geometry_rank):
+    def __init__(self, dim, token_rank, geometry_rank, content_trust=False):
         super().__init__()
         self.token_rank, self.geometry_rank = token_rank, geometry_rank
         self.scale_qkv = nn.Linear(token_rank, 3 * token_rank, bias=False)
@@ -349,6 +351,10 @@ class ReciprocalScaleGeometry(nn.Module):
         self.to_hidden = nn.Linear(token_rank, dim, bias=False)
         self.scale_weights = nn.Parameter(torch.zeros(5))
         self.gate = nn.Parameter(torch.zeros(()))
+        # One scalar per causal token, not another language head or meta model.
+        # Initial weight zero => confidence factor exactly 1 at migration.
+        self.context_trust = (nn.Linear(token_rank, 1, bias=False)
+                              if content_trust else None)
         self.enabled = True  # inference ablation only; not a checkpoint weight
         self.pair_to_micro_enabled = True
         self.cloud_to_micro_enabled = True
@@ -384,6 +390,16 @@ class ReciprocalScaleGeometry(nn.Module):
     def cold_gate(self):
         return torch.tanh(8.*self.gate) if self.enabled else self.gate*0.
 
+    def feedback_trust(self, levels):
+        """Nonnegative content-conditional multiplier, bounded in (0, 2).
+
+        Uses only causal scale states at the present token. The factor 1 at
+        initialization preserves every inherited checkpoint prediction.
+        """
+        if self.context_trust is None:
+            return levels.new_ones((*levels.shape[:2], 1))
+        return 2. * torch.sigmoid(self.context_trust(levels.mean(2)))
+
     def ingest(self, hidden, ids, hierarchy, previous=None, meta=None):
         """Refresh same-byte causal resolutions after EACH transformer layer."""
         levels = self.causal_scales(hierarchy.input(hidden), ids)
@@ -403,6 +419,11 @@ class ReciprocalScaleGeometry(nn.Module):
         r = self.geometry_rank
         n = b*t
         gate = self.cold_gate()
+        point_gate, scale_gate = gate, gate
+        if self.context_trust is not None:
+            confidence = self.feedback_trust(levels)
+            point_gate = gate * confidence.reshape(n,1,1)
+            scale_gate = gate * confidence.unsqueeze(2)
         i,j = geometry.choose2.unbind(-1)
         pair_ids = geometry.pair_address(selected[:,i],selected[:,j])
         signed = torch.tanh(self.signed_orientation(levels.mean(2)).reshape(n,1,1))
@@ -459,16 +480,16 @@ class ReciprocalScaleGeometry(nn.Module):
                 # Use one outer cold gate; an inner gate would shrink the
                 # pair/cloud/apex contribution quadratically at warm-up.
                 micro = geometry.run_microtransformers(point+source,selected)
-                point = point+gate*(micro-point)
+                point = point+point_gate*(micro-point)
             else:
-                point = point+gate*source
-            pair = pair + gate*(point[:,j]-point[:,i])*.5
-            triangle = triangle + gate*apex[:,None,:]
-            pair_tokens = pair_tokens + gate*pair
+                point = point+point_gate*source
+            pair = pair + point_gate*(point[:,j]-point[:,i])*.5
+            triangle = triangle + point_gate*apex[:,None,:]
+            pair_tokens = pair_tokens + point_gate*pair
             # All geometric levels and meta head send feedback to every
             # tokenizer scale, not merely to the final LM hidden state.
             level_feedback = point_mean+pair_mean+triangle_mean+apex
-            levels = levels + gate*self.geo_to_scale(level_feedback).reshape(b,t,1,-1)
+            levels = levels + scale_gate*self.geo_to_scale(level_feedback).reshape(b,t,1,-1)
             levels = self.attend_scales(levels)
         return point,pair,triangle,levels,apex.reshape(b,t,r)
 
@@ -477,7 +498,10 @@ class ReciprocalScaleGeometry(nn.Module):
         pooled = (levels*self.scale_weights.softmax(0).view(1,1,5,1)).sum(2)
         if meta is not None:
             pooled = pooled + self.geo_to_scale(meta)
-        return self.cold_gate()*self.to_hidden(pooled)
+        residual = self.cold_gate()*self.to_hidden(pooled)
+        if self.context_trust is not None:
+            residual = residual * self.feedback_trust(levels)
+        return residual
 
 
 class SwiGLU(nn.Module):
@@ -1175,13 +1199,16 @@ class MirrorLM(nn.Module):
         self.head = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         self.head.weight = self.embed.weight  # a single shared vocabulary head
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
-        self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank)
+        self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank,
+                                                   cfg.reciprocal_content_trust)
                            if cfg.reciprocal_scales else None)
         # SAME causal rail/head for future +2 / +3, without observing future tokens.
         self.future_offsets = nn.Parameter(torch.zeros(2, cfg.dim))
         self.future_adapter = (IsolatedFutureAdapter(cfg.dim, cfg.future_adapter_rank)
                                if cfg.future_adapter_rank else None)
         self.apply(self._init)
+        if self.reciprocal is not None and self.reciprocal.context_trust is not None:
+            nn.init.zeros_(self.reciprocal.context_trust.weight)
         if self.future_adapter is not None:
             # The candidate's new head starts as a NOW-identical residual.
             nn.init.zeros_(self.future_adapter.up.weight)
@@ -1693,6 +1720,7 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             and model.cfg.triangle_curvature == previous_cfg.triangle_curvature
             and model.cfg.holonomy_retrieval == previous_cfg.holonomy_retrieval
             and model.cfg.reciprocal_scales == previous_cfg.reciprocal_scales
+            and model.cfg.reciprocal_content_trust == previous_cfg.reciprocal_content_trust
             and model.cfg.future_adapter_rank == previous_cfg.future_adapter_rank):
         raise ValueError('No capacity expansion requested')
     if previous_cfg.symbiotic_rank and model.cfg.symbiotic_rank != previous_cfg.symbiotic_rank:
@@ -1712,6 +1740,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
         raise ValueError('Cannot discard trained holonomy retrieval memory')
     if previous_cfg.reciprocal_scales and not model.cfg.reciprocal_scales:
         raise ValueError('Cannot discard trained reciprocal tokenizer-geometry bridge')
+    if previous_cfg.reciprocal_content_trust and not model.cfg.reciprocal_content_trust:
+        raise ValueError('Cannot discard trained reciprocal content-trust gate')
     if previous_cfg.future_adapter_rank != model.cfg.future_adapter_rank and previous_cfg.future_adapter_rank:
         raise ValueError('Cannot resize or discard a trained future adapter')
     if model.cfg.moe_every != previous_cfg.moe_every:
@@ -1756,6 +1786,8 @@ def expand_architecture(model, optimizer, saved, previous_cfg, bias=-12.0, widen
             if name not in saved['model']:
                 if (name.startswith('future_adapter.') and not previous_cfg.future_adapter_rank
                     ) or (name.startswith('reciprocal.') and not previous_cfg.reciprocal_scales
+                    ) or (name.startswith('reciprocal.context_trust.') and
+                          not previous_cfg.reciprocal_content_trust
                     ) or name.endswith('.pair_bias') or any(name.startswith(f'blocks.{i}.')
                                                     for i in range(old_layers, new_layers)) or (
                     not previous_cfg.symbiotic_rank and '.ff.symbiotic.' in name) or (
@@ -1866,6 +1898,7 @@ def configure(args, vocab_size):
                   triangle_curvature=getattr(args,'triangle_curvature',False),
                   holonomy_retrieval=getattr(args,'holonomy_retrieval',False),
                    reciprocal_scales=getattr(args,'reciprocal_scales',False),
+                   reciprocal_content_trust=getattr(args,'reciprocal_content_trust',False),
                   future_adapter_rank=getattr(args, 'future_adapter_rank', None) or 0,
                   future2_weight=0.1 if args.future2 is None else args.future2,
                   future3_weight=0.05 if args.future3 is None else args.future3, future_mode=args.future_mode or 'offset')
@@ -2063,6 +2096,12 @@ def train(args):
                              not cfg.reciprocal_scales)
     if enable_reciprocal:
         cfg.reciprocal_scales = True
+    enable_content_trust = bool(saved and getattr(args,'reciprocal_content_trust',False) and
+                                not cfg.reciprocal_content_trust)
+    if enable_content_trust:
+        if not cfg.reciprocal_scales:
+            raise ValueError('--reciprocal-content-trust needs the existing reciprocal bridge')
+        cfg.reciprocal_content_trust = True
     if cfg.reciprocal_scales and meta.get('unit') != 'UTF8_bytes_plus_eos':
         raise ValueError('Reciprocal scales require verified UTF-8 byte+EOS training data')
     history = list(saved.get('growth_history', [])) if saved else []
@@ -2126,6 +2165,12 @@ def train(args):
                         'conceptual_triangles':2763520,'active_per_token':[8,28,56],
                         'attention_passes':2,'reuse_original_geometry':True,
                         'residual_gate_init':0.})
+    if enable_content_trust:
+        history.append({'kind':'causal_reciprocal_content_trust',
+                        'step':saved['step'],'feature':'mean_causal_token_scales',
+                        'factor':'2 * sigmoid(zero_initialized_linear)',
+                        'range':[0,2],'migration_factor':1,
+                        'unchanged_inherited_logits':True})
     if args.dispatch_mode is not None and args.dispatch_mode != cfg.dispatch_mode:
         history.append({'kind':'dispatch', 'step':saved['step'] if saved else 0,
                         'from':cfg.dispatch_mode, 'to':args.dispatch_mode})
@@ -2218,7 +2263,9 @@ def train(args):
         if (growing or deepen or widening or expert_growing or enable_symbiotic or
                 enable_hierarchy or enable_geometry_memory or enable_micro_meta or
                 enable_simplex or enable_curvature or enable_holonomy or
-                enable_reciprocal or enable_future_adapter):
+                enable_reciprocal or enable_content_trust or enable_future_adapter):
+            # New content-trust weights are migrated through the same
+            # function-preserving expansion and one Adam state map.
             expand_architecture(model, optim, saved, old_cfg, widen_noise=args.widen_noise)
             ckpt = saved
             print(f'EXPANDED capacity: width {old_cfg.dim}->{cfg.dim}, depth {old_cfg.layers}->{cfg.layers}, '
@@ -3027,6 +3074,8 @@ def main():
                     help='activate phase-selective retrieval with separate auxiliary byte supervision')
     tr.add_argument('--reciprocal-scales', action='store_true',
                     help='share signed 256-point / 32640-pair / 2.76M-triangle meta feedback with tokenizer')
+    tr.add_argument('--reciprocal-content-trust', action='store_true',
+                    help='R41: function-preserving causal content-conditioned trust on existing reciprocal geometry')
     tr.add_argument('--add-layers', type=int, default=0, help='append identity-initialized residual blocks')
     tr.add_argument('--widen-dim', type=int, default=None,
                     help='expand width without changing learned head geometry, including 192D to 256D')
