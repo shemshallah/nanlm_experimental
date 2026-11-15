@@ -489,6 +489,7 @@ class ConceptLoop(nn.Module):
         self.object_memory.seed_vertices(byte_keys, byte_values)
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
+        self.object_pointer = nn.Linear(d_model, 2 * self.vertices, bias=False)
         self.state_norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
 
     def counts(self) -> dict[str, int]:
@@ -506,6 +507,9 @@ class ConceptLoop(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         concept, global_ctx = self.encoder(x, sidecar)
         object_ctx, object_aux = self.object_memory(x + concept)
+        self.last_pointer_logits = self.object_pointer(x).view(
+            x.shape[0], x.shape[1], 2, self.vertices
+        )
         self.last_object_ids = object_aux["pair_ids"].detach()
         self.last_object_vertices = object_aux["pair_vertices"].detach()
         self.last_triple_ids = (

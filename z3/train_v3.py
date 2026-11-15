@@ -1038,6 +1038,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--no-ema", action="store_true")
     train.add_argument("--composition-weight", type=float, default=0.05,
                        help="auxiliary composition-event CE weight")
+    train.add_argument("--object-pointer-weight", type=float, default=0.02,
+                       help="auxiliary C(256,2) object-pointer CE weight")
     train.add_argument("--mtp-weight", type=float, default=0.3,
                        help="total MTP weight; each of k heads gets weight/k")
     train.add_argument("--mtp-gt-mix-start", type=float, default=0.85,
@@ -2039,6 +2041,29 @@ def main(argv: list[str] | None = None) -> int:
                     ignore_index=-100,
                 )
                 loss = loss + args.composition_weight * composition_loss
+            pointer_loss = None
+            core = _model_core(model)
+            if (
+                aux.get("object_pointer_logits") is not None
+                and getattr(core.concept_loop, "last_object_vertices", None)
+                is not None
+            ):
+                ptr = aux["object_pointer_logits"]
+                target_vertices = core.concept_loop.last_object_vertices
+                if target_vertices.shape[2] > 0:
+                    u_target = target_vertices[:, :, 0, 0].long()
+                    v_target = target_vertices[:, :, 0, 1].long()
+                    pointer_loss = 0.5 * (
+                        F.cross_entropy(
+                            ptr[:, :, 0].reshape(-1, ptr.size(-1)),
+                            u_target.reshape(-1),
+                        )
+                        + F.cross_entropy(
+                            ptr[:, :, 1].reshape(-1, ptr.size(-1)),
+                            v_target.reshape(-1),
+                        )
+                    )
+                    loss = loss + args.object_pointer_weight * pointer_loss
             loss_value = float(loss.detach())
 
         amp_skip = False
@@ -2136,6 +2161,9 @@ def main(argv: list[str] | None = None) -> int:
             "composition": (
                 _finite(composition_loss)
                 if composition_loss is not None else None
+            ),
+            "object_pointer": (
+                _finite(pointer_loss) if pointer_loss is not None else None
             ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),

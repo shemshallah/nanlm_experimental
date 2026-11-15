@@ -308,7 +308,10 @@ Implemented in this integration:
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder
 - `CompositionVocabulary` structural layer
-- exact pair-object IDs exposed during generation
+- exact pair/triple object IDs exposed during generation
+- learned object-pointer head over the 256 vertex pair space
+- generation streams the reconstructed sidecar back into the concept loop
+- adaptive top-k object candidates for 2048 context memory
 - autoregressive `generate()` with model/tokenizer composition and object readouts
 
 Validated in 313M concept runs:

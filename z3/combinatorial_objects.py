@@ -115,6 +115,7 @@ class CombinatorialMemory(nn.Module):
         top_vertices: int = 16,
         top_pairs: int = 8,
         top_triples: int = 8,
+        adaptive_context: bool = True,
         seed: int = 20261113,
     ) -> None:
         super().__init__()
@@ -129,6 +130,7 @@ class CombinatorialMemory(nn.Module):
         self.top_vertices = int(top_vertices)
         self.top_pairs = int(top_pairs)
         self.top_triples = int(top_triples)
+        self.adaptive_context = bool(adaptive_context)
         gen = torch.Generator().manual_seed(seed)
         self.vertex_keys = nn.Parameter(
             F.normalize(torch.randn(vertices, dim, generator=gen), dim=-1)
@@ -153,8 +155,17 @@ class CombinatorialMemory(nn.Module):
         if d != self.d_model:
             raise ValueError("hidden width does not match d_model")
         q = F.normalize(self.query_proj(hidden), dim=-1)  # (B,T,H)
+        vc = self.top_vertices
+        pair_k = self.top_pairs
+        triple_k = self.top_triples
+        if self.adaptive_context and t >= 2048:
+            # Keep the 2048 path inside T4 memory without changing the
+            # addressable C(256,2) object space.
+            vc = min(vc, 4)
+            pair_k = min(pair_k, 2)
+            triple_k = 0
         vertex_scores = torch.einsum("bth,vh->btv", q, self.vertex_keys)
-        top_scores, top_ids = vertex_scores.topk(self.top_vertices, dim=-1)
+        top_scores, top_ids = vertex_scores.topk(vc, dim=-1)
         keys = F.normalize(self.vertex_keys[top_ids], dim=-1)
         values = F.normalize(self.vertex_values[top_ids], dim=-1)
         # Candidate pair codes among the selected vertices.
@@ -166,14 +177,13 @@ class CombinatorialMemory(nn.Module):
         )
         pair_scores = torch.einsum("bth,btuvh->btuv", q, pair_keys)
         mask = torch.eye(
-            self.top_vertices, device=hidden.device, dtype=torch.bool
+            vc, device=hidden.device, dtype=torch.bool
         )
         pair_scores = pair_scores.masked_fill(mask, float("-inf"))
         flat_scores = pair_scores.reshape(b, t, -1)
-        k = min(self.top_pairs, flat_scores.shape[-1])
+        k = min(pair_k, flat_scores.shape[-1])
         pair_weights, pair_idx = flat_scores.topk(k, dim=-1)
         pair_weights = F.softmax(pair_weights, dim=-1)
-        vc = self.top_vertices
         u_local = torch.div(pair_idx, vc, rounding_mode="floor")
         v_local = pair_idx % vc
         u_global = torch.gather(top_ids, 2, u_local)
@@ -191,7 +201,7 @@ class CombinatorialMemory(nn.Module):
         memory = (selected * pair_weights.unsqueeze(-1)).sum(dim=2)
         triple_object_ids = None
 
-        if self.top_triples > 0:
+        if triple_k > 0:
             pair_keys_sel = torch.gather(
                 flat_keys,
                 2,
@@ -219,7 +229,7 @@ class CombinatorialMemory(nn.Module):
                 invalid, float("-inf")
             )
             candidate_count = triple_scores.shape[-2] * triple_scores.shape[-1]
-            kt = min(self.top_triples, candidate_count)
+            kt = min(triple_k, candidate_count)
             t_weights, t_idx = triple_scores.reshape(b, t, -1).topk(
                 kt, dim=-1
             )

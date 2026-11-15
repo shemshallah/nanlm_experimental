@@ -1229,6 +1229,10 @@ class V3LM(nn.Module):
             aux["object_pair_ids"] = self.concept_loop.last_object_ids
             if getattr(self.concept_loop, "last_triple_ids", None) is not None:
                 aux["object_triple_ids"] = self.concept_loop.last_triple_ids
+            if getattr(self.concept_loop, "last_pointer_logits", None) is not None:
+                aux["object_pointer_logits"] = (
+                    self.concept_loop.last_pointer_logits
+                )
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
         return main, mtp, aux
@@ -1292,6 +1296,15 @@ class V3LM(nn.Module):
                     event["triples"] = (
                         aux["object_triple_ids"][:, -1].reshape(-1).tolist()
                     )
+                if aux.get("object_pointer_logits") is not None:
+                    pointer = aux["object_pointer_logits"][:, -1]
+                    pu = pointer[:, 0].argmax(dim=-1)
+                    pv = pointer[:, 1].argmax(dim=-1)
+                    lo = torch.minimum(pu, pv)
+                    hi = torch.maximum(pu, pv)
+                    event["pointer_pairs"] = (
+                        lo + hi * (hi - 1) // 2
+                    ).tolist()
                 object_events.append(event)
             sidecar = build_sidecar(ids[:, -max_ctx:])
         if decoder is not None:
