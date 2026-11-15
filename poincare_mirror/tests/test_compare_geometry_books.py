@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from scripts.compare_geometry_books import book_starts, bootstrap_gain
+from scripts.compare_geometry_books import book_starts, bootstrap_gain, passes_content_gate
 
 
 class WholeBookComparisonTest(unittest.TestCase):
@@ -32,6 +32,19 @@ class WholeBookComparisonTest(unittest.TestCase):
     def test_single_book_is_insufficient(self):
         with self.assertRaisesRegex(ValueError,'at least two'):
             bootstrap_gain([2.0],[1.9])
+
+    def test_content_trust_must_have_independent_positive_ablation(self):
+        comparison = {name: {'mean_gain': .01, 'ci95': [.005, .02]}
+                      for name in ('ce_1','ce_2','ce_3','ce_nonspace_1',
+                                   'acc_nonspace_1','top5_nonspace_1','top5_1')}
+        feedback = {'ce_1': {'ci95': [.01,.02]},
+                    'ce_nonspace_1': {'ci95': [.01,.02]}}
+        good = {'ce_nonspace_1': {'ci95': [.001,.02]}}
+        bad = {'ce_nonspace_1': {'ci95': [-.001,.02]}}
+        self.assertTrue(passes_content_gate(comparison,feedback,'valid'))
+        self.assertTrue(passes_content_gate(comparison,feedback,'valid',good))
+        self.assertFalse(passes_content_gate(comparison,feedback,'valid',bad))
+        self.assertFalse(passes_content_gate(comparison,feedback,'test',good))
 
 
 if __name__=='__main__':
