@@ -19,9 +19,11 @@ associative-memory experts, and HD time rails.
 
 Measured on Kaggle 1×T4: the **312M-class** model fits at context 512, 1024,
 and **2048**; 4096 OOMs before the backward. The 2048 path requires activation
-checkpointing and the memory-safe MTP gate. The **500,266,485 parameter /
-7-MoE-layer** probe completed 2 steps at ctx 512 in 32.9 s without OOM. That is
-the current single-T4 ceiling we have actually measured, not guessed.
+checkpointing, adaptive C(256,2) object candidates, and the memory-safe MTP
+gate. The **500,266,485 parameter / 7-MoE-layer** probe completed 2 steps at
+ctx 512 in 32.9 s without OOM. The concept-enabled 313M path reached
+**1.86 BPB after 2,314 steps** at ctx 2048 with multi-resolution feedback.
+That is the current measured concept ceiling, not a frontier claim.
 
 Measured on the GitHub 6 GB CPU runner: the 38M preset is actually
 **39,616,286 params**, completed 5 steps in ~**21 s** with **3.53 GB peak
