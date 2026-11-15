@@ -61,9 +61,17 @@ static Slot *alloc_ctx(size_t bytes){
         ('if(i>=skip){ dist256(pr256); float pt=pr256[c];',
          'if(i>=skip){ dist256(pr256); if(dist_out && !online) fwrite(pr256,sizeof(float),256,dist_out); float pt=pr256[c];'),
         ('const char *evalp=NULL,*bpep=NULL,*outp="res";',
-         'const char *dist_path=NULL; const char *evalp=NULL,*bpep=NULL,*outp="res";'),
+         '''const char *dist_path=NULL; const char *evalp=NULL,*bpep=NULL,*outp="res";
+  const char *batch_eval[16],*batch_base[16],*batch_dist[16]; int n_batch=0;'''),
         ('else if(!strcmp(argv[i],"-noonline")) online_final=0;',
-         'else if(!strcmp(argv[i],"-noonline")) online_final=0;\n    else if(!strcmp(argv[i],"-distout")) dist_path=argv[++i];\n    else if(!strcmp(argv[i],"-diskctx")) ctxdir=argv[++i];'),
+         '''else if(!strcmp(argv[i],"-noonline")) online_final=0;
+    else if(!strcmp(argv[i],"-distout")) dist_path=argv[++i];
+    else if(!strcmp(argv[i],"-diskctx")) ctxdir=argv[++i];
+    else if(!strcmp(argv[i],"-tapbatch")){
+      if(n_batch>=16 || i+3>=argc){fprintf(stderr,"invalid batch arguments\\n");return 1;}
+      batch_eval[n_batch]=argv[++i];batch_base[n_batch]=argv[++i];
+      batch_dist[n_batch]=argv[++i];n_batch++;
+    }'''),
         ('if(evalp){ char o[256]; snprintf(o,256,"%s_frozen.bin",outp);',
          'if(evalp){ if(dist_path){ dist_out=fopen(dist_path,"wb"); if(!dist_out) return 1; } char o[256]; snprintf(o,256,"%s_frozen.bin",outp);'),
         ('print_units("frozen");\n    if(online_final)',
@@ -73,6 +81,20 @@ static Slot *alloc_ctx(size_t bytes){
         if code.count(before) != 1:
             raise RuntimeError('Donor instrumentation signature not unique')
         code = code.replace(before, after)
+    trailer='  return 0;\n}\n'
+    if not code.endswith(trailer):
+        raise RuntimeError('Donor main() return signature changed')
+    batch_tail='''  for(int bi=0;bi<n_batch;bi++){
+    char recpath[4096];int n=snprintf(recpath,sizeof(recpath),"%s_frozen.bin",batch_base[bi]);
+    if(n<0 || n>=(int)sizeof(recpath)){fprintf(stderr,"batch path too long\\n");return 1;}
+    dist_out=fopen(batch_dist[bi],"wb"); if(!dist_out){perror("batch distribution");return 1;}
+    eval_file(batch_eval[bi],0,recpath,&nats,&t1,&t5,&ne);
+    fclose(dist_out);dist_out=NULL;
+    printf("BATCH frozen %d @%ld bytes: nats=%.4f bpc=%.4f top1=%.4f top5=%.4f n=%ld\\n",
+           bi,total,nats,nats/log(2),t1,t5,ne);fflush(stdout);
+  }
+'''
+    code=code[:-len(trailer)]+batch_tail+trailer
     return code
 
 
@@ -155,6 +177,43 @@ def run_tap(work: Path, split: str, *, diskctx: bool = False):
             'source_sha256':digest(Path(donor.__file__).read_bytes()),
             'instrumented_sha256':digest(instrumented_source().encode()),
             'context_storage':'disk-backed' if diskctx else 'anonymous'}
+
+
+def run_batch_tap(work: Path, splits, *, diskctx: bool = False):
+    """One exact donor training pass followed by several FROZEN evaluations.
+
+    Validation only: every split is read after the training bytes are observed;
+    no evaluation targets update the donor, residual, or optimizer. Each
+    output follows the existing `load_scored` audit layout.
+    """
+    allowed={'calibration','dev2','test2','dev3','test3','dev4','holdout4'}
+    splits=tuple(splits)
+    if not 1<=len(splits)<=16 or len(set(splits))!=len(splits):
+        raise ValueError('Batch must contain 1..16 unique splits')
+    if not set(splits)<=allowed:
+        raise ValueError('Unapproved batch split')
+    original=json.loads((work/'split_manifest.json').read_text())
+    exe=build_executable(work)
+    cmd=[str(exe),'-bpe',str(work/'bpe.txt'),'-tshift','0',
+         '-maxb',str(original['max_train_bytes'])]
+    cmd += donor.BASE+donor.lmflags(argparse.Namespace(work=str(work),beam=8),True,True,gc=0)
+    cmd += ['-xc','2047','-noonline']
+    if diskctx:cmd += ['-diskctx',str(work)]
+    for split in splits:
+        base=work/f'residual_{split}'
+        cmd += ['-tapbatch',str(work/f'win_{split}.bin'),str(base),str(base)+'.prob']
+    cmd += [str(work/'train.bin')]
+    start=time.monotonic()
+    proc=subprocess.run(cmd,text=True,capture_output=True)
+    if proc.returncode or proc.stdout.count('BATCH frozen')!=len(splits):
+        raise RuntimeError(f'v102 batch run failed (exit={proc.returncode}): '
+                           + (proc.stderr or proc.stdout)[-800:])
+    return {'splits':splits,'elapsed_seconds':round(time.monotonic()-start,2),
+            'source_sha256':digest(Path(donor.__file__).read_bytes()),
+            'instrumented_sha256':digest(instrumented_source().encode()),
+            'context_storage':'disk-backed' if diskctx else 'anonymous',
+            'training_passes':1,'all_evaluations_frozen':True,
+            'batch_summary':proc.stdout}
 
 
 def load_scored(work: Path, split: str):
@@ -344,12 +403,14 @@ def recursive_residual(work: Path, *, steps=96, lr=.01):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=('prepare','tap','train'))
+    parser.add_argument('command',choices=('prepare','tap','tap-batch','train'))
     parser.add_argument('--work',required=True,type=Path)
     parser.add_argument('--corpus',type=Path)
     parser.add_argument('--split',choices=('calibration','dev2','test2','dev3','test3','dev4','holdout4'))
     parser.add_argument('--diskctx',action='store_true',
                         help='Back context tables with an unlinked temporary disk file')
+    parser.add_argument('--splits',nargs='+',
+                        help='Frozen evaluations sharing one donor training pass')
     args=parser.parse_args()
     if args.command=='prepare':
         if not args.corpus:parser.error('Missing --corpus')
@@ -357,6 +418,9 @@ def main():
     elif args.command=='tap':
         if not args.split:parser.error('Missing --split')
         report=run_tap(args.work,args.split,diskctx=args.diskctx)
+    elif args.command=='tap-batch':
+        if not args.splits:parser.error('Missing --splits')
+        report=run_batch_tap(args.work,args.splits,diskctx=args.diskctx)
     else:
         report=recursive_residual(args.work)
     if args.command=='train':

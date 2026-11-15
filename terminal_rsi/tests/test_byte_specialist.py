@@ -96,6 +96,37 @@ class SpecialistTests(unittest.TestCase):
                                 (root/(mode+'.prob')).read_bytes()))
             self.assertEqual(outputs[0],outputs[1])
 
+    def test_batch_frozen_evaluations_equal_independent_replays(self):
+        """A later evaluation cannot read earlier holdout targets as history."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            train=(b'Memory is updated only on training history.\n'*180)
+            (root/'train.bin').write_bytes(train)
+            evpaths=[]
+            for i in (1,2):
+                payload=((b'Independent target bytes %d, now test.\n'%i)*7)[:224]
+                ev=root/f'eval{i}.bin'
+                ev.write_bytes(struct.pack('<II',1,24)+struct.pack('<I',len(payload))+payload)
+                evpaths.append(ev)
+            exe=build_executable(root)
+            def run(*flags):
+                cmd=[str(exe),'-tshift','8','-noonline',*flags,str(root/'train.bin')]
+                r=subprocess.run(cmd,capture_output=True,text=True,timeout=60)
+                self.assertEqual(r.returncode,0,r.stderr[-300:])
+                return r.stdout
+            for i,ev in enumerate(evpaths,1):
+                out=root/f'single{i}'
+                run('-eval',str(ev),'-o',str(out),'-distout',str(out)+'.prob')
+            batch=[]
+            for i,ev in enumerate(evpaths,1):
+                out=root/f'batch{i}'
+                batch.extend(('-tapbatch',str(ev),str(out),str(out)+'.prob'))
+            self.assertEqual(run(*batch).count('BATCH frozen'),2)
+            for i in (1,2):
+                for ending in ('.prob','_frozen.bin'):
+                    self.assertEqual((root/f'batch{i}{ending}').read_bytes(),
+                                     (root/f'single{i}{ending}').read_bytes())
+
     def test_residual_real_adam_continuation_and_metrics(self):
         rng=np.random.default_rng(123)
         targets=np.full(400,11,dtype=np.int64)

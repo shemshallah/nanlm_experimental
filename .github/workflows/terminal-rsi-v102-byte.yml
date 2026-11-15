@@ -62,20 +62,16 @@ jobs:
         run: |
           python -m terminal_rsi.byte_specialist.residual prepare \
             --corpus corpus/books --work corpus/work
-          for split in calibration dev2 test2; do
-            python -m terminal_rsi.byte_specialist.residual tap \
-              --work corpus/work --split "$split"
-          done
+          python -m terminal_rsi.byte_specialist.residual tap-batch \
+            --work corpus/work --splits calibration dev2 test2
           python -m terminal_rsi.byte_specialist.residual train \
             --work corpus/work
       - name: Continue inherited Adam into causal previous-byte specialist
         run: |
           python -m terminal_rsi.byte_specialist.contextual prepare \
             --corpus corpus/books --work corpus/work
-          for split in dev3 test3; do
-            python -m terminal_rsi.byte_specialist.residual tap \
-              --work corpus/work --split "$split"
-          done
+          python -m terminal_rsi.byte_specialist.residual tap-batch \
+            --work corpus/work --splits dev3 test3
           python -m terminal_rsi.byte_specialist.contextual train \
             --work corpus/work
       - name: Train new confidence trust group with original optimizer moments intact
@@ -84,22 +80,24 @@ jobs:
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \
             --work corpus/work --split test3
-      - name: Validate causal top-k guard on additional completely unseen books
+      - name: Prepare two independent untouched-book evaluations
         run: |
           python -m terminal_rsi.byte_specialist.contextual prepare-guard \
             --corpus corpus/books --work corpus/work
-          python -m terminal_rsi.byte_specialist.residual tap \
-            --work corpus/work --split dev4 --diskctx
+          python -m terminal_rsi.byte_specialist.holdout prepare \
+            --corpus corpus/books --work corpus/work --books 64
+      - name: Replay v102 once for DEV4 and 64-book holdout
+        run: |
+          python -m terminal_rsi.byte_specialist.residual tap-batch \
+            --work corpus/work --splits dev4 holdout4 --diskctx
+      - name: Validate top-k guard on additional completely unseen books
+        run: |
           python -m terminal_rsi.byte_specialist.contextual eval-guard \
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \
             --work corpus/work --split dev4
       - name: Independent never-trained 64-book remainder audit
         run: |
-          python -m terminal_rsi.byte_specialist.holdout prepare \
-            --corpus corpus/books --work corpus/work --books 64
-          python -m terminal_rsi.byte_specialist.residual tap \
-            --work corpus/work --split holdout4 --diskctx
           python -m terminal_rsi.byte_specialist.holdout evaluate \
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \

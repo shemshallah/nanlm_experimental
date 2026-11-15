@@ -191,6 +191,26 @@ operating system releases it automatically at exit. Disk-backed training can
 be slower than RAM-backed training. No full-donor model or massive table file
 is included in the small source release.
 
+### One donor replay, multiple independent evaluations
+
+`tap-batch` trains the unchanged donor once and then produces separate frozen
+record and full-distribution files for up to 16 explicitly named splits.
+It never updates the donor from any evaluation byte. This avoids paying
+the very expensive 1 MiB v102 training cost again for every held-out set.
+
+```bash
+python -m terminal_rsi.byte_specialist.residual tap-batch \
+  --work /path/to/local-work --splits dev4 holdout4 --diskctx
+```
+
+The batch path is tested against two fully independent single-evaluation
+replays: **both** binary record files and both float32 probability files
+must match byte-for-byte. This is a training-efficiency and auditability
+change, not a new language-model architecture or an accuracy claim. The
+optional GitHub CPU workflow now uses one replay per training stage rather
+than one replay per split, and records the two truly unseen assessments only
+after their manifests have been prepared.
+
 ## Independent train-remainder holdout (fourth assessment)
 
 `holdout.py` prepares an additional set of 64 book-disjoint predictions from
