@@ -311,12 +311,22 @@ Implemented in this integration:
 - exact pair-object IDs exposed during generation
 - autoregressive `generate()` with model/tokenizer composition and object readouts
 
+Validated in 313M concept runs:
+
+- 512 context: composition loss 0.384, no non-finite steps
+- 1024 context: composition loss 0.291, no non-finite steps
+- 2048 context with top-4 objects: composition loss 0.199 → 0.164,
+  no non-finite steps, ≈1.94 BPB after 925 steps
+- MTP branch beats the fallback on both correct-t1 and wrong-t1 subsets;
+  the remaining correct/wrong loss difference is t+2 selection hardness,
+  not a branch failure
+
 Still pending, and should not be pretended otherwise:
 
 - mapping the 256 deterministic seeds to actual byte values through the
   tokenizer's byte embedding (the current seed is a deterministic HD codebook)
 - a trained full-corpus word/sentence vocabulary on the 300MB v4c shard
-- long-run validation of the full concept loss and memory footprint
+- long-run validation beyond 10-minute sessions
 - feeding generated object IDs back as an explicit token/pointer stream
   (they are currently readouts, not vocabulary tokens)
 
