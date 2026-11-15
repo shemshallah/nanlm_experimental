@@ -84,10 +84,10 @@ The active concept loop runs per block, feeds every MoE router, and carries
 concept/object state across depth.  Router context is token-aligned by default:
 the router sees the current token's pooled concept/object state, not only the
 sequence mean.  The attention residual is optional and defaults off.  On
-WikiText CPU, token router-only reached 2.01585 BPB at 1,000 steps versus
-2.04570 for no-concept and 2.30661 for full attention injection.  The legacy
-post-hoc `comb_memory` remains available as a separate optional path for old
-checkpoints.
+WikiText CPU, token router-only reached 2.05332 BPB / 2.05705 BPC at 1,000
+steps versus 2.08372 / 2.08751 for no-concept and 2.34948 for full attention
+injection.  The legacy post-hoc `comb_memory` remains available as a separate
+optional path for old checkpoints.
 
 **Severity: resolved for the active concept path.**
 
