@@ -36,16 +36,28 @@ def main() -> int:
         encoding="utf-8", errors="ignore"
     )
     tokenizer = load_artifact(Path(args.layered_model).expanduser())
-    encoded = tokenizer.subword.encode(text)
-    ids = np.asarray(encoded.ids, dtype=np.int64)
-    token_bytes = encoded.token_bytes
-    spans = encoded.spans
-    offsets = _char_byte_offsets(text)
-    char_lengths = [
-        bisect.bisect_left(offsets, end)
-        - bisect.bisect_left(offsets, start)
-        for start, end in spans
-    ]
+    native = getattr(tokenizer.subword, "native", None)
+    if native is not None:
+        encoded = native.encode(text)
+        ids = np.asarray(encoded.ids, dtype=np.int64)
+        token_bytes = [
+            tokenizer.subword.token_bytes[int(token_id)]
+            for token_id in ids.tolist()
+        ]
+        char_lengths = [
+            int(end) - int(start) for start, end in encoded.offsets
+        ]
+    else:
+        encoded = tokenizer.subword.encode(text)
+        ids = np.asarray(encoded.ids, dtype=np.int64)
+        token_bytes = encoded.token_bytes
+        spans = encoded.spans
+        offsets = _char_byte_offsets(text)
+        char_lengths = [
+            bisect.bisect_left(offsets, end)
+            - bisect.bisect_left(offsets, start)
+            for start, end in spans
+        ]
     positions = np.random.default_rng(args.seed + 100_003).integers(
         args.ctx, len(ids), size=args.eval_batches * args.batch_size
     )
