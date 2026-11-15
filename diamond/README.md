@@ -310,8 +310,12 @@ examples, and the 28.4M integrated model.
 | no tokenizer/self loops | **6.5332** | **4.1862** | **7.1644** | **5.5236** | 56.35% |
 | near-zero tokenizer residual | 6.5802 | 4.2164 | 7.2341 | 5.5325 | 56.35% |
 | full self-referential loops | 6.5800 | 4.2430 | 7.1685 | 5.5519 | 56.05% |
+| closed meta/concept→tokenizer loops | 6.6360 | 4.3237 | 7.1897 | 5.5174 | 56.05% |
 
-The loops are wired and gated, but they do not improve the short-run loss at
-this scale. The best measured configuration remains the one without the extra
-self-loop residuals; the concept bank, 256-wide tokenizer micro-transformer,
-meta cross-attention, and per-layer feedback remain active.
+The fully closed-loop run reached 6.6360 nats in only 5 epochs; the extra loops
+cost roughly two epochs in the 10-minute budget. At epoch 5 it is slightly
+better than the no-loop run at epoch 5, but the no-loop best remains lower at
+6.5332. The loops are wired and gated; the best measured short-run
+configuration remains the one without the extra self-loop residuals. The
+concept bank, 256-wide tokenizer micro-transformer, meta cross-attention, and
+per-layer feedback remain active.
