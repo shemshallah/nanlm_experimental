@@ -88,6 +88,7 @@ def _base_args(
         "--topk", "2",
         "--shared-experts", "1",
         "--expert-hidden", "256",
+        "--moe-group-size", "2",
         "--no-use-memory",
         "--mtp", "2",
         "--mtp-block",

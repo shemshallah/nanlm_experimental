@@ -106,7 +106,31 @@ python z3/train_v3.py \
 CI gate: peak RSS below 5.5 GB, finite loss, at least one router update, and a
 checkpoint that reloads.
 
-## 3. `C(256,2+3)` growth path
+## 3. Test and ablation runner
+
+The repository has no registered self-hosted `NaNLMind` runner.  The
+`z3-test-ablate.yml` workflow therefore defaults to GitHub-hosted
+`ubuntu-latest`; dispatch it with a registered label if one becomes available:
+
+```sh
+gh workflow run z3-test-ablate.yml \
+  -f runner=ubuntu-latest -f steps=8
+```
+
+It runs the Z4 unit/smoke suite first, then five CPU wiring ablations:
+
+| Row | Difference |
+|---|---|
+| `baseline_no_concept` | concept loop and composition head disabled |
+| `concept_full` | full concept, pointer, MTP, and composition path |
+| `concept_no_mtp_structure` | future composition/pointer losses disabled |
+| `concept_pair_only` | triple retrieval disabled |
+| `domain_mixture` | two task-tagged corpora |
+
+The matrix is a stability/wiring gate, not a quality benchmark.  Its summary
+is uploaded as the `z3-ablation-summary` artifact.
+
+## 4. `C(256,2+3)` growth path
 
 The diamond engine already has the exact combinatorial indexing:
 
@@ -163,7 +187,7 @@ the checkpoint carries `vertex_count` and object-count metadata.
 - Router context can select algebra/geometry/proof/translation objects without
   forcing all math into one expert set.
 
-## 4. Frontier gates
+## 5. Frontier gates
 
 Every stage must report **bits/byte**, not raw token CE.
 
@@ -182,7 +206,7 @@ Every stage must report **bits/byte**, not raw token CE.
 The old 0.9538 train loss was **nats/byte**; the old valid score was 1.4148
 bits/byte. Do not compare either to v4 token CE (≈7–10 nats/token).
 
-## 5. Execution order
+## 6. Execution order
 
 1. Finish v4c byte-complete corpus; re-baseline tokenizer.
 2. Kaggle 310M memory probe → 300-step stability → 1,000-step gate.
@@ -192,7 +216,7 @@ bits/byte. Do not compare either to v4 token CE (≈7–10 nats/token).
 6. Math/translation curriculum with tagged synthetic + real data.
 7. Frontier run on larger hardware when Kaggle budget allows.
 
-## 6. Current risks
+## 7. Current risks
 
 - MTP branch still became non-finite near step 392 before the latest
   branch-norm + MTP-LR fixes; re-test before any long run.
