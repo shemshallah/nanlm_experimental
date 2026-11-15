@@ -1,6 +1,7 @@
 """v102 byte specialist transfers algorithms into RSI without donor checkpoint."""
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 import numpy as np
@@ -9,7 +10,8 @@ from terminal_rsi.byte_specialist import nancm_v102 as donor
 from terminal_rsi.byte_specialist.controller import (
     SOURCE_SHA256, assign_books, audit_records, digest, select_windows, write_windows,
 )
-from terminal_rsi.byte_specialist.residual import ResidualPolicy, instrumented_source
+from terminal_rsi.byte_specialist.residual import (ResidualPolicy, build_executable,
+                                                   instrumented_source)
 from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous_byte_classes
 
 
@@ -63,6 +65,31 @@ class SpecialistTests(unittest.TestCase):
         self.assertEqual(original, donor.CSRC)
         self.assertIn('if(dist_out && !online) fwrite(pr256',output)
         self.assertIn('else if(!strcmp(argv[i],"-distout"))',output)
+        self.assertIn('else if(!strcmp(argv[i],"-diskctx")) ctxdir=argv[++i];',output)
+
+    def test_disk_backed_ctx_byte_exact_against_original_allocation(self):
+        """Same v102 table indices and bit updates in both memory modes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            train=(b'Only previously observed bytes update v102.\n' * 240)
+            window=(b'New tokens, punctuation, and repeated letters.\n' * 7)[:256]
+            (root/'train.bin').write_bytes(train)
+            (root/'eval.bin').write_bytes(
+                struct.pack('<II',1,32)+struct.pack('<I',len(window))+window)
+            exe=build_executable(root)
+            outputs=[]
+            for mode in ('anonymous','disk'):
+                stem=root/mode
+                cmd=[str(exe),'-tshift','8','-eval',str(root/'eval.bin'),
+                     '-o',str(stem),'-noonline','-distout',str(stem)+'.prob']
+                if mode=='disk':cmd.extend(('-diskctx',str(root)))
+                cmd.append(str(root/'train.bin'))
+                result=subprocess.run(cmd,capture_output=True,text=True,timeout=60)
+                self.assertEqual(result.returncode,0,result.stderr[-500:])
+                self.assertIn('FINAL frozen',result.stdout)
+                outputs.append(((root/(mode+'_frozen.bin')).read_bytes(),
+                                (root/(mode+'.prob')).read_bytes()))
+            self.assertEqual(outputs[0],outputs[1])
 
     def test_residual_real_adam_continuation_and_metrics(self):
         rng=np.random.default_rng(123)

@@ -157,3 +157,36 @@ and `eval-guard`, with a whole-book paired bootstrap. On the initial local
 attempts, v102 was killed three times by container memory pressure before
 those probabilities were produced; DEV4 therefore has **no measured result**.
 Another larger independent corpus is needed before any promotion claim.
+
+## Resource-safe replay of the original v102 donor
+
+The default v102 `-tshift 0` context allocation reserves approximately
+2.2 GiB of `Slot` tables, before sidecars, history, and the host correction.
+That caused repeated Linux SIGKILL (-9) failures while replaying the frozen
+donor on a shared CPU worker. This is an execution-resource failure, not a
+prediction-quality result.
+
+The Terminal-RSI instrumentation now exposes an **opt-in** `--diskctx` switch:
+
+```bash
+python -m terminal_rsi.byte_specialist.residual tap \
+  --work /path/to/local-work --split dev4 --diskctx
+```
+
+It allocates the donor's original, exact-sized context arrays through
+`MAP_SHARED` over a securely created, immediately unlinked temporary file in
+the specified work directory. The same 32 tables retain identical
+hash-addressing, update equations, bit probabilities, and table limits. No
+changes are made to the checksum-pinned `nancm_v102.py`, and the C donor is
+still retrained from its known 1 MiB source prefix. A deterministic regression
+test trains on the same byte stream with anonymous and disk-backed storage
+and requires exact binary equality of all frozen records and full 256-way
+prediction distributions. This is a CPU/RAM-recovery mechanism, not an
+architectural accuracy claim or a persistent full-donor checkpoint.
+
+**Operational caution:** the work directory must live on a disk filesystem,
+not a RAM-backed `/tmp` (`tmpfs`), or the memory pressure returns. The
+unlinked backing file remains allocated until the C process exits; the
+operating system releases it automatically at exit. Disk-backed training can
+be slower than RAM-backed training. No full-donor model or massive table file
+is included in the small source release.

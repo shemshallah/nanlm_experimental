@@ -25,17 +25,45 @@ from .controller import (SOURCE_SHA256, assign_books, digest, select_windows,
 
 
 def instrumented_source():
-    """Add one read-only, no-gradient output tap without editing donor source."""
+    """Add a read-only distribution tap and opt-in disk-backed context tables.
+
+    The disk-backed path changes *only the storage allocation*, never the
+    table layout, addressing, update equations, or prediction operations.
+    The original v102 donor file remains checksum-pinned and unmodified.
+    """
     code = donor.CSRC
     replacements = (
         ('static void eval_file(const char *wpath,',
          'static FILE *dist_out=NULL;\nstatic void eval_file(const char *wpath,'),
+        ('#include <stdint.h>\n',
+         '#include <stdint.h>\n#include <sys/mman.h>\n#include <unistd.h>\n'),
+        ('static Slot *T[NCTX]; static Slot o0t[256];',
+         '''static Slot *T[NCTX]; static Slot o0t[256];
+static const char *ctxdir=NULL;
+static FILE *ctxfile=NULL;
+static Slot *alloc_ctx(size_t bytes){
+  if(!ctxdir) return (Slot*)calloc(1,bytes);
+  if(!ctxfile){
+    char name[4096]; int n=snprintf(name,sizeof(name),"%s/.terminal_rsi_ctx_XXXXXX",ctxdir);
+    if(n<0 || n>=(int)sizeof(name)){fprintf(stderr,"ctxdir too long\\n");return NULL;}
+    int fd=mkstemp(name); if(fd<0){perror("mkstemp");return NULL;}
+    unlink(name); ctxfile=fdopen(fd,"w+b");
+    if(!ctxfile){perror("fdopen");close(fd);return NULL;}
+  }
+  int fd=fileno(ctxfile); off_t pos=lseek(fd,0,SEEK_END);
+  if(pos<0 || ftruncate(fd,pos+(off_t)bytes)){perror("ftruncate"); return NULL;}
+  void *p=mmap(NULL,bytes,PROT_READ|PROT_WRITE,MAP_SHARED,fd,pos);
+  if(p==MAP_FAILED){perror("mmap"); return NULL;}
+  return (Slot*)p;
+}'''),
+        ('T[i]=(Slot*)calloc((size_t)1<<b,sizeof(Slot));',
+         'T[i]=alloc_ctx(((size_t)1<<b)*sizeof(Slot));'),
         ('if(i>=skip){ dist256(pr256); float pt=pr256[c];',
          'if(i>=skip){ dist256(pr256); if(dist_out && !online) fwrite(pr256,sizeof(float),256,dist_out); float pt=pr256[c];'),
         ('const char *evalp=NULL,*bpep=NULL,*outp="res";',
          'const char *dist_path=NULL; const char *evalp=NULL,*bpep=NULL,*outp="res";'),
         ('else if(!strcmp(argv[i],"-noonline")) online_final=0;',
-         'else if(!strcmp(argv[i],"-noonline")) online_final=0;\n    else if(!strcmp(argv[i],"-distout")) dist_path=argv[++i];'),
+         'else if(!strcmp(argv[i],"-noonline")) online_final=0;\n    else if(!strcmp(argv[i],"-distout")) dist_path=argv[++i];\n    else if(!strcmp(argv[i],"-diskctx")) ctxdir=argv[++i];'),
         ('if(evalp){ char o[256]; snprintf(o,256,"%s_frozen.bin",outp);',
          'if(evalp){ if(dist_path){ dist_out=fopen(dist_path,"wb"); if(!dist_out) return 1; } char o[256]; snprintf(o,256,"%s_frozen.bin",outp);'),
         ('print_units("frozen");\n    if(online_final)',
@@ -102,7 +130,7 @@ def prepare_unseen(*, corpus: Path, work: Path, calibration=48, dev2=24, test2=2
     return result
 
 
-def run_tap(work: Path, split: str):
+def run_tap(work: Path, split: str, *, diskctx: bool = False):
     """Train the same original v102 model and dump strictly frozen distributions."""
     if split not in ('calibration','dev2','test2','dev3','test3','dev4'):
         raise ValueError('Non-whitelisted split')
@@ -116,6 +144,8 @@ def run_tap(work: Path, split: str):
            '-maxb',str(original['max_train_bytes'])]
     cmd += donor.BASE + donor.lmflags(argparse.Namespace(work=str(work),beam=8), True,True,gc=0)
     cmd += ['-xc','2047','-noonline','-distout',str(out)+'.prob',str(work/'train.bin')]
+    if diskctx:
+        cmd[1:1] = ['-diskctx',str(work)]
     start=time.monotonic()
     proc=subprocess.run(cmd,text=True,capture_output=True)
     if proc.returncode or 'FINAL frozen' not in proc.stdout:
@@ -123,7 +153,8 @@ def run_tap(work: Path, split: str):
                            + (proc.stderr or proc.stdout)[-600:])
     return {'split':split, 'elapsed_seconds':round(time.monotonic()-start,2),
             'source_sha256':digest(Path(donor.__file__).read_bytes()),
-            'instrumented_sha256':digest(instrumented_source().encode())}
+            'instrumented_sha256':digest(instrumented_source().encode()),
+            'context_storage':'disk-backed' if diskctx else 'anonymous'}
 
 
 def load_scored(work: Path, split: str):
@@ -315,13 +346,15 @@ def main():
     parser.add_argument('--work',required=True,type=Path)
     parser.add_argument('--corpus',type=Path)
     parser.add_argument('--split',choices=('calibration','dev2','test2','dev3','test3','dev4'))
+    parser.add_argument('--diskctx',action='store_true',
+                        help='Back context tables with an unlinked temporary disk file')
     args=parser.parse_args()
     if args.command=='prepare':
         if not args.corpus:parser.error('Missing --corpus')
         report=prepare_unseen(corpus=args.corpus,work=args.work)
     elif args.command=='tap':
         if not args.split:parser.error('Missing --split')
-        report=run_tap(args.work,args.split)
+        report=run_tap(args.work,args.split,diskctx=args.diskctx)
     else:
         report=recursive_residual(args.work)
     if args.command=='train':
