@@ -55,3 +55,10 @@ strict success/partial-credit metrics. Until then `benchmark_eligible=false`.
 The former experiment under `poincare_mirror/poincare_rsi_adapter/` is a **historical
 optional model-specific adapter**, not this standalone track. Its results
 must never be combined with or presented as Terminal-RSI benchmarks.
+
+For source-verified low-BPC prediction experiments on actual NaNROUTER books,
+the agent now owns an **optional v10.2-inspired byte specialist** at
+[`byte_specialist/`](byte_specialist/README.md). It contributes byte-context
+features and vocabulary-aware predictions without replacing this actor or
+importing FA1/FA2. Its separate book BPC metrics and terminal-task scores
+remain explicitly different evaluation tracks.

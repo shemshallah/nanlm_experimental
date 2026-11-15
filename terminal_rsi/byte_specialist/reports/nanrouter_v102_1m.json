@@ -1,0 +1,47 @@
+{
+  "schema": "terminal-rsi-v102-independent-books-audited-v1",
+  "date": "2026-11-15",
+  "host": "standalone Terminal-RSI (no FA2)",
+  "donor": "user-supplied NaNCM v10.2 source; no checkpoint",
+  "donor_sha256": "de7e68475541af2b234c1272133d8f1ce23c5023fb40a52f33b025637829758b",
+  "corpus": "shemshallah/NaNROUTER corpora-short-stories-0004",
+  "corpus_archive_sha256": "d6ce3a23757e85fe1b9487ef984a5ba81db9c2dc6e962ac7c5df2960480e0054",
+  "splits_full_books": {"train": 428, "dev": 106, "test": 81},
+  "train_bytes": 1000000,
+  "train_sha256": "d6334371835ad0c1ff26b3b2c9098225a43e43fa8ac5de3c81f669f8929c350f",
+  "bpe_vocab": 576,
+  "word_vocab": 1280,
+  "eval_books_per_split": 48,
+  "eval_scored_bytes_per_split": 23040,
+  "dev_window_sha256": "96507c2f5c553e665228ef20f14f04a8ee4139d48eb382160856b1f6c8d8843d",
+  "test_window_sha256": "8b2d44a4925e693afe54b9e3d785ff26500c76f42556c480d54edf5260850e36",
+  "dev_frozen_bpc_by_proposal": {
+    "BASE-noLM": 2.3157,
+    "subword+word": 2.3054,
+    "boundary-127": 2.2848,
+    "plus-word5": 2.2846,
+    "all-structure-2047": 2.2661
+  },
+  "rejected_by_0_0005_dev_bpc_gate": ["plus-word5"],
+  "selected": "all-structure-2047",
+  "test_baseline_frozen": {"bpc": 2.3056, "top1": 0.5463, "top5": 0.8393},
+  "test_selected_frozen": {"bpc": 2.2609, "top1": 0.5528, "top5": 0.8441},
+  "test_baseline_online": {"bpc": 2.1360, "top1": 0.5642, "top5": 0.8509},
+  "test_selected_online": {"bpc": 2.0936, "top1": 0.5711, "top5": 0.8552},
+  "independent_audit": {
+    "status": "PASS",
+    "compared_raw_score_files": 14,
+    "test_books_improved": 47,
+    "test_books_total": 48,
+    "frozen_bpc_gain_per_book": 0.044739,
+    "paired_2000_book_bootstrap_ci95": [0.038478, 0.050952]
+  },
+  "model_promoted": false,
+  "limitations": [
+    "NaNCM donor weights retrained independently per proposal; not persistent C-model learning",
+    "Verified configuration selection is not proof of recursive self-improvement",
+    "48 windows of 480 scored bytes are diagnostic, not whole-book perplexity",
+    "Online mode adapts causally across evaluation windows, so frozen mode gates selection",
+    "No Terminal-Bench evaluation, and no FA2 checkpoint or optimizer transfer"
+  ]
+}

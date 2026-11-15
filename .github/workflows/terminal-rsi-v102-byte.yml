@@ -1,0 +1,81 @@
+name: Terminal-RSI v102 byte-specialist independent corpus checks
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'terminal_rsi/byte_specialist/**'
+      - 'terminal_rsi/tests/test_byte_specialist.py'
+      - '.github/workflows/terminal-rsi-v102-byte.yml'
+  workflow_dispatch:
+    inputs:
+      train_books:
+        description: 'Download SHA-verified NaNROUTER books and run CPU source training'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verified-source-and-splits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'numpy>=1.26,<3'
+      - name: Verify exact donor and independent byte windows
+        run: python -m unittest discover -s terminal_rsi/tests -v
+
+  train-real-nanrouter-books:
+    if: github.event_name == 'workflow_dispatch' && inputs.train_books
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'numpy>=1.26,<3'
+      - name: Download and verify original Gutenberg book release
+        run: |
+          mkdir -p corpus/books
+          curl -fsSL --retry 3 -o corpus/books.tar.zst \
+            https://github.com/shemshallah/NaNROUTER/releases/download/corpora-short-stories-0004/short_stories-0004.tar.zst
+          echo 'd6ce3a23757e85fe1b9487ef984a5ba81db9c2dc6e962ac7c5df2960480e0054  corpus/books.tar.zst' | sha256sum -c
+          tar --zstd -xf corpus/books.tar.zst -C corpus/books
+      - name: Prepare disjoint train, DEV and sealed TEST books
+        run: |
+          python -m terminal_rsi.byte_specialist.controller prep \
+            --corpus corpus/books --work corpus/work --maxb 1000000
+      - name: Train, select by DEV, independently measure TEST
+        run: |
+          python -m terminal_rsi.byte_specialist.controller search --work corpus/work
+          python -m terminal_rsi.byte_specialist.controller audit --work corpus/work
+      - name: Train persistent host residual with distinct second dev and test books
+        run: |
+          python -m terminal_rsi.byte_specialist.residual prepare \
+            --corpus corpus/books --work corpus/work
+          for split in calibration dev2 test2; do
+            python -m terminal_rsi.byte_specialist.residual tap \
+              --work corpus/work --split "$split"
+          done
+          python -m terminal_rsi.byte_specialist.residual train \
+            --work corpus/work
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-rsi-v102-byte-source-checks-and-results
+          path: |
+            corpus/work/split_manifest.json
+            corpus/work/specialist_search.json
+            corpus/work/residual_manifest.json
+            corpus/work/residual_search.json
+            corpus/work/residual_checkpoint.npz
+          retention-days: 14

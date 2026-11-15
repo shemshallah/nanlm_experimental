@@ -1,0 +1,40 @@
+{
+  "schema": "terminal-rsi-v102-residual-audited-v1",
+  "date": "2026-11-15",
+  "host": "standalone Terminal-RSI (not FA2)",
+  "donor": "unchanged NaNCM v10.2 source with read-only 256-probability C tap",
+  "parent_corpus": "shemshallah/NaNROUTER corpora-short-stories-0004",
+  "train_bytes_for_donor": 1000000,
+  "residual_calibration": {"books": 48, "scored_bytes": 23040,
+    "windows_sha256": "e445aad915e182c3a1ee56cd995ab894867bd15bf3424a5cb65cf523ffa78ba3"},
+  "fresh_development": {"books": 24, "scored_bytes": 11520,
+    "windows_sha256": "3d5b2921633fb3b5a219fd8c57fbffb0f8ff4d2ff6d6fc2567b909b2507ffb00"},
+  "fresh_sealed_test": {"books": 24, "scored_bytes": 11520,
+    "windows_sha256": "7bbfd393581a26a7c2c2c92316a0e31c84607f391ff812384f80192f1edb3697"},
+  "calibration_and_test_provenance_sha256": "c790c04c92eba1a284def43199b90f59cc2ddc12bc5943aa01d5c581944b5912",
+  "donor_source_sha256": "de7e68475541af2b234c1272133d8f1ce23c5023fb40a52f33b025637829758b",
+  "instrumented_source_sha256": "a7b38803e4c702c398b61143c9edac3947391cd4ff60cfb88a133ed486da08d2",
+  "residual_train": {
+    "stage_optimizer_steps": [0, 96, 192, 288, 384],
+    "best_validated_checkpoint_step": 288,
+    "development_bpc": [2.19542303, 2.18878188, 2.18874580, 2.18790912, 2.18802196],
+    "checkpoint_file": "residual_checkpoint_288.npz",
+    "checkpoint_sha256": "dd2f1612d9375aabd20a7f170b33afac4d346a4036ddb8ec1a270b3a6d42fa12",
+    "checkpoint_contents": ["256 residual weights", "Adam first moments", "Adam second moments", "critic", "optimizer step"],
+    "note": "The 384 updates were one continuous optimizer history; checkpoint selected at step 288"
+  },
+  "test_baseline": {"bpc": 2.17819159, "top1": 0.54713542, "top5": 0.84887153},
+  "test_residual": {"bpc": 2.17282718, "top1": 0.54913194, "top5": 0.84869792},
+  "test_shuffled_calibration_labels": {"bpc": 2.17431698},
+  "test_bpc_gain": 0.00536441,
+  "gain_ci95_paired_whole_book_bootstrap": [0.00249057, 0.00862814],
+  "correct_labels_over_shuffled_gain": 0.00148980,
+  "correct_vs_shuffled_ci95": [0.00017349, 0.00281554],
+  "candidate_promoted": false,
+  "promotion_rejection_reasons": [
+    "Top-5 byte accuracy decreased slightly",
+    "No whole-book or Terminal-Bench pass",
+    "The large v102 C model's trained weights are not yet serialized"
+  ],
+  "interpretation": "Small held-out next-byte gain from recursively trained host residual; not proof of autonomous RSI or TerminalBench capability"
+}
