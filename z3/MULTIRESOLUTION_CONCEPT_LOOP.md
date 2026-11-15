@@ -304,12 +304,13 @@ Implemented in this integration:
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
 - concept state fed into MTP branch context
-- composition event head and auxiliary CE
+- multi-label composition event head and BCE supervision
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder
 - `CompositionVocabulary` structural layer
 - exact pair/triple object IDs exposed during generation
 - learned object-pointer head over the 256 vertex pair space
+- pointer pairs constrained to distinct vertices
 - generation streams the reconstructed sidecar back into the concept loop
 - adaptive top-k object candidates for 2048 context memory
 - autoregressive `generate()` with model/tokenizer composition and object readouts

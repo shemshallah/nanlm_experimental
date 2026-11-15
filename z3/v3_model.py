@@ -1285,7 +1285,13 @@ class V3LM(nn.Module):
             ids = torch.cat([ids, next_id[:, None]], dim=1)
             comp = aux.get("composition_logits")
             if comp is not None:
-                events.append(int(comp[:, -1].argmax(dim=-1)[0]))
+                fired = torch.sigmoid(comp[:, -1]) > 0.5
+                events.append(
+                    [
+                        idx for idx, value in enumerate(fired[0].tolist())
+                        if value
+                    ]
+                )
             if decoder is not None:
                 tokenizer_events.extend(decoder.feed(int(next_id[0])))
             if aux.get("object_pair_ids") is not None:
@@ -1299,7 +1305,11 @@ class V3LM(nn.Module):
                 if aux.get("object_pointer_logits") is not None:
                     pointer = aux["object_pointer_logits"][:, -1]
                     pu = pointer[:, 0].argmax(dim=-1)
-                    pv = pointer[:, 1].argmax(dim=-1)
+                    pv_logits = pointer[:, 1].clone()
+                    pv_logits[torch.arange(pv_logits.shape[0]), pu] = (
+                        torch.finfo(pv_logits.dtype).min
+                    )
+                    pv = pv_logits.argmax(dim=-1)
                     lo = torch.minimum(pu, pv)
                     hi = torch.maximum(pu, pv)
                     event["pointer_pairs"] = (

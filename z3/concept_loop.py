@@ -75,6 +75,7 @@ class SpanSidecar:
     event_ids: torch.Tensor
     byte_start: torch.Tensor
     byte_len: torch.Tensor
+    event_multi: torch.Tensor
 
     def to(self, device: torch.device | str) -> "SpanSidecar":
         return SpanSidecar(
@@ -84,6 +85,7 @@ class SpanSidecar:
             event_ids=self.event_ids.to(device),
             byte_start=self.byte_start.to(device),
             byte_len=self.byte_len.to(device),
+            event_multi=self.event_multi.to(device),
         )
 
     def slice(self, start: int, length: int) -> "SpanSidecar":
@@ -95,6 +97,7 @@ class SpanSidecar:
             event_ids=self.event_ids[start:end],
             byte_start=self.byte_start[start:end],
             byte_len=self.byte_len[start:end],
+            event_multi=self.event_multi[start:end],
         )
 
     @classmethod
@@ -106,8 +109,13 @@ class SpanSidecar:
         sentence_ids = torch.zeros(n, dtype=torch.long)
         math_kind = torch.zeros(n, dtype=torch.long)
         event_ids = torch.zeros(n, dtype=torch.long)
+        event_multi = torch.zeros(n, len(EVENT_NAMES), dtype=torch.float32)
         byte_start = torch.tensor([s for s, _ in spans], dtype=torch.long)
         byte_len = torch.tensor([e - s for s, e in spans], dtype=torch.long)
+
+        def mark(index: int, event: int) -> None:
+            event_ids[index] = event
+            event_multi[index, event] = 1.0
 
         def token_range(start: int, end: int) -> range:
             lo = 0
@@ -136,8 +144,8 @@ class SpanSidecar:
                 continue
             for idx in indices:
                 word_ids[idx] = word_index
-            event_ids[indices[0]] = EVENT_IDS["<word_start>"]
-            event_ids[indices[-1]] = EVENT_IDS["<word_end>"]
+            mark(indices[0], EVENT_IDS["<word_start>"])
+            mark(indices[-1], EVENT_IDS["<word_end>"])
 
         for sent_index, (start, end) in enumerate(encoding.sentence_spans, start=1):
             indices = token_range(start, end)
@@ -145,7 +153,7 @@ class SpanSidecar:
                 continue
             for idx in indices:
                 sentence_ids[idx] = sent_index
-            event_ids[indices[-1]] = EVENT_IDS["<sentence_end>"]
+            mark(indices[-1], EVENT_IDS["<sentence_end>"])
 
         for span in getattr(encoding, "math_spans", []):
             indices = token_range(span.start, span.end)
@@ -156,8 +164,8 @@ class SpanSidecar:
             ) if f"<{span.kind}>" in MATH_KINDS else 0
             for idx in indices:
                 math_kind[idx] = kind
-            event_ids[indices[0]] = EVENT_IDS["<math_start>"]
-            event_ids[indices[-1]] = EVENT_IDS["<math_end>"]
+            mark(indices[0], EVENT_IDS["<math_start>"])
+            mark(indices[-1], EVENT_IDS["<math_end>"])
 
         return cls(
             word_ids=word_ids,
@@ -166,6 +174,7 @@ class SpanSidecar:
             event_ids=event_ids,
             byte_start=byte_start,
             byte_len=byte_len,
+            event_multi=event_multi,
         )
 
     @classmethod
@@ -185,6 +194,7 @@ class SpanSidecar:
         fields: dict[str, list[torch.Tensor]] = {
             "word_ids": [], "sentence_ids": [], "math_kind": [],
             "event_ids": [], "byte_start": [], "byte_len": [],
+            "event_multi": [],
         }
         for sidecar in sidecars:
             n = int(sidecar.word_ids.numel())
@@ -196,11 +206,13 @@ class SpanSidecar:
                 ("event_ids", sidecar.event_ids),
                 ("byte_start", sidecar.byte_start),
                 ("byte_len", sidecar.byte_len),
+                ("event_multi", sidecar.event_multi),
             ):
                 value = value.to(device)
                 if pad:
+                    pad_shape = (pad,) + tuple(value.shape[1:])
                     value = torch.cat(
-                        [value, torch.zeros(pad, dtype=value.dtype, device=device)]
+                        [value, torch.zeros(pad_shape, dtype=value.dtype, device=device)]
                     )
                 fields[name].append(value)
         return cls(**{name: torch.stack(values, dim=0) for name, values in fields.items()})

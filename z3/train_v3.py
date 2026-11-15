@@ -658,15 +658,24 @@ def evaluate(
             )
         if sidecar is not None and aux.get("composition_logits") is not None:
             comp_logits = aux["composition_logits"]
-            comp_targets = sidecar.event_ids
-            composition_sum += float(
-                F.cross_entropy(
-                    comp_logits.reshape(-1, comp_logits.size(-1)),
-                    comp_targets.reshape(-1).long(),
-                    reduction="sum",
+            if getattr(sidecar, "event_multi", None) is not None:
+                comp_targets = sidecar.event_multi.to(comp_logits.dtype)
+                composition_sum += float(
+                    F.binary_cross_entropy_with_logits(
+                        comp_logits, comp_targets, reduction="sum"
+                    )
                 )
-            )
-            composition_tokens += int(comp_targets.numel())
+                composition_tokens += int(comp_targets.numel())
+            else:
+                comp_targets = sidecar.event_ids
+                composition_sum += float(
+                    F.cross_entropy(
+                        comp_logits.reshape(-1, comp_logits.size(-1)),
+                        comp_targets.reshape(-1).long(),
+                        reduction="sum",
+                    )
+                )
+                composition_tokens += int(comp_targets.numel())
 
         vocab = logits.size(-1)
         main_logits = logits[:, :-1]
@@ -2034,12 +2043,17 @@ def main(argv: list[str] | None = None) -> int:
             composition_loss = None
             if sidecar is not None and aux.get("composition_logits") is not None:
                 comp_logits = aux["composition_logits"]
-                comp_targets = sidecar.event_ids
-                composition_loss = F.cross_entropy(
-                    comp_logits.reshape(-1, comp_logits.size(-1)),
-                    comp_targets.reshape(-1).long(),
-                    ignore_index=-100,
-                )
+                if getattr(sidecar, "event_multi", None) is not None:
+                    composition_loss = F.binary_cross_entropy_with_logits(
+                        comp_logits,
+                        sidecar.event_multi.to(comp_logits.dtype),
+                    )
+                else:
+                    composition_loss = F.cross_entropy(
+                        comp_logits.reshape(-1, comp_logits.size(-1)),
+                        sidecar.event_ids.reshape(-1).long(),
+                        ignore_index=-100,
+                    )
                 loss = loss + args.composition_weight * composition_loss
             pointer_loss = None
             core = _model_core(model)
