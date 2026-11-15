@@ -362,11 +362,14 @@ def _set_bytes_per_token(
     token_bytes = getattr(subword, "token_bytes", None)
     if token_bytes is None or ids.size == 0:
         return None
-    counts = np.bincount(
-        np.asarray(ids, dtype=np.int64), minlength=len(token_bytes)
-    )
-    if counts.size > len(token_bytes):
-        return None
+    counts = np.zeros(len(token_bytes), dtype=np.int64)
+    # Process in bounded slices so a 60M-token corpus does not allocate a
+    # second 500MB int64 copy just to count bytes.
+    for start in range(0, ids.size, 1_000_000):
+        chunk = np.asarray(ids[start:start + 1_000_000], dtype=np.int64)
+        if chunk.size and int(chunk.max()) >= len(token_bytes):
+            return None
+        counts += np.bincount(chunk, minlength=len(token_bytes))
     total_bytes = sum(
         int(counts[index]) * len(token_bytes[index])
         for index in range(len(token_bytes))
