@@ -82,6 +82,27 @@ def trust_counterfactual_binary_loss(trust_logits, on_logits, off_logits, target
             better.float().mean().detach())
 
 
+def reciprocal_residual_prediction_loss(off_logits, geometric_hidden,
+                                        tied_vocabulary, targets, scale,
+                                        nonspace_weight=1.0):
+    """R44: make existing geometric feedback predict a correction to a trunk.
+
+    The no-reciprocal baseline and tied output vocabulary are detached; the
+    causal geometric hidden representation receives the auxiliary gradient.
+    This introduces neither a second language model nor new vocabulary head.
+    """
+    if not math.isfinite(scale) or scale <= 0.:
+        raise ValueError('Geometric residual logit scale must be positive and finite')
+    if geometric_hidden.shape[:2] != targets.shape or off_logits.shape[:2] != targets.shape:
+        raise ValueError('Residual and teacher must address identical targets')
+    if geometric_hidden.shape[-1] != tied_vocabulary.shape[-1] or (
+            off_logits.shape[-1] != tied_vocabulary.shape[0]):
+        raise ValueError('Geometric residual must use the same tied byte vocabulary')
+    corrected = (off_logits.detach() +
+                 scale * F.linear(geometric_hidden, tied_vocabulary.detach()))
+    return content_balanced_ce(corrected, targets, nonspace_weight)
+
+
 @torch.no_grad()
 def evaluate_byte_breakdown(model, batches):
     """Unweighted, causal +1/+2/+3 metrics on exactly the supplied windows.
@@ -380,6 +401,8 @@ class ReciprocalScaleGeometry(nn.Module):
                               if content_trust else None)
         self.record_trust_for_aux = False
         self.latest_trust_logits = None
+        self.record_residual_for_aux = False
+        self.latest_residual_for_aux = None
         self.enabled = True  # inference ablation only; not a checkpoint weight
         self.pair_to_micro_enabled = True
         self.cloud_to_micro_enabled = True
@@ -528,7 +551,11 @@ class ReciprocalScaleGeometry(nn.Module):
         pooled = (levels*self.scale_weights.softmax(0).view(1,1,5,1)).sum(2)
         if meta is not None:
             pooled = pooled + self.geo_to_scale(meta)
-        residual = self.cold_gate()*self.to_hidden(pooled)
+        ungated = self.to_hidden(pooled)
+        if self.record_residual_for_aux:
+            # Cache the latest causal geometric signal from the SAME model.
+            self.latest_residual_for_aux = ungated
+        residual = self.cold_gate()*ungated
         if self.context_trust is not None:
             residual = residual * self.feedback_trust(levels)
         return residual
@@ -2022,6 +2049,14 @@ def train(args):
         raise ValueError('--trust-counterfactual-weight must be finite and nonnegative')
     if trust_aux_weight and getattr(args, 'future_only', False):
         raise ValueError('Counterfactual trust training cannot combine with --future-only')
+    residual_aux_weight = getattr(args, 'reciprocal_residual_aux_weight', 0.0)
+    residual_logit_scale = getattr(args, 'reciprocal_residual_logit_scale', 8.0)
+    if not math.isfinite(residual_aux_weight) or residual_aux_weight < 0.:
+        raise ValueError('--reciprocal-residual-aux-weight must be finite and nonnegative')
+    if not math.isfinite(residual_logit_scale) or residual_logit_scale <= 0.:
+        raise ValueError('--reciprocal-residual-logit-scale must be finite and positive')
+    if residual_aux_weight and getattr(args, 'future_only', False):
+        raise ValueError('Geometric residual supervision cannot combine with --future-only')
     inherited_scale = getattr(args, 'inherited_step_scale', 1.0)
     if not math.isfinite(inherited_scale) or not 0. <= inherited_scale <= 1.:
         raise ValueError('--inherited-step-scale must be finite and within [0, 1]')
@@ -2141,6 +2176,8 @@ def train(args):
         cfg.reciprocal_content_trust = True
     if trust_aux_weight and not cfg.reciprocal_content_trust:
         raise ValueError('--trust-counterfactual-weight requires R41 reciprocal content trust')
+    if residual_aux_weight and not cfg.reciprocal_scales:
+        raise ValueError('--reciprocal-residual-aux-weight requires the shared reciprocal geometry')
     if cfg.reciprocal_scales and meta.get('unit') != 'UTF8_bytes_plus_eos':
         raise ValueError('Reciprocal scales require verified UTF-8 byte+EOS training data')
     history = list(saved.get('growth_history', [])) if saved else []
@@ -2362,6 +2399,16 @@ def train(args):
                         'soft_labels':[0.1,0.9],
                         'logit_features_detached':True,
                         'evaluation_objective':'ordinary_unweighted_ce'})
+    if args.steps > 0 and residual_aux_weight:
+        history.append({'kind':'causal_geometric_residual_correction_supervision',
+                        'step':start,'updates':args.steps,
+                        'auxiliary_weight':residual_aux_weight,
+                        'logit_scale':residual_logit_scale,
+                        'baseline':'same_checkpoint_reciprocal_disabled',
+                        'head':'inherited_tied_byte_vocabulary_detached',
+                        'geometry_feature':'last_causal_ungated_reciprocal_emit',
+                        'no_new_model_or_optimizer':True,
+                        'evaluation_objective':'ordinary_unweighted_ce'})
     protected_params = []
     if inherited_scale != 1.:
         if model.reciprocal is None or model.hierarchy is None or not any(
@@ -2423,6 +2470,8 @@ def train(args):
               f'{frozen_count:,} inherited parameters and their Adam states frozen')
     if trust_aux_weight:
         model.reciprocal.record_trust_for_aux = True
+    if residual_aux_weight:
+        model.reciprocal.record_residual_for_aux = True
     model.train()
     for step in range(start + 1, start + args.steps + 1):
         update_growth_bias(model, growth, step)
@@ -2430,6 +2479,7 @@ def train(args):
         train_ce_sum = 0.0
         trust_aux_sum = 0.0
         trust_better_sum = 0.0
+        residual_aux_sum = 0.0
         tokens_this_step = 0
         for _micro in range(args.grad_accum):
             selected_context = int(rng.choice(mix[0], p=mix[1])) if mix else active_context
@@ -2441,7 +2491,8 @@ def train(args):
                     batch, nonspace_weight=args.nonspace_loss_weight,
                     return_next_logits=bool(trust_aux_weight))
                 trust_aux = None
-                if trust_aux_weight:
+                residual_aux = None
+                if trust_aux_weight or residual_aux_weight:
                     # Same frozen-at-this-step model supplies its matched
                     # no-reciprocal counterfactual. Labels stay TRAIN-only.
                     model.reciprocal.enabled = False
@@ -2450,22 +2501,34 @@ def train(args):
                             off_logits, _, _ = model(batch[:, :-3])
                     finally:
                         model.reciprocal.enabled = True
-                    trust_aux, better_fraction = trust_counterfactual_binary_loss(
-                        model.reciprocal.latest_trust_logits,
-                        losses.pop('next_logits'), off_logits, batch[:, 1:-2])
+                    if trust_aux_weight:
+                        trust_aux, better_fraction = trust_counterfactual_binary_loss(
+                            model.reciprocal.latest_trust_logits,
+                            losses.pop('next_logits'), off_logits, batch[:, 1:-2])
+                    if residual_aux_weight:
+                        residual_aux = reciprocal_residual_prediction_loss(
+                            off_logits, model.reciprocal.latest_residual_for_aux,
+                            model.head.weight, batch[:, 1:-2], residual_logit_scale,
+                            args.nonspace_loss_weight)
                 if getattr(args, 'future_only', False):
                     micro_loss = sum((cfg.future2_weight * losses['future2_ce']
                                       if cfg.future2_weight else 0.,
                                       cfg.future3_weight * losses['future3_ce']
                                       if cfg.future3_weight else 0.)) / args.grad_accum
                 else:
-                    micro_loss = (losses['loss'] + trust_aux_weight * trust_aux
-                                  if trust_aux is not None else losses['loss']) / args.grad_accum
+                    total_loss = losses['loss']
+                    if trust_aux is not None:
+                        total_loss = total_loss + trust_aux_weight * trust_aux
+                    if residual_aux is not None:
+                        total_loss = total_loss + residual_aux_weight * residual_aux
+                    micro_loss = total_loss / args.grad_accum
             micro_loss.backward()
             train_ce_sum += losses['next_ce'].detach().item()
             if trust_aux is not None:
                 trust_aux_sum += trust_aux.detach().item()
                 trust_better_sum += better_fraction.item()
+            if residual_aux is not None:
+                residual_aux_sum += residual_aux.detach().item()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         prior_inherited = ([p.detach().clone() for p in protected_params]
                            if protected_params else [])
@@ -2489,6 +2552,9 @@ def train(args):
                 report['train_trust_aux_bce'] = round(trust_aux_sum / args.grad_accum, 6)
                 report['train_reciprocal_better_fraction'] = round(
                     trust_better_sum / args.grad_accum, 6)
+            if residual_aux_weight:
+                report['train_geometry_residual_aux_ce'] = round(
+                    residual_aux_sum / args.grad_accum, 6)
             if getattr(args, 'report_byte_metrics', False):
                 report['byte_metrics'] = evaluate_byte_breakdown(model, val_batches)
             print(json.dumps(report))
@@ -3122,6 +3188,10 @@ def main():
                     help='R40: scale inherited Adam parameter displacement to [0,1], preserving all moment histories; newly attached geometry remains full rate')
     tr.add_argument('--trust-counterfactual-weight', type=float, default=0.0,
                     help='R42: train the existing causal reciprocal trust gate against matched on/off TRAIN-only next-byte loss')
+    tr.add_argument('--reciprocal-residual-aux-weight', type=float, default=0.0,
+                    help='R44: supervise an ungated causal geometric correction against same-model reciprocal-off predictions')
+    tr.add_argument('--reciprocal-residual-logit-scale', type=float, default=8.0,
+                    help='R44: scalar sensitivity of train-only geometric residual through inherited tied byte vocabulary')
     tr.add_argument('--report-byte-metrics', action='store_true',
                     help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
