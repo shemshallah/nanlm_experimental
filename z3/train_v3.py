@@ -353,6 +353,31 @@ def load_text_ids(
     return ids.astype(np.int32, copy=False)
 
 
+def _set_bytes_per_token(
+    source: "TextBatchSource",
+    subword: Any,
+    ids: np.ndarray,
+) -> float | None:
+    """Attach corpus mean bytes/token from the tokenizer's byte table."""
+    token_bytes = getattr(subword, "token_bytes", None)
+    if token_bytes is None or ids.size == 0:
+        return None
+    counts = np.bincount(
+        np.asarray(ids, dtype=np.int64), minlength=len(token_bytes)
+    )
+    if counts.size > len(token_bytes):
+        return None
+    total_bytes = sum(
+        int(counts[index]) * len(token_bytes[index])
+        for index in range(len(token_bytes))
+    )
+    if total_bytes <= 0:
+        return None
+    value = total_bytes / float(ids.size)
+    source.info["bytes_per_token"] = float(value)
+    return float(value)
+
+
 def load_token_bin(path: str, dtype: str) -> np.ndarray:
     """Load pre-tokenized IDs from a raw binary file."""
     file_path = Path(path).expanduser()
@@ -657,6 +682,7 @@ def evaluate(
     mtp_weight: float,
     sidecar_builder: Any = None,
     task_id: int = -1,
+    bytes_per_token: float | None = None,
 ) -> dict[str, Any]:
     """Evaluate on fixed windows; returns token-weighted metrics."""
     was_training = model.training
@@ -924,6 +950,11 @@ def evaluate(
             if mtp_pointer_tokens else None
         ),
         "bits_per_token": main_loss / math.log(2),
+        "bits_per_byte": (
+            main_loss / (math.log(2) * bytes_per_token)
+            if bytes_per_token and bytes_per_token > 0 else None
+        ),
+        "bytes_per_token": bytes_per_token,
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
         "top5": top5 / max(1, main_tokens),
@@ -1704,7 +1735,17 @@ def main(argv: list[str] | None = None) -> int:
         source.sidecar_builder = (
             lambda ids: SpanSidecar.from_token_ids(ids, side_tok)
         )
-        print("[sidecar] aligned word/sentence/math feed enabled", flush=True)
+        bytes_per_token = _set_bytes_per_token(
+            source, side_tok.subword, source.ids
+        )
+        print(
+            "[sidecar] aligned word/sentence/math feed enabled"
+            + (
+                f" bytes/token={bytes_per_token:.4f}"
+                if bytes_per_token is not None else ""
+            ),
+            flush=True,
+        )
 
     overfit_batch = source.train_batch() if args.overfit_single_batch else None
     if resume_checkpoint is not None:
@@ -2382,6 +2423,12 @@ def main(argv: list[str] | None = None) -> int:
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),
             "tokens": int(args.batch_size * args.ctx),
+            "bits_per_token": float(parts["ce"]) / math.log(2),
+            "bits_per_byte": (
+                float(parts["ce"])
+                / (math.log(2) * source.info["bytes_per_token"])
+                if source.info.get("bytes_per_token") else None
+            ),
         }
 
         if step_done % args.log_every == 0 or step_done == args.steps:
@@ -2401,6 +2448,7 @@ def main(argv: list[str] | None = None) -> int:
                 model, source.eval_batches, device, amp, args.mtp_weight,
                 sidecar_builder=getattr(source, "build_sidecar", None),
                 task_id=args.task_id,
+                bytes_per_token=source.info.get("bytes_per_token"),
             )
             val_ema = (
                 evaluate(
@@ -2408,6 +2456,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.mtp_weight,
                     sidecar_builder=getattr(source, "build_sidecar", None),
                     task_id=args.task_id,
+                    bytes_per_token=source.info.get("bytes_per_token"),
                 )
                 if ema_model is not None else None
             )

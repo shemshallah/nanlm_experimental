@@ -310,6 +310,7 @@ Implemented in this integration:
 - MTP future-composition BCE through the shared structural head
 - MTP future-object-pointer CE through the shared vertex codebook
 - future composition/pointer losses reported by the evaluator
+- bits/byte telemetry from the tokenizer byte table
 - multi-label composition event head and BCE supervision
 - multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator
