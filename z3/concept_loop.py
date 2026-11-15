@@ -506,6 +506,46 @@ class CompositionVocabulary:
         return {"tokens": list(cls.tokens), "size": len(cls.tokens)}
 
 
+class CompositionCalibrator:
+    """Per-event threshold calibration for sparse structural events."""
+
+    @staticmethod
+    def thresholds(
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        *,
+        grid: Sequence[float] | None = None,
+    ) -> list[float]:
+        probs = torch.sigmoid(logits.detach()).reshape(
+            -1, logits.shape[-1]
+        )
+        labels = targets.detach().reshape(-1, targets.shape[-1]) > 0.5
+        values = (
+            [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+            if grid is None else list(grid)
+        )
+        result: list[float] = []
+        for event in range(probs.shape[-1]):
+            positive = labels[:, event]
+            if not bool(positive.any()):
+                result.append(0.5)
+                continue
+            best_threshold = 0.5
+            best_f1 = -1.0
+            for threshold in values:
+                predicted = probs[:, event] > float(threshold)
+                tp = int((predicted & positive).sum())
+                fp = int((predicted & ~positive).sum())
+                fn = int((~predicted & positive).sum())
+                denominator = 2 * tp + fp + fn
+                f1 = (2 * tp / denominator) if denominator else 0.0
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = float(threshold)
+            result.append(best_threshold)
+        return result
+
+
 class CompositionHead(nn.Module):
     """Predict a structural composition event at each token position."""
 

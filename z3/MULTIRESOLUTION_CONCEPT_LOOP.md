@@ -19,8 +19,8 @@ bytes -> subwords -> words -> sentences -> concepts
                      next token / span
 ```
 
-The current model has the pieces, but they are not wired into that loop.
-This document separates what exists from what is disconnected.
+The active concept path now wires the pieces into that loop.  This document
+keeps the remaining gaps explicit instead of treating the diagram as a claim.
 
 ## What exists today
 
@@ -53,49 +53,38 @@ This document separates what exists from what is disconnected.
 
 ## Disconnects
 
-### D1. The tokenizer hierarchy is not in the training stream
+### D1. The tokenizer hierarchy is in the training stream (active path)
 
-The v4c corpus is a flat uint16 subword stream. It has no sidecar for:
+The v4c corpus is still a flat uint16 subword stream, but `SpanSidecar`
+now reconstructs token -> byte spans, word spans, sentence spans, math spans,
+and composition events for every training/evaluation window.  `--sidecar` is
+on by default for the concept path.
 
-- token -> byte spans
-- subword -> word spans
-- word -> sentence spans
-- math spans
-- composition boundaries
+The remaining limitation is CPU overhead for random windows, not a missing
+signal.  Repeated eval/overfit windows use an LRU; a persistent random-window
+cache is still pending.
 
-So the model cannot use the word/sentence/math layers during training.
-The layered tokenizer is currently an encoder/evaluation artifact, not a
-training input.
+**Severity: resolved for signal wiring; performance remains a gap.**
 
-**Severity: critical.** This is the main missing wiring.
+### D2. The 32,640 pair objects are connected to the concept loop
 
-### D2. The 32,640 pair objects are disconnected from the tokenizer
+The active concept path uses exactly 256 vertices, seeds them from
+deterministic byte-bit hypervectors, and addresses `C(256,2)=32,640` pairs and
+`C(256,3)=2,763,520` triples.  Word/sentence/math concepts are pooled into the
+query; the object memory is still sparse top-k rather than a dense object
+vocabulary.
 
-`C(256,2) = 32,640`, but the model default uses `comb_vertices=64`
-(2,016 pairs, 41,664 triples) and only top-8 pairs per token.
+**Severity: resolved for addressing and seeding; hard object-token
+generation remains partial.**
 
-More importantly, the 256 vertices are **learned latent vertices**, not
-byte/subword/word/sentence concepts. The pair/triple memory is not driven by
-the tokenizer hierarchy.
+### D3. Concept memory runs inside every block (active path)
 
-**Severity: critical.** We need 256 concept vertices seeded from the
-tokenizer levels, with exact C(256,2) addressing.
+The active concept loop runs per block, feeds attention and every MoE router,
+and carries concept/object state across depth.  The legacy post-hoc
+`comb_memory` remains available as a separate optional path for old
+checkpoints, but it is not the multi-resolution route.
 
-### D3. Concept memory is applied once, after all blocks
-
-`V3LM.forward` runs all transformer blocks, then adds
-`self.comb_memory(x)` once before the output norm.
-
-The MoE routers never see:
-
-- the object-memory summary
-- word/sentence state
-- math/composition state
-
-So there is no multi-layer object feedback. The object memory is a
-post-hoc residual, not part of the routing loop.
-
-**Severity: high.**
+**Severity: resolved for the active concept path.**
 
 ### D4. The router context is attention-only (addressed in the active path)
 
@@ -108,43 +97,43 @@ loop in both directions.
 **Severity: resolved in the active path; explicit boundary probes remain a
 validation gap.**
 
-### D5. The word/sentence layers are not aligned to v4c token IDs
+### D5. Alignment is reconstructed from token IDs (active path)
 
-The v4c builder discards document/span alignment. There is no
-token-indexed word/sentence mask, so adding them later requires rebuilding
-the corpus or re-tokenizing raw documents.
+`SpanSidecar.from_token_ids` rebuilds byte spans from the byte-complete
+subword table and aligns word/sentence/math spans to the existing token
+window.  It does not require rebuilding the v4c corpus.
 
-**Severity: high.** This is why the sidecar must be built now, before more
-training.
+The remaining limitation is that chunk boundaries can split a UTF-8 code
+point or word during the full-corpus word-vocabulary tuner; the training
+sidecar itself uses exact token-byte spans.
 
-### D6. MTP uses time permutations but no composition state
+**Severity: resolved for training; tuner boundary handling is approximate.**
 
-MTP has HD `<now>` and permutation future rails, but its branch does not see:
+### D6. MTP is multi-resolution (active path)
 
-- the current word/sentence span
-- the composition state
-- pair/triple object state
+MTP has HD `<now>` and permutation future rails, and its branch context now
+includes the route plus final concept/object state.  Shared heads additionally
+supervise future composition events and future object pointers.
 
-It can predict future subwords, but not future word/sentence/composition
-structure.
+**Severity: resolved for structure conditioning; future structure quality is
+not yet benchmarked.**
 
-**Severity: medium-high.**
+### D7. Incremental generation exists, with a tokenizer limitation
 
-### D7. There is no incremental/compositional generation path
-
-Training/evaluation is causal-LM scoring. There is no generation loop that:
+`V3LM.generate` now:
 
 1. emits a subword,
-2. updates byte/word/sentence state,
-3. runs concept abstraction,
-4. updates the object router,
-5. emits the next subword or composition token.
+2. feeds generated IDs through the incremental composition decoder,
+3. rebuilds the aligned sidecar and concept/object state,
+4. feeds predicted composition events back into the concept state,
+5. reports model/tokenizer/object/composition readouts.
 
-The tokenizer is not reversible **incrementally** at word/sentence level.
-`LayeredTokenizer.decode_token_ids` decodes a completed sequence, not a
-streaming sequence with composition.
+The remaining limitation is that `LayeredTokenizer.decode_token_ids` decodes
+a completed sequence rather than exposing a fully reversible streaming
+word/sentence state machine.  The event-level incremental decoder is the
+current bridge.
 
-**Severity: critical for generation.**
+**Severity: active path implemented; tokenizer streaming is partial.**
 
 ### D8. Composition layer (structural layer implemented; grammar rules pending)
 
@@ -161,22 +150,22 @@ token.  The structural vocabulary exists; the grammar rules do not.
 
 ### D9. Object IDs are not part of the model vocabulary
 
-The 32,640 pair IDs and 2.76M triple IDs are an internal memory space, not
-generation tokens. The pointer head predicts the two vertices of a pair,
-generation reports the resulting ID, and the pointer distribution now feeds
-back into the object stream, but the decoder still cannot emit an object ID as
-a first-class next vocabulary token. There is no object-ID vocabulary entry or
-hard recurrent object-token input yet.
+The 32,640 pair IDs and 2.76M triple IDs are still not text-vocabulary tokens.
+The pointer head predicts the two vertices of a pair, generation reports the
+resulting ID, and the hard pointer at token `t-1` now conditions object
+retrieval at token `t` through a straight-through stream.  The remaining gap is
+an explicit sampled object-ID vocabulary entry, not a recurrent pointer input.
 
-**Severity: high, partially mitigated by the closed soft pointer.**
+**Severity: partial; hard recurrent pointer exists, object vocabulary does
+not.**
 
-### D10. v4c corpus and layer tuning are on different data scopes
+### D10. Full-corpus layer tuning is scripted but not applied
 
 The layered tokenizer was tuned on a 5MB FineWeb sample, while v4c training
-uses the 300MB FineWeb byte shard. Word/sentence vocab statistics are not
-recomputed on the full training shard.
+uses the 300MB FineWeb shard.  `z3/tune_word_vocab_bins.py` streams the v4c
+bins and can write a full-corpus word artifact, but it has not been run here.
 
-**Severity: medium.**
+**Severity: medium; tooling exists, data run pending.**
 
 ## Target architecture
 
@@ -313,6 +302,7 @@ Implemented in this integration:
 - future composition/pointer losses reported by the evaluator
 - bits/byte telemetry from the tokenizer byte table
 - multi-label composition event head and BCE supervision
+- per-event composition threshold calibration for generation
 - multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder

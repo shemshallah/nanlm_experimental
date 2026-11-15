@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -1307,6 +1307,7 @@ class V3LM(nn.Module):
         seed: int | None = None,
         tokenizer: Any = None,
         task_id: int | None = None,
+        composition_thresholds: Sequence[float] | None = None,
     ):
         """Autoregressive loop with model and tokenizer composition events."""
         if seed is not None:
@@ -1362,7 +1363,20 @@ class V3LM(nn.Module):
             comp = aux.get("composition_logits")
             fired = None
             if comp is not None:
-                fired = torch.sigmoid(comp[:, -1]) > 0.5
+                probs = torch.sigmoid(comp[:, -1])
+                if composition_thresholds is None:
+                    fired = probs > 0.5
+                else:
+                    thresholds = torch.as_tensor(
+                        composition_thresholds,
+                        device=probs.device, dtype=probs.dtype,
+                    ).reshape(1, -1)
+                    if thresholds.numel() != probs.shape[-1]:
+                        raise ValueError(
+                            "composition_thresholds must have one value "
+                            "per composition event"
+                        )
+                    fired = probs > thresholds
                 events.append(
                     [
                         idx for idx, value in enumerate(fired[0].tolist())
