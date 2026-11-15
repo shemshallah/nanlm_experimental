@@ -18,6 +18,11 @@ on:
         required: true
         default: "256"
         type: string
+      rows:
+        description: JSON array of architecture rows
+        required: true
+        default: '["concept_full","baseline_no_concept","concept_no_mtp_structure","concept_pair_only","concept_no_composition","concept_no_sidecar"]'
+        type: string
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -70,13 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        row:
-          - concept_full
-          - baseline_no_concept
-          - concept_no_mtp_structure
-          - concept_pair_only
-          - concept_no_composition
-          - concept_no_sidecar
+        row: ${{ fromJSON(inputs.rows) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
