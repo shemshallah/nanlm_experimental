@@ -32,9 +32,10 @@ composition/pointer supervision, composition calibration, and bits/byte
 telemetry.
 
 A small WikiText-2 GitHub-hosted CPU run now validates the routing choice:
-router-only concept feedback reached **2.0379 BPB** at 1,000 steps versus
-**2.0457** for no-concept and **2.3066** for full attention injection.  This is
-a ~31M-parameter, 2.45M-token wiring/convergence test, not a frontier result.
+token-aligned router-only concept feedback reached **2.0159 BPB** at 1,000
+steps versus **2.0457** for no-concept, **2.0379** for global router context,
+and **2.3066** for full attention injection.  This is a ~31M-parameter,
+2.45M-token wiring/convergence test, not a frontier result.
 
 Measured on the GitHub 6 GB CPU runner: the 38M preset is actually
 **39,616,286 params**, completed 5 steps in ~**21 s** with **3.53 GB peak

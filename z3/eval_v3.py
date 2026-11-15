@@ -170,6 +170,7 @@ def parse_config(raw: Any) -> V3Config:
         "moe_associative_memory", "moe_hyperdimensional", "mtp_hd_time",
         "mtp_branch_norm", "use_combinatorial_memory", "grad_checkpoint",
         "use_concept_loop", "composition_head", "task_vocab_size",
+        "concept_router_tokens",
     ):
         if key not in kwargs:
             kwargs[key] = False

@@ -123,7 +123,7 @@ class V3Config:
     # lets the concept loop warm up without disturbing the early trunk.
     concept_loop_scale: float = 1.0
     concept_loop_attention: bool = False
-    concept_router_tokens: bool = False
+    concept_router_tokens: bool = True
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8

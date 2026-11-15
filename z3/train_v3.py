@@ -1326,7 +1326,7 @@ def build_parser() -> argparse.ArgumentParser:
                        action=argparse.BooleanOptionalAction, default=False,
                        help="inject concept state into attention as well as routers")
     model.add_argument("--concept-router-tokens",
-                       action=argparse.BooleanOptionalAction, default=False,
+                       action=argparse.BooleanOptionalAction, default=True,
                        help="give the MoE router token-aligned concept/object state")
     model.add_argument("--concept-vertices", type=int, default=256)
     model.add_argument("--concept-dim", type=int, default=128)
@@ -2098,6 +2098,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("use_concept_loop", "--concept-loop"),
                 ("composition_head", "--composition-head"),
                 ("task_vocab_size", "--task-vocab-size"),
+                ("concept_router_tokens", "--concept-router-tokens"),
                 ("grad_checkpoint", "--grad-checkpoint"),
             ):
                 if (

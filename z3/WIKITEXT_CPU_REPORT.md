@@ -48,11 +48,17 @@ A third control isolated the attention residual:
 | Row | Loss | Bits/byte |
 |---|---:|---:|
 | baseline_no_concept | 7.20094 | 2.35793 |
-| concept_router_only | **7.11532** | **2.32989** |
+| concept_router_only | 7.11532 | 2.32989 |
+| concept_router_tokens | **7.11338** | **2.32926** |
 
 Router-only concept feedback is the first concept variant to beat the baseline
-at the same token budget.  The default is therefore router-only; full attention
-injection remains available as `--concept-loop-attention` for ablation.
+at the same token budget.  Token-aligned router state was slightly better at
+200 steps; its 1,000-step confirmation is below.
+
+Token-aligned routing is now the default:
+`--concept-router-tokens` is on, `--no-concept-router-tokens` restores the
+global-context control, and full attention injection remains available as
+`--concept-loop-attention` for ablation.
 
 ## Longer convergence run
 
@@ -66,15 +72,16 @@ data and configuration:
 | Row | Loss | Bits/byte | Params |
 |---|---:|---:|---:|
 | baseline_no_concept | 6.24743 | 2.04570 | 30,847,070 |
-| **concept_router_only** | **6.22357** | **2.03789** | 31,731,104 |
-| concept_router_no_composition | 6.22435 | 2.03815 | 31,729,760 |
-| concept_full | 7.04421 | 2.30661 | 31,731,104 |
+| concept_router_only (global context) | 6.22357 | 2.03789 | 31,731,104 |
+| **concept_router_tokens** | **6.15627** | **2.01585** | 31,731,104 |
+| concept_router_no_composition (global) | 6.22435 | 2.03815 | 31,729,760 |
+| concept_full (attention injection) | 7.04421 | 2.30661 | 31,731,104 |
 | concept_no_composition (full attention) | 7.05788 | 2.31108 | 31,729,760 |
 
 The result is consistent across horizons:
 
-- 200 steps: router-only 2.3299 vs baseline 2.3580.
-- 1,000 steps: router-only 2.0379 vs baseline 2.0457.
+- 200 steps: global router 2.3299, token router 2.3293, baseline 2.3580.
+- 1,000 steps: token router **2.01585**, global router 2.03789, baseline 2.04570.
 
 Full attention injection is clearly harmful at this scale and duration
 (2.3066 at 1,000 steps).  Router-only concept feedback is therefore the
@@ -84,5 +91,6 @@ Removing the composition auxiliary head in router-only mode changes BPB only
 from 2.03789 to 2.03815, so the composition head is neutral to slightly helpful
 at this horizon and stays enabled.
 
-The router-only gain over baseline is small (~0.008 BPB at 1,000 steps), so it
-is a validated architecture signal, not a frontier claim.
+The token-router gain over baseline is ~0.030 BPB at 1,000 steps, still on a
+small model and one run.  It is a validated architecture signal, not a frontier
+claim.

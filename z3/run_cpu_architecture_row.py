@@ -20,6 +20,10 @@ TRAIN = ROOT / "z3" / "train_v3.py"
 
 ROWS = {
     "concept_full": ["--concept-loop-attention"],
+    "concept_attention_global": [
+        "--concept-loop-attention",
+        "--no-concept-router-tokens",
+    ],
     "baseline_no_concept": [
         "--no-concept-loop",
         "--no-composition-head",
@@ -34,9 +38,12 @@ ROWS = {
     "concept_no_composition": ["--no-composition-head"],
     "concept_no_sidecar": ["--no-sidecar"],
     "concept_loopscale10": ["--concept-loop-scale", "0.1"],
-    "concept_router_only": [],
-    "concept_router_no_composition": ["--no-composition-head"],
-    "concept_router_tokens": ["--concept-router-tokens"],
+    "concept_router_only": ["--no-concept-router-tokens"],
+    "concept_router_no_composition": [
+        "--no-composition-head",
+        "--no-concept-router-tokens",
+    ],
+    "concept_router_tokens": [],
 }
 
 
