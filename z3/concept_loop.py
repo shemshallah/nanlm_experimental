@@ -146,6 +146,9 @@ class SpanSidecar:
                 word_ids[idx] = word_index
             mark(indices[0], EVENT_IDS["<word_start>"])
             mark(indices[-1], EVENT_IDS["<word_end>"])
+            if len(indices) > 1:
+                # A multi-subword word is itself a composition target.
+                mark(indices[-1], EVENT_IDS["<compose>"])
 
         for sent_index, (start, end) in enumerate(encoding.sentence_spans, start=1):
             indices = token_range(start, end)
