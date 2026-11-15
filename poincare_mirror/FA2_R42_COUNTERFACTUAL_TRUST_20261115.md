@@ -81,6 +81,12 @@ CI [-0.002546,+0.004593]); non-space CE gain **+0.006812**
   from the R41 32-update matched ordinary run, so the auxiliary objective is
   **active**; its changed trust decisions have not yielded a measurable
   predictive gain.
+* Direct R41 32-update **no-auxiliary vs R42 32-update auxiliary** comparison,
+  with identical parent, RNG, optimizer schedule, and DEV windows: +1 CE
+  gain **0.000000** (CI [-0.000021,+0.000021]); non-space CE gain
+  **+0.000003** (CI [-0.000019,+0.000025]); +1 top-1 and top-5 are
+  **identical to six decimals**. This specifically rejects a claim that
+  counterfactual trust training has improved language accuracy.
 
 **Decision: REJECT for promotion.** The independent DEV gate fails, and
 independent long-context and sealed TEST gates have not been invoked. Do not
