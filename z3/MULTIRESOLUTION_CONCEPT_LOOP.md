@@ -306,6 +306,7 @@ Implemented in this integration:
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
 - recurrent concept carry across all blocks
+- optional task/domain embedding in the initial route context
 - concept state fed into MTP branch context
 - multi-label composition event head and BCE supervision
 - sidecar-aware trainer and evaluator

@@ -117,6 +117,7 @@ class V3Config:
     # hypervectors are stored; pair objects are bound on demand.
     use_combinatorial_memory: bool = False
     use_concept_loop: bool = True
+    task_vocab_size: int = 16
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8
@@ -615,6 +616,10 @@ class V3LM(nn.Module):
         self.blocks = nn.ModuleList([Block(cfg, i) for i in range(cfg.n_layers)])
         self.norm = RMSNorm(cfg.d_model)
         self.route_init = nn.Parameter(torch.zeros(cfg.d_model))
+        self.task_embedding = (
+            nn.Embedding(cfg.task_vocab_size, cfg.d_model)
+            if cfg.task_vocab_size > 0 else None
+        )
         self.comb_memory = (
             CombinatorialMemory(
                 d_model=cfg.d_model,
@@ -948,7 +953,8 @@ class V3LM(nn.Module):
                 mtp_next_tokens=None,
                 mtp_gt_mix: float | None = None,
                 return_diagnostics: bool = False,
-                sidecar=None):
+                sidecar=None,
+                task_ids: torch.Tensor | None = None):
         x = self.embed(tokens)
         lbs, zs = [], []
         branch_lbs: list[torch.Tensor] = []
@@ -958,6 +964,16 @@ class V3LM(nn.Module):
         route_ctx = self.route_init.to(dtype=x.dtype).unsqueeze(0).expand(
             x.shape[0], -1
         )
+        if task_ids is not None and self.task_embedding is not None:
+            task_ctx = self.task_embedding(
+                task_ids.to(device=tokens.device, dtype=torch.long)
+            )
+            if task_ctx.ndim == 1:
+                route_ctx = route_ctx + task_ctx[:, None, :]
+            elif task_ctx.ndim == 2:
+                route_ctx = route_ctx + task_ctx
+            else:
+                route_ctx = route_ctx + task_ctx.mean(dim=1)
         concept_carry = None
         for layer_index, block in enumerate(self.blocks):
             loop_ctx = None

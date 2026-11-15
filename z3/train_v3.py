@@ -936,6 +936,8 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--grad-checkpoint", action=argparse.BooleanOptionalAction,
                        default=False,
                        help="activation checkpointing for long-context training")
+    model.add_argument("--task-vocab-size", type=int, default=16,
+                       help="domain/task embedding rows (0 disables)")
     model.add_argument("--concept-loop", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="multi-resolution concept/object feedback through all blocks")
@@ -1049,6 +1051,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="auxiliary composition-event CE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
                        help="auxiliary C(256,2) object-pointer CE weight")
+    train.add_argument("--task-id", type=int, default=-1,
+                       help="domain/task id broadcast to every batch (-1 off)")
     train.add_argument("--mtp-weight", type=float, default=0.3,
                        help="total MTP weight; each of k heads gets weight/k")
     train.add_argument("--mtp-gt-mix-start", type=float, default=0.85,
@@ -1330,6 +1334,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_memory_dim=int(args.moe_memory_dim),
         grad_checkpoint=bool(args.grad_checkpoint),
         use_concept_loop=bool(args.concept_loop),
+        task_vocab_size=int(args.task_vocab_size),
         concept_loop_vertices=int(args.concept_vertices),
         concept_loop_dim=int(args.concept_dim),
         concept_top_vertices=int(args.concept_top_vertices),
@@ -1621,6 +1626,7 @@ def main(argv: list[str] | None = None) -> int:
                 ("use_combinatorial_memory", "--combinatorial-memory"),
                 ("use_concept_loop", "--concept-loop"),
                 ("composition_head", "--composition-head"),
+                ("task_vocab_size", "--task-vocab-size"),
                 ("grad_checkpoint", "--grad-checkpoint"),
             ):
                 if (
@@ -1999,11 +2005,16 @@ def main(argv: list[str] | None = None) -> int:
         if sidecar is not None:
             sidecar = sidecar.to(device)
         xb = xb.to(device, non_blocking=True)
+        task_ids = (
+            torch.full((xb.size(0),), args.task_id, device=device,
+                       dtype=torch.long)
+            if args.task_id >= 0 else None
+        )
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
                 xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
-                sidecar=sidecar,
+                sidecar=sidecar, task_ids=task_ids,
             )
             loss, parts = lm_mtp_loss(
                 logits,
