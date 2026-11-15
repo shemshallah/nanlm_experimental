@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TRAIN = ROOT / "z3" / "train_v3.py"
 
 ROWS = {
-    "concept_full": [],
+    "concept_full": ["--concept-loop-attention"],
     "baseline_no_concept": [
         "--no-concept-loop",
         "--no-composition-head",
@@ -34,7 +34,7 @@ ROWS = {
     "concept_no_composition": ["--no-composition-head"],
     "concept_no_sidecar": ["--no-sidecar"],
     "concept_loopscale10": ["--concept-loop-scale", "0.1"],
-    "concept_router_only": ["--no-concept-loop-attention"],
+    "concept_router_only": [],
 }
 
 

@@ -43,6 +43,17 @@ BPB from 2.3789 to 2.3718.  Removing the sidecar does **not** recover the
 baseline, so the cost is in the concept/object loop rather than tokenizer
 alignment alone.
 
+A third control isolated the attention residual:
+
+| Row | Loss | Bits/byte |
+|---|---:|---:|
+| baseline_no_concept | 7.20094 | 2.35793 |
+| concept_router_only | **7.11532** | **2.32989** |
+
+Router-only concept feedback is the first concept variant to beat the baseline
+at the same token budget.  The default is therefore router-only; full attention
+injection remains available as `--concept-loop-attention` for ablation.
+
 ## Longer convergence run
 
 A 1,000-step baseline-vs-concept run is dispatched separately on the same
@@ -50,6 +61,6 @@ data and configuration:
 
 <https://github.com/shemshallah/nanlm_experimental/actions/runs/43756422506>
 
-The next architecture decision waits for that slope.  If concept full remains
-behind baseline at 1,000 steps, the first targeted change is a gated concept
-loop injection (small initial loop scale) rather than adding more experts.
+A 1,000-step router-only confirmation is queued after the 200-step control.
+The next architecture decision waits for that slope.  Full attention injection
+remains the control row; router-only is the promoted candidate.

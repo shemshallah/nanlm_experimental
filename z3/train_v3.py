@@ -1323,7 +1323,7 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-loop-scale", type=float, default=1.0,
                        help="scale of concept/object residual injection")
     model.add_argument("--concept-loop-attention",
-                       action=argparse.BooleanOptionalAction, default=True,
+                       action=argparse.BooleanOptionalAction, default=False,
                        help="inject concept state into attention as well as routers")
     model.add_argument("--concept-vertices", type=int, default=256)
     model.add_argument("--concept-dim", type=int, default=128)
