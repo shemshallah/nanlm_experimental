@@ -35,6 +35,7 @@ ROWS = {
     "concept_no_sidecar": ["--no-sidecar"],
     "concept_loopscale10": ["--concept-loop-scale", "0.1"],
     "concept_router_only": [],
+    "concept_router_no_composition": ["--no-composition-head"],
 }
 
 
