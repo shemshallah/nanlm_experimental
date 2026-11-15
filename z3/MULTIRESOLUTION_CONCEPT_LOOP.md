@@ -299,7 +299,7 @@ Implemented in this integration:
 - persistent task/domain embedding through concept state and every router
 - concept state fed into MTP branch context
 - MTP future-composition BCE through the shared structural head
-- MTP future-object-pointer CE through the shared vertex codebook
+- MTP future pair/triple object-pointer CE through the shared vertex codebook
 - future composition/pointer losses reported by the evaluator
 - bits/byte telemetry from the tokenizer byte table
 - multi-label composition event head and BCE supervision
@@ -311,7 +311,8 @@ Implemented in this integration:
 - `CompositionVocabulary` structural layer
 - `CompositionTokenizer` encode/decode layer with token/byte alignment
 - exact pair/triple object IDs exposed during generation
-- learned object-pointer head over the 256 vertex pair space
+- learned pair-pointer head over the 256 vertex pair space
+- learned triple-pointer head over the 256 vertex triple space
 - pointer distribution fed back into the object stream
 - pointer pairs constrained to distinct vertices
 - generation streams the reconstructed sidecar back into the concept loop

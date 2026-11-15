@@ -1061,6 +1061,7 @@ class V3LM(nn.Module):
         mtp_block_rz: list[torch.Tensor] = []
         mtp_composition_logits: list[torch.Tensor] = []
         mtp_object_pointer_logits: list[torch.Tensor] = []
+        mtp_object_triple_pointer_logits: list[torch.Tensor] = []
         if self.mtp_blocks:
             # Predicted t+1 distribution.  This is a distribution in both
             # train and eval; ground truth is only ever a soft teacher term.
@@ -1171,6 +1172,12 @@ class V3LM(nn.Module):
                             self.concept_loop.vertices,
                         )
                     )
+                    mtp_object_triple_pointer_logits.append(
+                        self.concept_loop.object_triple_pointer(branch).view(
+                            branch.shape[0], branch.shape[1], 3,
+                            self.concept_loop.vertices,
+                        )
+                    )
                 if block_aux:
                     if block_aux.get("load_balance") is not None:
                         mtp_block_lb.append(block_aux["load_balance"])
@@ -1271,6 +1278,12 @@ class V3LM(nn.Module):
                             self.concept_loop.vertices,
                         )
                     )
+                    mtp_object_triple_pointer_logits.append(
+                        self.concept_loop.object_triple_pointer(hidden).view(
+                            hidden.shape[0], hidden.shape[1], 3,
+                            self.concept_loop.vertices,
+                        )
+                    )
                 head = self.mtp_heads[idx] if self.mtp_heads else None
                 mtp.append(self.mtp_head_logits(head, hidden))
             gate_loss = None
@@ -1306,6 +1319,14 @@ class V3LM(nn.Module):
             aux["mtp_object_pointer_lags"] = [
                 2 + idx for idx in range(len(mtp_object_pointer_logits))
             ]
+        if mtp_object_triple_pointer_logits:
+            aux["mtp_object_triple_pointer_logits"] = (
+                mtp_object_triple_pointer_logits
+            )
+            aux["mtp_object_triple_pointer_lags"] = [
+                2 + idx
+                for idx in range(len(mtp_object_triple_pointer_logits))
+            ]
         if self.concept_loop is not None and hasattr(
             self.concept_loop, "last_object_ids"
         ):
@@ -1315,6 +1336,12 @@ class V3LM(nn.Module):
             if getattr(self.concept_loop, "last_pointer_logits", None) is not None:
                 aux["object_pointer_logits"] = (
                     self.concept_loop.last_pointer_logits
+                )
+            if getattr(
+                self.concept_loop, "last_triple_pointer_logits", None
+            ) is not None:
+                aux["object_triple_pointer_logits"] = (
+                    self.concept_loop.last_triple_pointer_logits
                 )
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
@@ -1438,6 +1465,32 @@ class V3LM(nn.Module):
                     hi = torch.maximum(pu, pv)
                     event["pointer_pairs"] = (
                         lo + hi * (hi - 1) // 2
+                    ).tolist()
+                if aux.get("object_triple_pointer_logits") is not None:
+                    triple = aux["object_triple_pointer_logits"][:, -1]
+                    used = torch.zeros(
+                        triple.shape[0], triple.shape[-1],
+                        device=triple.device, dtype=torch.bool,
+                    )
+                    chosen = []
+                    for slot in range(3):
+                        logits = triple[:, slot].clone()
+                        logits[used] = torch.finfo(logits.dtype).min
+                        choice = logits.argmax(dim=-1)
+                        chosen.append(choice)
+                        used[
+                            torch.arange(
+                                used.shape[0], device=used.device
+                            ),
+                            choice,
+                        ] = True
+                    vertices = torch.stack(chosen, dim=-1).sort(dim=-1).values
+                    a, bmid, c = (
+                        vertices[:, 0], vertices[:, 1], vertices[:, 2]
+                    )
+                    event["pointer_triples"] = (
+                        a + bmid * (bmid - 1) // 2
+                        + c * (c - 1) * (c - 2) // 6
                     ).tolist()
                 object_events.append(event)
             next_sidecar = build_sidecar(ids[:, -max_ctx:])

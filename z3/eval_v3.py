@@ -310,7 +310,10 @@ def load_checkpoint(
     missing, unexpected = model.load_state_dict(cleaned, strict=False)
     # Concept checkpoints created before the recurrent carry landed do not
     # contain its gate.  Keep the initialized gate and accept that one key.
-    allowed_missing = {"concept_loop.carry_gate"}
+    allowed_missing = {
+        "concept_loop.carry_gate",
+        "concept_loop.object_triple_pointer.weight",
+    }
     bad_missing = sorted(set(missing) - allowed_missing)
     if bad_missing or unexpected:
         details = []

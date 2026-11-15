@@ -200,6 +200,7 @@ class CombinatorialMemory(nn.Module):
         )
         memory = (selected * pair_weights.unsqueeze(-1)).sum(dim=2)
         triple_object_ids = None
+        triple_vertices = None
 
         if triple_k > 0:
             pair_keys_sel = torch.gather(
@@ -246,6 +247,7 @@ class CombinatorialMemory(nn.Module):
                 a + bmid * (bmid - 1) // 2
                 + c * (c - 1) * (c - 2) // 6
             )
+            triple_vertices = torch.stack([a, bmid, c], dim=-1)
             triple_memory = torch.gather(
                 triple_values.reshape(b, t, -1, self.dim),
                 2,
@@ -259,6 +261,7 @@ class CombinatorialMemory(nn.Module):
             "pair_ids": pair_object_ids,
             "pair_vertices": torch.stack([lo, hi], dim=-1),
             "triple_ids": triple_object_ids,
+            "triple_vertices": triple_vertices,
         }
 
     @torch.no_grad()

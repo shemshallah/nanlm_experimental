@@ -708,6 +708,9 @@ class ConceptLoop(nn.Module):
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_pointer = nn.Linear(d_model, 2 * self.vertices, bias=False)
+        self.object_triple_pointer = nn.Linear(
+            d_model, 3 * self.vertices, bias=False
+        )
         # Per-dimension gate for the recurrent concept carry.  Starting at
         # 0.5 keeps the first concept update visible while preventing the
         # carry from being overwritten wholesale at every block.
@@ -746,6 +749,9 @@ class ConceptLoop(nn.Module):
         self.last_pointer_logits = self.object_pointer(pointer_input).view(
             x.shape[0], x.shape[1], 2, self.vertices
         )
+        self.last_triple_pointer_logits = self.object_triple_pointer(
+            pointer_input
+        ).view(x.shape[0], x.shape[1], 3, self.vertices)
         # Hard causal pointer stream.  The forward value is the selected
         # pair; the gradient follows the soft pointer distribution through a
         # straight-through estimator.  The selected pair at token t-1
@@ -816,6 +822,14 @@ class ConceptLoop(nn.Module):
             object_aux["triple_ids"].detach()
             if object_aux.get("triple_ids") is not None else None
         )
+        self.last_triple_vertices = (
+            object_aux["triple_vertices"].detach()
+            if object_aux.get("triple_vertices") is not None else None
+        )
+        if self.last_triple_vertices is None:
+            # At long context the adaptive object policy disables triples;
+            # do not expose a random triple readout with no retrieval target.
+            self.last_triple_pointer_logits = None
         # Return only the concept/object contribution.  The block adds the
         # route context separately; including it here double-counted the
         # router state on every layer.

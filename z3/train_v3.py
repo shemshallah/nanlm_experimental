@@ -142,7 +142,10 @@ def _model_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
 
 # Parameters added after the first concept checkpoints.  Resume is allowed to
 # leave these at their initialized values; any other mismatch is still fatal.
-_RESUME_NEW_PARAMS = ("concept_loop.carry_gate",)
+_RESUME_NEW_PARAMS = (
+    "concept_loop.carry_gate",
+    "concept_loop.object_triple_pointer.weight",
+)
 
 
 def _load_resume_state(
@@ -824,6 +827,10 @@ def evaluate(
     mtp_composition_tokens = 0
     mtp_pointer_sum = 0.0
     mtp_pointer_tokens = 0
+    triple_pointer_sum = 0.0
+    triple_pointer_tokens = 0
+    mtp_triple_pointer_sum = 0.0
+    mtp_triple_pointer_tokens = 0
     task_stats: dict[int, dict[str, float]] = {}
     for batch_index, xb in enumerate(batches):
         sidecar = (
@@ -993,6 +1000,29 @@ def evaluate(
 
         core = _model_core(model)
         if (
+            aux.get("object_triple_pointer_logits") is not None
+            and getattr(core, "concept_loop", None) is not None
+            and getattr(core.concept_loop, "last_triple_vertices", None)
+            is not None
+        ):
+            triple_target = core.concept_loop.last_triple_vertices
+            if triple_target.shape[2] > 0:
+                target3 = triple_target[:, :, 0, :]
+                ptr3 = aux["object_triple_pointer_logits"]
+                triple_pointer_sum += float(
+                    sum(
+                        F.cross_entropy(
+                            ptr3[:, :, slot].reshape(-1, ptr3.size(-1)),
+                            target3[:, :, slot].long().reshape(-1),
+                            reduction="sum",
+                        )
+                        for slot in range(3)
+                    )
+                )
+                triple_pointer_tokens += int(
+                    3 * triple_target.shape[0] * triple_target.shape[1]
+                )
+        if (
             aux.get("mtp_object_pointer_logits")
             and getattr(core, "concept_loop", None) is not None
             and getattr(core.concept_loop, "last_object_vertices", None)
@@ -1026,6 +1056,37 @@ def evaluate(
                     )
                     mtp_pointer_tokens += int(
                         2 * xb.size(0) * target_len
+                    )
+        if (
+            aux.get("mtp_object_triple_pointer_logits")
+            and getattr(core, "concept_loop", None) is not None
+            and getattr(core.concept_loop, "last_triple_vertices", None)
+            is not None
+        ):
+            triple_target = core.concept_loop.last_triple_vertices
+            if triple_target.shape[2] > 0:
+                for lag, ptr3 in zip(
+                    aux.get("mtp_object_triple_pointer_lags") or [],
+                    aux["mtp_object_triple_pointer_logits"],
+                ):
+                    target_len = xb.size(1) - int(lag)
+                    if target_len <= 0:
+                        continue
+                    future = triple_target[:, int(lag):, 0, :]
+                    mtp_triple_pointer_sum += float(
+                        sum(
+                            F.cross_entropy(
+                                ptr3[:, :target_len, slot].reshape(
+                                    -1, ptr3.size(-1)
+                                ),
+                                future[:, :, slot].long().reshape(-1),
+                                reduction="sum",
+                            )
+                            for slot in range(3)
+                        )
+                    )
+                    mtp_triple_pointer_tokens += int(
+                        3 * xb.size(0) * target_len
                     )
 
         if aux:
@@ -1088,6 +1149,14 @@ def evaluate(
         "mtp_object_pointer_loss": (
             mtp_pointer_sum / mtp_pointer_tokens
             if mtp_pointer_tokens else None
+        ),
+        "object_triple_pointer_loss": (
+            triple_pointer_sum / triple_pointer_tokens
+            if triple_pointer_tokens else None
+        ),
+        "mtp_object_triple_pointer_loss": (
+            mtp_triple_pointer_sum / mtp_triple_pointer_tokens
+            if mtp_triple_pointer_tokens else None
         ),
         "bits_per_token": main_loss / math.log(2),
         "bits_per_byte": (
@@ -1358,8 +1427,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="future MTP structural-event BCE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
                        help="auxiliary C(256,2) object-pointer CE weight")
+    train.add_argument("--object-triple-pointer-weight", type=float, default=0.01,
+                       help="auxiliary C(256,3) object-triple-pointer CE weight")
     train.add_argument("--mtp-object-pointer-weight", type=float, default=0.01,
                        help="future MTP object-pointer CE weight")
+    train.add_argument("--mtp-object-triple-pointer-weight", type=float, default=0.005,
+                       help="future MTP object-triple-pointer CE weight")
     train.add_argument("--task-id", type=int, default=-1,
                        help="domain/task id broadcast to every batch (-1 off)")
     train.add_argument("--mtp-weight", type=float, default=0.3,
@@ -2470,8 +2543,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 loss = loss + args.composition_weight * composition_loss
             pointer_loss = None
+            triple_pointer_loss = None
             core = _model_core(model)
             mtp_pointer_loss = None
+            mtp_triple_pointer_loss = None
             if (
                 aux.get("object_pointer_logits") is not None
                 and getattr(core.concept_loop, "last_object_vertices", None)
@@ -2493,6 +2568,27 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     )
                     loss = loss + args.object_pointer_weight * pointer_loss
+            if (
+                aux.get("object_triple_pointer_logits") is not None
+                and getattr(
+                    core.concept_loop, "last_triple_vertices", None
+                ) is not None
+            ):
+                ptr3 = aux["object_triple_pointer_logits"]
+                triple_target = core.concept_loop.last_triple_vertices
+                if triple_target.shape[2] > 0:
+                    target3 = triple_target[:, :, 0, :].long()
+                    triple_pointer_loss = sum(
+                        F.cross_entropy(
+                            ptr3[:, :, slot].reshape(-1, ptr3.size(-1)),
+                            target3[:, :, slot].reshape(-1),
+                        )
+                        for slot in range(3)
+                    ) / 3.0
+                    loss = loss + (
+                        args.object_triple_pointer_weight
+                        * triple_pointer_loss
+                    )
             if (
                 getattr(core, "concept_loop", None) is not None
                 and getattr(core.concept_loop, "last_object_vertices", None)
@@ -2533,6 +2629,42 @@ def main(argv: list[str] | None = None) -> int:
                         loss = loss + (
                             args.mtp_object_pointer_weight
                             * mtp_pointer_loss
+                        )
+            if (
+                getattr(core, "concept_loop", None) is not None
+                and getattr(core.concept_loop, "last_triple_vertices", None)
+                is not None
+                and aux.get("mtp_object_triple_pointer_logits")
+            ):
+                triple_target = core.concept_loop.last_triple_vertices
+                if triple_target.shape[2] > 0:
+                    future_triple_losses = []
+                    for lag, ptr3 in zip(
+                        aux.get("mtp_object_triple_pointer_lags") or [],
+                        aux["mtp_object_triple_pointer_logits"],
+                    ):
+                        target_len = xb.size(1) - int(lag)
+                        if target_len <= 0:
+                            continue
+                        future = triple_target[:, int(lag):, 0, :].long()
+                        future_triple_losses.append(
+                            sum(
+                                F.cross_entropy(
+                                    ptr3[:, :target_len, slot].reshape(
+                                        -1, ptr3.size(-1)
+                                    ),
+                                    future[:, :, slot].reshape(-1),
+                                )
+                                for slot in range(3)
+                            ) / 3.0
+                        )
+                    if future_triple_losses:
+                        mtp_triple_pointer_loss = torch.stack(
+                            future_triple_losses
+                        ).mean()
+                        loss = loss + (
+                            args.mtp_object_triple_pointer_weight
+                            * mtp_triple_pointer_loss
                         )
             loss_value = float(loss.detach())
 
@@ -2639,9 +2771,17 @@ def main(argv: list[str] | None = None) -> int:
             "object_pointer": (
                 _finite(pointer_loss) if pointer_loss is not None else None
             ),
+            "object_triple_pointer": (
+                _finite(triple_pointer_loss)
+                if triple_pointer_loss is not None else None
+            ),
             "mtp_object_pointer": (
                 _finite(mtp_pointer_loss)
                 if mtp_pointer_loss is not None else None
+            ),
+            "mtp_object_triple_pointer": (
+                _finite(mtp_triple_pointer_loss)
+                if mtp_triple_pointer_loss is not None else None
             ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),
