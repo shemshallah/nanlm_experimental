@@ -724,6 +724,15 @@ class ConceptLoop(nn.Module):
             "triples": binomial(self.vertices, 3),
         }
 
+    def router_token_state(
+        self, concept: torch.Tensor, object_ctx: torch.Tensor
+    ) -> torch.Tensor:
+        """Token-aligned concept/object state for the MoE router."""
+        return self.state_norm(
+            self.concept_to_state(concept)
+            + self.object_to_state(object_ctx)
+        )
+
     def forward(
         self,
         x: torch.Tensor,

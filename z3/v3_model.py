@@ -123,6 +123,7 @@ class V3Config:
     # lets the concept loop warm up without disturbing the early trunk.
     concept_loop_scale: float = 1.0
     concept_loop_attention: bool = False
+    concept_router_tokens: bool = False
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8
@@ -356,7 +357,7 @@ class Block(nn.Module):
                     cfg.d_model, cfg.d_model, bias=False
                 )
 
-    def forward(self, x, route_ctx=None, loop_ctx=None):
+    def forward(self, x, route_ctx=None, loop_ctx=None, token_ctx=None):
         if (
             self.route_to_attention
             and route_ctx is not None
@@ -385,6 +386,16 @@ class Block(nn.Module):
                     scaled_loop if router_context is None
                     else router_context + scaled_loop
                 )
+            if token_ctx is not None:
+                token_part = self.loop_scale * token_ctx
+                if router_context is None:
+                    router_context = token_part
+                elif router_context.ndim == 2:
+                    router_context = (
+                        router_context[:, None, :] + token_part
+                    )
+                else:
+                    router_context = router_context + token_part
             h, lb, z, aux = self.mlp(h, context=router_context)
             x = x + self.drop(h)
         else:
@@ -999,11 +1010,16 @@ class V3LM(nn.Module):
                 if task_ctx is not None else route_ctx
             )
             loop_ctx = None
+            token_ctx = None
             if self.concept_loop is not None:
-                _concept, _object_ctx, loop_ctx = self.concept_loop(
+                concept, object_ctx, loop_ctx = self.concept_loop(
                     x, sidecar, concept_route, concept_carry
                 )
                 concept_carry = self.concept_loop.last_carry
+                if self.cfg.concept_router_tokens:
+                    token_ctx = self.concept_loop.router_token_state(
+                        concept, object_ctx
+                    )
             block_route = route_ctx
             if task_ctx is not None:
                 if self.concept_loop is not None:
@@ -1022,11 +1038,12 @@ class V3LM(nn.Module):
                     block_route = route_ctx + task_ctx
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
-                    block, x, block_route, loop_ctx, use_reentrant=False
+                    block, x, block_route, loop_ctx, token_ctx,
+                    use_reentrant=False,
                 )
             else:
                 x, lb, z, route_ctx, block_aux = block(
-                    x, block_route, loop_ctx
+                    x, block_route, loop_ctx, token_ctx
                 )
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x

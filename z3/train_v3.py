@@ -1325,6 +1325,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-loop-attention",
                        action=argparse.BooleanOptionalAction, default=False,
                        help="inject concept state into attention as well as routers")
+    model.add_argument("--concept-router-tokens",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="give the MoE router token-aligned concept/object state")
     model.add_argument("--concept-vertices", type=int, default=256)
     model.add_argument("--concept-dim", type=int, default=128)
     model.add_argument("--concept-top-vertices", type=int, default=8)
@@ -1738,6 +1741,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         task_vocab_size=int(args.task_vocab_size),
         concept_loop_scale=float(args.concept_loop_scale),
         concept_loop_attention=bool(args.concept_loop_attention),
+        concept_router_tokens=bool(args.concept_router_tokens),
         concept_loop_vertices=int(args.concept_vertices),
         concept_loop_dim=int(args.concept_dim),
         concept_top_vertices=int(args.concept_top_vertices),
