@@ -308,6 +308,7 @@ Implemented in this integration:
 - concept state fed into MTP branch context
 - MTP future-composition BCE through the shared structural head
 - MTP future-object-pointer CE through the shared vertex codebook
+- future composition/pointer losses reported by the evaluator
 - multi-label composition event head and BCE supervision
 - multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator

@@ -682,6 +682,10 @@ def evaluate(
 
     composition_sum = 0.0
     composition_tokens = 0
+    mtp_composition_sum = 0.0
+    mtp_composition_tokens = 0
+    mtp_pointer_sum = 0.0
+    mtp_pointer_tokens = 0
     for xb in batches:
         sidecar = (
             sidecar_builder(xb) if sidecar_builder is not None else None
@@ -703,6 +707,20 @@ def evaluate(
                     )
                 )
                 composition_tokens += int(comp_targets.numel())
+                for lag, logits in zip(
+                    aux.get("mtp_composition_lags") or [],
+                    aux.get("mtp_composition_logits") or [],
+                ):
+                    target_len = xb.size(1) - int(lag)
+                    if target_len <= 0:
+                        continue
+                    targets = comp_targets[:, int(lag):]
+                    mtp_composition_sum += float(
+                        F.binary_cross_entropy_with_logits(
+                            logits[:, :target_len], targets, reduction="sum"
+                        )
+                    )
+                    mtp_composition_tokens += int(targets.numel())
             else:
                 comp_targets = sidecar.event_ids
                 composition_sum += float(
@@ -799,6 +817,43 @@ def evaluate(
                             diag_gate_wrong += float(gm[wrong_m].sum())
                             diag_wrong_tokens += int(wrong_m.sum())
 
+        core = _model_core(model)
+        if (
+            aux.get("mtp_object_pointer_logits")
+            and getattr(core, "concept_loop", None) is not None
+            and getattr(core.concept_loop, "last_object_vertices", None)
+            is not None
+        ):
+            target_vertices = core.concept_loop.last_object_vertices
+            if target_vertices.shape[2] > 0:
+                for lag, ptr in zip(
+                    aux.get("mtp_object_pointer_lags") or [],
+                    aux["mtp_object_pointer_logits"],
+                ):
+                    target_len = xb.size(1) - int(lag)
+                    if target_len <= 0:
+                        continue
+                    future = target_vertices[:, int(lag):, 0, :]
+                    mtp_pointer_sum += float(
+                        F.cross_entropy(
+                            ptr[:, :target_len, 0].reshape(
+                                -1, ptr.size(-1)
+                            ),
+                            future[:, :, 0].long().reshape(-1),
+                            reduction="sum",
+                        )
+                        + F.cross_entropy(
+                            ptr[:, :target_len, 1].reshape(
+                                -1, ptr.size(-1)
+                            ),
+                            future[:, :, 1].long().reshape(-1),
+                            reduction="sum",
+                        )
+                    )
+                    mtp_pointer_tokens += int(
+                        2 * xb.size(0) * target_len
+                    )
+
         if aux:
             if aux.get("load_balance") is not None:
                 load_balance_sum += float(_aux_scalar(aux["load_balance"]).detach())
@@ -851,6 +906,14 @@ def evaluate(
         "composition_loss": (
             composition_sum / composition_tokens
             if composition_tokens else None
+        ),
+        "mtp_composition_loss": (
+            mtp_composition_sum / mtp_composition_tokens
+            if mtp_composition_tokens else None
+        ),
+        "mtp_object_pointer_loss": (
+            mtp_pointer_sum / mtp_pointer_tokens
+            if mtp_pointer_tokens else None
         ),
         "bits_per_token": main_loss / math.log(2),
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
