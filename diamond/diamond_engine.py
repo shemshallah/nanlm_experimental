@@ -1309,9 +1309,20 @@ class TripleStaged(tf.keras.Model):
             meta_attn = self.meta_cross_attn(tokens, tokens)
             tokens = self.meta_cross_ln(tokens + meta_attn)
             slots = tokens[:, :4, :]
+            tower_updated = tokens[:, 4:7, :]
+            tok_meta_updated = tokens[:, 7, :]
+            concept_updated = tokens[:, 8, :]
             meta_now = slots[:, 0, :]
             meta_future = tf.reduce_mean(slots[:, 1:, :], axis=1)
-            meta_feedback = meta_now + 0.5 * meta_future + concept
+            concept = concept_updated
+            concept_prev = concept_updated
+            meta_feedback = (
+                meta_now
+                + 0.5 * meta_future
+                + concept_updated
+                + 0.5 * tf.reduce_mean(tower_updated, axis=1)
+                + 0.25 * tok_meta_updated
+            )
             for l, block in enumerate(self.byte_blocks):
                 fb = self.meta_byte_layers[l](meta_feedback) * tf.sigmoid(
                     self.meta_byte_layer_gates[l])
@@ -1422,6 +1433,7 @@ SIGNATURE = json.dumps({
     "meta_self_loop": True,
     "tokenizer_self_loop": True,
     "meta_concept_tokenizer_tokens": True,
+    "meta_cross_output_feedback": "tower+token+concept",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
