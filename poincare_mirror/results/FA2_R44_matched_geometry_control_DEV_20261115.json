@@ -1,0 +1,462 @@
+{
+  "before_step": 3025,
+  "after_step": 3025,
+  "split": "valid",
+  "split_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
+  "context": 128,
+  "seed": 2026,
+  "books": 12,
+  "windows_per_book": 8,
+  "target_bytes_per_model": 12288,
+  "throughput_bytes_per_second": {
+    "parent": 1034.9,
+    "candidate": 1186.1
+  },
+  "bootstrap_unit": "whole book",
+  "bootstrap_replicates": 2000,
+  "metric_direction": "positive gain favors trained candidate",
+  "content_gate": "non-space CE book-bootstrap lower bound > 0; non-space top1/top5 nondecreasing; enabled-memory non-space CE lower bound > 0",
+  "comparison": {
+    "ce_1": {
+      "before": 2.383983,
+      "after": 2.384695,
+      "mean_gain": -0.000712,
+      "ci95": [
+        -0.001741,
+        0.000189
+      ],
+      "books_improved": 6,
+      "books": 12
+    },
+    "ce_2": {
+      "before": 2.927892,
+      "after": 2.928017,
+      "mean_gain": -0.000126,
+      "ci95": [
+        -0.000731,
+        0.000502
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "ce_3": {
+      "before": 3.105278,
+      "after": 3.105153,
+      "mean_gain": 0.000125,
+      "ci95": [
+        -0.00028,
+        0.000578
+      ],
+      "books_improved": 6,
+      "books": 12
+    },
+    "acc_1": {
+      "before": 0.356771,
+      "after": 0.357178,
+      "mean_gain": 0.000407,
+      "ci95": [
+        -0.00049,
+        0.001139
+      ],
+      "books_improved": 7,
+      "books": 12
+    },
+    "acc_2": {
+      "before": 0.223389,
+      "after": 0.223796,
+      "mean_gain": 0.000407,
+      "ci95": [
+        -0.000732,
+        0.001546
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "acc_3": {
+      "before": 0.189453,
+      "after": 0.189453,
+      "mean_gain": 0.0,
+      "ci95": [
+        -0.000732,
+        0.000732
+      ],
+      "books_improved": 4,
+      "books": 12
+    },
+    "top5_1": {
+      "before": 0.697835,
+      "after": 0.697917,
+      "mean_gain": 8.1e-05,
+      "ci95": [
+        -0.001302,
+        0.001383
+      ],
+      "books_improved": 6,
+      "books": 12
+    },
+    "top5_2": {
+      "before": 0.541016,
+      "after": 0.540771,
+      "mean_gain": -0.000244,
+      "ci95": [
+        -0.001139,
+        0.00057
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "top5_3": {
+      "before": 0.482015,
+      "after": 0.482096,
+      "mean_gain": 8.1e-05,
+      "ci95": [
+        -0.000814,
+        0.000895
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "ce_nonspace_1": {
+      "before": 2.649442,
+      "after": 2.649764,
+      "mean_gain": -0.000322,
+      "ci95": [
+        -0.000954,
+        0.000326
+      ],
+      "books_improved": 4,
+      "books": 12
+    },
+    "acc_nonspace_1": {
+      "before": 0.26892,
+      "after": 0.269601,
+      "mean_gain": 0.000681,
+      "ci95": [
+        -0.000116,
+        0.001276
+      ],
+      "books_improved": 8,
+      "books": 12
+    },
+    "top5_nonspace_1": {
+      "before": 0.656426,
+      "after": 0.656579,
+      "mean_gain": 0.000152,
+      "ci95": [
+        -0.001268,
+        0.001562
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "ce_space_1": {
+      "before": 1.13144,
+      "after": 1.133345,
+      "mean_gain": -0.001905,
+      "ci95": [
+        -0.005978,
+        0.001886
+      ],
+      "books_improved": 4,
+      "books": 12
+    },
+    "acc_space_1": {
+      "before": 0.773209,
+      "after": 0.773052,
+      "mean_gain": -0.000157,
+      "ci95": [
+        -0.003815,
+        0.003515
+      ],
+      "books_improved": 3,
+      "books": 12
+    },
+    "top5_space_1": {
+      "before": 0.902805,
+      "after": 0.902763,
+      "mean_gain": -4.1e-05,
+      "ci95": [
+        -0.001863,
+        0.001803
+      ],
+      "books_improved": 2,
+      "books": 12
+    }
+  },
+  "reciprocal_feedback_versus_disabled": {
+    "ce_1": {
+      "mean_gain": -0.001158,
+      "ci95": [
+        -0.002669,
+        2.9e-05
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "ce_2": {
+      "mean_gain": -0.001138,
+      "ci95": [
+        -0.002216,
+        -0.000308
+      ],
+      "books_improved": 4,
+      "books": 12
+    },
+    "ce_3": {
+      "mean_gain": 0.000128,
+      "ci95": [
+        -0.000562,
+        0.00072
+      ],
+      "books_improved": 9,
+      "books": 12
+    },
+    "acc_1": {
+      "mean_gain": 0.000326,
+      "ci95": [
+        -0.000977,
+        0.001546
+      ],
+      "books_improved": 7,
+      "books": 12
+    },
+    "acc_2": {
+      "mean_gain": 0.000651,
+      "ci95": [
+        -0.000572,
+        0.001872
+      ],
+      "books_improved": 6,
+      "books": 12
+    },
+    "acc_3": {
+      "mean_gain": -0.00057,
+      "ci95": [
+        -0.001465,
+        0.00057
+      ],
+      "books_improved": 3,
+      "books": 12
+    },
+    "top5_1": {
+      "mean_gain": -0.001302,
+      "ci95": [
+        -0.004069,
+        0.000651
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "top5_2": {
+      "mean_gain": -0.001546,
+      "ci95": [
+        -0.002686,
+        -0.000407
+      ],
+      "books_improved": 1,
+      "books": 12
+    },
+    "top5_3": {
+      "mean_gain": -0.00057,
+      "ci95": [
+        -0.001465,
+        0.00057
+      ],
+      "books_improved": 2,
+      "books": 12
+    },
+    "ce_nonspace_1": {
+      "mean_gain": -0.000948,
+      "ci95": [
+        -0.001504,
+        -0.000371
+      ],
+      "books_improved": 2,
+      "books": 12
+    },
+    "acc_nonspace_1": {
+      "mean_gain": 0.000649,
+      "ci95": [
+        -0.000913,
+        0.002147
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "top5_nonspace_1": {
+      "mean_gain": 0.000353,
+      "ci95": [
+        -0.000673,
+        0.001369
+      ],
+      "books_improved": 7,
+      "books": 12
+    },
+    "ce_space_1": {
+      "mean_gain": -0.000361,
+      "ci95": [
+        -0.005628,
+        0.003985
+      ],
+      "books_improved": 8,
+      "books": 12
+    },
+    "acc_space_1": {
+      "mean_gain": -0.000456,
+      "ci95": [
+        -0.003264,
+        0.002292
+      ],
+      "books_improved": 3,
+      "books": 12
+    },
+    "top5_space_1": {
+      "mean_gain": -0.006085,
+      "ci95": [
+        -0.013815,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    }
+  },
+  "content_trust_versus_neutral": {
+    "ce_1": {
+      "mean_gain": 3e-06,
+      "ci95": [
+        -2e-06,
+        9e-06
+      ],
+      "books_improved": 4,
+      "books": 12
+    },
+    "ce_2": {
+      "mean_gain": 1e-06,
+      "ci95": [
+        -4e-06,
+        9e-06
+      ],
+      "books_improved": 2,
+      "books": 12
+    },
+    "ce_3": {
+      "mean_gain": 1e-06,
+      "ci95": [
+        -1e-06,
+        3e-06
+      ],
+      "books_improved": 5,
+      "books": 12
+    },
+    "acc_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "acc_2": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "acc_3": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "top5_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "top5_2": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "top5_3": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "ce_nonspace_1": {
+      "mean_gain": 2e-06,
+      "ci95": [
+        -2e-06,
+        9e-06
+      ],
+      "books_improved": 2,
+      "books": 12
+    },
+    "acc_nonspace_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "top5_nonspace_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "ce_space_1": {
+      "mean_gain": 7e-06,
+      "ci95": [
+        -4e-06,
+        2.4e-05
+      ],
+      "books_improved": 8,
+      "books": 12
+    },
+    "acc_space_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    },
+    "top5_space_1": {
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0,
+      "books": 12
+    }
+  },
+  "development_gate_pass": false,
+  "promotion": "not automatic; independent long-context and sealed test gates required"
+}
