@@ -51,6 +51,11 @@ def gradient_path_health(model):
     if hasattr(d.geometry.history_writer, 'reliability'):
         paths['r738_reliability']=d.geometry.history_writer.reliability.net
         paths['r738_reliability_gate']=d.geometry.history_writer.reliability.gain
+    if hasattr(d.geometry, 'rail_cross'):
+        paths['r739_signed_cross_rail']=d.geometry.rail_cross
+        paths['r739_signed_cross_gate']=d.geometry.rail_cross.gain
+        if hasattr(d.geometry.rail_cross, 'calibration_gain'):
+            paths['r740_rail_calibration_gate']=d.geometry.rail_cross.calibration_gain
     result={}
     for name,object_ in paths.items():
         params=[object_] if isinstance(object_,nn.Parameter) else list(object_.parameters())

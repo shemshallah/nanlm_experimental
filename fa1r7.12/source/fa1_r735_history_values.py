@@ -98,12 +98,16 @@ def open_new_causal_gates(model, source_round, history_gain=0.08,
     with torch.no_grad():
         if source_round not in (ROUND, 'FA1_R7_36_DEEP_WIRING_V1',
                                'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                               'FA1_R7_38_CAUSAL_RELIABILITY_V1') or resume_override:
+                               'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                               'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                               'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1') or resume_override:
             writer.gain.fill_(math.atanh(history_gain))
         if h is not None and hasattr(h,'apex_feedback_gain') and (
                 source_round not in (ROUND,'FA1_R7_36_DEEP_WIRING_V1',
                                      'FA1_R7_37_CLOSED_FEEDBACK_V1',
                                      'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                     'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                     'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1',
                                      'FA1_R7_UNIFIED_APEX_FEEDBACK_V1')
                 or resume_override):
             h.apex_feedback_gain.fill_(math.atanh(apex_gain))

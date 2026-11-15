@@ -1,5 +1,20 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.40 normalized-rail CPU result:** continued from the exact recovered
+R7.39 candidate, preserving its 23 optimizer groups/moments and adding one
+zero-gated calibration group. All 24 CPU updates completed; no new
+correct-versus-foreign historical-content advantage was established and the
+strict DEV gate failed. The DEV-selected update-1 checkpoint is recoverable
+and unpromoted. The next priority is causal value-content quality, not
+additional rail amplitude. See `FA1_R7p40_NORMALIZED_RAIL_CPU.md`.
+
+**R7.39 signed-rail research:** a new antisymmetric S+/S- cross-rail
+interaction modulates only the existing pre-target far-history triangle
+writes. It is zero-gated for exact R7.37 parity, preserves all optimizer
+histories, and has independent word/byte and correct/foreign-history
+ablation gates. The checkpoint-backed 24-update candidate remains
+**unpromoted**; see `FA1_R7p39_SIGNED_RAIL_CPU.md` for provenance and results.
+
 **R7.38 source continuity:** the new bounded causal triangle-writer reliability
 module is attached in-place to the R7.37 apex feedback system, adding only
 optimizer group 22. It is zero-gated for bitwise parent parity, observes only

@@ -24,6 +24,8 @@ def canonical_args():
     args.deep_wiring_r736 = True
     args.feedback_closure_r737 = True
     args.triangle_reliability_r738 = True
+    args.signed_cross_rail_r739 = True
+    args.rail_calibration_r740 = True
     return args
 
 

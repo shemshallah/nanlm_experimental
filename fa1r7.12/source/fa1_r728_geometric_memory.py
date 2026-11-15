@@ -232,6 +232,14 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
     if hasattr(model.diamond.geometry,'history_writer'):
         with history_value_disabled(model):
             without_writer,no_writer_extra=forward(model,data)
+        if hasattr(model.diamond.geometry,'rail_cross'):
+            from fa1_r739_signed_rails import signed_cross_disabled
+            with signed_cross_disabled(model):
+                no_cross,no_cross_extra=forward(model,data)
+            if hasattr(model.diamond.geometry.rail_cross, 'calibration_gain'):
+                from fa1_r740_rail_calibration import calibrated_rails_disabled
+                with calibrated_rails_disabled(model):
+                    no_calibration,no_calibration_extra=forward(model,data)
         if hasattr(model.diamond.geometry.history_writer, 'reliability'):
             from fa1_r738_reliability import reliability_disabled
             with reliability_disabled(model):
@@ -241,6 +249,12 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             data,seed+734,preserve_receiver_mask=hasattr(
                 model.diamond.geometry,'history_read_mix'))
         foreign_values,foreign_value_extra=forward(model,wrong_values)
+        if hasattr(model.diamond.geometry,'rail_cross'):
+            with signed_cross_disabled(model):
+                no_cross_foreign,no_cross_foreign_extra=forward(model,wrong_values)
+            if hasattr(model.diamond.geometry.rail_cross, 'calibration_gain'):
+                with calibrated_rails_disabled(model):
+                    no_calibration_foreign,no_calibration_foreign_extra=forward(model,wrong_values)
         if hasattr(model.diamond.geometry.history_writer, 'reliability'):
             with reliability_disabled(model):
                 no_rel_foreign,no_rel_foreign_extra=forward(model,wrong_values)
@@ -554,6 +568,75 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
                         (no_rel_foreign_per_word-foreign_per_word),
                         counts,data['book_ids'],seed+50),
                 })
+        if hasattr(model.diamond.geometry, 'rail_cross'):
+            rail_word = no_cross-correct
+            rail_foreign = no_cross_foreign-foreign_values
+            rail_specificity = rail_word-rail_foreign
+            result.update({
+                'r739_cross_rail_gate':float(model.diamond.geometry.rail_cross.gain.detach()),
+                'r739_cross_rail_word_gain':float(rail_word.mean()),
+                'r739_cross_rail_branch_gain':float((no_cross_extra['branch_nll']-
+                                                   extra['branch_nll']).mean()),
+                'r739_cross_rail_word_book_bootstrap':boot_books(
+                    rail_word,data['book_ids'],seed+51),
+                'r739_cross_rail_specificity_nats_per_word':float(rail_specificity.mean()),
+                'r739_cross_rail_specificity_book_bootstrap':boot_books(
+                    rail_specificity,data['book_ids'],seed+52),
+            })
+            if 'byte_ar_logits' in extra:
+                no_cross_word,_,no_cross_bytes,_,_=layered_byte_losses(no_cross_extra,data)
+                no_cross_foreign_word,_,no_cross_foreign_bytes,_,_=layered_byte_losses(
+                    no_cross_foreign_extra,data)
+                foreign_word,_,foreign_bytes,_,_=layered_byte_losses(foreign_value_extra,data)
+                correct_word,_,correct_bytes,_,_=layered_byte_losses(extra,data)
+                result.update({
+                    'r739_cross_rail_byte_gain_nats_per_byte':float(
+                        (no_cross_bytes-correct_bytes).sum()/counts.sum()),
+                    'r739_cross_rail_byte_book_bootstrap':book_byte_ratio_bootstrap(
+                        no_cross_word-correct_word,counts,data['book_ids'],seed+53),
+                    'r739_cross_rail_byte_specificity_nats_per_byte':float(
+                        ((no_cross_bytes-correct_bytes)-
+                         (no_cross_foreign_bytes-foreign_bytes)).sum()/counts.sum()),
+                    'r739_cross_rail_byte_specificity_book_bootstrap':book_byte_ratio_bootstrap(
+                        (no_cross_word-correct_word)-
+                        (no_cross_foreign_word-foreign_word),
+                        counts,data['book_ids'],seed+54),
+                })
+        if (hasattr(model.diamond.geometry, 'rail_cross') and
+                hasattr(model.diamond.geometry.rail_cross, 'calibration_gain')):
+            cal_word=no_calibration-correct
+            cal_foreign=no_calibration_foreign-foreign_values
+            cal_specificity=cal_word-cal_foreign
+            result.update({
+                'r740_calibration_gate':float(
+                    model.diamond.geometry.rail_cross.calibration_gain.detach()),
+                'r740_calibration_word_gain':float(cal_word.mean()),
+                'r740_calibration_branch_gain':float((no_calibration_extra['branch_nll']-
+                                                     extra['branch_nll']).mean()),
+                'r740_calibration_word_book_bootstrap':boot_books(
+                    cal_word,data['book_ids'],seed+55),
+                'r740_calibration_specificity_nats_per_word':float(cal_specificity.mean()),
+                'r740_calibration_specificity_book_bootstrap':boot_books(
+                    cal_specificity,data['book_ids'],seed+56),
+            })
+            if 'byte_ar_logits' in extra:
+                cal_per_word,_,cal_bytes,_,_=layered_byte_losses(no_calibration_extra,data)
+                cal_foreign_word,_,cal_foreign_bytes,_,_=layered_byte_losses(
+                    no_calibration_foreign_extra,data)
+                foreign_word,_,foreign_bytes,_,_=layered_byte_losses(foreign_value_extra,data)
+                correct_word,counts,correct_bytes,_,_=layered_byte_losses(extra,data)
+                result.update({
+                    'r740_calibration_byte_gain_nats_per_byte':float(
+                        (cal_bytes-correct_bytes).sum()/counts.sum()),
+                    'r740_calibration_byte_book_bootstrap':book_byte_ratio_bootstrap(
+                        cal_per_word-correct_word,counts,data['book_ids'],seed+57),
+                    'r740_calibration_byte_specificity_nats_per_byte':float(
+                        ((cal_bytes-correct_bytes)-
+                         (cal_foreign_bytes-foreign_bytes)).sum()/counts.sum()),
+                    'r740_calibration_byte_specificity_book_bootstrap':book_byte_ratio_bootstrap(
+                        (cal_per_word-correct_word)-(cal_foreign_word-foreign_word),
+                        counts,data['book_ids'],seed+58),
+                })
     if with_topk:
         assert base is not None
         result['prediction_metrics'] = vocabulary_evaluate(model, base, data, seed+2)
@@ -589,7 +672,9 @@ def warm_start_only_if_migrated(model, args, loaded_meta):
                                   'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                   'FA1_R7_36_DEEP_WIRING_V1',
                                   'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                  'FA1_R7_38_CAUSAL_RELIABILITY_V1'))
+                                  'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                  'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                  'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'))
     if resuming:
         return False
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
@@ -896,6 +981,24 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['r738_reliability_specificity_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
                 candidate['r738_reliability_byte_specificity_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
             return False
+    if 'r739_cross_rail_word_gain' in candidate:
+        if any(candidate.get('r739_cross_rail_'+k,0)<=0 for k in (
+                'word_gain','branch_gain','byte_gain_nats_per_byte',
+                'specificity_nats_per_word','byte_specificity_nats_per_byte')):
+            return False
+    if 'r740_calibration_word_gain' in candidate:
+        if any(candidate.get('r740_calibration_'+k,0)<=0 for k in (
+                'word_gain','branch_gain','byte_gain_nats_per_byte',
+                'specificity_nats_per_word','byte_specificity_nats_per_byte')):
+            return False
+        if any(candidate['r740_calibration_'+k]['book_bootstrap_ci95'][0]<=0 for k in (
+                'word_book_bootstrap','byte_book_bootstrap',
+                'specificity_book_bootstrap','byte_specificity_book_bootstrap')):
+            return False
+        if any(candidate['r739_cross_rail_'+k]['book_bootstrap_ci95'][0]<=0 for k in (
+                'word_book_bootstrap','byte_book_bootstrap',
+                'specificity_book_bootstrap','byte_specificity_book_bootstrap')):
+            return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
                 candidate['conditional_byte_apex_gain_nats_per_byte']<=0 or
@@ -982,6 +1085,14 @@ def candidate_priority(reference, candidate, min_gain):
         geometry_ready = geometry_ready and all(candidate['r738_reliability_'+metric]>0
             for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte',
                            'specificity_nats_per_word','byte_specificity_nats_per_byte'))
+    if 'r739_cross_rail_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate['r739_cross_rail_'+metric]>0
+            for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte',
+                           'specificity_nats_per_word','byte_specificity_nats_per_byte'))
+    if 'r740_calibration_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate['r740_calibration_'+metric]>0
+            for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte',
+                           'specificity_nats_per_word','byte_specificity_nats_per_byte'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))
@@ -1017,6 +1128,27 @@ def run(args):
             raise ValueError('triangle reliability warm start must be in [0, 0.5)')
         if not (0 <= args.feedback_closure_init < .5):
             raise ValueError('feedback closure warm start must be in [0, 0.5)')
+        args.feedback_closure_r737=True
+        args.deep_wiring_r736=True
+        args.history_value_writer=True
+        args.apex_feedback=True
+        args.calibrated=True
+        args.layered=True
+    if getattr(args,'signed_cross_rail_r739',False):
+        if not (0 <= args.signed_cross_rail_init < .5):
+            raise ValueError('signed cross-rail warm start must be in [0, 0.5)')
+        args.triangle_reliability_r738=True
+        args.feedback_closure_r737=True
+        args.deep_wiring_r736=True
+        args.history_value_writer=True
+        args.apex_feedback=True
+        args.calibrated=True
+        args.layered=True
+    if getattr(args,'rail_calibration_r740',False):
+        if not (0 <= args.rail_calibration_init < .5):
+            raise ValueError('R7.40 calibration warm start must be in [0, 0.5)')
+        args.signed_cross_rail_r739=True
+        args.triangle_reliability_r738=True
         args.feedback_closure_r737=True
         args.deep_wiring_r736=True
         args.history_value_writer=True
@@ -1087,6 +1219,18 @@ def run(args):
             attach_reliability(model,optimizer)
     elif hasattr(getattr(model.diamond.geometry,'history_writer',None),'reliability'):
         raise ValueError('FA1 R7.38 checkpoint requires --triangle-reliability-r738')
+    if getattr(args,'signed_cross_rail_r739',False):
+        if not hasattr(model.diamond.geometry, 'rail_cross'):
+            from fa1_r739_signed_rails import attach_signed_cross_rail
+            attach_signed_cross_rail(model,optimizer)
+    elif hasattr(model.diamond.geometry,'rail_cross'):
+        raise ValueError('FA1 R7.39 checkpoint requires --signed-cross-rail-r739')
+    if getattr(args,'rail_calibration_r740',False):
+        if not hasattr(model.diamond.geometry.rail_cross, 'calibration_gain'):
+            from fa1_r740_rail_calibration import attach_rail_calibration
+            attach_rail_calibration(model,optimizer)
+    elif hasattr(getattr(model.diamond.geometry,'rail_cross',None),'calibration_gain'):
+        raise ValueError('FA1 R7.40 checkpoint requires --rail-calibration-r740')
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
     if getattr(args,'layered',False):dev['layered_byte_supervision']=True
@@ -1131,16 +1275,34 @@ def run(args):
         # Open ONLY the new return edge for a migrated candidate, following
         # the gate-identity diagnostic. Never touch an existing trained gate.
         if parent_meta.get('architecture_round') not in (
-                'FA1_R7_37_CLOSED_FEEDBACK_V1','FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                'FA1_R7_37_CLOSED_FEEDBACK_V1','FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             with torch.no_grad():
                 model.diamond.hierarchy.apex_reentry_gain.fill_(
                     math.atanh(args.feedback_closure_init))
     if (getattr(args,'triangle_reliability_r738',False) and
-            parent_meta.get('architecture_round') != 'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+            parent_meta.get('architecture_round') not in (
+                'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1')):
         # R7.37 logits were already compared above, with this gate exactly zero.
         with torch.no_grad():
             model.diamond.geometry.history_writer.reliability.gain.fill_(
                 math.atanh(args.triangle_reliability_init))
+    if (getattr(args,'signed_cross_rail_r739',False) and
+            parent_meta.get('architecture_round') not in (
+                'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1')):
+        # First measure closed-gate parity; open only the new candidate path.
+        with torch.no_grad():
+            model.diamond.geometry.rail_cross.gain.fill_(
+                math.atanh(args.signed_cross_rail_init))
+    if (getattr(args,'rail_calibration_r740',False) and
+            parent_meta.get('architecture_round') != 'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
+        with torch.no_grad():
+            model.diamond.geometry.rail_cross.calibration_gain.fill_(
+                math.atanh(args.rail_calibration_init))
     opened = geometry_diagnostic(model, dev, args.seed+3,
                                  with_matched_far=getattr(args,'matched_far_history',False))
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
@@ -1218,6 +1380,8 @@ def run(args):
         'r736_sparse_read_and_feedback_centering':bool(getattr(args,'deep_wiring_r736',False)),
         'r737_closed_apex_return':bool(getattr(args,'feedback_closure_r737',False)),
         'r738_causal_triangle_reliability':bool(getattr(args,'triangle_reliability_r738',False)),
+        'r739_signed_cross_rail':bool(getattr(args,'signed_cross_rail_r739',False)),
+        'r740_normalized_signed_rails':bool(getattr(args,'rail_calibration_r740',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -1259,7 +1423,11 @@ def run(args):
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_38_CAUSAL_RELIABILITY_V1'
+            architecture_round=('FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'
+                                if getattr(args,'rail_calibration_r740',False) else
+                                'FA1_R7_39_SIGNED_CROSS_RAIL_V1'
+                                if getattr(args,'signed_cross_rail_r739',False) else
+                                'FA1_R7_38_CAUSAL_RELIABILITY_V1'
                                 if getattr(args,'triangle_reliability_r738',False) else
                                 'FA1_R7_37_CLOSED_FEEDBACK_V1'
                                 if getattr(args,'feedback_closure_r737',False) else
@@ -1313,6 +1481,14 @@ def parse_args():
                    help='R7.38 bounded causal far-value triangle writer reliability')
     p.add_argument('--triangle-reliability-init',type=float,default=.05,
                    help='candidate-only initial quality modulation in [0, 0.5)')
+    p.add_argument('--signed-cross-rail-r739',action='store_true',
+                   help='R7.39 causal signed S+/S- cross-rail triangle-write modulation')
+    p.add_argument('--signed-cross-rail-init',type=float,default=.08,
+                   help='candidate-only signed cross-rail gate in [0, 0.5)')
+    p.add_argument('--rail-calibration-r740',action='store_true',
+                   help='R7.40 zero-gated normalized signed-rail continuation')
+    p.add_argument('--rail-calibration-init',type=float,default=.18,
+                   help='candidate-only amplitude calibration in [0, 0.5)')
     p.add_argument('--r738-specificity-weight',type=float,default=.15,
                    help='quality-gate correct-vs-foreign effect contrast, on ablation steps')
     p.add_argument('--r738-specificity-margin',type=float,default=.003)

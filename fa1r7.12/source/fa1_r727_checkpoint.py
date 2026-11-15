@@ -113,7 +113,9 @@ def load_unified(path, root, threads=2):
                                         'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                         'FA1_R7_36_DEEP_WIRING_V1',
                                         'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                        'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                        'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                        'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                        'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
         # The only new trainable state is an R7-attached scalar read gate.
         # Build the 13-group inherited optimizer first, then append one group
         # without recreating any learned historical Parameter or Adam moment.
@@ -127,7 +129,9 @@ def load_unified(path, root, threads=2):
                                          'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                          'FA1_R7_36_DEEP_WIRING_V1',
                                          'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r730_factorized_geometry import attach_factorized
             attach_factorized(model, unified)
         if obj['architecture_round'] in ('FA1_R7_31_LAYERED_DIAMOND_V1',
@@ -136,7 +140,9 @@ def load_unified(path, root, threads=2):
                                          'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                          'FA1_R7_36_DEEP_WIRING_V1',
                                          'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r731_layered_decoder import attach_layered
             attach_layered(model, unified)
         if obj['architecture_round'] in ('FA1_R7_32_CALIBRATED_DIAMOND_V1',
@@ -144,7 +150,9 @@ def load_unified(path, root, threads=2):
                                          'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                          'FA1_R7_36_DEEP_WIRING_V1',
                                          'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r732_geometry_calibration import (attach_calibrated,
                                                         attach_apex_feedback)
             attach_calibrated(model, unified)
@@ -152,26 +160,43 @@ def load_unified(path, root, threads=2):
                                              'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                              'FA1_R7_36_DEEP_WIRING_V1',
                                              'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                             'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                             'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                             'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                             'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
                 attach_apex_feedback(model, unified)
         if obj['architecture_round'] in ('FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                          'FA1_R7_36_DEEP_WIRING_V1',
                                          'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r735_history_values import attach_history_values
             attach_history_values(model, unified)
         if obj['architecture_round'] in ('FA1_R7_36_DEEP_WIRING_V1',
                                          'FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r736_deep_wiring import attach_deep_wiring
             attach_deep_wiring(model, unified)
         if obj['architecture_round'] in ('FA1_R7_37_CLOSED_FEEDBACK_V1',
-                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+                                         'FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r737_feedback_closure import attach_feedback_closure
             attach_feedback_closure(model, unified)
-        if obj['architecture_round'] == 'FA1_R7_38_CAUSAL_RELIABILITY_V1':
+        if obj['architecture_round'] in ('FA1_R7_38_CAUSAL_RELIABILITY_V1',
+                                         'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
             from fa1_r738_reliability import attach_reliability
             attach_reliability(model, unified)
+        if obj['architecture_round'] in ('FA1_R7_39_SIGNED_CROSS_RAIL_V1',
+                                         'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
+            from fa1_r739_signed_rails import attach_signed_cross_rail
+            attach_signed_cross_rail(model, unified)
+        if obj['architecture_round'] == 'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1':
+            from fa1_r740_rail_calibration import attach_rail_calibration
+            attach_rail_calibration(model, unified)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)

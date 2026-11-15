@@ -12,6 +12,12 @@ on:
       - 'fa1r7.12/source/fa1_r738_reliability.py'
       - 'fa1r7.12/source/test_fa1_r738_reliability.py'
       - 'fa1r7.12/FA1_R7p38_RELIABILITY_INTEGRATION.md'
+      - 'fa1r7.12/source/fa1_r739_signed_rails.py'
+      - 'fa1r7.12/source/test_fa1_r739_signed_rails.py'
+      - 'fa1r7.12/FA1_R7p39_SIGNED_RAIL_CPU.md'
+      - 'fa1r7.12/source/fa1_r740_rail_calibration.py'
+      - 'fa1r7.12/source/test_fa1_r740_rail_calibration.py'
+      - 'fa1r7.12/FA1_R7p40_NORMALIZED_RAIL_CPU.md'
       - 'fa1r7.12/source/test_fa1_r736_deep_wiring.py'
       - 'fa1r7.12/FA1_R7p36_DEEP_WIRING.md'
       - 'fa1r7.12/source/test_fa1_r735_history_values.py'
@@ -60,7 +66,9 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Run source and migration regressions
         run: |
-          python -m py_compile fa1r7.12/source/fa1.py fa1r7.12/source/fa1_validation.py fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r735_history_values.py fa1r7.12/source/fa1_r736_deep_wiring.py fa1r7.12/source/fa1_r737_feedback_closure.py fa1r7.12/source/fa1_r738_reliability.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r731_layered_decoder.py fa1r7.12/source/fa1_r732_geometry_calibration.py fa1r7.12/source/fa1_r727_checkpoint.py fa1r7.12/source/fa1_r723_diamond.py fa1r7.12/source/fa1_r730_factorized_geometry.py fa1r7.12/source/prepare_document_corpus.py
+          python -m py_compile fa1r7.12/source/fa1.py fa1r7.12/source/fa1_validation.py fa1r7.12/source/fa1_r733_far_history.py fa1r7.12/source/fa1_r735_history_values.py fa1r7.12/source/fa1_r736_deep_wiring.py fa1r7.12/source/fa1_r737_feedback_closure.py fa1r7.12/source/fa1_r738_reliability.py fa1r7.12/source/fa1_r739_signed_rails.py fa1r7.12/source/fa1_r740_rail_calibration.py fa1r7.12/source/fa1_r728_geometric_memory.py fa1r7.12/source/fa1_r731_layered_decoder.py fa1r7.12/source/fa1_r732_geometry_calibration.py fa1r7.12/source/fa1_r727_checkpoint.py fa1r7.12/source/fa1_r723_diamond.py fa1r7.12/source/fa1_r730_factorized_geometry.py fa1r7.12/source/prepare_document_corpus.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r739_*.py' -q
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r740_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r738_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r737_*.py' -q
           python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r736_*.py' -q
