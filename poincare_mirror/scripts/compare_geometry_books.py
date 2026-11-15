@@ -20,7 +20,9 @@ from poincare_frontier import Config, MirrorLM, file_hash, load_meta, load_v25_c
 
 
 METRICS = ('ce_1', 'ce_2', 'ce_3', 'acc_1', 'acc_2', 'acc_3',
-           'top5_1', 'top5_2', 'top5_3')
+           'top5_1', 'top5_2', 'top5_3',
+           'ce_nonspace_1', 'acc_nonspace_1', 'top5_nonspace_1',
+           'ce_space_1', 'acc_space_1', 'top5_space_1')
 
 
 def book_starts(lengths, context, windows, seed):
@@ -52,6 +54,19 @@ def bootstrap_gain(before, after, seed=2026, resamples=2000, larger_better=False
             'books_improved':int((changes>0).sum()),'books':len(changes)}
 
 
+def passes_content_gate(comparison, feedback, split):
+    """A significant easy-byte gain cannot hide a content-byte regression."""
+    return bool(split == 'valid' and feedback is not None and
+                comparison['ce_1']['ci95'][0] > 0 and
+                comparison['ce_nonspace_1']['ci95'][0] > 0 and
+                comparison['acc_nonspace_1']['mean_gain'] >= 0 and
+                comparison['top5_nonspace_1']['mean_gain'] >= 0 and
+                comparison['top5_1']['ci95'][0] >= -.005 and
+                all(comparison[m]['mean_gain'] >= 0 for m in ('ce_2','ce_3')) and
+                feedback['ce_1']['ci95'][0] > 0 and
+                feedback['ce_nonspace_1']['ci95'][0] > 0)
+
+
 @torch.no_grad()
 def measure_books(model, mem, records, context, batch_size=4):
     model.eval()
@@ -60,6 +75,8 @@ def measure_books(model, mem, records, context, batch_size=4):
     for starts in records:
         sums = np.zeros(len(METRICS),dtype=np.float64)
         count = 0
+        nonspace_count = 0
+        space_count = 0
         for start in range(0,len(starts),batch_size):
             positions = starts[start:start+batch_size]
             seq = np.stack([mem[int(p):int(p)+context+3] for p in positions])
@@ -73,8 +90,25 @@ def measure_books(model, mem, records, context, batch_size=4):
                 sums[3+j] += (pred.argmax(-1)==target).sum().item()
                 sums[6+j] += (pred.topk(5,dim=-1).indices ==
                               target.unsqueeze(-1)).any(-1).sum().item()
+                if j == 0:
+                    mask = target != 32
+                    n = int(mask.sum().item())
+                    nonspace_count += n
+                    space_count += int((~mask).sum().item())
+                    ce = F.cross_entropy(pred.flatten(0,1),target.flatten(),
+                                         reduction='none').reshape_as(target)
+                    correct = pred.argmax(-1) == target
+                    top5 = (pred.topk(5,dim=-1).indices ==
+                            target.unsqueeze(-1)).any(-1)
+                    for offset,subset in ((9,mask),(12,~mask)):
+                        sums[offset] += ce[subset].sum().item()
+                        sums[offset+1] += correct[subset].sum().item()
+                        sums[offset+2] += top5[subset].sum().item()
             count += len(positions)*context
-        rows.append(dict(zip(METRICS,(sums/count).tolist())))
+        if not nonspace_count or not space_count:
+            raise ValueError('Every development book must contain both space and non-space targets')
+        denominators = [count]*9 + [nonspace_count]*3 + [space_count]*3
+        rows.append(dict(zip(METRICS,(sums/denominators).tolist())))
     return rows
 
 
@@ -135,17 +169,16 @@ def main():
         feedback={m:bootstrap_gain([r[m] for r in ablated],[r[m] for r in b],
                                     args.seed,args.bootstrap,m.startswith(('acc_','top5_')))
                   for m in METRICS}
-    eligible=(args.split=='valid' and
-              comparison['ce_1']['ci95'][0]>0 and
-              comparison['top5_1']['ci95'][0]>=-.005 and
-              all(comparison[m]['mean_gain']>=0 for m in ('ce_2','ce_3')) and
-              feedback is not None and feedback['ce_1']['ci95'][0]>0)
+    eligible=passes_content_gate(comparison,feedback,args.split)
     report={'before_step':before['step'],'after_step':after['step'],'split':args.split,
             'split_sha256':expected,'context':args.context,'seed':args.seed,
             'books':len(records),'windows_per_book':args.windows_per_book,
             'target_bytes_per_model':len(records)*args.windows_per_book*args.context,
             'bootstrap_unit':'whole book','bootstrap_replicates':args.bootstrap,
             'metric_direction':'positive gain favors trained candidate',
+            'content_gate':'non-space CE book-bootstrap lower bound > 0; '
+                           'non-space top1/top5 nondecreasing; enabled-memory '
+                           'non-space CE lower bound > 0',
             'comparison':comparison,'reciprocal_feedback_versus_disabled':feedback,
             'development_gate_pass':bool(eligible),
             'promotion':'not automatic; independent long-context and sealed test gates required'}

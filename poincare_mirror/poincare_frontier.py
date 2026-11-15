@@ -41,6 +41,24 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def content_balanced_ce(logits, targets, nonspace_weight=1.0):
+    """Causal next-byte loss with an opt-in emphasis on non-space targets.
+
+    The mean is normalized by the total target weight so that a larger
+    content weight does not automatically multiply the learning rate.  The
+    default is the exact inherited cross-entropy objective.
+    """
+    if not math.isfinite(nonspace_weight) or nonspace_weight < 1.0:
+        raise ValueError('Non-space weight must be finite and >= 1')
+    logits = logits.flatten(0, 1)
+    targets = targets.flatten()
+    if nonspace_weight == 1.0:
+        return F.cross_entropy(logits, targets)
+    per_byte = F.cross_entropy(logits, targets, reduction='none')
+    weights = torch.where(targets == 32, 1.0, nonspace_weight).to(per_byte.dtype)
+    return (per_byte * weights).sum() / weights.sum()
+
+
 @dataclass
 class Config:
     vocab_size: int = 257
@@ -1122,7 +1140,7 @@ class MirrorLM(nn.Module):
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-    def forward(self, ids, targets=None):
+    def forward(self, ids, targets=None, nonspace_weight=1.0):
         x = self.embed(ids)
         aux = x.new_zeros(())
         if self.reciprocal is not None and self.reciprocal.enabled:
@@ -1151,7 +1169,11 @@ class MirrorLM(nn.Module):
         metrics = {'balancing': aux}
         if targets is not None:
             metrics['next_ce'] = F.cross_entropy(logits.flatten(0, 1), targets.flatten())
-            metrics['loss'] = metrics['next_ce'] + self.cfg.balance_weight * aux
+            weighted_ce = (metrics['next_ce'] if nonspace_weight == 1.0 else
+                           content_balanced_ce(logits, targets, nonspace_weight))
+            metrics['loss'] = weighted_ce + self.cfg.balance_weight * aux
+            if nonspace_weight != 1.0:
+                metrics['content_balanced_ce'] = weighted_ce
             if self.cfg.triangle_curvature and self.cfg.curvature_aux_weight:
                 aux_logits = [block.ff.symbiotic.curvature.latest_logits
                               for block in self.blocks if block.use_moe and
@@ -1206,10 +1228,10 @@ class MirrorLM(nn.Module):
             outputs.append(self.head(state))
         return outputs[0], outputs[1]
 
-    def loss_with_future(self, ids):
+    def loss_with_future(self, ids, nonspace_weight=1.0):
         # ids has shape [B, context+3]. No label bytes enter the model input.
         x = ids[:, :-3]
-        logits, h, m = self(x, ids[:, 1:-2])
+        logits, h, m = self(x, ids[:, 1:-2], nonspace_weight=nonspace_weight)
         loss = m['loss']
         if self.cfg.future2_weight or self.cfg.future3_weight:
             p2, p3 = self.future_logits(h)
@@ -1831,6 +1853,10 @@ def freeze_inherited_backbone_for_geometry(model):
 
 
 def train(args):
+    if not math.isfinite(args.nonspace_loss_weight) or args.nonspace_loss_weight < 1.0:
+        raise ValueError('--nonspace-loss-weight must be finite and >= 1')
+    if args.nonspace_loss_weight != 1.0 and getattr(args, 'future_only', False):
+        raise ValueError('Non-space NOW weighting does not apply to --future-only')
     meta = load_meta(args.data_dir)
     if 'split_manifest_sha256' in meta:
         expected = meta['split_manifest_sha256']
@@ -2131,6 +2157,12 @@ def train(args):
         history.append({'kind': 'cpu_context_mixture', 'step': start,
                         'lengths': mix[0], 'weights': mix[1].tolist(),
                         'evaluation_context': eval_context})
+    if args.steps > 0 and args.nonspace_loss_weight != 1.0:
+        history.append({'kind':'nonspace_target_weighted_next_byte_loss',
+                        'step':start,'updates':args.steps,
+                        'nonspace_weight':args.nonspace_loss_weight,
+                        'space_byte':32,'normalization':'sum_target_weights',
+                        'evaluation_objective':'ordinary_unweighted_ce'})
     print(f'Window-safe sampling: training {train_sampler.eligible_documents}/'
           f'{train_sampler.total_documents} docs, validation {valid_sampler.eligible_documents}/'
           f'{valid_sampler.total_documents} docs')
@@ -2186,7 +2218,8 @@ def train(args):
             tokens_this_step += args.batch * selected_context
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
                                 enabled=bool(args.bf16 and device.type == 'cuda')):
-                losses = model.loss_with_future(batch)
+                losses = model.loss_with_future(
+                    batch, nonspace_weight=args.nonspace_loss_weight)
                 if getattr(args, 'future_only', False):
                     micro_loss = sum((cfg.future2_weight * losses['future2_ce']
                                       if cfg.future2_weight else 0.,
@@ -2835,6 +2868,8 @@ def main():
     tr.add_argument('--balance', type=float, default=0.01)
     tr.add_argument('--future2', type=float, default=None, help='aux loss weight, optional override on resume')
     tr.add_argument('--future3', type=float, default=None, help='aux loss weight, optional override on resume')
+    tr.add_argument('--nonspace-loss-weight', type=float, default=1.0,
+                    help='opt-in weight >=1 on target bytes other than ASCII space; training only')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
                     help='isolated forecast adapter, shared-state rollout or legacy offsets')
     tr.add_argument('--future-adapter-rank', type=int, default=None,
