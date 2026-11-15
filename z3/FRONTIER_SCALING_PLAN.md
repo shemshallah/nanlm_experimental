@@ -130,6 +130,22 @@ It runs the Z4 unit/smoke suite first, then five CPU wiring ablations:
 The matrix is a stability/wiring gate, not a quality benchmark.  Its summary
 is uploaded as the `z3-ablation-summary` artifact.
 
+### WikiText CPU architecture matrix
+
+The second workflow trains the real C(256,2+3) concept path on WikiText-2
+token bins on the runner:
+
+```sh
+gh workflow run z3-cpu-wikitext.yml \
+  -f runner=ubuntu-latest -f steps=200 -f ctx=256
+```
+
+It prepares uint16 bins once, then runs six parallel rows:
+`concept_full`, `baseline_no_concept`, `concept_no_mtp_structure`,
+`concept_pair_only`, `concept_no_composition`, and `concept_no_sidecar`.
+Each row reports loss and bits/byte; the run is still a small CPU gate, not a
+frontier-quality comparison.
+
 ## 4. `C(256,2+3)` growth path
 
 The diamond engine already has the exact combinatorial indexing:

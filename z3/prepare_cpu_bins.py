@@ -22,8 +22,10 @@ except ImportError:  # script execution from z3/
 
 def encode_text(path: Path, tokenizer, dtype: str) -> np.ndarray:
     text = path.read_text(encoding="utf-8", errors="ignore")
-    encoded = tokenizer.encode(text, add_document_frame=False)
-    ids = np.asarray(encoded.subword.ids, dtype=np.int64)
+    # Only subword IDs are needed for the flat training bin.  Do not build
+    # word/sentence/math objects over the entire corpus during preparation.
+    encoded = tokenizer.subword.encode(text)
+    ids = np.asarray(encoded.ids, dtype=np.int64)
     dtype_value = np.dtype(dtype)
     if ids.size and int(ids.max()) >= np.iinfo(dtype_value).max:
         raise SystemExit(
