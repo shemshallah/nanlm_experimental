@@ -1,0 +1,53 @@
+{
+  "baseline_dev3": {
+    "bpc": 2.2520666108851337,
+    "echo_adam_step": 0,
+    "fraction_echo_recalled": 0.9541666666666667,
+    "top1": 0.5480034722222222,
+    "top5": 0.8427083333333333
+  },
+  "candidate_promoted": false,
+  "caveat": "DEV3 already used for earlier selection; independent book gate pending",
+  "parent_checkpoint_sha256": "457859b78f37e381ad54d41f9c06af677484aface09c6fdd8293e88be1a995e8",
+  "parent_context_adam_step": 192,
+  "parent_residual_adam_step": 480,
+  "parent_trust_adam_step": 128,
+  "schema": "terminal-rsi-v102-causal-echo-trial-v1",
+  "selected_dev3_bpc": 2.2373506475191505,
+  "selected_step": 128,
+  "stages": [
+    {
+      "dev3": {
+        "bpc": 2.2373506475191505,
+        "echo_adam_step": 128,
+        "fraction_echo_recalled": 0.9541666666666667,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.01,
+      "step": 128
+    },
+    {
+      "dev3": {
+        "bpc": 2.237840456521122,
+        "echo_adam_step": 256,
+        "fraction_echo_recalled": 0.9541666666666667,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.004,
+      "step": 256
+    },
+    {
+      "dev3": {
+        "bpc": 2.238986688262963,
+        "echo_adam_step": 384,
+        "fraction_echo_recalled": 0.9541666666666667,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.002,
+      "step": 384
+    }
+  ]
+}

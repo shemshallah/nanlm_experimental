@@ -80,6 +80,14 @@ jobs:
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \
             --work corpus/work --split test3
+      - name: Extend the inherited model with strictly causal multiscale recall
+        run: |
+          python -m terminal_rsi.byte_specialist.causal_echo train \
+            --work corpus/work
+      - name: Train the recurrent RSI critic/controller as the final prediction path
+        run: |
+          python -m terminal_rsi.byte_specialist.feedback_core train \
+            --work corpus/work
       - name: Prepare two independent untouched-book evaluations
         run: |
           python -m terminal_rsi.byte_specialist.contextual prepare-guard \
@@ -96,11 +104,19 @@ jobs:
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \
             --work corpus/work --split dev4
+          python -m terminal_rsi.byte_specialist.causal_echo evaluate \
+            --work corpus/work --split dev4
+          python -m terminal_rsi.byte_specialist.feedback_core evaluate \
+            --work corpus/work --split dev4
       - name: Independent never-trained 64-book remainder audit
         run: |
           python -m terminal_rsi.byte_specialist.holdout evaluate \
             --work corpus/work
           python -m terminal_rsi.byte_specialist.trustgate evaluate \
+            --work corpus/work --split holdout4
+          python -m terminal_rsi.byte_specialist.causal_echo evaluate \
+            --work corpus/work --split holdout4
+          python -m terminal_rsi.byte_specialist.feedback_core evaluate \
             --work corpus/work --split holdout4
       - uses: actions/upload-artifact@v4
         if: always()
@@ -122,4 +138,10 @@ jobs:
             corpus/work/trust_search.json
             corpus/work/trust_candidate.npz
             corpus/work/trust_*_search.json
+            corpus/work/echo_search.json
+            corpus/work/echo_candidate.npz
+            corpus/work/echo_*_search.json
+            corpus/work/rsi_search.json
+            corpus/work/rsi_candidate.npz
+            corpus/work/rsi_*_search.json
           retention-days: 14

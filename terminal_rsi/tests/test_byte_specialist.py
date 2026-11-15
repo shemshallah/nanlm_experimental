@@ -18,9 +18,136 @@ from terminal_rsi.byte_specialist.residual import (ResidualPolicy, build_executa
 from terminal_rsi.byte_specialist.contextual import ContextualResidual, previous_byte_classes
 from terminal_rsi.byte_specialist.holdout import prepare_remainder
 from terminal_rsi.byte_specialist.trustgate import TrustGate
+from terminal_rsi.byte_specialist.causal_echo import CausalEcho, causal_counts
+from terminal_rsi.byte_specialist.feedback_core import FeedbackRSI, FeedbackState
 
 
 class SpecialistTests(unittest.TestCase):
+    def test_rsi_critic_observes_only_prior_target_and_resets_per_book(self):
+        p=np.full((12,256),1/256.,np.float64)
+        q=p.copy();r=p.copy()
+        q[:,ord('x')]+=.1;q/=q.sum(axis=1,keepdims=True)
+        r[:,ord('y')]+=.2;r/=r.sum(axis=1,keepdims=True)
+        expert=(p,q,r)
+        order=np.ones(12,dtype=np.uint8)
+        y=np.full(12,ord('x'),dtype=np.int64)
+        controller=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
+        initial=controller.replay_features(expert,y,order,6)
+        modified=y.copy();modified[3]=ord('y')
+        latter=controller.replay_features(expert,modified,order,6)
+        self.assertTrue(np.array_equal(initial[:4],latter[:4]))
+        self.assertFalse(np.array_equal(initial[4:6],latter[4:6]))
+        self.assertTrue(np.array_equal(initial[6:],latter[6:]))
+        self.assertTrue(np.array_equal(initial[0],initial[6]))
+        state=FeedbackState()
+        self.assertEqual(state.observations,0)
+        state.observe(p[0],q[0],r[0],ord('x'))
+        self.assertEqual(state.observations,1)
+
+    def test_rsi_nucleus_migration_train_checkpoint_and_rank_guard(self):
+        rng=np.random.default_rng(611)
+        p=rng.uniform(.002,1.,(72,256));p/=p.sum(axis=1,keepdims=True)
+        targets=rng.integers(0,256,72);classes=rng.integers(0,7,72)
+        counts=rng.integers(0,4,(72,256),dtype=np.uint16)
+        order=rng.integers(0,4,72,dtype=np.uint8)
+        original=ResidualPolicy()
+        original.train(p,targets,steps=6,lr=.005,phase='RSR')
+        context=ContextualResidual(original)
+        context.train(p,targets,classes,steps=6,lr=.005)
+        trust=TrustGate(context)
+        trust.train(p,targets,classes,steps=6,lr=.005)
+        echo=CausalEcho(trust)
+        echo.train(p,targets,classes,counts,order,steps=6,lr=.005)
+        previous=echo.score(p,targets,12,classes,counts,order)
+        rsi=FeedbackRSI(echo)
+        unchanged=rsi.score(p,targets,12,classes,counts,order)
+        self.assertEqual(unchanged['bpc'],previous['bpc'])
+        self.assertEqual(unchanged['top1'],previous['top1'])
+        self.assertEqual(unchanged['top5'],previous['top5'])
+        inherited=(echo.g.copy(),echo.m.copy(),echo.v.copy(),echo.step,
+                   trust.g.copy(),trust.step,context.t,context.ct)
+        rsi.train(p,targets,12,classes,counts,order,steps=16,lr=.005)
+        self.assertEqual(rsi.step,16)
+        self.assertTrue(np.array_equal(inherited[0],echo.g))
+        self.assertTrue(np.array_equal(inherited[1],echo.m))
+        self.assertTrue(np.array_equal(inherited[2],echo.v))
+        self.assertEqual(inherited[3],echo.step)
+        self.assertTrue(np.array_equal(inherited[4],trust.g))
+        self.assertEqual(inherited[5:],(trust.step,context.t,context.ct))
+        scored=rsi.score(p,targets,12,classes,counts,order)
+        self.assertEqual((scored['top1'],scored['top5']),
+                         (previous['top1'],previous['top5']))
+        with tempfile.TemporaryDirectory() as tmp:
+            saved=Path(tmp)/'feedback_rsi.npz'
+            rsi.checkpoint(saved)
+            with np.load(saved,allow_pickle=False) as d:
+                self.assertIn('weights',d.files)
+                self.assertIn('trust_m',d.files)
+                self.assertIn('echo_m',d.files)
+                self.assertIn('rsi_m',d.files)
+            restored=FeedbackRSI.from_checkpoint(saved)
+            self.assertEqual(restored.step,16)
+            self.assertTrue(np.array_equal(restored.weights,rsi.weights))
+            self.assertEqual(restored.score(p,targets,12,classes,counts,order),scored)
+
+    def test_echo_history_is_causal_and_reset_between_books(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def write(windows):
+                payload=struct.pack('<II',len(windows),3)
+                for w in windows:payload+=struct.pack('<I',len(w))+w
+                (root/'win_dev3.bin').write_bytes(payload)
+            a=b'abcabcabcabc'
+            write([a,a])
+            counts,orders=causal_counts(root,'dev3')
+            self.assertEqual(counts.shape,(18,256))
+            self.assertEqual(int(orders[0]),0)
+            self.assertEqual(int(orders[9]),0)  # fresh book, not cross-book memory
+            self.assertEqual(int(counts[3,ord('a')]),1)
+            self.assertEqual(int(orders[3]),3)
+            # A change to any future target cannot alter earlier predictions.
+            write([a[:8]+b'xxxx',a])
+            changed,changed_orders=causal_counts(root,'dev3')
+            self.assertTrue(np.array_equal(counts[:5],changed[:5]))
+            self.assertTrue(np.array_equal(orders[:5],changed_orders[:5]))
+            self.assertTrue(np.array_equal(counts[9:],changed[9:]))
+
+    def test_echo_function_preservation_optimizer_and_topk(self):
+        rng=np.random.default_rng(512)
+        probs=rng.uniform(.1,1.,(84,256));probs/=probs.sum(axis=1,keepdims=True)
+        y=rng.integers(0,256,size=84);cls=rng.integers(0,7,size=84)
+        parent=ResidualPolicy()
+        parent.train(probs,y,steps=8,lr=.004,phase='RSR')
+        context=ContextualResidual(parent)
+        context.train(probs,y,cls,steps=8,lr=.003)
+        trust=TrustGate(context)
+        trust.train(probs,y,cls,steps=8,lr=.002)
+        frozen=(trust.candidate.weights.copy(),trust.candidate.context.copy(),
+                trust.g.copy(),trust.step,trust.candidate.t,trust.candidate.ct)
+        counts=rng.integers(0,3,size=(84,256),dtype=np.uint16)
+        orders=rng.integers(0,4,size=84,dtype=np.uint8)
+        echo=CausalEcho(trust)
+        original=trust.score(probs,y,12,cls,guard=True)
+        initial=echo.score(probs,y,12,cls,counts,orders)
+        for metric in ('bpc','top1','top5'):
+            self.assertAlmostEqual(initial[metric],original[metric],places=12)
+        echo.train(probs,y,cls,counts,orders,steps=16,lr=.004)
+        self.assertEqual(echo.step,16)
+        self.assertTrue(np.array_equal(frozen[0],trust.candidate.weights))
+        self.assertTrue(np.array_equal(frozen[1],trust.candidate.context))
+        self.assertTrue(np.array_equal(frozen[2],trust.g))
+        self.assertEqual(frozen[3:],(trust.step,trust.candidate.t,trust.candidate.ct))
+        scored=echo.score(probs,y,12,cls,counts,orders)
+        self.assertEqual((scored['top1'],scored['top5']),(original['top1'],original['top5']))
+        with tempfile.TemporaryDirectory() as tmp:
+            file=Path(tmp)/'echo.npz'
+            echo.checkpoint(file)
+            restored=CausalEcho.from_checkpoint(file)
+            self.assertEqual(restored.step,echo.step)
+            self.assertTrue(np.array_equal(restored.m,echo.m))
+            self.assertTrue(np.array_equal(restored.parent.g,trust.g))
+            self.assertEqual(restored.score(probs,y,12,cls,counts,orders),scored)
+
     def test_exact_v102_source_recovered(self):
         self.assertEqual(digest(Path(donor.__file__).read_bytes()), SOURCE_SHA256)
 

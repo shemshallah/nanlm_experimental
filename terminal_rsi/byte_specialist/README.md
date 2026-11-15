@@ -282,3 +282,72 @@ independent for promotion**, since the earlier contextual top-k guard was
 designed after inspecting TEST3. The trust gate is not promoted. The frozen
 DEV4 replay and auxiliary 64-book holdout must be completed under a reliable
 v102 training state before any independent effect is claimed.
+
+## Sixth round: causal recall in the inherited optimizer history
+
+`causal_echo.py` adds within-window memory that accumulates observed byte
+transitions under the preceding 1-, 2-, and 3-byte suffixes. Each prediction
+reads the longest populated suffix and adds a smoothed 256-byte log-likelihood
+signal. The target is inserted **only after its prediction**, and memory is
+reset for every book. A three-parameter Adam group learns each scale's
+influence, initialized at zero to preserve every previous prediction. The
+combined checkpoint retains all preceding residual, context, trust, and echo
+weights, optimizer moments, and step counts.
+
+```bash
+python -m terminal_rsi.byte_specialist.causal_echo train \
+  --work /path/to/local-work
+```
+
+On the **previously reused** 24-book DEV3 split, the guarded-trust BPC was
+2.252067; the selected 128-update echo component reached **2.237351**
+(gain 0.014716 bits/byte, about 0.65%). Top-1 was 54.8003% and top-5 was
+84.2708%, preserved by a target-independent exact rank guard. The 256- and
+384-update continuations were worse. This is exploratory DEV performance,
+**not** a promotion or an untouched test result.
+
+## Seventh round: recurrent RSI as the central prediction controller
+
+`feedback_core.py` makes every byte prediction pass through the **RSI feedback
+loop**:
+
+1. Form the inherited residual, guarded contextual trust, and guarded causal
+   recall distributions from one model.
+2. Read a four-register recurrent critic: previous trust-versus-residual
+   log-probability advantage, echo-versus-trust advantage, residual surprise,
+   and residual top-1 error. Include the current target-free recall order.
+3. Two learned scales control how much of each specialist logit contribution
+   reaches the final byte prediction. A target-independent top-1/top-5 guard
+   reverts rank-unsafe proposals to the inherited residual distribution.
+4. **Only after scoring** the observed byte, update the four critic registers.
+   Critic state resets at each independent book boundary.
+
+The controller initializes both pathway scales to exactly one. Its 2 × 6
+parameters and Adam history are appended to the **same flat checkpoint**;
+inherited parameters and moments are unchanged. Historical critic features
+are computed from frozen experts, preventing training-time changes to past
+observations. Only 48 TRAIN-calibration books supply gradients, using a
+proper-score objective and guarded ranking, with fixed-zero global biases so
+changes must depend on prior evidence. This is a byte-level RSI feedback
+analogue, **not PPO, TerminalBench RPR, or a universality claim**.
+
+```bash
+python -m terminal_rsi.byte_specialist.feedback_core train \
+  --work /path/to/local-work
+# After complete donor frozen predictions exist:
+python -m terminal_rsi.byte_specialist.causal_echo evaluate \
+  --work /path/to/local-work --split dev4
+python -m terminal_rsi.byte_specialist.feedback_core evaluate \
+  --work /path/to/local-work --split dev4
+```
+
+The 128/256/384-step guarded-objective RSI continuation **did not improve**
+DEV3: inherited echo BPC 2.237351 versus 2.239791, 2.239372, and 2.239541.
+The recoverable RSI checkpoint therefore remains at **step zero**, exactly
+reproducing the inherited echo candidate. The loop and gradients are tested;
+the observed result does not yet establish that feedback improves prediction.
+
+The combined DEV4 plus 64-book frozen donor replay was interrupted by a
+restart of the local execution environment. Its partial probability output
+is unscorable, so no fresh-book result or promotion is claimed. The optional
+GitHub CPU workflow now includes both unseen evaluations and RSI comparison.
