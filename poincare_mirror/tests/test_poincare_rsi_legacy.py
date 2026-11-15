@@ -1,9 +1,9 @@
-"""Pure-Python verification gates for Terminal-RSI adaptation."""
+"""Historical Poincare adapter checks, separate from standalone Terminal-RSI."""
 import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from terminal_rsi.core import *
+from poincare_rsi_adapter.core import *
 
 
 class CoreTests(unittest.TestCase):

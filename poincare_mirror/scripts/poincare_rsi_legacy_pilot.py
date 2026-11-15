@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Reproducible, honest Terminal-RSI *toy* training on the unified MirrorLM.
+"""Archived Poincare-specific RSI *toy* experiment (not standalone Terminal-RSI).
 
 The harness verifies one-byte next-letter tasks. This tests RSR->RPR wiring,
 critic handoff, and on-policy sampled rewards, NOT terminal-bench capability,
-nor a continuation of the inaccessible R38 step-4057 checkpoint.
+nor a continuation of any checkpoint or independent terminal benchmark.
 """
 from __future__ import annotations
 import argparse
@@ -19,8 +19,8 @@ from torch.nn import functional as F
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from poincare_frontier import Config,MirrorLM
-from terminal_rsi.core import Event,Receipt,Trajectory,adopt_rewrite
-from terminal_rsi.torch_adapter import Batch,attach,critic_warmup,ppo_loss,sft_loss
+from poincare_rsi_adapter.core import Event,Receipt,Trajectory,adopt_rewrite
+from poincare_rsi_adapter.torch_adapter import Batch,attach,critic_warmup,ppo_loss,sft_loss
 
 
 def tiny_model():
@@ -140,7 +140,7 @@ def run(seed=2026,sft_steps=80,ppo_steps=32,lr=.003,rpr_actor_lr_scale=.1):
         optimizer.step();ppo_losses.append(float(loss.detach()))
     after_rpr=evaluate(actor,holdout)
     after_rpr_train=evaluate(actor,train)
-    return {'scope':'toy next-letter task only, not independent books or R38',
+    return {'scope':'archived Poincare actor toy task only; NOT standalone Terminal-RSI',
             'seed':seed,'train_letters':train,'holdout_letters':holdout,
             'rpr_actor_lr_scale':rpr_actor_lr_scale,
             'sft_updates':sft_steps,'verified_replay_count':len(verified),
@@ -154,7 +154,7 @@ def run(seed=2026,sft_steps=80,ppo_steps=32,lr=.003,rpr_actor_lr_scale=.1):
             'train_metrics_before':before_train,
             'train_metrics_after_rsr':after_sft_train,
             'train_metrics_after_rpr':after_rpr_train,
-            'promotion':'FORBIDDEN: no independent-book or R38 checks'}
+            'promotion':'FORBIDDEN: legacy Poincare adapter, no independently verified terminal task benchmark'}
 
 
 def main():

@@ -6,7 +6,7 @@ import unittest
 import torch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from poincare_frontier import Config,MirrorLM
-from terminal_rsi.torch_adapter import Batch,attach,restore,critic_warmup,sft_loss,ppo_loss,candidate
+from poincare_rsi_adapter.torch_adapter import Batch,attach,restore,critic_warmup,sft_loss,ppo_loss,candidate
 
 
 def config():
@@ -27,7 +27,7 @@ class TorchTests(unittest.TestCase):
         original.loss_with_future(ids)['loss'].backward();optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         saved={'model':copy.deepcopy(original.state_dict()),
-               'optimizer':copy.deepcopy(optimizer.state_dict()),'step':4057}
+               'optimizer':copy.deepcopy(optimizer.state_dict()),'step':7}
         with torch.no_grad(): reference=original(ids)[0]
         model=MirrorLM(config()).eval(); new_opt=torch.optim.AdamW(model.parameters())
         bridge=restore(model,new_opt,saved,32)
@@ -39,9 +39,9 @@ class TorchTests(unittest.TestCase):
             for k,v in saved['optimizer']['state'][key].items():
                 self.assertTrue(torch.equal(v,new_opt.state_dict()['state'][key][k]))
         result=candidate(bridge,new_opt,saved,'RSR-1',1,0)
-        self.assertEqual(result['step'],4057)
+        self.assertEqual(result['step'],7)
         self.assertEqual(len(result['optimizer']['param_groups']),2)
-        self.assertFalse(result['terminal_rsi']['promoted'])
+        self.assertFalse(result['poincare_rsi_legacy']['promoted'])
         self.assertEqual(len(saved['optimizer']['param_groups']),1)
 
     def test_masked_sft_and_critic_warmup(self):
@@ -77,7 +77,7 @@ class TorchTests(unittest.TestCase):
         self.assertGreater(float(bridge.critic.weight.grad.abs().sum()),0.)
 
     def test_pilot_train_and_report(self):
-        from scripts.terminal_rsi_pilot import run
+        from scripts.poincare_rsi_legacy_pilot import run
         report=run(sft_steps=4,ppo_steps=4)
         self.assertEqual(report['verified_replay_count'],6)
         self.assertEqual(report['critic_warmup_updates'],4)

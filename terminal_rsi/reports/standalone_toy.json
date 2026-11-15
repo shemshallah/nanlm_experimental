@@ -1,0 +1,139 @@
+{
+  "adam_updates": 600,
+  "benchmark_eligible": false,
+  "benchmark_ineligibility": "Synthetic finite-action tasks; all families seen in training",
+  "candidate_promoted": false,
+  "dev_task_ids_sha256": "ded9f633e94b449422aaa7cd8aa5e11eaae385ebbb08a0f0d8580e84e0d63ebf",
+  "heldout_tasks": 200,
+  "isolation": "No Poincare/FA actor, model, checkpoint, or corpus",
+  "note": "Top-1 is exact one-character task success; bits/action is not bits/byte or BPE.",
+  "sampled_train_attempts": 200,
+  "sampled_train_strict_successes": 32,
+  "schema": "terminal-rsi-standalone-v1",
+  "seed": 2026,
+  "stages": [
+    {
+      "heldout": {
+        "bits_per_action": 3.322449,
+        "nats_per_action": 2.302946,
+        "strict_success_rate": 0.06,
+        "strict_successes": 12,
+        "tasks": 200,
+        "tasks_per_second": 55110.8,
+        "top1": 0.06,
+        "top5": 0.47
+      },
+      "stage": "BASE",
+      "train": {
+        "bits_per_action": 3.322007,
+        "nats_per_action": 2.302639,
+        "strict_success_rate": 0.085,
+        "strict_successes": 68,
+        "tasks": 800,
+        "tasks_per_second": 82010.34,
+        "top1": 0.085,
+        "top5": 0.48
+      }
+    },
+    {
+      "heldout": {
+        "bits_per_action": 3.369989,
+        "nats_per_action": 2.335898,
+        "strict_success_rate": 0.18,
+        "strict_successes": 36,
+        "tasks": 200,
+        "tasks_per_second": 82534.09,
+        "top1": 0.18,
+        "top5": 0.565
+      },
+      "stage": "RSR-1",
+      "train": {
+        "bits_per_action": 3.097925,
+        "nats_per_action": 2.147318,
+        "strict_success_rate": 0.3375,
+        "strict_successes": 270,
+        "tasks": 800,
+        "tasks_per_second": 85117.69,
+        "top1": 0.3375,
+        "top5": 0.68
+      }
+    },
+    {
+      "heldout": {
+        "bits_per_action": 3.366888,
+        "nats_per_action": 2.333749,
+        "strict_success_rate": 0.185,
+        "strict_successes": 37,
+        "tasks": 200,
+        "tasks_per_second": 83353.65,
+        "top1": 0.185,
+        "top5": 0.57
+      },
+      "sampled_train_attempts": 100,
+      "sampled_train_successes": 14,
+      "stage": "RPR-1",
+      "train": {
+        "bits_per_action": 3.090007,
+        "nats_per_action": 2.14183,
+        "strict_success_rate": 0.33625,
+        "strict_successes": 269,
+        "tasks": 800,
+        "tasks_per_second": 86172.74,
+        "top1": 0.33625,
+        "top5": 0.68125
+      }
+    },
+    {
+      "heldout": {
+        "bits_per_action": 3.047684,
+        "nats_per_action": 2.112494,
+        "strict_success_rate": 0.325,
+        "strict_successes": 65,
+        "tasks": 200,
+        "tasks_per_second": 83384.96,
+        "top1": 0.325,
+        "top5": 0.69
+      },
+      "stage": "RSR-2",
+      "train": {
+        "bits_per_action": 2.668774,
+        "nats_per_action": 1.849853,
+        "strict_success_rate": 0.48625,
+        "strict_successes": 389,
+        "tasks": 800,
+        "tasks_per_second": 84981.77,
+        "top1": 0.48625,
+        "top5": 0.7975
+      }
+    },
+    {
+      "heldout": {
+        "bits_per_action": 3.036448,
+        "nats_per_action": 2.104706,
+        "strict_success_rate": 0.34,
+        "strict_successes": 68,
+        "tasks": 200,
+        "tasks_per_second": 79381.62,
+        "top1": 0.34,
+        "top5": 0.685
+      },
+      "sampled_train_attempts": 100,
+      "sampled_train_successes": 18,
+      "stage": "RPR-2",
+      "train": {
+        "bits_per_action": 2.653943,
+        "nats_per_action": 1.839573,
+        "strict_success_rate": 0.49625,
+        "strict_successes": 397,
+        "tasks": 800,
+        "tasks_per_second": 86860.99,
+        "top1": 0.49625,
+        "top5": 0.7975
+      }
+    }
+  ],
+  "terminal_bench_success": null,
+  "train_task_ids_sha256": "9581543752227d2dd47a24b396cfc89cd4fdced6e2b60bc61d425595a01eca06",
+  "train_tasks": 800,
+  "verified_replays": 400
+}

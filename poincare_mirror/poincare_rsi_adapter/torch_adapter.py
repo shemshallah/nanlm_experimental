@@ -1,4 +1,4 @@
-"""Opt-in PPO / actor-only SFT over the existing MirrorLM hidden state.
+"""Legacy optional Poincare-specific PPO / actor-only SFT adapter.
 
 The adapter is not a second language model. Only a zero-initialized value
 projection is appended to the SAME actor and optimizer (new parameter group).
@@ -150,6 +150,6 @@ def candidate(bridge, optimizer, parent, stage, verified_runs, warmup):
     result=copy.deepcopy(dict(parent))
     result['model']=copy.deepcopy(bridge.actor.state_dict())
     result['optimizer']=copy.deepcopy(optimizer.state_dict())
-    result['terminal_rsi']={'schema':1,'stage':stage,'critic':copy.deepcopy(bridge.critic.state_dict()),
+    result['poincare_rsi_legacy']={'schema':1,'stage':stage,'critic':copy.deepcopy(bridge.critic.state_dict()),
                             'warmup':warmup,'verified_runs':verified_runs,'promoted':False}
     return result

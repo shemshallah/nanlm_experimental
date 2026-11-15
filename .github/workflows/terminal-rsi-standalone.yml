@@ -1,0 +1,38 @@
+name: Standalone Terminal-RSI independent verified pilot
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'terminal_rsi/**'
+      - '.github/workflows/terminal-rsi-standalone.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-verified-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install stand-alone numerical dependency
+        run: python -m pip install 'numpy>=1.26,<3'
+      - name: Verify verifier, actor, reward, split and phase contracts
+        run: python -m unittest discover -s terminal_rsi/tests -v
+      - name: Train verified synthetic tasks with preserved optimizer moments
+        run: |
+          python -m terminal_rsi.run --sft-updates 200 --rpr-updates 100 \
+            --out terminal_rsi/reports/standalone_toy.json
+          python -m terminal_rsi.benchmark \
+            --out terminal_rsi/reports/standalone_multiseed.json
+      - name: Upload clearly labeled synthetic metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-rsi-standalone-synthetic-only
+          path: terminal_rsi/reports/*.json
+          retention-days: 7

@@ -1,0 +1,140 @@
+{
+  "benchmark_eligible": false,
+  "candidate_promoted": false,
+  "conclusion_scope": "Synthetic family-shared task generalization only; no independent terminal benchmark",
+  "heldout_task_count_per_seed": 200,
+  "mean_bits_per_action_after": 2.965858,
+  "mean_bits_per_action_before": 3.322242,
+  "mean_success_after": 0.321,
+  "mean_success_before": 0.082,
+  "results": [
+    {
+      "after": {
+        "bits_per_action": 3.036448,
+        "nats_per_action": 2.104706,
+        "strict_success_rate": 0.34,
+        "strict_successes": 68,
+        "tasks": 200,
+        "tasks_per_second": 85958.43,
+        "top1": 0.34,
+        "top5": 0.685
+      },
+      "before": {
+        "bits_per_action": 3.322449,
+        "nats_per_action": 2.302946,
+        "strict_success_rate": 0.06,
+        "strict_successes": 12,
+        "tasks": 200,
+        "tasks_per_second": 56389.43,
+        "top1": 0.06,
+        "top5": 0.47
+      },
+      "bits_per_action_change": -0.286001,
+      "exact_success_change": 0.28,
+      "seed": 2026
+    },
+    {
+      "after": {
+        "bits_per_action": 2.957128,
+        "nats_per_action": 2.049725,
+        "strict_success_rate": 0.325,
+        "strict_successes": 65,
+        "tasks": 200,
+        "tasks_per_second": 82399.24,
+        "top1": 0.325,
+        "top5": 0.705
+      },
+      "before": {
+        "bits_per_action": 3.322307,
+        "nats_per_action": 2.302848,
+        "strict_success_rate": 0.095,
+        "strict_successes": 19,
+        "tasks": 200,
+        "tasks_per_second": 82571.3,
+        "top1": 0.095,
+        "top5": 0.485
+      },
+      "bits_per_action_change": -0.365179,
+      "exact_success_change": 0.23,
+      "seed": 2027
+    },
+    {
+      "after": {
+        "bits_per_action": 2.93649,
+        "nats_per_action": 2.03542,
+        "strict_success_rate": 0.305,
+        "strict_successes": 61,
+        "tasks": 200,
+        "tasks_per_second": 80722.24,
+        "top1": 0.305,
+        "top5": 0.68
+      },
+      "before": {
+        "bits_per_action": 3.322231,
+        "nats_per_action": 2.302795,
+        "strict_success_rate": 0.07,
+        "strict_successes": 14,
+        "tasks": 200,
+        "tasks_per_second": 59939.12,
+        "top1": 0.07,
+        "top5": 0.545
+      },
+      "bits_per_action_change": -0.385741,
+      "exact_success_change": 0.235,
+      "seed": 2028
+    },
+    {
+      "after": {
+        "bits_per_action": 2.919502,
+        "nats_per_action": 2.023644,
+        "strict_success_rate": 0.35,
+        "strict_successes": 70,
+        "tasks": 200,
+        "tasks_per_second": 82156.17,
+        "top1": 0.35,
+        "top5": 0.73
+      },
+      "before": {
+        "bits_per_action": 3.322105,
+        "nats_per_action": 2.302708,
+        "strict_success_rate": 0.105,
+        "strict_successes": 21,
+        "tasks": 200,
+        "tasks_per_second": 80868.66,
+        "top1": 0.105,
+        "top5": 0.495
+      },
+      "bits_per_action_change": -0.402603,
+      "exact_success_change": 0.245,
+      "seed": 2029
+    },
+    {
+      "after": {
+        "bits_per_action": 2.97972,
+        "nats_per_action": 2.065385,
+        "strict_success_rate": 0.285,
+        "strict_successes": 57,
+        "tasks": 200,
+        "tasks_per_second": 85996.5,
+        "top1": 0.285,
+        "top5": 0.69
+      },
+      "before": {
+        "bits_per_action": 3.322116,
+        "nats_per_action": 2.302715,
+        "strict_success_rate": 0.08,
+        "strict_successes": 16,
+        "tasks": 200,
+        "tasks_per_second": 80500.0,
+        "top1": 0.08,
+        "top5": 0.535
+      },
+      "bits_per_action_change": -0.342396,
+      "exact_success_change": 0.205,
+      "seed": 2030
+    }
+  ],
+  "schema": "terminal-rsi-standalone-synthetic-multiseed-v1",
+  "seeds": 5,
+  "warning": "Neither stage gains nor seed averages isolate recursive learning from extra training updates"
+}
