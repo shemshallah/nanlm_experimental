@@ -1394,15 +1394,19 @@ class V3LM(nn.Module):
                 object_events.append(event)
             next_sidecar = build_sidecar(ids[:, -max_ctx:])
             if next_sidecar is not None and fired is not None:
-                # Feed the model's composition prediction into the next
-                # step's concept state in addition to the deterministic
-                # tokenizer event.
+                # ``fired`` describes the token that was just appended before
+                # this sidecar rebuild: it is the previous row (-2), not the
+                # new token row (-1).  Keep the deterministic tokenizer event
+                # and add the model's predicted event to the same position.
                 with torch.no_grad():
-                    row = next_sidecar.event_multi[-1].to(fired.device)
+                    row_index = -2 if next_sidecar.event_multi.shape[0] >= 2 else -1
+                    row = next_sidecar.event_multi[row_index].to(
+                        fired.device
+                    )
                     fused = torch.maximum(
                         row, fired[0].to(row.dtype)
                     ).detach().cpu()
-                    next_sidecar.event_multi[-1] = fused
+                    next_sidecar.event_multi[row_index] = fused
             sidecar = next_sidecar
         if decoder is not None:
             return ids, {
