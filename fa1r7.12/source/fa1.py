@@ -23,6 +23,7 @@ def canonical_args():
     args.history_value_writer = True
     args.deep_wiring_r736 = True
     args.feedback_closure_r737 = True
+    args.triangle_reliability_r738 = True
     return args
 
 

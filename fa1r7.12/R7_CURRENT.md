@@ -1,5 +1,17 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.38 source continuity:** the new bounded causal triangle-writer reliability
+module is attached in-place to the R7.37 apex feedback system, adding only
+optimizer group 22. It is zero-gated for bitwise parent parity, observes only
+pre-target far-value history, and adds a correct-versus-foreign-history
+difference-in-differences training and DEV ablation. Local unified source tests
+pass. The previously reported 24-update R7.38 candidate was **not** recovered
+from Library or GitHub during this source integration, and the newly integrated
+implementation has not been trained against the actual 15-book DEV split.
+Consequently this code integration is **not a reproduction or promotion** of
+that candidate, and the accepted step-14,416 lineage remains protected.
+See `FA1_R7p38_RELIABILITY_INTEGRATION.md`.
+
 **R7.36 source integration:** optional zero-initialized selected-triangle
 read normalization and query-only apex-feedback centering, strict far-eligible
 wrong-book donors, corrected eligible-book counting and per-path gradient

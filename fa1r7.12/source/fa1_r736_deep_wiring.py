@@ -48,6 +48,9 @@ def gradient_path_health(model):
     if hasattr(d.hierarchy, 'apex_reentry'):
         paths['apex_reentry']=d.hierarchy.apex_reentry
         paths['apex_reentry_gate']=d.hierarchy.apex_reentry_gain
+    if hasattr(d.geometry.history_writer, 'reliability'):
+        paths['r738_reliability']=d.geometry.history_writer.reliability.net
+        paths['r738_reliability_gate']=d.geometry.history_writer.reliability.gain
     result={}
     for name,object_ in paths.items():
         params=[object_] if isinstance(object_,nn.Parameter) else list(object_.parameters())

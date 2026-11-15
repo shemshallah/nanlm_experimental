@@ -232,11 +232,18 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
     if hasattr(model.diamond.geometry,'history_writer'):
         with history_value_disabled(model):
             without_writer,no_writer_extra=forward(model,data)
+        if hasattr(model.diamond.geometry.history_writer, 'reliability'):
+            from fa1_r738_reliability import reliability_disabled
+            with reliability_disabled(model):
+                no_reliability,no_reliability_extra=forward(model,data)
         from fa1_r735_history_values import different_book_writer_values
         wrong_values,value_donors=different_book_writer_values(
             data,seed+734,preserve_receiver_mask=hasattr(
                 model.diamond.geometry,'history_read_mix'))
         foreign_values,foreign_value_extra=forward(model,wrong_values)
+        if hasattr(model.diamond.geometry.history_writer, 'reliability'):
+            with reliability_disabled(model):
+                no_rel_foreign,no_rel_foreign_extra=forward(model,wrong_values)
     else:
         without_writer,no_writer_extra=correct,extra
     if (hasattr(model.diamond,'hierarchy') and
@@ -513,6 +520,40 @@ def geometry_diagnostic(model, data, seed, with_topk=False, base=None,
             result['history_value_content_byte_book_bootstrap']=book_byte_ratio_bootstrap(
                 foreign_per_word-layered_byte_losses(extra,data)[0],
                 counts,data['book_ids'],seed+35)
+        if hasattr(model.diamond.geometry.history_writer, 'reliability'):
+            rel_word = no_reliability-correct
+            rel_specificity = rel_word - (no_rel_foreign-foreign_values)
+            result.update({
+                'r738_reliability_gate':float(model.diamond.geometry.history_writer.reliability.gain.detach()),
+                'r738_reliability_word_gain':float(rel_word.mean()),
+                'r738_reliability_branch_gain':float((no_reliability_extra['branch_nll']-
+                                                     extra['branch_nll']).mean()),
+                'r738_reliability_word_book_bootstrap':boot_books(
+                    rel_word,data['book_ids'],seed+47),
+                'r738_reliability_specificity_nats_per_word':float(rel_specificity.mean()),
+                'r738_reliability_specificity_book_bootstrap':boot_books(
+                    rel_specificity,data['book_ids'],seed+49),
+            })
+            if 'byte_ar_logits' in extra:
+                no_rel_per_word,_,no_rel_bytes,_,_=layered_byte_losses(no_reliability_extra,data)
+                no_rel_foreign_per_word,_,no_rel_foreign_bytes,_,_=layered_byte_losses(
+                    no_rel_foreign_extra,data)
+                foreign_per_word,_,foreign_bytes,_,_=layered_byte_losses(
+                    foreign_value_extra,data)
+                result.update({
+                    'r738_reliability_byte_gain_nats_per_byte':float(
+                        (no_rel_bytes-correct_bytes).sum()/counts.sum()),
+                    'r738_reliability_byte_book_bootstrap':book_byte_ratio_bootstrap(
+                        no_rel_per_word-layered_byte_losses(extra,data)[0],
+                        counts,data['book_ids'],seed+48),
+                    'r738_reliability_byte_specificity_nats_per_byte':float(
+                        ((no_rel_bytes-correct_bytes)-
+                         (no_rel_foreign_bytes-foreign_bytes)).sum()/counts.sum()),
+                    'r738_reliability_byte_specificity_book_bootstrap':book_byte_ratio_bootstrap(
+                        (no_rel_per_word-layered_byte_losses(extra,data)[0])-
+                        (no_rel_foreign_per_word-foreign_per_word),
+                        counts,data['book_ids'],seed+50),
+                })
     if with_topk:
         assert base is not None
         result['prediction_metrics'] = vocabulary_evaluate(model, base, data, seed+2)
@@ -547,7 +588,8 @@ def warm_start_only_if_migrated(model, args, loaded_meta):
                                   'FA1_R7_UNIFIED_APEX_FEEDBACK_V1',
                                   'FA1_R7_35_CAUSAL_HISTORY_VALUES_V1',
                                   'FA1_R7_36_DEEP_WIRING_V1',
-                                  'FA1_R7_37_CLOSED_FEEDBACK_V1'))
+                                  'FA1_R7_37_CLOSED_FEEDBACK_V1',
+                                  'FA1_R7_38_CAUSAL_RELIABILITY_V1'))
     if resuming:
         return False
     open_candidate_gates(model,args.bridge,args.meta,args.contextual_init,
@@ -575,6 +617,8 @@ def train_step(model, optimizer, sample, step, args):
     matched = None
     no_geo_matched_branch = None
     no_geo_matched_bytes = None
+    no_rel_correct_branch = None
+    no_rel_foreign_branch = None
     if (getattr(args,'layered',False) and step % args.ablate_every == 0 and
             (args.matched_geometry_weight or args.matched_byte_weight)):
         matched,_=matched_history_context(sample,args.seed+step+101)
@@ -588,7 +632,9 @@ def train_step(model, optimizer, sample, step, args):
     writer_wrong=None
     if getattr(args,'history_value_writer',False) and (
             getattr(args,'history_value_content_weight',0.) or
-            getattr(args,'history_value_content_byte_weight',0.)):
+            getattr(args,'history_value_content_byte_weight',0.) or
+            (getattr(args,'triangle_reliability_r738',False) and
+             getattr(args,'r738_specificity_weight',0.))):
         from fa1_r735_history_values import different_book_writer_values
         writer_wrong,_=different_book_writer_values(
             sample,args.seed+step+735,
@@ -623,6 +669,15 @@ def train_step(model, optimizer, sample, step, args):
                 no_writer_branch=no_writer['branch_nll'].detach()
                 if 'byte_ar_logits' in no_writer:
                     no_writer_bytes=layered_byte_losses(no_writer,sample)[0].detach()
+            if (writer_wrong is not None and
+                    getattr(args,'triangle_reliability_r738',False) and
+                    getattr(args,'r738_specificity_weight',0.)>0):
+                from fa1_r738_reliability import reliability_disabled
+                with reliability_disabled(model):
+                    _, no_rel_correct=forward(model,sample)
+                    _, no_rel_foreign=forward(model,writer_wrong)
+                no_rel_correct_branch=no_rel_correct['branch_nll'].detach()
+                no_rel_foreign_branch=no_rel_foreign['branch_nll'].detach()
         no_geo_branch = no_geo['branch_nll'].detach()
     correct, extra = forward(model, sample)
     branch = extra['branch_nll'].mean()
@@ -640,6 +695,7 @@ def train_step(model, optimizer, sample, step, args):
     different_book = soft_margin(extra['branch_nll'], wrong_extra['branch_nll'], args.history_margin)
     writer_content_loss=correct.new_zeros(())
     writer_content_byte_loss=correct.new_zeros(())
+    reliability_specificity_loss=correct.new_zeros(())
     if writer_wrong is not None:
         _,writer_wrong_extra=forward(model,writer_wrong)
         writer_content_loss=soft_margin(extra['branch_nll'],
@@ -649,6 +705,11 @@ def train_step(model, optimizer, sample, step, args):
             valid=counts>0
             writer_content_byte_loss=soft_margin(per_word[valid],other_per_word[valid],
                                                  args.history_margin)
+        if no_rel_correct_branch is not None:
+            correct_effect=no_rel_correct_branch-extra['branch_nll']
+            foreign_effect=no_rel_foreign_branch-writer_wrong_extra['branch_nll']
+            reliability_specificity_loss=context_specific_margin(
+                correct_effect-foreign_effect,args.r738_specificity_margin)
     matched_geo_penalty=correct.new_zeros(())
     matched_byte_penalty=correct.new_zeros(())
     if matched is not None:
@@ -719,6 +780,7 @@ def train_step(model, optimizer, sample, step, args):
                  getattr(args,'history_value_byte_weight',0.) * writer_byte_loss +
                  getattr(args,'history_value_content_weight',0.) * writer_content_loss +
                  getattr(args,'history_value_content_byte_weight',0.) * writer_content_byte_loss +
+                 getattr(args,'r738_specificity_weight',0.) * reliability_specificity_loss +
                  getattr(args,'byte_ar_weight',0.) * byte_ar +
                  getattr(args,'byte_geometry_weight',0.) * byte_geo_penalty +
                  getattr(args,'matched_geometry_weight',0.) * matched_geo_penalty +
@@ -749,6 +811,7 @@ def train_step(model, optimizer, sample, step, args):
             'train_history_value_byte_contrast':float(writer_byte_loss.detach()),
             'train_history_value_content_contrast':float(writer_content_loss.detach()),
             'train_history_value_content_byte_contrast':float(writer_content_byte_loss.detach()),
+            'train_r738_reliability_specificity':float(reliability_specificity_loss.detach()),
             'train_layered_byte_ar_nll':float(byte_ar.detach()),
             'train_layered_byte_geometry_contrast':float(byte_geo_penalty.detach()),
             'train_matched_geometry_contrast':float(matched_geo_penalty.detach()),
@@ -821,6 +884,17 @@ def passes_gate(reference, candidate, min_gain):
                 candidate['r737_reentry_byte_gain_nats_per_byte']<=0 or
                 candidate['r737_reentry_word_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
                 candidate['r737_reentry_byte_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
+            return False
+    if 'r738_reliability_word_gain' in candidate:
+        if (candidate['r738_reliability_word_gain']<=0 or
+                candidate['r738_reliability_branch_gain']<=0 or
+                candidate['r738_reliability_byte_gain_nats_per_byte']<=0 or
+                candidate['r738_reliability_specificity_nats_per_word']<=0 or
+                candidate['r738_reliability_byte_specificity_nats_per_byte']<=0 or
+                candidate['r738_reliability_word_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['r738_reliability_byte_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['r738_reliability_specificity_book_bootstrap']['book_bootstrap_ci95'][0]<=0 or
+                candidate['r738_reliability_byte_specificity_book_bootstrap']['book_bootstrap_ci95'][0]<=0):
             return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
@@ -904,6 +978,10 @@ def candidate_priority(reference, candidate, min_gain):
     if 'r737_reentry_word_gain' in candidate:
         geometry_ready = geometry_ready and all(candidate['r737_reentry_'+metric]>0
             for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte'))
+    if 'r738_reliability_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate['r738_reliability_'+metric]>0
+            for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte',
+                           'specificity_nats_per_word','byte_specificity_nats_per_byte'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))
@@ -929,6 +1007,17 @@ def run(args):
     if getattr(args,'feedback_closure_r737',False):
         if not (0 <= args.feedback_closure_init < .5):
             raise ValueError('feedback closure warm start must be in [0, 0.5)')
+        args.deep_wiring_r736=True
+        args.history_value_writer=True
+        args.apex_feedback=True
+        args.calibrated=True
+        args.layered=True
+    if getattr(args,'triangle_reliability_r738',False):
+        if not (0 <= args.triangle_reliability_init < .5):
+            raise ValueError('triangle reliability warm start must be in [0, 0.5)')
+        if not (0 <= args.feedback_closure_init < .5):
+            raise ValueError('feedback closure warm start must be in [0, 0.5)')
+        args.feedback_closure_r737=True
         args.deep_wiring_r736=True
         args.history_value_writer=True
         args.apex_feedback=True
@@ -992,6 +1081,12 @@ def run(args):
             attach_feedback_closure(model,optimizer)
     elif hasattr(getattr(model.diamond,'hierarchy',None),'apex_reentry'):
         raise ValueError('FA1 R7.37 checkpoint requires --feedback-closure-r737')
+    if getattr(args,'triangle_reliability_r738',False):
+        if not hasattr(model.diamond.geometry.history_writer,'reliability'):
+            from fa1_r738_reliability import attach_reliability
+            attach_reliability(model,optimizer)
+    elif hasattr(getattr(model.diamond.geometry,'history_writer',None),'reliability'):
+        raise ValueError('FA1 R7.38 checkpoint requires --triangle-reliability-r738')
     # Real R7.27 parent prediction before any gate warm start or gradient.
     dev = prepare(args, model, base, compositor, 'dev', args.dev, args.seed+2)
     if getattr(args,'layered',False):dev['layered_byte_supervision']=True
@@ -1035,10 +1130,17 @@ def run(args):
     if getattr(args,'feedback_closure_r737',False):
         # Open ONLY the new return edge for a migrated candidate, following
         # the gate-identity diagnostic. Never touch an existing trained gate.
-        if parent_meta.get('architecture_round') != 'FA1_R7_37_CLOSED_FEEDBACK_V1':
+        if parent_meta.get('architecture_round') not in (
+                'FA1_R7_37_CLOSED_FEEDBACK_V1','FA1_R7_38_CAUSAL_RELIABILITY_V1'):
             with torch.no_grad():
                 model.diamond.hierarchy.apex_reentry_gain.fill_(
                     math.atanh(args.feedback_closure_init))
+    if (getattr(args,'triangle_reliability_r738',False) and
+            parent_meta.get('architecture_round') != 'FA1_R7_38_CAUSAL_RELIABILITY_V1'):
+        # R7.37 logits were already compared above, with this gate exactly zero.
+        with torch.no_grad():
+            model.diamond.geometry.history_writer.reliability.gain.fill_(
+                math.atanh(args.triangle_reliability_init))
     opened = geometry_diagnostic(model, dev, args.seed+3,
                                  with_matched_far=getattr(args,'matched_far_history',False))
     print('CANDIDATE_GATE_OPEN', json.dumps(opened), flush=True)
@@ -1115,6 +1217,7 @@ def run(args):
         'causal_history_value_writer':bool(getattr(args,'history_value_writer',False)),
         'r736_sparse_read_and_feedback_centering':bool(getattr(args,'deep_wiring_r736',False)),
         'r737_closed_apex_return':bool(getattr(args,'feedback_closure_r737',False)),
+        'r738_causal_triangle_reliability':bool(getattr(args,'triangle_reliability_r738',False)),
         'accepted_parent_step':14416,
         'one_optimizer_groups':len(optimizer.param_groups),
         'source_checkpoint_never_overwritten': digest(args.checkpoint)==parent_hash,
@@ -1156,7 +1259,9 @@ def run(args):
                                                      'FA1 R7.29 context-addressed geometric memory'
                                                      if args.contextual else 'FA1 R7.28 geometric memory'),
             training_updates=best_step, development_gate_passed=passes_gate(original,last,args.min_gain),
-            architecture_round=('FA1_R7_37_CLOSED_FEEDBACK_V1'
+            architecture_round=('FA1_R7_38_CAUSAL_RELIABILITY_V1'
+                                if getattr(args,'triangle_reliability_r738',False) else
+                                'FA1_R7_37_CLOSED_FEEDBACK_V1'
                                 if getattr(args,'feedback_closure_r737',False) else
                                 'FA1_R7_36_DEEP_WIRING_V1'
                                 if getattr(args,'deep_wiring_r736',False) else
@@ -1204,6 +1309,13 @@ def parse_args():
                    help='R7.37 zero-gated apex->point->apex second-pass causal feedback')
     p.add_argument('--feedback-closure-init',type=float,default=.03,
                    help='candidate-only initial second-pass feedback gate in [0, 0.5)')
+    p.add_argument('--triangle-reliability-r738',action='store_true',
+                   help='R7.38 bounded causal far-value triangle writer reliability')
+    p.add_argument('--triangle-reliability-init',type=float,default=.05,
+                   help='candidate-only initial quality modulation in [0, 0.5)')
+    p.add_argument('--r738-specificity-weight',type=float,default=.15,
+                   help='quality-gate correct-vs-foreign effect contrast, on ablation steps')
+    p.add_argument('--r738-specificity-margin',type=float,default=.003)
     p.add_argument('--history-value-weight',type=float,default=0.35)
     p.add_argument('--history-value-byte-weight',type=float,default=0.15)
     p.add_argument('--history-value-content-weight',type=float,default=.25,
