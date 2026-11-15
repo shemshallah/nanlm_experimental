@@ -189,7 +189,10 @@ class MathLayer:
     available for data preparation where normalization is allowed.
     """
 
-    _DISPLAY = re.compile(r"\$\$.*?\$\$|\\\[.*?\\\]", re.DOTALL)
+    _DISPLAY = re.compile(
+        r"\$\$.*?\$\$|\\\[.*?\\\]|<math>.*?</math>|<eq>.*?</eq>",
+        re.DOTALL,
+    )
     _INLINE = re.compile(r"(?<!\$)\$(?!\$).*?(?<!\$)\$(?!\$)", re.DOTALL)
     _COMMAND = re.compile(r"\\[A-Za-z]+")
     _NUMBER = re.compile(

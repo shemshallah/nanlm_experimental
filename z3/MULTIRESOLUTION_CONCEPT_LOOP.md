@@ -30,7 +30,7 @@ keeps the remaining gaps explicit instead of treating the diagram as a claim.
   - token/special level
   - word spans with a 16k vocabulary
   - sentence spans (512-char cap)
-  - math spans
+  - math spans, including tagged `<math>`/`<eq>` curriculum spans
 - `z3/tokenizers/v4_64k/tokenizer_complete.json`: byte-complete 64,060 vocab.
 - `z3/combinatorial_objects.py`:
   - exact C(V,2) and C(V,3) IDs
