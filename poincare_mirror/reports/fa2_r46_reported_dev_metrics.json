@@ -1,0 +1,42 @@
+{
+  "round": "FA2 R46",
+  "date": "2026-11-15",
+  "provenance": "Numerical summary supplied in preceding user message; raw book-level arrays and candidate checkpoint were not available in this repository at commit time.",
+  "status": "reported_DEV_only_not_independently_reproduced_here",
+  "split": "NaNROUTER whole-book DEV",
+  "books": 12,
+  "matched_target_positions_per_configuration": 12288,
+  "configurations": {
+    "protected_parent": {
+      "ce_1": 2.383392,
+      "bits_per_byte_1": 3.438508,
+      "top1_1_percent": 35.70,
+      "top5_1_percent": 69.88,
+      "ce_2": 2.926668,
+      "ce_3": 3.106511,
+      "ce_nonspace_1": 2.650380
+    },
+    "r44_full_bridge": {
+      "ce_1": 2.384695,
+      "bits_per_byte_1": 3.440388,
+      "top1_1_percent": 35.72,
+      "top5_1_percent": 69.79,
+      "ce_2": 2.928017,
+      "ce_3": 3.105153,
+      "ce_nonspace_1": 2.649764
+    },
+    "r44_coupling_only": {
+      "ce_1": 2.383520,
+      "bits_per_byte_1": 3.438692,
+      "top1_1_percent": 35.69,
+      "top5_1_percent": 69.93,
+      "ce_2": 2.926931,
+      "ce_3": 3.105255,
+      "ce_nonspace_1": 2.648795
+    }
+  },
+  "reported_coupling_only_vs_parent_next_byte_gain_nats": -0.000127,
+  "reported_95_percent_whole_book_bootstrap_interval_nats": [-0.002407, 0.001926],
+  "tests_reported": {"passed": 49, "failed": 0},
+  "decision": "No checkpoint promotion; independent TEST and aligned long-context checks still required"
+}

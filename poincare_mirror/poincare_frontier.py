@@ -408,6 +408,25 @@ class ReciprocalScaleGeometry(nn.Module):
         self.cloud_to_micro_enabled = True
         self.meta_to_micro_enabled = True
         self.meta_tokenizer_enabled = True
+        # R47: inference-only, per-block emission ablation. None preserves the
+        # exact trained path. These gains are deliberately NOT checkpoint state.
+        self.emission_gains = None
+
+    def set_emission_gains(self, gains, blocks):
+        """Control the *outer* residual while retaining geometric coupling.
+
+        Passing None restores the checkpoint's original behavior. No learned
+        weights, optimizer moments or checkpoint serialization are affected.
+        """
+        if gains is None:
+            self.emission_gains = None
+            return
+        values = tuple(float(value) for value in gains)
+        if len(values) != blocks or any(
+                not math.isfinite(value) or value < 0. or value > 1.
+                for value in values):
+            raise ValueError('Expected one finite emission gain in [0,1] per block')
+        self.emission_gains = values
 
     @staticmethod
     def causal_scales(z, ids):
@@ -546,7 +565,7 @@ class ReciprocalScaleGeometry(nn.Module):
             levels = self.attend_scales(levels)
         return point,pair,triangle,levels,apex.reshape(b,t,r)
 
-    def emit(self, levels, meta=None):
+    def emit(self, levels, meta=None, output_gain=1.):
         """Every backbone block receives the updated scale/meta context."""
         pooled = (levels*self.scale_weights.softmax(0).view(1,1,5,1)).sum(2)
         if meta is not None:
@@ -555,7 +574,7 @@ class ReciprocalScaleGeometry(nn.Module):
         if self.record_residual_for_aux:
             # Cache the latest causal geometric signal from the SAME model.
             self.latest_residual_for_aux = ungated
-        residual = self.cold_gate()*ungated
+        residual = (self.cold_gate()*ungated)*output_gain
         if self.context_trust is not None:
             residual = residual * self.feedback_trust(levels)
         return residual
@@ -1288,7 +1307,7 @@ class MirrorLM(nn.Module):
         aux = x.new_zeros(())
         if self.reciprocal is not None and self.reciprocal.enabled:
             scales,meta = None,None
-            for block in self.blocks:
+            for layer, block in enumerate(self.blocks):
                 # Language scales are refreshed at EVERY backbone layer.
                 # The latest geometric apex state returns to the tokenizer
                 # before the following attention/microtransformer layer.
@@ -1299,7 +1318,9 @@ class MirrorLM(nn.Module):
                         meta = latest_meta
                 else:
                     x,a = block(x)
-                x = x + self.reciprocal.emit(scales,meta)
+                gains = self.reciprocal.emission_gains
+                x = x + self.reciprocal.emit(
+                    scales, meta, output_gain=1. if gains is None else gains[layer])
                 aux = aux + a
         else:
             for block in self.blocks:

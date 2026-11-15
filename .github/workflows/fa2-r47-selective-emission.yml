@@ -1,0 +1,35 @@
+name: FA2 R47 - Selective Emission Causal Ablation
+
+on:
+  push:
+    paths:
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/probe_r47_selective_emission.py'
+      - 'poincare_mirror/tests/test_r47_selective_emission.py'
+      - 'poincare_mirror/FA2_R47_SELECTIVE_EMISSION_20261115.md'
+      - '.github/workflows/fa2-r47-selective-emission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  causal-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax check without checkpoint access
+        run: python -m compileall -q poincare_mirror
+      - name: Install CPU PyTorch and NumPy
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: R38-R47 inherited and selective-emission causal tests
+        working-directory: poincare_mirror
+        run: |
+          python -m unittest discover -s tests -p 'test_r4*.py' -v
+          python -m unittest discover -s tests -p 'test_compare_geometry_books.py' -v
