@@ -1,0 +1,17 @@
+{
+  "lineage_pass": true,
+  "issues": [],
+  "parent_step": 2993,
+  "candidate_step": 3025,
+  "inherited_adam_states": 194,
+  "inherited_adam_states_retained": 194,
+  "frozen_trunk_parameters_unchanged": 63,
+  "frozen_trunk_adam_states_bitwise_unchanged": 63,
+  "changed_geometric_parameters": 131,
+  "advanced_geometric_adam_states": 131,
+  "new_trust_state_present": true,
+  "residual_auxiliary_enabled": false,
+  "split_manifest_sha256": "a7bb4406b1606def1be2aefdce0c2a6962999459eced6bc19b460d7ce55e96fc",
+  "parent_sha256": "74478d2f77b3c2da7978458f3660dffe8aad788938ce4a7ab6eae7cff2de0817",
+  "candidate_sha256": "e20a0b9d74547bab97137bb13cf52cafd170eb2729bcd1fab3524e63b99ef3e7"
+}
