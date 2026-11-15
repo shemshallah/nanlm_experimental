@@ -1,5 +1,6 @@
 """R38 follow-up: guard against gains dominated by the ASCII space byte."""
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -96,10 +97,19 @@ class NonSpaceObjectiveTests(unittest.TestCase):
                    '--expert-hidden','16','--moe-every','2',
                    '--train-context','8','--eval-context','8','--cpu','--cpu-threads','1',
                    '--eval-batches','1','--eval-every','2','--save-every','2',
-                   '--future2','0','--future3','0','--nonspace-loss-weight','1.5']
+                   '--future2','0','--future3','0','--nonspace-loss-weight','1.5',
+                   '--report-byte-metrics']
             for _ in range(2):
                 proc = subprocess.run(cli,capture_output=True,text=True,timeout=90)
                 self.assertEqual(proc.returncode,0,proc.stdout+'\n'+proc.stderr)
+                report = next(json.loads(line) for line in proc.stdout.splitlines()
+                              if line.startswith('{"step":'))
+                self.assertEqual(set(report['byte_metrics']),{'next','plus2','plus3'})
+                self.assertEqual(report['byte_metrics']['next']['all']['positions'],8)
+                self.assertGreaterEqual(report['byte_metrics']['next']['all']['top5_percent'],
+                                        report['byte_metrics']['next']['all']['top1_percent'])
+                self.assertAlmostEqual(report['byte_metrics']['next']['all']['ce_nats_per_byte'],
+                                       report['validation_ce'],places=5)
             saved = torch.load(root/'run'/'latest.pt',map_location='cpu',weights_only=False)
             self.assertEqual(saved['step'],4)
             self.assertGreater(len(saved['optimizer']['state']),0)

@@ -59,6 +59,65 @@ def content_balanced_ce(logits, targets, nonspace_weight=1.0):
     return (per_byte * weights).sum() / weights.sum()
 
 
+@torch.no_grad()
+def evaluate_byte_breakdown(model, batches):
+    """Unweighted, causal +1/+2/+3 metrics on exactly the supplied windows.
+
+    This is a diagnostic over sampled validation windows, NOT a whole-book
+    promotion gate. The trainer retains its previous eval loss and optimizer
+    behavior; in particular a weighted training objective is never reused here.
+    """
+    groups = ('all', 'nonspace', 'space')
+    horizons = ('next', 'plus2', 'plus3')
+    totals = {h:{g:{'count':0, 'ce_sum':0., 'top1':0, 'top5':0}
+                 for g in groups} for h in horizons}
+    was_training = model.training
+    model.eval()
+    try:
+        for batch in batches:
+            if batch.ndim != 2 or batch.shape[1] < 4:
+                raise ValueError('Need [batch, context+3] causal evaluation windows')
+            logits, hidden, _ = model(batch[:, :-3])
+            plus2, plus3 = model.future_logits(hidden)
+            predictions = (logits, plus2, plus3)
+            targets = (batch[:, 1:-2], batch[:, 2:-1], batch[:, 3:])
+            for horizon, pred, target in zip(horizons, predictions, targets):
+                if pred.shape[:2] != target.shape:
+                    raise ValueError('Prediction and causal label lengths differ')
+                ce = F.cross_entropy(pred.flatten(0,1), target.flatten(),
+                                     reduction='none').reshape_as(target)
+                exact = pred.argmax(-1).eq(target)
+                top5 = pred.topk(min(5, pred.shape[-1]), dim=-1).indices.eq(
+                    target.unsqueeze(-1)).any(-1)
+                for group, mask in (('all',torch.ones_like(target,dtype=torch.bool)),
+                                    ('nonspace',target.ne(32)),('space',target.eq(32))):
+                    slot = totals[horizon][group]
+                    slot['count'] += int(mask.sum().item())
+                    slot['ce_sum'] += float(ce[mask].sum().item())
+                    slot['top1'] += int(exact[mask].sum().item())
+                    slot['top5'] += int(top5[mask].sum().item())
+    finally:
+        model.train(was_training)
+    if not totals['next']['all']['count']:
+        raise ValueError('No evaluation positions')
+    output = {}
+    for horizon in horizons:
+        output[horizon] = {}
+        for group in groups:
+            count = totals[horizon][group]['count']
+            if not count:
+                output[horizon][group] = None  # Never report 0% for an absent subset.
+                continue
+            entry = totals[horizon][group]
+            ce = entry['ce_sum']/count
+            output[horizon][group] = {
+                'positions':count, 'ce_nats_per_byte':round(ce,6),
+                'bits_per_byte':round(ce/math.log(2),6),
+                'top1_percent':round(entry['top1']*100/count,4),
+                'top5_percent':round(entry['top5']*100/count,4)}
+    return output
+
+
 @dataclass
 class Config:
     vocab_size: int = 257
@@ -2189,6 +2248,8 @@ def train(args):
                   'active_train_context':active_context,'validation_ce':ce,
                   'validation_h2_ce':ce2,'validation_h3_ce':ce3,
                   'data_adopted':changing_data}
+        if getattr(args, 'report_byte_metrics', False):
+            report['byte_metrics'] = evaluate_byte_breakdown(model, val_batches)
         print(json.dumps(report))
         save_checkpoint(path, model, optim, start, seen, meta, rng, cfg, growth, history)
         return
@@ -2239,11 +2300,14 @@ def train(args):
                 val_ce = torch.stack([v['next_ce'] for v in val_losses]).mean().item()
                 val_h2 = torch.stack([v.get('future2_ce', v['next_ce']) for v in val_losses]).mean().item()
                 val_h3 = torch.stack([v.get('future3_ce', v['next_ce']) for v in val_losses]).mean().item()
-            print(json.dumps({'step': step, 'tokens_seen': seen,
+            report = {'step': step, 'tokens_seen': seen,
                 'train_ce': round(train_ce_sum / args.grad_accum, 5),
                 'validation_ce': round(val_ce, 5),
                 'validation_h2_ce': round(val_h2, 5), 'validation_h3_ce': round(val_h3, 5),
-                'validation_ppl': round(math.exp(min(val_ce, 30)), 3)}))
+                'validation_ppl': round(math.exp(min(val_ce, 30)), 3)}
+            if getattr(args, 'report_byte_metrics', False):
+                report['byte_metrics'] = evaluate_byte_breakdown(model, val_batches)
+            print(json.dumps(report))
             model.train()
         if step % args.save_every == 0 or step == start + args.steps:
             save_checkpoint(path, model, optim, step, seen, meta, rng, cfg, growth, history)
@@ -2870,6 +2934,8 @@ def main():
     tr.add_argument('--future3', type=float, default=None, help='aux loss weight, optional override on resume')
     tr.add_argument('--nonspace-loss-weight', type=float, default=1.0,
                     help='opt-in weight >=1 on target bytes other than ASCII space; training only')
+    tr.add_argument('--report-byte-metrics', action='store_true',
+                    help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
                     help='isolated forecast adapter, shared-state rollout or legacy offsets')
     tr.add_argument('--future-adapter-rank', type=int, default=None,
