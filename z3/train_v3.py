@@ -865,20 +865,23 @@ def evaluate(
                     )
                 )
                 composition_tokens += int(comp_targets.numel())
-                for lag, logits in zip(
+                for lag, future_comp_logits in zip(
                     aux.get("mtp_composition_lags") or [],
                     aux.get("mtp_composition_logits") or [],
                 ):
                     target_len = xb.size(1) - int(lag)
                     if target_len <= 0:
                         continue
-                    targets = comp_targets[:, int(lag):]
+                    future_targets = comp_targets[:, int(lag):]
                     mtp_composition_sum += float(
                         F.binary_cross_entropy_with_logits(
-                            logits[:, :target_len], targets, reduction="sum"
+                            future_comp_logits[:, :target_len],
+                            future_targets, reduction="sum",
                         )
                     )
-                    mtp_composition_tokens += int(targets.numel())
+                    mtp_composition_tokens += int(
+                        future_targets.numel()
+                    )
             else:
                 comp_targets = sidecar.event_ids
                 composition_sum += float(
@@ -2515,16 +2518,19 @@ def main(argv: list[str] | None = None) -> int:
                     future_logits = aux.get("mtp_composition_logits") or []
                     future_lags = aux.get("mtp_composition_lags") or []
                     future_losses = []
-                    for lag, logits in zip(future_lags, future_logits):
+                    for lag, future_comp_logits in zip(
+                        future_lags, future_logits
+                    ):
                         target_len = xb.size(1) - int(lag)
                         if target_len <= 0:
                             continue
-                        targets = sidecar.event_multi[:, int(lag):].to(
-                            logits.dtype
-                        )
+                        future_targets = sidecar.event_multi[
+                            :, int(lag):
+                        ].to(future_comp_logits.dtype)
                         future_losses.append(
                             F.binary_cross_entropy_with_logits(
-                                logits[:, :target_len], targets
+                                future_comp_logits[:, :target_len],
+                                future_targets,
                             )
                         )
                     if future_losses:
