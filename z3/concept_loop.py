@@ -42,6 +42,29 @@ EVENT_IDS = {name: i for i, name in enumerate(EVENT_NAMES)}
 MATH_KINDS = ("<none>", "<display>", "<inline>", "<command>", "<number>", "<operator>")
 
 
+def byte_symbol_codebook(
+    dim: int, *, seed: int = 20261113, device: str = "cpu"
+) -> torch.Tensor:
+    """Deterministic HD code for each of the 256 byte symbols.
+
+    Each byte is the bundle of eight fixed bit hypervectors with signs chosen
+    by its binary representation.  This gives every vertex a real byte-symbol
+    prior instead of an unrelated random vector.
+    """
+    generator = torch.Generator().manual_seed(seed)
+    bit_codes = torch.randn(8, dim, generator=generator, device=device)
+    byte_values = torch.arange(256, device=device)
+    signs = torch.stack(
+        [
+            ((byte_values >> bit) & 1).to(torch.float32) * 2.0 - 1.0
+            for bit in range(8)
+        ],
+        dim=-1,
+    )
+    codes = torch.einsum("vb,bd->vd", signs, bit_codes)
+    return F.normalize(codes, dim=-1)
+
+
 @dataclass
 class SpanSidecar:
     """Token-aligned structural labels for one window."""
@@ -447,13 +470,22 @@ class ConceptLoop(nn.Module):
         )
         # Seed the vertex space from a deterministic byte-symbol codebook.
         # Pair/triple objects are then bindings of these 256 concept seeds.
-        generator = torch.Generator().manual_seed(20261113)
-        byte_keys = F.normalize(
-            torch.randn(vertices, dim, generator=generator), dim=-1
-        )
-        byte_values = F.normalize(
-            torch.randn(vertices, dim, generator=generator), dim=-1
-        )
+        byte_keys = byte_symbol_codebook(dim, seed=20261113)
+        byte_values = byte_symbol_codebook(dim, seed=20261114)
+        if vertices != 256:
+            if vertices > 256:
+                pad = F.normalize(
+                    torch.randn(
+                        vertices - 256, dim,
+                        generator=torch.Generator().manual_seed(20261115),
+                    ),
+                    dim=-1,
+                )
+                byte_keys = torch.cat([byte_keys, pad], dim=0)
+                byte_values = torch.cat([byte_values, pad], dim=0)
+            else:
+                byte_keys = byte_keys[:vertices]
+                byte_values = byte_values[:vertices]
         self.object_memory.seed_vertices(byte_keys, byte_values)
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
