@@ -313,7 +313,7 @@ Implemented in this integration:
 - exact pair/triple object IDs exposed during generation
 - learned pair-pointer head over the 256 vertex pair space
 - learned triple-pointer head over the 256 vertex triple space
-- pointer distribution fed back into the object stream
+- pair and triple pointer distributions fed back into the object stream
 - pointer pairs constrained to distinct vertices
 - generation streams the reconstructed sidecar back into the concept loop
 - generation feeds predicted composition events into the next concept state

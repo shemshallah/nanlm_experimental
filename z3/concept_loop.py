@@ -785,6 +785,15 @@ class ConceptLoop(nn.Module):
             + torch.einsum("btv,vd->btd", pointer_st[:, :, 1], vertex_values)
         )
         pointer_ctx = self.object_memory.out_proj(pointer_state)
+        triple_soft = F.softmax(
+            self.last_triple_pointer_logits.float(), dim=-1
+        ).to(dtype=x.dtype)
+        triple_state = (
+            torch.einsum("btv,vd->btd", triple_soft[:, :, 0], vertex_keys)
+            + torch.einsum("btv,vd->btd", triple_soft[:, :, 1], vertex_values)
+            + torch.einsum("btv,vd->btd", triple_soft[:, :, 2], vertex_keys)
+        )
+        triple_ctx = self.object_memory.out_proj(triple_state)
         pointer_prev = (
             torch.cat(
                 [torch.zeros_like(pointer_ctx[:, :1]), pointer_ctx[:, :-1]],
@@ -792,18 +801,26 @@ class ConceptLoop(nn.Module):
             )
             if pointer_ctx.shape[1] > 1 else torch.zeros_like(pointer_ctx)
         )
-        pointer_prev = pointer_prev * torch.sigmoid(
+        triple_prev = (
+            torch.cat(
+                [torch.zeros_like(triple_ctx[:, :1]), triple_ctx[:, :-1]],
+                dim=1,
+            )
+            if triple_ctx.shape[1] > 1 else torch.zeros_like(triple_ctx)
+        )
+        pointer_gate = torch.sigmoid(
             self.object_memory.gate_logit
         ).to(dtype=x.dtype)
-        object_input = x + concept + pointer_prev
+        pointer_prev = pointer_prev * pointer_gate
+        triple_prev = triple_prev * (0.5 * pointer_gate)
+        object_input = x + concept + pointer_prev + triple_prev
         if route_bias is not None:
             object_input = object_input + 0.1 * route_bias
         object_ctx, object_aux = self.object_memory(object_input)
         # Current-layer pointer feedback.  This is the soft/current object
         # identity; pointer_prev above is the hard recurrent stream.
-        object_ctx = object_ctx + torch.sigmoid(
-            self.object_memory.gate_logit
-        ).to(dtype=x.dtype) * pointer_ctx
+        object_ctx = object_ctx + pointer_gate * pointer_ctx
+        object_ctx = object_ctx + 0.5 * pointer_gate * triple_ctx
         # Causal object recurrence along the sequence.  Token t+1 sees the
         # object/pointer state selected at t; the shift is a one-token delay,
         # so no future token can leak.  This is a feed-forward scan, not a
