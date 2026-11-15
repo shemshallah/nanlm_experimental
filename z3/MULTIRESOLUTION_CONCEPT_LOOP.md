@@ -48,6 +48,7 @@ keeps the remaining gaps explicit instead of treating the diagram as a claim.
 - `z3/train_v3.py`:
   - v4c bin training and Wiki eval
   - per-resume LR/WSD controls
+  - optional multi-corpus domain mixture with per-corpus task ids
 - `z3/tune_word_vocab_bins.py`:
   - streaming word-vocabulary retune from aligned token bins.
 

@@ -71,6 +71,21 @@ python z3/train_v3.py \
 Start with a 5-step probe and then a 300-step stability run. Do not launch
 5,000 steps until MTP loss is finite and the peak memory is recorded.
 
+### Domain mixture
+
+Text corpora can be treated as task/domain segments without changing the
+subword corpus::
+
+```sh
+python z3/train_v3.py \
+  --corpus data/fineweb.txt data/math_tagged.txt \
+  --domain-mixture --corpus-task-ids 0,1 --task-vocab-size 16 ...
+```
+
+Training windows are sampled inside a task segment; evaluation carries a
+per-window task id.  Token bins remain single-domain (`--domain-mixture`
+is rejected for them).
+
 ### CPU 6 GB (38M)
 
 ```sh

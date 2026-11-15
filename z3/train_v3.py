@@ -381,6 +381,37 @@ def _set_bytes_per_token(
     return float(value)
 
 
+def load_text_ids_with_tasks(
+    paths: list[str],
+    tokenizer: ByteTokenizer | BPETokenizer | LayeredFlatTokenizer,
+    max_bytes: int,
+    task_ids: list[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Encode each corpus file separately with a token-aligned task id."""
+    if len(paths) != len(task_ids):
+        raise SystemExit("--corpus-task-ids must match --corpus length")
+    parts: list[np.ndarray] = []
+    token_tasks: list[np.ndarray] = []
+    for index, (raw_path, task_id) in enumerate(zip(paths, task_ids)):
+        ids = load_text_ids([raw_path], tokenizer, max_bytes)
+        if parts:
+            separator = np.asarray(tokenizer.separator, dtype=np.int32)
+            parts.append(separator)
+            token_tasks.append(
+                np.full(separator.size, int(task_id), dtype=np.int32)
+            )
+        parts.append(ids)
+        token_tasks.append(
+            np.full(ids.size, int(task_id), dtype=np.int32)
+        )
+    if not parts:
+        raise SystemExit("domain mixture produced no tokens")
+    return (
+        np.concatenate(parts).astype(np.int32, copy=False),
+        np.concatenate(token_tasks).astype(np.int32, copy=False),
+    )
+
+
 def load_token_bin(path: str, dtype: str) -> np.ndarray:
     """Load pre-tokenized IDs from a raw binary file."""
     file_path = Path(path).expanduser()
@@ -416,6 +447,7 @@ class TextBatchSource:
         seed: int,
         val_ids: np.ndarray | None = None,
         sidecar_builder: Any = None,
+        token_task_ids: np.ndarray | None = None,
     ) -> None:
         self.ids = ids
         self.split = int(split)
@@ -424,6 +456,19 @@ class TextBatchSource:
         self.rng = np.random.default_rng(seed)
         self.val_ids = val_ids
         self.sidecar_builder = sidecar_builder
+        self.token_task_ids = (
+            np.asarray(token_task_ids, dtype=np.int32)
+            if token_task_ids is not None else None
+        )
+        if (
+            self.token_task_ids is not None
+            and len(self.token_task_ids) != len(ids)
+        ):
+            raise SystemExit("token task ids must align with token ids")
+        self.last_task_ids: torch.Tensor | None = None
+        self.task_segments: dict[int, list[tuple[int, int]]] = {}
+        if self.token_task_ids is not None:
+            self.task_segments = self._build_task_segments()
         # Random training windows rarely repeat, but fixed eval batches and
         # --overfit-single-batch do.  Cache aligned rows on CPU, not device.
         self._sidecar_cache: OrderedDict[bytes, Any] = OrderedDict()
@@ -448,6 +493,19 @@ class TextBatchSource:
             _window_batch(val_source, positions[i:i + batch_size], self.ctx)
             for i in range(0, len(positions), batch_size)
         ]
+        self.eval_task_ids: list[torch.Tensor] | None = None
+        if self.token_task_ids is not None and val_ids is None:
+            task_rows = []
+            for i in range(0, len(positions), batch_size):
+                chunk = positions[i:i + batch_size]
+                task_rows.append(
+                    torch.from_numpy(
+                        self.token_task_ids[
+                            np.clip(chunk - 1, 0, len(self.token_task_ids) - 1)
+                        ].astype(np.int64, copy=False)
+                    )
+                )
+            self.eval_task_ids = task_rows
         self.info = {
             "mode": "text",
             "tokens": int(len(ids)),
@@ -456,14 +514,63 @@ class TextBatchSource:
             "vocab_size": None,
             "val_windows": int(len(positions)),
             "separate_validation": val_ids is not None,
+            "tasks": (
+                sorted(self.task_segments)
+                if self.task_segments else None
+            ),
         }
+
+    def _build_task_segments(self) -> dict[int, list[tuple[int, int]]]:
+        if self.token_task_ids is None:
+            return {}
+        end_limit = min(self.split, len(self.token_task_ids))
+        segments: dict[int, list[tuple[int, int]]] = {}
+        start = 0
+        for index in range(1, end_limit + 1):
+            if (
+                index == end_limit
+                or self.token_task_ids[index] != self.token_task_ids[start]
+            ):
+                if index - start > self.ctx:
+                    task = int(self.token_task_ids[start])
+                    segments.setdefault(task, []).append((start, index))
+                start = index
+        return segments
 
     def train_batch(self) -> torch.Tensor:
         if self.split <= self.ctx:
             raise SystemExit("training split is too small for the context window")
-        positions = self.rng.integers(
-            self.ctx, self.split, size=self.batch_size, dtype=np.int64
-        )
+        if self.task_segments:
+            tasks = list(self.task_segments)
+            weights = np.asarray(
+                [
+                    sum(end - start for start, end in self.task_segments[t])
+                    for t in tasks
+                ],
+                dtype=np.float64,
+            )
+            weights /= weights.sum()
+            task = tasks[int(self.rng.choice(len(tasks), p=weights))]
+            ranges = self.task_segments[task]
+            lengths = np.asarray(
+                [end - start for start, end in ranges], dtype=np.float64
+            )
+            lengths /= lengths.sum()
+            start, end = ranges[
+                int(self.rng.choice(len(ranges), p=lengths))
+            ]
+            positions = self.rng.integers(
+                start + self.ctx, end, size=self.batch_size,
+                dtype=np.int64,
+            )
+            self.last_task_ids = torch.full(
+                (self.batch_size,), task, dtype=torch.long
+            )
+        else:
+            positions = self.rng.integers(
+                self.ctx, self.split, size=self.batch_size, dtype=np.int64
+            )
+            self.last_task_ids = None
         return _window_batch(self.ids, positions, self.ctx)
 
     def build_sidecar(self, ids: torch.Tensor):
@@ -686,6 +793,7 @@ def evaluate(
     sidecar_builder: Any = None,
     task_id: int = -1,
     bytes_per_token: float | None = None,
+    eval_task_ids: list[torch.Tensor] | None = None,
 ) -> dict[str, Any]:
     """Evaluate on fixed windows; returns token-weighted metrics."""
     was_training = model.training
@@ -716,19 +824,24 @@ def evaluate(
     mtp_composition_tokens = 0
     mtp_pointer_sum = 0.0
     mtp_pointer_tokens = 0
-    for xb in batches:
+    for batch_index, xb in enumerate(batches):
         sidecar = (
             sidecar_builder(xb) if sidecar_builder is not None else None
         )
         if sidecar is not None:
             sidecar = sidecar.to(device)
         xb = xb.to(device, non_blocking=True)
-        task_ids = (
-            torch.full(
-                (xb.size(0),), int(task_id), device=device, dtype=torch.long
+        if task_id >= 0:
+            task_ids = torch.full(
+                (xb.size(0),), int(task_id), device=device,
+                dtype=torch.long,
             )
-            if task_id >= 0 else None
-        )
+        elif eval_task_ids is not None and batch_index < len(eval_task_ids):
+            task_ids = eval_task_ids[batch_index].to(
+                device=device, dtype=torch.long
+            )
+        else:
+            task_ids = None
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
                 xb, return_diagnostics=True, sidecar=sidecar,
@@ -1012,6 +1125,15 @@ def build_parser() -> argparse.ArgumentParser:
                       default=True,
                       help="build aligned word/sentence/math sidecars from token IDs")
     data.add_argument("--max-bytes", type=int, default=0, help="cap corpus bytes (0 = all)")
+    data.add_argument(
+        "--domain-mixture", action=argparse.BooleanOptionalAction,
+        default=False,
+        help="treat each --corpus text file as a task/domain segment",
+    )
+    data.add_argument(
+        "--corpus-task-ids", default="",
+        help="comma-separated task ids matching --corpus files",
+    )
     data.add_argument("--train-fraction", type=float, default=0.95,
                       help="head fraction used for training; the tail is fixed validation")
     data.add_argument("--ctx", type=int, default=1024,
@@ -1422,6 +1544,13 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--dropout must be in [0, 1)")
     if args.vocab_size < 1:
         raise SystemExit("--vocab-size must be positive")
+    if args.task_vocab_size < 0:
+        raise SystemExit("--task-vocab-size must be non-negative")
+    if (
+        args.task_id >= 0
+        and (args.task_vocab_size <= 0 or args.task_id >= args.task_vocab_size)
+    ):
+        raise SystemExit("--task-id must be in [0, --task-vocab-size)")
     if args.max_ctx < args.ctx:
         raise SystemExit("--max-ctx must be >= --ctx")
     if args.rope_original_ctx < 2 or args.rope_factor < 1.0:
@@ -1657,6 +1786,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         vocab_size = args.vocab_size
     elif args.tokenizer == "bin":
+        if args.domain_mixture:
+            raise SystemExit(
+                "--domain-mixture is for text corpora; a token bin has "
+                "no document task labels"
+            )
         if len(args.corpus) != 1:
             raise SystemExit("--tokenizer bin takes exactly one --corpus file")
         if not args.val_corpus:
@@ -1697,7 +1831,38 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         tokenizer = build_tokenizer(args)
-        token_ids = load_text_ids(args.corpus, tokenizer, args.max_bytes)
+        token_task_ids = None
+        if args.domain_mixture:
+            if len(args.corpus) < 1:
+                raise SystemExit("--domain-mixture needs --corpus files")
+            if args.corpus_task_ids.strip():
+                task_values = [
+                    int(value) for value in args.corpus_task_ids.split(",")
+                    if value.strip()
+                ]
+            else:
+                task_values = list(range(len(args.corpus)))
+            if len(task_values) != len(args.corpus):
+                raise SystemExit(
+                    "--corpus-task-ids must match --corpus length"
+                )
+            if any(
+                task < 0 or task >= args.task_vocab_size
+                for task in task_values
+            ):
+                raise SystemExit(
+                    "corpus task ids must be in [0, --task-vocab-size)"
+                )
+            token_ids, token_task_ids = load_text_ids_with_tasks(
+                args.corpus, tokenizer, args.max_bytes, task_values
+            )
+            print(
+                f"[data] domain mixture tasks={task_values}", flush=True
+            )
+        else:
+            token_ids = load_text_ids(
+                args.corpus, tokenizer, args.max_bytes
+            )
         vocab_size = tokenizer.vocab_size
         args.vocab_size = int(vocab_size)
         n_tokens = len(token_ids)
@@ -1717,10 +1882,15 @@ def main(argv: list[str] | None = None) -> int:
             args.batch_size,
             args.eval_batches,
             args.seed,
+            token_task_ids=token_task_ids,
         )
         source.info["vocab_size"] = vocab_size
         source.info["corpus"] = [str(Path(p).expanduser()) for p in args.corpus]
         source.info["tokenizer"] = args.tokenizer
+        source.info["domain_mixture"] = bool(args.domain_mixture)
+        source.info["corpus_task_ids"] = (
+            task_values if args.domain_mixture else None
+        )
         print(
             f"[data] tokenizer={args.tokenizer} vocab={vocab_size} "
             f"tokens={n_tokens:,} train={split:,} val={n_tokens - split:,} "
@@ -2164,11 +2334,17 @@ def main(argv: list[str] | None = None) -> int:
         if sidecar is not None:
             sidecar = sidecar.to(device)
         xb = xb.to(device, non_blocking=True)
-        task_ids = (
-            torch.full((xb.size(0),), args.task_id, device=device,
-                       dtype=torch.long)
-            if args.task_id >= 0 else None
-        )
+        if args.task_id >= 0:
+            task_ids = torch.full(
+                (xb.size(0),), args.task_id, device=device,
+                dtype=torch.long,
+            )
+        elif getattr(source, "last_task_ids", None) is not None:
+            task_ids = source.last_task_ids.to(
+                device=device, dtype=torch.long
+            )
+        else:
+            task_ids = None
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
@@ -2452,6 +2628,7 @@ def main(argv: list[str] | None = None) -> int:
                 sidecar_builder=getattr(source, "build_sidecar", None),
                 task_id=args.task_id,
                 bytes_per_token=source.info.get("bytes_per_token"),
+                eval_task_ids=getattr(source, "eval_task_ids", None),
             )
             val_ema = (
                 evaluate(
@@ -2460,6 +2637,7 @@ def main(argv: list[str] | None = None) -> int:
                     sidecar_builder=getattr(source, "build_sidecar", None),
                     task_id=args.task_id,
                     bytes_per_token=source.info.get("bytes_per_token"),
+                    eval_task_ids=getattr(source, "eval_task_ids", None),
                 )
                 if ema_model is not None else None
             )
