@@ -1073,11 +1073,11 @@ class TripleStaged(tf.keras.Model):
         self.tok_meta_proj = tf.keras.layers.Dense(DIM_T)
         self.tok_concept_proj = tf.keras.layers.Dense(DIM_T)
         self.tok_meta_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="tok_meta_gate",
         )
         self.tok_concept_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="tok_concept_gate",
         )
         self.tok_blocks = [
@@ -1100,17 +1100,17 @@ class TripleStaged(tf.keras.Model):
         )
         self.concept_to_meta = tf.keras.layers.Dense(DIM_M)
         self.concept_prev_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="concept_prev_gate",
         )
         self.meta_prev_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="meta_prev_gate",
         )
         self.tok_self = tf.keras.layers.Dense(DIM_M)
         self.tok_self_ln = tf.keras.layers.LayerNormalization()
         self.tok_self_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="tok_self_gate",
         )
         self.meta_self_blocks = [
@@ -1118,15 +1118,15 @@ class TripleStaged(tf.keras.Model):
         ]
         self.meta_self_ln = tf.keras.layers.LayerNormalization()
         self.meta_self_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="meta_self_gate",
         )
         self.meta_cross_tower_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="meta_cross_tower_gate",
         )
         self.meta_cross_token_gate = self.add_weight(
-            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            shape=(), initializer=tf.keras.initializers.Constant(-8.0),
             name="meta_cross_token_gate",
         )
 
