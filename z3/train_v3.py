@@ -829,6 +829,8 @@ def evaluate(
     mtp_composition_tokens = 0
     mtp_pointer_sum = 0.0
     mtp_pointer_tokens = 0
+    target_bytes = 0
+    target_chars = 0
     triple_pointer_sum = 0.0
     triple_pointer_tokens = 0
     mtp_triple_pointer_sum = 0.0
@@ -899,6 +901,13 @@ def evaluate(
         main_logits = logits[:, :-1]
         targets = xb[:, 1:]
         valid = targets != IGNORE_INDEX
+        if sidecar is not None and valid.any():
+            # Exact evaluation denominators: align to the same causal target
+            # positions as the CE loss.
+            eval_bytes = sidecar.byte_len[:, 1:]
+            eval_chars = sidecar.char_len[:, 1:]
+            target_bytes += int(eval_bytes[valid].sum())
+            target_chars += int(eval_chars[valid].sum())
         if valid.any():
             row_ce = F.cross_entropy(
                 main_logits.reshape(-1, vocab),
@@ -1165,10 +1174,25 @@ def evaluate(
         ),
         "bits_per_token": main_loss / math.log(2),
         "bits_per_byte": (
-            main_loss / (math.log(2) * bytes_per_token)
-            if bytes_per_token and bytes_per_token > 0 else None
+            main_ce_sum / (math.log(2) * target_bytes)
+            if target_bytes > 0
+            else (
+                main_loss / (math.log(2) * bytes_per_token)
+                if bytes_per_token and bytes_per_token > 0 else None
+            )
         ),
-        "bytes_per_token": bytes_per_token,
+        "bits_per_char": (
+            main_ce_sum / (math.log(2) * target_chars)
+            if target_chars > 0 else None
+        ),
+        "bytes_per_token": (
+            target_bytes / main_tokens
+            if target_bytes > 0 and main_tokens > 0 else bytes_per_token
+        ),
+        "chars_per_token": (
+            target_chars / main_tokens
+            if target_chars > 0 and main_tokens > 0 else None
+        ),
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
         "top5": top5 / max(1, main_tokens),
@@ -2043,7 +2067,7 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
-    if args.sidecar and args.concept_loop and args.tokenizer in (
+    if args.sidecar and args.tokenizer in (
         "bin", "v4", "layered",
     ):
         from concept_loop import SpanSidecar

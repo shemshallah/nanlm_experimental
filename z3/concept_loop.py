@@ -15,6 +15,7 @@ C(256,2) object memory.  The route context carries the result into every block.
 
 from __future__ import annotations
 
+import bisect
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
@@ -75,6 +76,7 @@ class SpanSidecar:
     event_ids: torch.Tensor
     byte_start: torch.Tensor
     byte_len: torch.Tensor
+    char_len: torch.Tensor
     event_multi: torch.Tensor
 
     def to(self, device: torch.device | str) -> "SpanSidecar":
@@ -85,6 +87,7 @@ class SpanSidecar:
             event_ids=self.event_ids.to(device),
             byte_start=self.byte_start.to(device),
             byte_len=self.byte_len.to(device),
+            char_len=self.char_len.to(device),
             event_multi=self.event_multi.to(device),
         )
 
@@ -97,6 +100,7 @@ class SpanSidecar:
             event_ids=self.event_ids[start:end],
             byte_start=self.byte_start[start:end],
             byte_len=self.byte_len[start:end],
+            char_len=self.char_len[start:end],
             event_multi=self.event_multi[start:end],
         )
 
@@ -112,6 +116,21 @@ class SpanSidecar:
         event_multi = torch.zeros(n, len(EVENT_NAMES), dtype=torch.float32)
         byte_start = torch.tensor([s for s, _ in spans], dtype=torch.long)
         byte_len = torch.tensor([e - s for s, e in spans], dtype=torch.long)
+        # Unicode-character denominator aligned to the same token spans.
+        text = encoding.subword.text
+        try:
+            from .layered_tokenizer import _char_byte_offsets
+        except ImportError:  # pragma: no cover
+            from layered_tokenizer import _char_byte_offsets
+        offsets = _char_byte_offsets(text)
+        char_len = torch.tensor(
+            [
+                bisect.bisect_left(offsets, e)
+                - bisect.bisect_left(offsets, s)
+                for s, e in spans
+            ],
+            dtype=torch.long,
+        )
 
         def mark(index: int, event: int) -> None:
             event_ids[index] = event
@@ -177,6 +196,7 @@ class SpanSidecar:
             event_ids=event_ids,
             byte_start=byte_start,
             byte_len=byte_len,
+            char_len=char_len,
             event_multi=event_multi,
         )
 
@@ -198,7 +218,7 @@ class SpanSidecar:
         fields: dict[str, list[torch.Tensor]] = {
             "word_ids": [], "sentence_ids": [], "math_kind": [],
             "event_ids": [], "byte_start": [], "byte_len": [],
-            "event_multi": [],
+            "char_len": [], "event_multi": [],
         }
         for sidecar in sidecars:
             n = int(sidecar.word_ids.numel())
@@ -210,6 +230,7 @@ class SpanSidecar:
                 ("event_ids", sidecar.event_ids),
                 ("byte_start", sidecar.byte_start),
                 ("byte_len", sidecar.byte_len),
+                ("char_len", sidecar.char_len),
                 ("event_multi", sidecar.event_multi),
             ):
                 value = value.to(device)

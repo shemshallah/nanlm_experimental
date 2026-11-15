@@ -12,6 +12,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install tokenizer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers
       - name: Download the exact WikiText-2 splits
         run: |
           mkdir -p data
@@ -37,3 +41,9 @@ jobs:
                   "non_ascii_chars": sum(ord(ch) > 127 for ch in text),
               })
           PY
+      - name: Exact evaluation-window denominator
+        run: |
+          python z3/eval_denominator_stats.py \
+            --valid-text data/valid.txt \
+            --ctx 256 --eval-batches 2 --batch-size 1 --seed 3 \
+            --token-loss 6.156269148284314
