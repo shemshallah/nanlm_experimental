@@ -31,8 +31,8 @@ from torch.utils.checkpoint import checkpoint
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
     from .concept_loop import (
-        CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
-        SpanSidecar,
+        CompositionHead, CompositionTokenizer, ConceptLoop,
+        IncrementalCompositionDecoder, SpanSidecar,
     )
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
@@ -40,8 +40,8 @@ try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
 except ImportError:  # pragma: no cover - script execution path
     from combinatorial_objects import CombinatorialMemory
     from concept_loop import (
-        CompositionHead, ConceptLoop, IncrementalCompositionDecoder,
-        SpanSidecar,
+        CompositionHead, CompositionTokenizer, ConceptLoop,
+        IncrementalCompositionDecoder, SpanSidecar,
     )
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
@@ -1411,10 +1411,25 @@ class V3LM(nn.Module):
                     next_sidecar.event_multi[row_index] = fused
             sidecar = next_sidecar
         if decoder is not None:
+            composition = None
+            if hasattr(layer_tokenizer, "decode_token_ids"):
+                try:
+                    text = layer_tokenizer.decode_token_ids(
+                        ids[0].detach().cpu().tolist()
+                    )
+                    composition = [
+                        event.as_dict()
+                        for event in CompositionTokenizer(
+                            layer_tokenizer
+                        ).encode(text)
+                    ]
+                except Exception:
+                    composition = None
             return ids, {
                 "model": events,
                 "tokenizer": tokenizer_events,
                 "objects": object_events,
+                "composition": composition,
             }
         return ids, events
 
