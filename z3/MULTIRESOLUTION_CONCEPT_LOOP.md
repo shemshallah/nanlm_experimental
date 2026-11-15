@@ -315,9 +315,10 @@ Validated in 313M concept runs:
 
 - 512 context: composition loss 0.384, no non-finite steps
 - 1024 context: composition loss 0.291, no non-finite steps
-- 2048 context with top-4 objects: composition loss 0.199 → 0.164,
-  no non-finite steps, ≈1.94 BPB after 925 steps
-- MTP branch beats the fallback on both correct-t1 and wrong-t1 subsets;
+- 2048 context with top-4 objects: composition loss 0.199 → 0.126,
+  no non-finite steps, ≈1.86 BPB after 2,314 steps
+- MTP branch beats the fallback on both correct-t1 and wrong-t1 subsets
+  (7.38 vs 9.98 correct, 7.26 vs 8.55 wrong);
   the remaining correct/wrong loss difference is t+2 selection hardness,
   not a branch failure
 
