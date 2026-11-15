@@ -2286,6 +2286,9 @@ def main(argv: list[str] | None = None) -> int:
         eval_before = evaluate(
             model, source.eval_batches, device, amp, args.mtp_weight,
             sidecar_builder=getattr(source, "build_sidecar", None),
+            task_id=args.task_id,
+            bytes_per_token=source.info.get("bytes_per_token"),
+            eval_task_ids=getattr(source, "eval_task_ids", None),
         )
         print(
             f"[eval-before] model loss={eval_before['loss']:.4f} "
@@ -2705,11 +2708,17 @@ def main(argv: list[str] | None = None) -> int:
     final_metrics = evaluate(
         model, source.eval_batches, device, amp, args.mtp_weight,
         sidecar_builder=getattr(source, "build_sidecar", None),
+        task_id=args.task_id,
+        bytes_per_token=source.info.get("bytes_per_token"),
+        eval_task_ids=getattr(source, "eval_task_ids", None),
     )
     final_ema_metrics = (
         evaluate(
             ema_model, source.eval_batches, device, amp, args.mtp_weight,
             sidecar_builder=getattr(source, "build_sidecar", None),
+            task_id=args.task_id,
+            bytes_per_token=source.info.get("bytes_per_token"),
+            eval_task_ids=getattr(source, "eval_task_ids", None),
         )
         if ema_model is not None else None
     )
