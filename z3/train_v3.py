@@ -824,6 +824,7 @@ def evaluate(
     mtp_composition_tokens = 0
     mtp_pointer_sum = 0.0
     mtp_pointer_tokens = 0
+    task_stats: dict[int, dict[str, float]] = {}
     for batch_index, xb in enumerate(batches):
         sidecar = (
             sidecar_builder(xb) if sidecar_builder is not None else None
@@ -887,20 +888,43 @@ def evaluate(
         targets = xb[:, 1:]
         valid = targets != IGNORE_INDEX
         if valid.any():
-            main_ce_sum += float(
-                F.cross_entropy(
-                    main_logits.reshape(-1, vocab),
-                    targets.reshape(-1),
-                    reduction="sum",
-                    ignore_index=IGNORE_INDEX,
-                )
-            )
+            row_ce = F.cross_entropy(
+                main_logits.reshape(-1, vocab),
+                targets.reshape(-1),
+                reduction="none",
+                ignore_index=IGNORE_INDEX,
+            ).view(xb.size(0), -1)
+            main_ce_sum += float(row_ce.sum())
             main_tokens += int(valid.sum())
             predictions = main_logits.argmax(dim=-1)
-            correct += int((predictions[valid] == targets[valid]).sum())
+            hit = predictions == targets
+            correct += int((hit & valid).sum())
             k = min(5, vocab)
             top = main_logits.topk(k, dim=-1).indices
-            top5 += int((top[valid] == targets[valid].unsqueeze(-1)).any(-1).sum())
+            top_hits = (top == targets.unsqueeze(-1)).any(-1)
+            top5 += int((top_hits & valid).sum())
+            if task_ids is not None:
+                task_values = task_ids.detach().cpu().tolist()
+                for task in sorted(set(int(value) for value in task_values)):
+                    task_mask = valid & (
+                        task_ids.unsqueeze(1) == task
+                    )
+                    tokens = int(task_mask.sum())
+                    if tokens <= 0:
+                        continue
+                    entry = task_stats.setdefault(
+                        int(task),
+                        {"ce": 0.0, "tokens": 0.0,
+                         "correct": 0.0, "top5": 0.0},
+                    )
+                    entry["ce"] += float(row_ce[task_mask].sum())
+                    entry["tokens"] += tokens
+                    entry["correct"] += int(
+                        (hit & task_mask).sum()
+                    )
+                    entry["top5"] += int(
+                        (top_hits & task_mask).sum()
+                    )
 
         for head_index, head_logits in enumerate(mtp_logits):
             lag = 2 + head_index
@@ -1074,6 +1098,23 @@ def evaluate(
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
         "top5": top5 / max(1, main_tokens),
+        "per_task": {
+            str(task): {
+                "tokens": int(entry["tokens"]),
+                "loss": entry["ce"] / max(1.0, entry["tokens"]),
+                "bits_per_token": (
+                    entry["ce"] / max(1.0, entry["tokens"])
+                ) / math.log(2),
+                "bits_per_byte": (
+                    (entry["ce"] / max(1.0, entry["tokens"]))
+                    / (math.log(2) * bytes_per_token)
+                    if bytes_per_token and bytes_per_token > 0 else None
+                ),
+                "accuracy": entry["correct"] / max(1.0, entry["tokens"]),
+                "top5": entry["top5"] / max(1.0, entry["tokens"]),
+            }
+            for task, entry in sorted(task_stats.items())
+        },
         "tokens": int(main_tokens),
         "batches": len(batches),
         "load_balance": (

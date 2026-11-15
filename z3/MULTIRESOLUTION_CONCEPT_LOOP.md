@@ -319,6 +319,7 @@ Implemented in this integration:
 - adaptive top-k object candidates for 2048 context memory
 - autoregressive `generate()` with model/tokenizer composition and object readouts
 - task/domain id conditioning during generation
+- per-task CE/top-1/top-5/bits-per-byte evaluation breakdown
 - LRU reuse of aligned sidecars for repeated eval/overfit windows
 - streaming `tune_word_vocab_bins.py` for full-corpus word-vocabulary
   retuning directly from v4c token bins
