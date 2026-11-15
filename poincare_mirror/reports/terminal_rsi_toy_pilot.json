@@ -1,0 +1,70 @@
+{
+  "critic_warmup_updates": 4,
+  "holdout_letters": "ghij",
+  "mean_ppo_loss": 0.21774479816667736,
+  "mean_sft_loss": 2.8460705474019052,
+  "metrics_after_rpr": {
+    "bits_per_byte": 11.523727,
+    "bytes_per_second": 122.07,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 7.987639,
+    "positions": 4,
+    "top1_percent": 0.0,
+    "top5_percent": 0.0
+  },
+  "metrics_after_rsr": {
+    "bits_per_byte": 11.214987,
+    "bytes_per_second": 142.17,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 7.773637,
+    "positions": 4,
+    "top1_percent": 0.0,
+    "top5_percent": 0.0
+  },
+  "metrics_before": {
+    "bits_per_byte": 7.897537,
+    "bytes_per_second": 148.68,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 5.474155,
+    "positions": 4,
+    "top1_percent": 0.0,
+    "top5_percent": 0.0
+  },
+  "onpolicy_verified_attempts": 32,
+  "onpolicy_verified_successes": 4,
+  "ppo_updates": 32,
+  "promotion": "FORBIDDEN: no independent-book or R38 checks",
+  "rpr_actor_lr_scale": 0.1,
+  "scope": "toy next-letter task only, not independent books or R38",
+  "seed": 2026,
+  "sft_updates": 80,
+  "train_letters": "abcdef",
+  "train_metrics_after_rpr": {
+    "bits_per_byte": 1.746342,
+    "bytes_per_second": 134.06,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 1.210472,
+    "positions": 6,
+    "top1_percent": 83.3333,
+    "top5_percent": 100.0
+  },
+  "train_metrics_after_rsr": {
+    "bits_per_byte": 1.747756,
+    "bytes_per_second": 142.01,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 1.211452,
+    "positions": 6,
+    "top1_percent": 83.3333,
+    "top5_percent": 100.0
+  },
+  "train_metrics_before": {
+    "bits_per_byte": 8.107068,
+    "bytes_per_second": 169.29,
+    "bytes_per_token": 1.0,
+    "nats_per_byte": 5.619391,
+    "positions": 6,
+    "top1_percent": 0.0,
+    "top5_percent": 0.0
+  },
+  "verified_replay_count": 6
+}

@@ -1,0 +1,65 @@
+name: Poincare Terminal-RSI verified CPU pilot
+
+on:
+  push:
+    paths:
+      - 'poincare_mirror/terminal_rsi/**'
+      - 'poincare_mirror/tests/test_terminal_rsi*.py'
+      - 'poincare_mirror/scripts/terminal_rsi_pilot.py'
+      - 'poincare_mirror/README_TERMINAL_RSI.md'
+      - '.github/workflows/poincare-terminal-rsi.yml'
+  workflow_dispatch:
+    inputs:
+      sft_steps:
+        description: 'Bounded toy verified SFT updates (1..1000)'
+        default: '80'
+        required: true
+      ppo_steps:
+        description: 'Bounded toy sampled PPO updates (1..1000)'
+        default: '32'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verified-toy-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'torch==2.6.0' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'numpy>=1.26,<3'
+      - name: Verify actor, critic, replay, rewards and fail-closed gates
+        working-directory: poincare_mirror
+        run: python -m unittest discover -s tests -p 'test_terminal_rsi*.py' -v
+      - name: Validate bounded update counts
+        env:
+          SFT: ${{ inputs.sft_steps || '80' }}
+          PPO: ${{ inputs.ppo_steps || '32' }}
+        run: |
+          [[ "$SFT" =~ ^[0-9]+$ && "$SFT" -ge 1 && "$SFT" -le 1000 ]] || exit 2
+          [[ "$PPO" =~ ^[0-9]+$ && "$PPO" -ge 1 && "$PPO" -le 1000 ]] || exit 2
+      - name: Train RSR + critic warmup + sampled RPR and evaluate disjoint toy tasks
+        env:
+          SFT: ${{ inputs.sft_steps || '80' }}
+          PPO: ${{ inputs.ppo_steps || '32' }}
+        run: |
+          python poincare_mirror/scripts/terminal_rsi_pilot.py \
+            --sft-steps "$SFT" --ppo-steps "$PPO" \
+            --out poincare_mirror/reports/terminal_rsi_toy_pilot.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terminal-rsi-toy-metrics
+          path: poincare_mirror/reports/terminal_rsi_toy_pilot.json
+          retention-days: 7
