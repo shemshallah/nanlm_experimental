@@ -1441,13 +1441,16 @@ class V3LM(nn.Module):
                     ).tolist()
                 object_events.append(event)
             next_sidecar = build_sidecar(ids[:, -max_ctx:])
-            if next_sidecar is not None and fired is not None:
+            if (
+                next_sidecar is not None and fired is not None
+                and next_sidecar.event_multi.shape[0] >= 2
+            ):
                 # ``fired`` describes the token that was just appended before
                 # this sidecar rebuild: it is the previous row (-2), not the
                 # new token row (-1).  Keep the deterministic tokenizer event
                 # and add the model's predicted event to the same position.
                 with torch.no_grad():
-                    row_index = -2 if next_sidecar.event_multi.shape[0] >= 2 else -1
+                    row_index = -2
                     row = next_sidecar.event_multi[row_index].to(
                         fired.device
                     )
