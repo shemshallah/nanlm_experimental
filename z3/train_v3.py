@@ -656,6 +656,7 @@ def evaluate(
     amp: bool,
     mtp_weight: float,
     sidecar_builder: Any = None,
+    task_id: int = -1,
 ) -> dict[str, Any]:
     """Evaluate on fixed windows; returns token-weighted metrics."""
     was_training = model.training
@@ -693,9 +694,16 @@ def evaluate(
         if sidecar is not None:
             sidecar = sidecar.to(device)
         xb = xb.to(device, non_blocking=True)
+        task_ids = (
+            torch.full(
+                (xb.size(0),), int(task_id), device=device, dtype=torch.long
+            )
+            if task_id >= 0 else None
+        )
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
-                xb, return_diagnostics=True, sidecar=sidecar
+                xb, return_diagnostics=True, sidecar=sidecar,
+                task_ids=task_ids,
             )
         if sidecar is not None and aux.get("composition_logits") is not None:
             comp_logits = aux["composition_logits"]
@@ -2392,12 +2400,14 @@ def main(argv: list[str] | None = None) -> int:
             val = evaluate(
                 model, source.eval_batches, device, amp, args.mtp_weight,
                 sidecar_builder=getattr(source, "build_sidecar", None),
+                task_id=args.task_id,
             )
             val_ema = (
                 evaluate(
                     ema_model, source.eval_batches, device, amp,
                     args.mtp_weight,
                     sidecar_builder=getattr(source, "build_sidecar", None),
+                    task_id=args.task_id,
                 )
                 if ema_model is not None else None
             )
