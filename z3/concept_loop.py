@@ -182,6 +182,7 @@ class SpanSidecar:
 
     @classmethod
     def from_text(cls, text: str, tokenizer: Any) -> "SpanSidecar":
+        tokenizer = getattr(tokenizer, "layered", tokenizer)
         return cls.from_encoding(tokenizer.encode(text, add_document_frame=False))
 
     @classmethod
@@ -244,6 +245,7 @@ class SpanSidecar:
                 _char_byte_offsets,
             )
 
+        tokenizer = getattr(tokenizer, "layered", tokenizer)
         ids = [int(x) for x in token_ids]
         text = tokenizer.subword.decode(ids)
         token_bytes = [tokenizer.subword.token_bytes[i] for i in ids]
