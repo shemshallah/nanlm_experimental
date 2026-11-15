@@ -968,31 +968,49 @@ class V3LM(nn.Module):
         route_ctx = self.route_init.to(dtype=x.dtype).unsqueeze(0).expand(
             x.shape[0], -1
         )
+        task_ctx = None
         if task_ids is not None and self.task_embedding is not None:
-            task_ctx = self.task_embedding(
+            embedded = self.task_embedding(
                 task_ids.to(device=tokens.device, dtype=torch.long)
             )
-            if task_ctx.ndim == 1:
-                route_ctx = route_ctx + task_ctx[:, None, :]
-            elif task_ctx.ndim == 2:
-                route_ctx = route_ctx + task_ctx
+            if embedded.ndim == 1:
+                task_ctx = embedded.unsqueeze(0)
+            elif embedded.ndim == 2:
+                task_ctx = embedded
             else:
-                route_ctx = route_ctx + task_ctx.mean(dim=1)
+                task_ctx = embedded.mean(dim=1)
+            task_ctx = task_ctx.to(dtype=x.dtype)
         concept_carry = None
         for layer_index, block in enumerate(self.blocks):
+            concept_route = (
+                route_ctx + task_ctx
+                if task_ctx is not None else route_ctx
+            )
             loop_ctx = None
             if self.concept_loop is not None:
                 _concept, _object_ctx, loop_ctx = self.concept_loop(
-                    x, sidecar, route_ctx, concept_carry
+                    x, sidecar, concept_route, concept_carry
                 )
                 concept_carry = self.concept_loop.last_carry
+            block_route = route_ctx
+            if task_ctx is not None:
+                if self.concept_loop is not None:
+                    # Task/domain conditioning is persistent in the concept
+                    # loop's router/attention state; it cannot wash out when
+                    # route feedback overwrites the initial route vector.
+                    loop_ctx = (
+                        task_ctx if loop_ctx is None
+                        else loop_ctx + task_ctx
+                    )
+                else:
+                    block_route = route_ctx + task_ctx
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
-                    block, x, route_ctx, loop_ctx, use_reentrant=False
+                    block, x, block_route, loop_ctx, use_reentrant=False
                 )
             else:
                 x, lb, z, route_ctx, block_aux = block(
-                    x, route_ctx, loop_ctx
+                    x, block_route, loop_ctx
                 )
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x

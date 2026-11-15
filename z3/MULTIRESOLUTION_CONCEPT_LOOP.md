@@ -287,7 +287,7 @@ Implemented in this integration:
 - `SpanSidecar` token↔byte↔word↔sentence↔math alignment
 - `SpanSidecar.from_token_ids` bridge for v4c bin batches
 - multi-row sidecar collation
-- `ConceptEncoder` word/sentence pooling and concept vectors
+- `ConceptEncoder` hierarchical subword → word → sentence pooling
 - shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
@@ -295,7 +295,7 @@ Implemented in this integration:
 - causal hard pointer stream with straight-through gradients
 - causal object-state recurrence along the token sequence
 - gated recurrent concept carry across all blocks
-- optional task/domain embedding in the initial route context
+- persistent task/domain embedding through concept state and every router
 - concept state fed into MTP branch context
 - MTP future-composition BCE through the shared structural head
 - MTP future-object-pointer CE through the shared vertex codebook

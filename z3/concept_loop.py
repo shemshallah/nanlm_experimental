@@ -390,7 +390,13 @@ class ConceptEncoder(nn.Module):
             return value.to(dtype=x.dtype)
 
         word, _ = _segment_pool(x, align_ids(sidecar.word_ids))
-        sent, _ = _segment_pool(x, align_ids(sidecar.sentence_ids))
+        word_ctx = self.word_proj(word)
+        # Sentence abstraction pools word-enriched states, not raw hidden
+        # states.  This makes the hierarchy genuinely recursive at the
+        # abstraction level.
+        sent, _ = _segment_pool(
+            x + word_ctx, align_ids(sidecar.sentence_ids)
+        )
         math_ids = align_ids(sidecar.math_kind).clamp(0, len(MATH_KINDS) - 1)
         event_ids = align_ids(sidecar.event_ids).clamp(0, len(EVENT_NAMES) - 1)
         math = self.math_embed(math_ids)
@@ -414,7 +420,7 @@ class ConceptEncoder(nn.Module):
             torch.cat(
                 [
                     x,
-                    self.word_proj(word),
+                    word_ctx,
                     self.sentence_proj(sent),
                     math + event,
                 ],
