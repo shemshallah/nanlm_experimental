@@ -1121,6 +1121,14 @@ class TripleStaged(tf.keras.Model):
             shape=(), initializer=tf.keras.initializers.Constant(-4.0),
             name="meta_self_gate",
         )
+        self.meta_cross_tower_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="meta_cross_tower_gate",
+        )
+        self.meta_cross_token_gate = self.add_weight(
+            shape=(), initializer=tf.keras.initializers.Constant(-4.0),
+            name="meta_cross_token_gate",
+        )
 
         self.meta_to_byte = tf.keras.layers.Dense(DIM_B)
         self.meta_to_word = tf.keras.layers.Dense(DIM_W)
@@ -1320,8 +1328,10 @@ class TripleStaged(tf.keras.Model):
                 meta_now
                 + 0.5 * meta_future
                 + concept_updated
-                + 0.5 * tf.reduce_mean(tower_updated, axis=1)
-                + 0.25 * tok_meta_updated
+                + tf.sigmoid(self.meta_cross_tower_gate)
+                * 0.5 * tf.reduce_mean(tower_updated, axis=1)
+                + tf.sigmoid(self.meta_cross_token_gate)
+                * 0.25 * tok_meta_updated
             )
             for l, block in enumerate(self.byte_blocks):
                 fb = self.meta_byte_layers[l](meta_feedback) * tf.sigmoid(
@@ -1433,7 +1443,7 @@ SIGNATURE = json.dumps({
     "meta_self_loop": True,
     "tokenizer_self_loop": True,
     "meta_concept_tokenizer_tokens": True,
-    "meta_cross_output_feedback": "tower+token+concept",
+    "meta_cross_output_feedback": "gated tower+token, direct concept",
     "sent_depth": SENT_DEPTH,
     "sent_weight": float(SENT_WEIGHT),
     "byte_chunk": BYTE_CHUNK,
