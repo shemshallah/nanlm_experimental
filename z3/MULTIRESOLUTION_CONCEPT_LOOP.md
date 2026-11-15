@@ -303,6 +303,7 @@ Implemented in this integration:
 - bits/byte telemetry from the tokenizer byte table
 - multi-label composition event head and BCE supervision
 - per-event composition threshold calibration for generation
+- stateful composition grammar filtering during generation
 - multi-label composition events consumed by the concept encoder
 - sidecar-aware trainer and evaluator
 - tokenizer-side incremental composition decoder

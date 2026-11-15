@@ -31,8 +31,8 @@ from torch.utils.checkpoint import checkpoint
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
     from .concept_loop import (
-        CompositionHead, CompositionTokenizer, ConceptLoop,
-        IncrementalCompositionDecoder, SpanSidecar,
+        CompositionHead, CompositionState, CompositionTokenizer,
+        ConceptLoop, IncrementalCompositionDecoder, SpanSidecar,
     )
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
@@ -40,8 +40,8 @@ try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
 except ImportError:  # pragma: no cover - script execution path
     from combinatorial_objects import CombinatorialMemory
     from concept_loop import (
-        CompositionHead, CompositionTokenizer, ConceptLoop,
-        IncrementalCompositionDecoder, SpanSidecar,
+        CompositionHead, CompositionState, CompositionTokenizer,
+        ConceptLoop, IncrementalCompositionDecoder, SpanSidecar,
     )
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
@@ -1002,7 +1002,11 @@ class V3LM(nn.Module):
                         task_ctx if loop_ctx is None
                         else loop_ctx + task_ctx
                     )
-                else:
+                elif layer_index == 0 or not getattr(
+                    block, "route_feedback", False
+                ):
+                    # With no concept loop, add the task to the first route
+                    # once; route feedback should preserve it thereafter.
                     block_route = route_ctx + task_ctx
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
@@ -1366,6 +1370,9 @@ class V3LM(nn.Module):
             if task_id is not None else None
         )
         sidecar = build_sidecar(ids[:, -max_ctx:])
+        structure = CompositionState()
+        if sidecar is not None:
+            structure.observe_multi(sidecar.event_multi[:-1])
         for _ in range(max_new_tokens):
             window = ids[:, -max_ctx:]
             logits, _mtp, aux = self(
@@ -1395,9 +1402,16 @@ class V3LM(nn.Module):
                             "per composition event"
                         )
                     fired = probs > thresholds
+                fired_list = fired[0].tolist()
+                if sidecar is not None:
+                    fired_list = structure.filter(fired_list)
+                    fired = torch.tensor(
+                        [fired_list], device=fired.device,
+                        dtype=torch.bool,
+                    )
                 events.append(
                     [
-                        idx for idx, value in enumerate(fired[0].tolist())
+                        idx for idx, value in enumerate(fired_list)
                         if value
                     ]
                 )
@@ -1441,6 +1455,12 @@ class V3LM(nn.Module):
                         row, fired[0].to(row.dtype)
                     ).detach().cpu()
                     next_sidecar.event_multi[row_index] = fused
+                    structure.observe_multi(fused)
+            elif fired is not None:
+                structure.observe_events(
+                    idx for idx, value in enumerate(fired[0].tolist())
+                    if value
+                )
             sidecar = next_sidecar
         if decoder is not None:
             composition = None

@@ -552,6 +552,58 @@ class CompositionCalibrator:
         return result
 
 
+@dataclass
+class CompositionState:
+    """Minimal structural grammar for generated composition events."""
+
+    word_open: bool = False
+    math_open: bool = False
+
+    def observe_id(self, event_id: int) -> None:
+        if event_id == EVENT_IDS["<word_start>"]:
+            self.word_open = True
+        elif event_id == EVENT_IDS["<word_end>"]:
+            self.word_open = False
+        elif event_id == EVENT_IDS["<math_start>"]:
+            self.math_open = True
+        elif event_id == EVENT_IDS["<math_end>"]:
+            self.math_open = False
+
+    def observe_events(self, event_ids: Iterable[int]) -> None:
+        for event_id in event_ids:
+            self.observe_id(int(event_id))
+
+    def observe_multi(self, event_multi: torch.Tensor) -> None:
+        value = event_multi
+        if value.ndim == 1:
+            value = value.unsqueeze(0)
+        for row in value.detach().cpu().tolist():
+            for event_id, fired in enumerate(row):
+                if fired > 0.5:
+                    self.observe_id(event_id)
+
+    def filter(self, fired: Sequence[bool]) -> list[bool]:
+        out = [bool(value) for value in fired]
+        if len(out) != len(EVENT_NAMES):
+            return out
+        start = EVENT_IDS["<word_start>"]
+        end = EVENT_IDS["<word_end>"]
+        math_start = EVENT_IDS["<math_start>"]
+        math_end = EVENT_IDS["<math_end>"]
+        compose = EVENT_IDS["<compose>"]
+        if out[end] and not self.word_open and not out[start]:
+            out[end] = False
+        if out[start] and self.word_open and not out[end]:
+            out[start] = False
+        if out[math_end] and not self.math_open and not out[math_start]:
+            out[math_end] = False
+        if out[math_start] and self.math_open and not out[math_end]:
+            out[math_start] = False
+        if out[compose] and not (self.word_open or out[end]):
+            out[compose] = False
+        return out
+
+
 class CompositionHead(nn.Module):
     """Predict a structural composition event at each token position."""
 
