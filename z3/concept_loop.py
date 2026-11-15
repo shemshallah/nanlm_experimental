@@ -519,6 +519,7 @@ class ConceptLoop(nn.Module):
         x: torch.Tensor,
         sidecar: SpanSidecar | None,
         route_ctx: torch.Tensor,
+        carry: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         concept, global_ctx = self.encoder(x, sidecar)
         object_ctx, object_aux = self.object_memory(x + concept)
@@ -534,10 +535,14 @@ class ConceptLoop(nn.Module):
         # Return only the concept/object contribution.  The block adds the
         # route context separately; including it here double-counted the
         # router state on every layer.
-        loop_ctx = self.state_norm(
+        update = (
             self.concept_to_state(global_ctx)
             + self.object_to_state(object_ctx.mean(dim=1))
         )
+        loop_ctx = self.state_norm(
+            update if carry is None else carry + update
+        )
+        self.last_carry = loop_ctx
         return concept, object_ctx, loop_ctx
 
 

@@ -958,12 +958,14 @@ class V3LM(nn.Module):
         route_ctx = self.route_init.to(dtype=x.dtype).unsqueeze(0).expand(
             x.shape[0], -1
         )
+        concept_carry = None
         for layer_index, block in enumerate(self.blocks):
             loop_ctx = None
             if self.concept_loop is not None:
                 _concept, _object_ctx, loop_ctx = self.concept_loop(
-                    x, sidecar, route_ctx
+                    x, sidecar, route_ctx, concept_carry
                 )
+                concept_carry = self.concept_loop.last_carry
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
                     block, x, route_ctx, loop_ctx, use_reentrant=False

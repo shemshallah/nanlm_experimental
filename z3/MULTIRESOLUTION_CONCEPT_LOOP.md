@@ -305,6 +305,7 @@ Implemented in this integration:
 - shared 256-vertex / `C(256,2)` / `C(256,3)` object memory
 - deterministic 256-vertex byte-concept seed
 - per-layer concept → object → route context → attention → MoE feedback
+- recurrent concept carry across all blocks
 - concept state fed into MTP branch context
 - multi-label composition event head and BCE supervision
 - sidecar-aware trainer and evaluator
