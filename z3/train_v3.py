@@ -2010,6 +2010,14 @@ def main(argv: list[str] | None = None) -> int:
         source.info["corpus_task_ids"] = (
             task_values if args.domain_mixture else None
         )
+        # Bytes/token is independent of the concept sidecar.  Compute it for
+        # every layered text run so the no-concept ablation still reports BPB.
+        layered = getattr(tokenizer, "layered", None)
+        subword = getattr(layered, "subword", None)
+        if subword is not None:
+            _set_bytes_per_token(source, subword, source.ids)
+        elif args.tokenizer == "bytes":
+            source.info["bytes_per_token"] = 1.0
         print(
             f"[data] tokenizer={args.tokenizer} vocab={vocab_size} "
             f"tokens={n_tokens:,} train={split:,} val={n_tokens - split:,} "
