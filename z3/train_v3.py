@@ -1943,6 +1943,11 @@ def main(argv: list[str] | None = None) -> int:
         source.info["corpus"] = [str(Path(p).expanduser()) for p in args.corpus]
         source.info["val_corpus"] = str(Path(args.val_corpus).expanduser())
         source.info["tokenizer"] = "bin"
+        # Bin training still needs bytes/token for the frontier metric even
+        # when the concept sidecar is disabled (e.g. the no-concept ablation).
+        from layered_tokenizer import load_artifact
+        bin_tokenizer = load_artifact(Path(args.layered_model).expanduser())
+        _set_bytes_per_token(source, bin_tokenizer.subword, source.ids)
         print(
             f"[data] tokenizer=bin vocab={vocab_size} "
             f"train={len(token_ids):,} val={len(val_ids):,} ctx={args.ctx}",
