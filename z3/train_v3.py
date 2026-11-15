@@ -1090,6 +1090,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="future MTP structural-event BCE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
                        help="auxiliary C(256,2) object-pointer CE weight")
+    train.add_argument("--mtp-object-pointer-weight", type=float, default=0.01,
+                       help="future MTP object-pointer CE weight")
     train.add_argument("--task-id", type=int, default=-1,
                        help="domain/task id broadcast to every batch (-1 off)")
     train.add_argument("--mtp-weight", type=float, default=0.3,
@@ -2134,6 +2136,7 @@ def main(argv: list[str] | None = None) -> int:
                 loss = loss + args.composition_weight * composition_loss
             pointer_loss = None
             core = _model_core(model)
+            mtp_pointer_loss = None
             if (
                 aux.get("object_pointer_logits") is not None
                 and getattr(core.concept_loop, "last_object_vertices", None)
@@ -2155,6 +2158,47 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     )
                     loss = loss + args.object_pointer_weight * pointer_loss
+            if (
+                getattr(core, "concept_loop", None) is not None
+                and getattr(core.concept_loop, "last_object_vertices", None)
+                is not None
+                and aux.get("mtp_object_pointer_logits")
+            ):
+                target_vertices = core.concept_loop.last_object_vertices
+                if target_vertices.shape[2] > 0:
+                    future_pointer_losses = []
+                    for lag, ptr in zip(
+                        aux.get("mtp_object_pointer_lags") or [],
+                        aux["mtp_object_pointer_logits"],
+                    ):
+                        target_len = xb.size(1) - int(lag)
+                        if target_len <= 0:
+                            continue
+                        future_target = target_vertices[:, int(lag):, 0, :]
+                        future_pointer_losses.append(
+                            0.5 * (
+                                F.cross_entropy(
+                                    ptr[:, :target_len, 0].reshape(
+                                        -1, ptr.size(-1)
+                                    ),
+                                    future_target[:, :, 0].long().reshape(-1),
+                                )
+                                + F.cross_entropy(
+                                    ptr[:, :target_len, 1].reshape(
+                                        -1, ptr.size(-1)
+                                    ),
+                                    future_target[:, :, 1].long().reshape(-1),
+                                )
+                            )
+                        )
+                    if future_pointer_losses:
+                        mtp_pointer_loss = torch.stack(
+                            future_pointer_losses
+                        ).mean()
+                        loss = loss + (
+                            args.mtp_object_pointer_weight
+                            * mtp_pointer_loss
+                        )
             loss_value = float(loss.detach())
 
         amp_skip = False
@@ -2259,6 +2303,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "object_pointer": (
                 _finite(pointer_loss) if pointer_loss is not None else None
+            ),
+            "mtp_object_pointer": (
+                _finite(mtp_pointer_loss)
+                if mtp_pointer_loss is not None else None
             ),
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),

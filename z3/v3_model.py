@@ -1038,6 +1038,7 @@ class V3LM(nn.Module):
         mtp_block_lb: list[torch.Tensor] = []
         mtp_block_rz: list[torch.Tensor] = []
         mtp_composition_logits: list[torch.Tensor] = []
+        mtp_object_pointer_logits: list[torch.Tensor] = []
         if self.mtp_blocks:
             # Predicted t+1 distribution.  This is a distribution in both
             # train and eval; ground truth is only ever a soft teacher term.
@@ -1139,6 +1140,15 @@ class V3LM(nn.Module):
                     mtp_composition_logits.append(
                         self.composition_head(branch)
                     )
+                if self.concept_loop is not None:
+                    # Future object identity is a shared codebook query, not
+                    # another dense object vocabulary.
+                    mtp_object_pointer_logits.append(
+                        self.concept_loop.object_pointer(branch).view(
+                            branch.shape[0], branch.shape[1], 2,
+                            self.concept_loop.vertices,
+                        )
+                    )
                 if block_aux:
                     if block_aux.get("load_balance") is not None:
                         mtp_block_lb.append(block_aux["load_balance"])
@@ -1232,6 +1242,13 @@ class V3LM(nn.Module):
                     mtp_composition_logits.append(
                         self.composition_head(hidden)
                     )
+                if self.concept_loop is not None:
+                    mtp_object_pointer_logits.append(
+                        self.concept_loop.object_pointer(hidden).view(
+                            hidden.shape[0], hidden.shape[1], 2,
+                            self.concept_loop.vertices,
+                        )
+                    )
                 head = self.mtp_heads[idx] if self.mtp_heads else None
                 mtp.append(self.mtp_head_logits(head, hidden))
             gate_loss = None
@@ -1262,6 +1279,11 @@ class V3LM(nn.Module):
                 aux["mtp_composition_lags"] = [
                     2 + idx for idx in range(len(mtp_composition_logits))
                 ]
+        if mtp_object_pointer_logits:
+            aux["mtp_object_pointer_logits"] = mtp_object_pointer_logits
+            aux["mtp_object_pointer_lags"] = [
+                2 + idx for idx in range(len(mtp_object_pointer_logits))
+            ]
         if self.concept_loop is not None and hasattr(
             self.concept_loop, "last_object_ids"
         ):
