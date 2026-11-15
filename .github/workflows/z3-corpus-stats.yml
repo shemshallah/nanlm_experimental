@@ -1,0 +1,39 @@
+name: Z3 corpus character statistics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download the exact WikiText-2 splits
+        run: |
+          mkdir -p data
+          curl -L --retry 3 --fail -o data/train.txt \
+            https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/train.txt
+          curl -L --retry 3 --fail -o data/valid.txt \
+            https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/valid.txt
+      - name: Count normalized characters and bytes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for split in ("train", "valid"):
+              # Match prepare_cpu_bins.py: text mode (universal newlines)
+              text = Path(f"data/{split}.txt").read_text(
+                  encoding="utf-8", errors="ignore"
+              )
+              raw = text.encode("utf-8")
+              print({
+                  "split": split,
+                  "chars": len(text),
+                  "bytes": len(raw),
+                  "bytes_per_char": len(raw) / max(1, len(text)),
+                  "non_ascii_chars": sum(ord(ch) > 127 for ch in text),
+              })
+          PY
