@@ -9,6 +9,7 @@
 - `verbatim_metrics.py`: exact archived 256-candidate scoring mathematics, but wrapper-aware, passing all six causal features and four local-copy fields. This fixes the silent feature omission caused by the old scorer's `isinstance(V103ParityGPUFullSystem)` test.
 - `verbatim_c256.py`: frozen C 256-way DEV distribution oracle; reports true C-vs-GPU numeric discrepancies when the original C oracle file is available.
 - `run_original_v103.py`: **direct executable, unmodified original training path**. Invokes the archived `legacy_v103_reference.main()` through a fresh CPU-only worker, restores the historical `.pt` and two Adam groups in the original source itself, and writes a new candidate. Detects historical frozen-C DEV and full-256 reference digests, requiring the corresponding exact reference files instead of silently dropping them. Synthetic native-main end-to-end CI replay compares resumed weights, Adam moments and verified terminal feedback.
+- `benchmark_original_cpu.py`: read-only original trained-weight CPU benchmark on the SAME book-disjoint DEV. Checks checkpoint/train/BPE/feature/DEV SHA, reads the exact old model, scores full-bit BPB and 256-way top-1/top-5, leaves weights and online state unchanged. Optional frozen-C matched comparisons require the original C reference files.
 - `train_verbatim.py`: canonical expanded book-disjoint DEV CPU-first entry point for one shared training path and full-cycle sampler, original online state changes **after each Adam step**, original terminal verifier+actor/critic feedback, reproducible checkpoints.
 - `migrate_verbatim.py`: explicit capacity growth while preserving original v103 tensors and **both** old AdamW groups. New neural heads, attention, feedback and optimizers have structured partial migrations, with changed-width DEV reacceptance required.
 
@@ -43,6 +44,19 @@ python -m terminal_rsi.train_verbatim \
   --output "/path/to/Terminal_RSI/verbatim_cpu_candidate.pt" \
   --seconds 0 --batch 4 --max-dev-positions 8
 ```
+
+To get real, **read-only trained-weight DEV benchmarks** (this is what reports actual performance rather than a synthetic test):
+
+```bash
+python -m terminal_rsi.benchmark_original_cpu \\
+  --checkpoint "/path/to/Terminal_RSI/terminal_rsi_gpu_v103_full.pt" \\
+  --train-stream "/path/to/original_10m_train_stream.bin" \\
+  --dev-bin "/path/to/original_win_dev.bin" \\
+  --bpe-merges terminal_rsi/reference/nancm_v103_bpe.txt \\
+  --topk-probes 512
+```
+
+The full DEV set is included in BPB/bit accuracy; the top-1/top-5 metrics use a declared, reproducible 512-history sample with complete 256-way probabilities. The private `.pt` and 10M train stream are **not** present on the public GitHub CPU runner; the CI synthetic-checkpoint score is a functional benchmark test and is **not** a real-weight quality claim. `hybrid_latest.pt` in Drive is a separate WordNet hybrid architecture and is explicitly rejected by this original-v103 benchmark.
 
 For *literal execution* of the untouched original v103 CPU training loop (rather than the expanded wrapper), run:
 
