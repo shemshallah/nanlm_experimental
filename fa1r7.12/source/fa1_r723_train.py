@@ -17,7 +17,9 @@ from r710_checkpoint_integrity import sha256,deep_equal
 
 def prepare(a,m,base,comp,split,n,seed):
     with torch.no_grad():
-        data=gather_joint(a.root,m,base,comp,split,n,seed,batch=a.batch,corpus_dir=a.corpus_dir)
+        data=gather_joint(
+            a.root,m,base,comp,split,n,seed,batch=a.batch,corpus_dir=a.corpus_dir,
+            position_selector=getattr(a,'r753_position_selector',None))
         extras=diamond_context(a.root,base,split,data['positions'],data['hidden'],a.corpus_dir)
     data.update(extras)
     # Preserve whole-book identity alongside the sampled examples. R7.24-26

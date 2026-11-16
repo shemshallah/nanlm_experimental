@@ -23,8 +23,11 @@ from fa1_r721_unified import load_candidate,trainable_memory_only,write_candidat
 
 
 @torch.no_grad()
-def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None):
-    corpus=Corpus(root,split,corpus_dir=corpus_dir);positions=np.sort(pick_positions(corpus,n,seed))
+def gather_joint(root,model,base,comp,split,n,seed,batch=8,corpus_dir=None,
+                 position_selector=None):
+    corpus=Corpus(root,split,corpus_dir=corpus_dir)
+    selector=position_selector if position_selector is not None else pick_positions
+    positions=np.sort(selector(corpus,n,seed))
     stream=DirectedStreaming(model.core)
     allb=[];allhidden=[];alltarget=[];nf=[];npb=[];nc=[];ff=[];fp=[];fc=[]
     modal_ids=[];modal_mask=[]
