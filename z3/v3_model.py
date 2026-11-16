@@ -1178,21 +1178,7 @@ class V3LM(nn.Module):
                         mtp_context + scaled_loop
                         if mtp_context is not None else scaled_loop
                     )
-                if (
-                    self.cfg.concept_router_tokens
-                    and token_ctx is not None
-                ):
-                    scaled_tokens = (
-                        float(self.cfg.concept_loop_scale) * token_ctx
-                    )
-                    if mtp_context is None:
-                        mtp_context = scaled_tokens
-                    elif mtp_context.ndim == 2:
-                        mtp_context = (
-                            mtp_context[:, None, :] + scaled_tokens
-                        )
-                    else:
-                        mtp_context = mtp_context + scaled_tokens
+
                 if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                     branch, block_aux = checkpoint(
                         self.mtp_blocks[idx],
