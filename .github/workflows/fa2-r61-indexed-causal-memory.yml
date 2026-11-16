@@ -1,0 +1,41 @@
+name: FA2 R61 - Indexed Causal Mirror Memory Parity
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/indexed_pair_successor.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/train_r55_pair_successor.py'
+      - 'poincare_mirror/tests/test_r61_indexed_memory.py'
+      - '.github/workflows/fa2-r61-indexed-causal-memory.yml'
+  workflow_dispatch:
+
+jobs:
+  streaming-causal-index-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile all FA2 source
+        run: python -m compileall -q poincare_mirror
+      - name: R61 all-mode indexed vs vectorized parity and restart
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r61_indexed_memory.py' -v
+      - name: R54-R60 compatibility
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r55_pair_successor_train.py' -v
+          python -m unittest discover -s tests -p 'test_r58_conditional_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r59_compound_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r60_hierarchical_compound.py' -v
+
+# Source-only and synthetic parity. No R61 full checkpoint or book-disjoint DEV.

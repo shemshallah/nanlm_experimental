@@ -11,7 +11,8 @@ from torch import nn
 
 def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
                              query_map=None, value_control="exact",
-                             key_mode="pair", query_byte_map=None):
+                             key_mode="pair", query_byte_map=None,
+                             engine="vectorized"):
     """Return B,T,V next-byte histograms, B,T edge coverage, B,T hit positions.
 
     The wrong-value control preserves matched locations and coverage. R59
@@ -25,6 +26,10 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
         raise ValueError("Pair addresses and observed bytes must use torch.long")
     if pair_ids.device != observed.device:
         raise ValueError("Addresses and bytes must use the same device")
+    if engine not in ("vectorized","indexed"):
+        raise ValueError("Unknown causal retrieval engine")
+    if engine == "indexed" and pair_ids.device.type != "cpu":
+        raise ValueError("Indexed causal retrieval is CPU-only")
     if (horizon < 1 or vocab < 2 or value_control not in ("exact", "rotated")
             or key_mode not in ("pair", "pair_byte", "pair_bigram",
                                 "head_byte", "hierarchical")):
@@ -45,6 +50,11 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
     if query_byte_map is not None and torch.any(
             (query_byte_map < 0) | (query_byte_map >= vocab)):
         raise ValueError("Query byte remapping exceeds vocabulary")
+    if engine == "indexed":
+        from indexed_pair_successor import retrieve_indexed_pair_successors
+        return retrieve_indexed_pair_successors(
+            pair_ids,observed,horizon,vocab,query_map,value_control,
+            key_mode,query_byte_map)
     previous = torch.cat((observed[:, :1], observed[:, :-1]), dim=1)
     # R60: O(32640) canonical-index lookup; evaluated only for coarse keys.
     # The exact canonical encoding is a*(511-a)//2 + b-a-1 for a<b.
@@ -151,6 +161,7 @@ class PairSuccessorTrust(nn.Module):
         self.joint_value_control = 'exact'
         self.joint_query_byte_map = None
         self.joint_key_mode = 'pair_byte'
+        self.read_engine = "vectorized"
 
     def enable_conditional_content(self):
         """Add one zero-init tensor to the SAME module; older outputs are exact."""
@@ -173,7 +184,8 @@ class PairSuccessorTrust(nn.Module):
         with torch.no_grad():
             copy, coverage, positions = retrieve_pair_successors(
                 pairs, observed, self.horizon, vocab, query_map, value_control,
-                key_mode=key_mode, query_byte_map=query_byte_map)
+                key_mode=key_mode, query_byte_map=query_byte_map,
+                engine=self.read_engine)
             log_evidence = (copy * (1-self.smoothing) + self.smoothing/vocab).log()
             log_evidence = log_evidence + math.log(vocab)
             entropy = -(copy*copy.clamp_min(1e-12).log()).sum(-1)/math.log(vocab)

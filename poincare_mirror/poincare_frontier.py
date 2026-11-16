@@ -205,7 +205,8 @@ class Config:
     pair_successor_copy: bool = False  # R54 opt-in exact-pair causal successor memory
     pair_successor_conditional: bool = False  # R58 mass-preserving non-space successor expert
     pair_successor_joint: bool = False  # R59 causal compound (pair, observed-byte) content rail
-    pair_successor_key_mode: str = "pair_byte"  # R60 optional exact-to-head causal backoff
+    pair_successor_key_mode: str = "pair_byte"  # R60 exact-to-head backoff
+    pair_successor_engine: str = "vectorized"  # R61 optional indexed causal CPU execution
 
     def check(self):
         if self.legacy_attention_dim:
@@ -247,6 +248,7 @@ class Config:
         assert not self.pair_successor_joint or self.pair_successor_conditional
         assert self.pair_successor_key_mode in ("pair_byte","pair_bigram",
                                                 "head_byte","hierarchical")
+        assert self.pair_successor_engine in ("vectorized","indexed")
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -1310,6 +1312,7 @@ class MirrorLM(nn.Module):
             if cfg.pair_successor_copy else None)
         if self.pair_successor is not None:
             self.pair_successor.joint_key_mode = cfg.pair_successor_key_mode
+            self.pair_successor.read_engine = cfg.pair_successor_engine
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank,
                                                    cfg.reciprocal_content_trust)

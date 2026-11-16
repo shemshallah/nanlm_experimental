@@ -343,6 +343,9 @@ def main():
     p.add_argument('--joint-key-mode', default='pair_byte',
                    choices=('pair_byte','pair_bigram','head_byte','hierarchical'),
                    help='R60: exact-key or shared-head causal geometric backoff')
+    p.add_argument('--retrieval-engine', default='vectorized',
+                   choices=('vectorized','indexed'),
+                   help='R61 CPU indexed predecessor lookup; parity-checked before training')
     p.add_argument('--bootstrap', type=int, default=2000)
     p.add_argument('--seed', type=int, default=2026)
     p.add_argument('--threads', type=int, default=2)
@@ -400,6 +403,17 @@ def main():
                 raise AssertionError('R59 zero-init migration changed inherited logits')
     if model.pair_successor is None:
         raise AssertionError('Successor gate not attached')
+    parity_difference = 0.0
+    if args.retrieval_engine == 'indexed':
+        with torch.no_grad():
+            parity_input = torch.tensor([[65,32,66,67,65,32,66,67]],dtype=torch.long)
+            before_engine = model(parity_input)[0]
+            model.pair_successor.read_engine = 'indexed'
+            model.cfg.pair_successor_engine = 'indexed'
+            after_engine = model(parity_input)[0]
+            parity_difference = (before_engine-after_engine).abs().max().item()
+            if not torch.allclose(before_engine,after_engine,atol=2e-5,rtol=0):
+                raise AssertionError('R61 CPU-indexed engine diverged from vectorized FA2')
     for name, param in model.named_parameters():
         param.requires_grad_(name == ('pair_successor.joint_weight' if args.joint_content
                                       else 'pair_successor.content_weight'
@@ -492,6 +506,8 @@ def main():
                                if args.joint_content else None),
         'joint_key_mode':(model.cfg.pair_successor_key_mode if args.joint_content
                           else None),
+        'causal_retrieval_engine':model.cfg.pair_successor_engine,
+        'engine_migration_max_logit_diff':parity_difference,
         'dev_retrieval_coverage':coverage_audit,
         'lineage':lineage,'results':results,'comparisons':paired,
         'dev_screen_pass':passed,'promoted':False,
