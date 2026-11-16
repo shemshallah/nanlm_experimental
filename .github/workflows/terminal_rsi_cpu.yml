@@ -33,9 +33,15 @@ jobs:
           python -m unittest terminal_rsi.test_v103_parity -v
           python -m unittest terminal_rsi.test_restore_win_dev -v
           python -m unittest terminal_rsi.test_build_fresh_dev -v
+          python -m unittest terminal_rsi.test_blackwell_preflight -v
           python -m unittest terminal_rsi.test_original_runner -v
           python -m unittest terminal_rsi.test_original_end_to_end -v
           python -m unittest terminal_rsi.test_verbatim_training -v
           python -m unittest terminal_rsi.test_migrate_verbatim -v
+      - name: Measured shared CPU v103 RSI training-step throughput
+        run: |
+          python -m terminal_rsi.benchmark_cpu_steps --history 32 --batch 2 --warmup 1 --steps 3 --threads 2
+          python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --warmup 1 --steps 3 --threads 2
+          python -m terminal_rsi.plan_blackwell --physical-gib 96
       - name: Existing standalone Terminal-RSI regressions
         run: python -m unittest discover -s terminal_rsi/tests -v
