@@ -117,7 +117,18 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
         source.get("configuration", {}).get("causal_copy_enabled", False))
     old_groups = source["optimizer"]["param_groups"]
     old_ids = [pid for group in old_groups for pid in group["params"]]
-    old_names = [name for name, _ in model.original.named_parameters()]
+    declared_names = [name for name, _ in model.original.named_parameters()]
+    # PyTorch enumerates direct v103_emit before registered modules; the
+    # ORIGINAL two-group notebook filters all parameters by name prefix.
+    # Flat optimizer ID ↔ named_parameter zip silently misplaces Adam moments.
+    base_names = [n for n in declared_names if not n.startswith("v103_")]
+    v103_names = [n for n in declared_names if n.startswith("v103_")]
+    if len(old_groups) == 2:
+        if [len(g["params"]) for g in old_groups] != [len(base_names), len(v103_names)]:
+            raise ValueError("Original two-group sizes do not match verbatim v103 source")
+        old_names = base_names + v103_names
+    else:
+        old_names = declared_names
     if len(old_ids) != len(old_names) or len(set(old_ids)) != len(old_ids):
         raise ValueError("Original v103 model and grouped Adam parameter order mismatch")
     # The original checkpoint may have one group (v1) or the ACTUAL v103
@@ -146,11 +157,6 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
     if len(old_groups) == 2:
         if len(optimizer.param_groups) != 3:
             raise ValueError("Historical v103 needs TWO original Adam groups + upgrade group; use build_v103_optimizer")
-        split = len(old_groups[0]["params"])
-        expected_first = [n for n in old_names if not n.startswith("v103_")]
-        expected_second = [n for n in old_names if n.startswith("v103_")]
-        if old_names[:split] != expected_first or old_names[split:] != expected_second:
-            raise ValueError("Original v103 group ordering differs from archived training source")
         for idx, group in enumerate(old_groups):
             target = current["param_groups"][idx]
             for key, value in group.items():
