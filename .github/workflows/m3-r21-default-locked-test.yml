@@ -1,0 +1,50 @@
+name: M3 R21 canonical online default frozen TEST
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_default/**'
+      - 'm3_r21/**'
+      - '.github/workflows/m3-r21-default-locked-test.yml'
+  workflow_dispatch:
+
+jobs:
+  online-frozen-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Check all frozen-ancestry and online default parity tests
+        run: |
+          python -m unittest discover -s m3_r17 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r18 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r19 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r20 -p 'test_*.py' -v
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r21 -p 'test_*.py' -v
+      - name: Recover exact SHA-256-verified NaNROUTER corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r21_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r21_corpus
+          cd /tmp/m3_r21_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: One-shot 24-book frozen M3 default independent TEST
+        run: |
+          python -m m3_r21.locked_default_test \
+            --corpus-root /tmp/m3_r21_corpus \
+            --output m3_r21/results/R21_NaNROUTER_TEST.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r21-canonical-default-independent-test
+          path: m3_r21/results/R21_NaNROUTER_TEST.json
+          if-no-files-found: warn
