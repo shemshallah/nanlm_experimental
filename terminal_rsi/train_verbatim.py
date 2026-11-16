@@ -31,6 +31,7 @@ from .legacy_v103_reference import (
 from .unified import PRESETS, device_for
 from .verbatim_metrics import byte_metrics_wrapped
 from .legacy_v103_local_copy import book_local_features
+from .verbatim_c256 import compare_c256_wrapped
 from .verbatim_v103 import (
     VerbatimV103RSI, build_v103_optimizer, restore_v103_parent,
     exact_parent_parity, save_combined, resume_combined,
@@ -186,6 +187,12 @@ def main(argv=None):
                                   topk_n=args.max_dev_positions, auxiliary=dev_aux,
                                   local=dev_local)
     print("DEV before:", before)
+    c256_before = (compare_c256_wrapped(
+        model, dev, args.reference_full256, auxiliary=dev_aux,
+        local=dev_local, probe_count=min(16, args.max_dev_positions))
+        if args.reference_full256 else None)
+    if c256_before is not None:
+        print("Original C full256 numerical parity BEFORE:", c256_before)
     clock = time.monotonic()
     while time.monotonic() - clock < args.seconds:
         indices = coverage_indices(sampler["cursor"], args.batch,
@@ -205,12 +212,20 @@ def main(argv=None):
     after = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
                                  local=dev_local)
+    c256_after = (compare_c256_wrapped(
+        model, dev, args.reference_full256, auxiliary=dev_aux,
+        local=dev_local, probe_count=min(16, args.max_dev_positions))
+        if args.reference_full256 else None)
+    if c256_after is not None:
+        print("Original C full256 numerical parity AFTER:", c256_after)
     receipt = {"mode": args.mode, "legacy_step": provenance["legacy_step"],
                "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"])),
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
                "book_disjoint_dev_digest": dev_digest,
+               "original_c256_parity_before": c256_before,
+               "original_c256_parity_after": c256_after,
                "test_untouched": True,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
     provenance["sampler"] = sampler
