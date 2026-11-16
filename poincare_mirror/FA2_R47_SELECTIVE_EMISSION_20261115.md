@@ -4,8 +4,10 @@
 
 ## Verified research starting point
 
-The previously reported R46 DEV comparison used 12 whole NaNROUTER books and
-12,288 matched byte predictions per configuration. A JSON transcription of
+The previously reported R46 DEV comparison sampled 8 causal windows from
+each of 12 disjoint whole NaNROUTER DEV books: 12,288 matched prediction
+positions per configuration. **This is not exhaustive full-book scoring.**
+A JSON transcription of
 the **user-provided summary**, with its precise provenance, is preserved at
 `reports/fa2_r46_reported_dev_metrics.json`.
 
@@ -65,15 +67,19 @@ Six fixed configurations are evaluated on exactly the same causal windows:
 | `early_only` | 1, 1, 1, 0, 0, 0 |
 | `late_only` | 0, 0, 0, 1, 1, 1 |
 
-The program checks the DEV split hash, whole-book boundaries, model/data
+The program checks the DEV split and manifest hashes, whole-book boundaries, model/data
 manifest equality and context bounds. Each arm outputs next/+2/+3 CE,
 top-1, top-5, space and non-space CE/accuracy; bits/byte are exactly
 `CE / ln(2)` for literal bytes. Pairwise book-resampled confidence intervals
-are Bonferroni-adjusted across the five prespecified alternatives. The new
+are Bonferroni-adjusted across five alternatives to the full or coupling-only
+reference. The protected-parent comparison includes all six emission arms,
+so its interval uses a six-arm correction. The new
 report distinguishes **bits per byte/EOS target** (`CE / ln(2)`) from **bits
 per literal byte**, which removes EOS targets from the denominator; it also
 reports actual raw bytes/token. Earlier R46 summaries used CE/ln(2) for their
 published bits/byte column and must be compared on that same convention.
+The confidence intervals resample books as clusters of sampled windows;
+they do not imply that every position of each book was evaluated.
 
 ```bash
 cd poincare_mirror

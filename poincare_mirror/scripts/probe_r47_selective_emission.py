@@ -126,6 +126,13 @@ def main():
     meta = load_meta(args.data_dir)
     if meta.get('split_unit') != 'whole_book' or meta.get('unit') != 'UTF8_bytes_plus_eos':
         raise ValueError('FA2 R47 requires whole-book literal-byte provenance')
+    manifest_sha = meta.get('split_manifest_sha256')
+    if not manifest_sha or file_hash(args.data_dir / 'split_manifest.json') != manifest_sha:
+        raise ValueError('Whole-book split manifest is missing or has changed')
+    candidate_hash = file_hash(args.checkpoint)
+    parent_hash = file_hash(args.parent) if args.parent else None
+    if parent_hash is not None and parent_hash == candidate_hash:
+        raise ValueError('Candidate and protected parent cannot be the same checkpoint')
     valid = args.data_dir / 'valid.bin'
     expected = meta.get('valid_sha256') or meta.get('bin_valid_sha256')
     if not expected or file_hash(valid) != expected:
@@ -153,8 +160,11 @@ def main():
         parent_rows = measure_books(parent, mem, starts, args.context, args.batch)
         parent_step = parent_saved['step']
 
-    # One Bonferroni family for the five prespecified alternate emissions.
-    family_size = len(variants)-1
+    # Five nonreference schedules compete with the full or coupling-only
+    # reference. All SIX schedules compete with the protected parent, so
+    # that comparison requires a six-arm family-wise correction.
+    reference_family_size = len(variants)-1
+    parent_family_size = len(variants)
     results = {}
     for label, rows in measured.items():
         means = {key: float(np.mean([row[key] for row in rows]))
@@ -166,28 +176,36 @@ def main():
                         'bits_per_literal_byte': means['ce_1']*predictions/raw_bytes/np.log(2.),
                         'bytes_per_token': raw_bytes/predictions},
             'vs_full': book_comparison(measured['full'], rows, args.bootstrap,
-                                       args.seed, family_size),
+                                       args.seed, reference_family_size),
             'vs_coupling_only': book_comparison(measured['coupling_only'], rows,
-                                                args.bootstrap, args.seed, family_size),
+                                                args.bootstrap, args.seed,
+                                                reference_family_size),
         }
         if parent_rows is not None:
             results[label]['vs_parent'] = book_comparison(
-                parent_rows, rows, args.bootstrap, args.seed, family_size)
+                parent_rows, rows, args.bootstrap, args.seed, parent_family_size)
             results[label]['diagnostic_gate_vs_parent'] = diagnostic_gate(
                 results[label]['vs_parent'])
     report = {
         'status': 'read_only_DEV_diagnostic_not_a_promotion',
-        'candidate_checkpoint_sha256': file_hash(args.checkpoint),
-        'parent_checkpoint_sha256': file_hash(args.parent) if args.parent else None,
+        'candidate_checkpoint_sha256': candidate_hash,
+        'parent_checkpoint_sha256': parent_hash,
         'candidate_step': saved['step'], 'protected_parent_step': parent_step,
         'split': 'valid', 'split_sha256': expected,
         'books': len(starts), 'context': args.context,
         'windows_per_book': args.windows_per_book,
+        'sampling_unit': 'causal windows drawn within each independent DEV book',
+        'all_book_positions_scored': False,
         'prediction_targets_per_variant': predictions,
         'actual_raw_byte_targets_per_variant': raw_bytes,
         'seed': args.seed, 'bootstrap_replicates': args.bootstrap,
-        'bootstrap_unit': 'whole book',
-        'simultaneous_ci_adjustment': f'Bonferroni across {family_size} emission alternatives',
+        'bootstrap_unit': 'whole-book clusters of sampled causal windows',
+        'simultaneous_ci_adjustment': {
+            'vs_full_and_coupling_only':
+                f'Bonferroni across {reference_family_size} nonreference arms',
+            'vs_protected_parent':
+                f'Bonferroni across {parent_family_size} candidate arms',
+        },
         'byte_denominator': 'CE includes EOS=256; raw-byte BPB excludes EOS from denominator',
         'results': results,
         'decision': 'No automatic checkpoint promotion; sealed TEST not opened; '

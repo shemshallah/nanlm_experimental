@@ -107,6 +107,19 @@ class R47EmissionTests(unittest.TestCase):
         mem = np.array([65, 66, 256, 67, 68, 69, 70], dtype=np.uint16)
         self.assertEqual(literal_byte_count(mem, [np.array([0])], 4), 3)
 
+    def test_six_candidate_parent_family_has_stricter_ci(self):
+        baseline = [{key: 2. if key.startswith('ce_') else .4 for key in METRICS}
+                    for _ in range(12)]
+        candidate = [{key: (v - .001 * (i % 4 - 1) if key.startswith('ce_')
+                            else v + .001 * (i % 4 - 1)) for key,v in row.items()}
+                     for i,row in enumerate(baseline)]
+        five = book_comparison(baseline,candidate,4000,47,comparisons=5)
+        six = book_comparison(baseline,candidate,4000,47,comparisons=6)
+        self.assertLessEqual(six['ce_1']['ci95_bonferroni'][0],
+                             five['ce_1']['ci95_bonferroni'][0])
+        self.assertGreaterEqual(six['ce_1']['ci95_bonferroni'][1],
+                                five['ce_1']['ci95_bonferroni'][1])
+
 
 if __name__ == '__main__':
     unittest.main()
