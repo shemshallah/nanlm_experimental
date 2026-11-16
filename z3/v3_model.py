@@ -608,7 +608,10 @@ class MTPBlock(nn.Module):
 
     def forward(self, x, context=None):
         if self.route_to_state is not None and context is not None:
-            x = x + self.route_to_state(context).unsqueeze(1)
+            projected = self.route_to_state(context)
+            if context.ndim == 2:
+                projected = projected.unsqueeze(1)
+            x = x + projected
         attn_out = self.attn(self.norm1(x))
         x = x + self.drop(attn_out)
         if context is None:
@@ -1175,6 +1178,21 @@ class V3LM(nn.Module):
                         mtp_context + scaled_loop
                         if mtp_context is not None else scaled_loop
                     )
+                if (
+                    self.cfg.concept_router_tokens
+                    and token_ctx is not None
+                ):
+                    scaled_tokens = (
+                        float(self.cfg.concept_loop_scale) * token_ctx
+                    )
+                    if mtp_context is None:
+                        mtp_context = scaled_tokens
+                    elif mtp_context.ndim == 2:
+                        mtp_context = (
+                            mtp_context[:, None, :] + scaled_tokens
+                        )
+                    else:
+                        mtp_context = mtp_context + scaled_tokens
                 if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                     branch, block_aux = checkpoint(
                         self.mtp_blocks[idx],
