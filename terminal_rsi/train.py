@@ -147,8 +147,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=PRESETS, default="cpu")
     parser.add_argument("--corpus-dir", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, default=Path("terminal_rsi_unified_candidate.pt"))
+    parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--transfer-from", type=Path,
+                        help="Audit-expand same RSI lineage from a smaller CPU/T4 checkpoint")
     parser.add_argument("--minutes", type=float, default=10.0)
     parser.add_argument("--max-steps", type=int, default=0, help="0 means wall-time only")
     parser.add_argument("--eval-every", type=int, default=50)
@@ -157,6 +159,10 @@ def main():
                         help="shorter training windows without changing model weights")
     args = parser.parse_args()
 
+    if args.resume and args.transfer_from:
+        parser.error("--resume and --transfer-from are mutually exclusive")
+    if args.checkpoint is None:
+        args.checkpoint = Path(f"terminal_rsi_{args.mode}_candidate.pt")
     torch.manual_seed(17011)
     rng = random.Random(17011)
     cfg = PRESETS[args.mode]
@@ -170,7 +176,26 @@ def main():
     model = TerminalRSI(cfg).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.01)
     controller = RSIController(cfg)
-    first_step = restore_checkpoint(args.checkpoint, model, opt, controller, corpus) if args.resume else 0
+    if args.resume:
+        first_step = restore_checkpoint(args.checkpoint, model, opt, controller, corpus)
+    elif args.transfer_from:
+        from migrate import adopt_from_file
+        info = adopt_from_file(args.transfer_from, model, opt)
+        donor = torch.load(args.transfer_from, map_location="cpu", weights_only=True)
+        if donor.get("format") != "terminal-rsi-unified-v1":
+            raise RuntimeError("Use an audited unified-agent migration to preserve actor receipts")
+        if donor.get("corpus_sha256") != corpus.digest:
+            raise RuntimeError("Refuse expansion across different training corpora")
+        controller.__dict__.update(donor["controller"])
+        controller.max_passes = cfg.recursive_passes
+        controller.passes = cfg.recursive_passes
+        controller.best_dev_bpb = float("inf")  # compare DEV under new architecture
+        controller.history.append({"step": donor["step"], "action": "capacity_transfer",
+                                   "audit": info})
+        first_step = int(donor["step"])
+        print(json.dumps({"capacity_transfer": info}), flush=True)
+    else:
+        first_step = 0
     print(json.dumps({
         "mode": cfg.name, "parameters": model.parameter_count(),
         "device": str(device), "context": cfg.context,
@@ -228,7 +253,7 @@ def main():
                 "gpu_peak_gib": round(torch.cuda.max_memory_allocated() / 2**30, 3) if device.type == "cuda" else 0,
             }), flush=True)
             if changed:
-                save_checkpoint(args.checkpoint.with_name("terminal_rsi_unified_best.pt"),
+                save_checkpoint(args.checkpoint.with_name(f"terminal_rsi_{cfg.name}_best_candidate.pt"),
                                 model, opt, controller, step, corpus, best=True)
         if step % 100 == 0:
             save_checkpoint(args.checkpoint, model, opt, controller, step, corpus)
