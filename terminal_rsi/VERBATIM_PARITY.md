@@ -8,7 +8,8 @@
 - `verbatim_v103.py`: `VerbatimV103RSI` *contains* that exact original module, with every old parameter, persistent online buffer and historical AdamW moment. It adds the common recursive CPU/T4/Blackwell `TerminalRSI` specialist and an **exactly zero** residual gate. Original bit logits and target prefix semantics remain strictly identical until the new gate is trained.
 - `verbatim_metrics.py`: exact archived 256-candidate scoring mathematics, but wrapper-aware, passing all six causal features and four local-copy fields. This fixes the silent feature omission caused by the old scorer's `isinstance(V103ParityGPUFullSystem)` test.
 - `verbatim_c256.py`: frozen C 256-way DEV distribution oracle; reports true C-vs-GPU numeric discrepancies when the original C oracle file is available.
-- `train_verbatim.py`: canonical book-disjoint DEV CPU-first entry point for one shared training path and full-cycle sampler, original online state changes **after each Adam step**, original terminal verifier+actor/critic feedback, reproducible checkpoints.
+- `run_original_v103.py`: **direct executable, unmodified original training path**. Invokes the archived `legacy_v103_reference.main()` through a fresh CPU-only worker, restores the historical `.pt` and two Adam groups in the original source itself, and writes a new candidate. Detects historical frozen-C DEV and full-256 reference digests, requiring the corresponding exact reference files instead of silently dropping them. Synthetic native-main end-to-end CI replay compares resumed weights, Adam moments and verified terminal feedback.
+- `train_verbatim.py`: canonical expanded book-disjoint DEV CPU-first entry point for one shared training path and full-cycle sampler, original online state changes **after each Adam step**, original terminal verifier+actor/critic feedback, reproducible checkpoints.
 - `migrate_verbatim.py`: explicit capacity growth while preserving original v103 tensors and **both** old AdamW groups. New neural heads, attention, feedback and optimizers have structured partial migrations, with changed-width DEV reacceptance required.
 
 `unified.py` supplies only the **additive, unpromoted capacity upgrade** and its three presets. The former `train.py` and `UNIFIED_MODEL.md` describe an independent candidate and **must not** be mistaken for the original RSI-led full training lineage. FA1, FA2, M3 and Poincare are separate projects.
@@ -30,7 +31,7 @@ IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed byt
 Do not run the 10-minute GPU round until the CPU read-only gate passes. All source below is on GitHub `master`. From repository root, with real **identical** original data:
 
 ```bash
-python -m unittest terminal_rsi.test_v103_parity terminal_rsi.test_verbatim_training terminal_rsi.test_migrate_verbatim -v
+python -m unittest terminal_rsi.test_v103_parity terminal_rsi.test_original_runner terminal_rsi.test_original_end_to_end terminal_rsi.test_verbatim_training terminal_rsi.test_migrate_verbatim -v
 python -m terminal_rsi.verbatim_v103 --mode cpu \
   --legacy-checkpoint "/path/to/Terminal_RSI/terminal_rsi_gpu_v103_full.pt"
 python -m terminal_rsi.train_verbatim \
@@ -42,6 +43,20 @@ python -m terminal_rsi.train_verbatim \
   --output "/path/to/Terminal_RSI/verbatim_cpu_candidate.pt" \
   --seconds 0 --batch 4 --max-dev-positions 8
 ```
+
+For *literal execution* of the untouched original v103 CPU training loop (rather than the expanded wrapper), run:
+
+```bash
+python -m terminal_rsi.run_original_v103 \\
+  --checkpoint "/path/to/Terminal_RSI/terminal_rsi_gpu_v103_full.pt" \\
+  --train-stream "/path/to/original_10m_train_stream.bin" \\
+  --dev-bin "/path/to/original_win_dev.bin" \\
+  --bpe-merges terminal_rsi/reference/nancm_v103_bpe.txt \\
+  --output "/path/to/Terminal_RSI/legacy_original_cpu_candidate.pt" \\
+  --seconds 0
+```
+
+If the historical checkpoint recorded a frozen C DEV Rec stream or full-256 oracle, add `--reference-dev` and/or `--reference-full256` pointing to the SHA-matched original reference files. The launcher **intentionally refuses** to omit a recorded original C reference; changing the metrics would break verbatim continuation. `--seconds 0` executes zero gradient steps but *still executes the archived terminal actor/critic verification and saves a NEW checkpoint*. The `verbatim_v103` CLI above is the read-only parity check. The end-to-end GitHub CI test runs this exact old `main` function and replays from its own synthetic checkpoint; this is an execution check, **not** a claim that the private trained 10M checkpoint has been loaded on Actions.
 
 This checks **source SHA, 600 original BPE ranks and six-dimensional causal feature SHA, original sampler cursor/stride, independent DEV digest, original v103 online buffers, grouped optimizer moments and exact old-vs-zero-gate logits**, before it writes a new candidate. The strict original `win_dev.bin` can be restored using the historical notebook's SHA-pinned source cell. It does not pull random substitutes from NaNROUTER.
 
