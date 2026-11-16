@@ -27,6 +27,24 @@ The inherited original is not a Mamba state-space model and is not a Transformer
 
 IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The additive neural branch now consumes 256/1024/up-to-8192 causally padded context bytes, with an explicit boundary test showing the old last-32+target rows remain identical. Do not claim 8K effective **historical** context or real-book gain without benchmarking. F32 CPU↔CUDA can differ numerically; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
 
+## Rebuild the SAME original independent DEV (no changed book split)
+
+The original private `Terminal_RSI_GPU_Full_System_60s.ipynb` contains zlib+base64 SHA-pinned independent DEV bytes. The CPU tool reads only its literal embedded reference dictionary; **it never runs notebook cells and never reconstructs a new random/dev split**. It refuses to overwrite any file with different bytes. Sealed TEST remains untouched.
+
+```bash
+python -m terminal_rsi.restore_win_dev \\
+  --notebook "/path/to/Terminal_RSI_GPU_Full_System_60s.ipynb" \\
+  --output-dir "/path/to/Terminal_RSI/reference" \\
+  --include-frozen-c
+```
+
+Expected restored SHA-256 values:
+
+- `win_dev.bin`: `5826929ae3356dda057c1619559afb7e04f534e185d59d45274f401232193465` (16 independent books × 480 scored bytes).
+- `curve_dev_frozen_10000000.bin`: `adf21a4490aeec7a1e7f4e204ffffb3a0ede74fca9f50a0fa0ecc73e80167c21` (historical C actual-target comparison).
+
+After restoration, run `benchmark_original_cpu` with the attached original v103 `.pt`, `train_10000000.bin`, and recovered `win_dev.bin`. Add `--reference-dev /path/to/Terminal_RSI/reference/curve_dev_frozen_10000000.bin` for matched historical C comparison. The `--seconds 0` training command **does** update actor/critic weights; use the benchmark script for truly read-only measurement.
+
 ## CPU FIRST: sealed original data and notebook state
 
 Do not run the 10-minute GPU round until the CPU read-only gate passes. All source below is on GitHub `master`. From repository root, with real **identical** original data:
