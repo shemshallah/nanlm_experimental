@@ -1,0 +1,172 @@
+{
+  "status": "read_only_DEV_causal_history_probe_not_a_promotion",
+  "parent_sha256": "74478d2f77b3c2da7978458f3660dffe8aad788938ce4a7ab6eae7cff2de0817",
+  "candidate_sha256": "36e14da9676690595c523456c391fca86977bf9799ce135508223f54e49e013e",
+  "parent_step": 2993,
+  "candidate_step": 3025,
+  "dev_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
+  "books": 12,
+  "contexts_per_book": 16,
+  "context": 128,
+  "near_true_bytes": 32,
+  "wrong_book_prefix_bytes": 96,
+  "next_byte_targets_per_mode": 192,
+  "seed": 2026,
+  "bootstrap": 2000,
+  "bootstrap_unit": "independent book (sampled target windows)",
+  "multiplicity": "four reciprocal-specific contrasts; 95% two-sided Bonferroni",
+  "question": "Does reciprocal geometry improve correct-history specificity over the same transformer with reciprocal disabled?",
+  "warning": "This contrast isolates reciprocal processing, not unique C(256,2)/C(256,3) address semantics; no TEST use or promotion.",
+  "results": {
+    "parent": {
+      "full": {
+        "metrics": {
+          "ce_true": 2.474049969265858,
+          "ce_wrong": 2.4861957592268786,
+          "correct_history_advantage": 0.012145789961020151,
+          "top1_true": 0.28125,
+          "top1_wrong": 0.3125,
+          "top5_true": 0.6875,
+          "top5_wrong": 0.703125
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": 0.012145789961020151,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.029561016770700613,
+            0.05266268781075868
+          ]
+        },
+        "reciprocal_specific_history_gain": {
+          "mean": 0.0029561383028825126,
+          "books_positive": 8,
+          "ci95_bonferroni": [
+            -0.002260978535438577,
+            0.009031180439827351
+          ]
+        }
+      },
+      "coupling_only": {
+        "metrics": {
+          "ce_true": 2.4745090156793594,
+          "ce_wrong": 2.483152030656735,
+          "correct_history_advantage": 0.008643014977375666,
+          "top1_true": 0.2864583333333333,
+          "top1_wrong": 0.3125,
+          "top5_true": 0.6927083333333334,
+          "top5_wrong": 0.6979166666666666
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": 0.008643014977375666,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.031011688554038606,
+            0.04782304388160505
+          ]
+        },
+        "reciprocal_specific_history_gain": {
+          "mean": -0.000546636680761973,
+          "books_positive": 6,
+          "ci95_bonferroni": [
+            -0.0021877074614167213,
+            1.0320583047966182e-05
+          ]
+        }
+      },
+      "reciprocal_disabled": {
+        "metrics": {
+          "ce_true": 2.47452120979627,
+          "ce_wrong": 2.4837108614544072,
+          "correct_history_advantage": 0.00918965165813764,
+          "top1_true": 0.2864583333333333,
+          "top1_wrong": 0.3125,
+          "top5_true": 0.6927083333333334,
+          "top5_wrong": 0.6979166666666666
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": 0.00918965165813764,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.030468475880722205,
+            0.0479399997430543
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "full": {
+        "metrics": {
+          "ce_true": 2.4852143538494906,
+          "ce_wrong": 2.4854728591938815,
+          "correct_history_advantage": 0.00025850534439086914,
+          "top1_true": 0.2916666666666667,
+          "top1_wrong": 0.3020833333333333,
+          "top5_true": 0.6979166666666666,
+          "top5_wrong": 0.6875
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": 0.00025850534439086914,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.03667912433544795,
+            0.03610726905365779
+          ]
+        },
+        "reciprocal_specific_history_gain": {
+          "mean": 0.0019335250059763591,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.0019103063580890496,
+            0.005633810255676521
+          ]
+        }
+      },
+      "coupling_only": {
+        "metrics": {
+          "ce_true": 2.4848854392766953,
+          "ce_wrong": 2.4833791591227055,
+          "correct_history_advantage": -0.0015062801539897919,
+          "top1_true": 0.2916666666666667,
+          "top1_wrong": 0.3072916666666667,
+          "top5_true": 0.6979166666666666,
+          "top5_wrong": 0.6875
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": -0.0015062801539897919,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.038596215471625325,
+            0.0348834777561326
+          ]
+        },
+        "reciprocal_specific_history_gain": {
+          "mean": 0.00016873950759569803,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -2.002258940289418e-05,
+            0.0006751677487045528
+          ]
+        }
+      },
+      "reciprocal_disabled": {
+        "metrics": {
+          "ce_true": 2.4850552938878536,
+          "ce_wrong": 2.4833802742262683,
+          "correct_history_advantage": -0.00167501966158549,
+          "top1_true": 0.2916666666666667,
+          "top1_wrong": 0.3072916666666667,
+          "top5_true": 0.6979166666666666,
+          "top5_wrong": 0.6875
+        },
+        "correct_history_advantage_unadjusted": {
+          "mean": -0.00167501966158549,
+          "books_positive": 7,
+          "ci95_bonferroni": [
+            -0.03860734446595113,
+            0.03470216523855916
+          ]
+        }
+      }
+    }
+  }
+}
