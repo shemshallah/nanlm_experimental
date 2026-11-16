@@ -60,9 +60,65 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
     loss.backward()
     nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
-    model.original.observe_online_bits(history, target, aux)
+    model.original.observe_online_bits(history[:, -32:], target, aux)
     model.observe_verified_byte(bpb, accuracy)
     return {"bpb": bpb, "bit_accuracy": accuracy}
+
+
+def build_causal_contexts(raw_bytes: torch.Tensor, target_positions: torch.Tensor,
+                          history: int):
+    """Longer CPU/T4/Blackwell context, WITHOUT changing the original 32 bytes.
+
+    Book start pads with zeros. The current target is appended only in the
+    separate final column and never appears in the model's context.
+    """
+    positions = target_positions.to("cpu", torch.long).reshape(-1)
+    if history < 32 or positions.numel() == 0:
+        raise ValueError("Need at least the original 32 observed byte positions")
+    if int(positions.min()) < 32 or int(positions.max()) >= len(raw_bytes):
+        raise ValueError("Invalid original v103 training target positions")
+    deltas = torch.arange(history, 0, -1, dtype=torch.long)
+    indices = positions[:, None] - deltas[None, :]
+    causal = indices >= 0
+    past = raw_bytes[indices.clamp_min(0)].long()
+    past = torch.where(causal, past, torch.zeros_like(past))
+    target = raw_bytes[positions].long()
+    return torch.cat((past, target[:, None]), dim=-1)
+
+
+def build_book_disjoint_probes(book_path: Path, n: int, history: int,
+                              full_dev: torch.Tensor,
+                              full_aux: torch.Tensor,
+                              full_local: torch.Tensor | None,
+                              device: torch.device):
+    """Matched positions across books; no future/foreign-book context."""
+    from .legacy_v103_local_copy import read_books
+    books, skip, digest = read_books(book_path, expected_sha256=None)
+    total_books, per, columns = full_dev.shape
+    if len(books) != total_books or columns != 33:
+        raise AssertionError("Original heldout shape differs from expected v103")
+    chosen = torch.linspace(0, total_books * per - 1,
+                            min(n, total_books * per)).long()
+    windows = []
+    for k in chosen.tolist():
+        book_idx, pos_idx = divmod(k, per)
+        target_at = skip + pos_idx
+        book = books[book_idx]
+        if target_at >= len(book):
+            raise AssertionError("Independent DEV target exceeded its own book")
+        fragment = book[max(0, target_at - history): target_at]
+        # Byte zero is padding, never a token from a different document.
+        pad = [0] * (history - len(fragment))
+        windows.append(pad + list(fragment) + [book[target_at]])
+    probe = torch.tensor(windows, dtype=torch.long, device=device)
+    # Verify exact last-32 history/next-byte pair of EVERY sampled probe.
+    oracle = full_dev.reshape(-1, 33)[chosen.to(full_dev.device)]
+    if not torch.equal(probe[:, -33:], oracle.long()):
+        raise AssertionError("Long-context DEV changed historical RSI 32-byte inputs")
+    flat_aux = full_aux.reshape(-1, 6)[chosen.to(full_aux.device)]
+    flat_local = (full_local.reshape(-1, 4)[chosen.to(full_local.device)]
+                  if full_local is not None else None)
+    return probe, flat_aux, flat_local, digest
 
 
 def verify_parent_source(source: dict, raw: bytes, ranks_path: Path,
