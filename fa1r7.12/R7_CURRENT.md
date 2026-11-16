@@ -1,5 +1,24 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.48 latest experimental continuation (no promotion):** the existing
+R7.47 word-value path now has an actual 32,640-address trainable mirror-pair
+value bank and 256 shared head factors, read through the existing
+apex -> pair -> point descent. New gates are exact-zero for inherited
+prediction parity; optimizer group 28 is appended without replacing any
+previous model, group, or moment. Six new source regressions pass and the
+first real candidate's inherited 454 state tensors, 27 optimizer groups and
+432 AdamW states have been independently checked bit-identical. A 24-update
+pilot plus 96 resumed updates yielded recoverable checkpoints. The final
+512-position training probe gave +0.001871 nats/word, with positive pair-bank
+necessity (+0.003659), but negative address and signed attribution. An
+independently reloaded 512-position, 15-DEV-book audit measured 5.433400 ->
+5.431809 word NLL (gain +0.001591; whole-book interval crosses zero), while
+removing pair values worsened NLL by +0.002976 (CI entirely positive) and
+removing the signed channel *improved* it. No promotion; larger independent
+DEV, long-context and sealed TEST gates remain outstanding.
+See `FA1_R7p48_MIRROR_PAIR_VALUE_MEMORY.md` and
+`results/FA1_R748_CPU_CONTINUATION_STATUS.json`.
+
 **R7.47 latest experimental checkpoint (no promotion):** R7.46 isolated
 the source of R7.45's geometric-word gain: exact 256-point address swaps
 produce no measurable benefit, while swapping lexical context towers

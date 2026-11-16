@@ -1,0 +1,30 @@
+{
+  "round": "FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1",
+  "branch": "master",
+  "selected_status": "unpromoted",
+  "independent_test_opened": false,
+  "raw_byte_bpb_available": false,
+  "source_r747_checkpoint_sha256": "5f221aa492446744724c4bb527e3d62d0ac9ef8f52009f3255b91bcf8ab7c96a",
+  "first_r748_checkpoint_sha256": "ea01c50169ad40542fa501543b0021b8569622d77fc2d8b3440606754e87518f",
+  "continued_r748_checkpoint_sha256": "7d0636843708d4e2984eb862d29a8f49e0682e4a7c0848259c80a531e83f1e1b",
+  "first_update_count": 24,
+  "continuation_update_count": 96,
+  "total_additional_update_count": 120,
+  "train_positions_continuation": 2048,
+  "dev_positions_continuation": 512,
+  "optimizer_groups": 28,
+  "probe_metrics_are_rounded_stdout_values": true,
+  "probe_metrics_are_independently_verified": false,
+  "continuation_probes": [
+    {"step": 1, "word_gain_nats": 0.0006163, "address_specificity_nats": -0.0000153, "pair_value_necessity_nats": 0.0003758, "signed_specificity_nats": -0.0002044, "strict_dev_gate": false},
+    {"step": 24, "word_gain_nats": 0.0015553, "address_specificity_nats": -0.0001935, "pair_value_necessity_nats": 0.0018021, "signed_specificity_nats": -0.0001968, "strict_dev_gate": false},
+    {"step": 48, "word_gain_nats": 0.0017923, "address_specificity_nats": 0.0000450, "pair_value_necessity_nats": 0.0024970, "signed_specificity_nats": -0.0002118, "strict_dev_gate": false},
+    {"step": 72, "word_gain_nats": 0.0011977, "address_specificity_nats": -0.0002158, "pair_value_necessity_nats": 0.0022051, "signed_specificity_nats": -0.0002756, "strict_dev_gate": false},
+    {"step": 96, "word_gain_nats": 0.0018710, "address_specificity_nats": -0.0000741, "pair_value_necessity_nats": 0.0036593, "signed_specificity_nats": -0.0002874, "strict_dev_gate": false}
+  ],
+  "finalization_process_exit_code": 137,
+  "checkpoint_saved_before_finalization_failure": true,
+  "checkpoint_standalone_torch_load_verified": true,
+  "training_report_completed": false,
+  "promotion": "rejected: strict geometry DEV gate fails; TEST sealed"
+}

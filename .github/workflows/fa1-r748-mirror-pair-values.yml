@@ -1,0 +1,52 @@
+name: FA1 R7.48 - trainable mirror-pair value memory regressions
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r748-mirror-pair-values.yml'
+      - 'fa1r7.12/source/fa1_r748_*.py'
+      - 'fa1r7.12/source/test_fa1_r748_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/source/fa1_r747_head_address_copy.py'
+      - 'fa1r7.12/FA1_R7p48_MIRROR_PAIR_VALUE_MEMORY.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r748-mirror-pair-values-master
+  cancel-in-progress: false
+
+jobs:
+  pair-value-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile all new R7.48 source
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r748_*.py
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
+      - name: R7.48 pair-memory and R7.47 inherited regression tests
+        run: |
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r748_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r747_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r745_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r746_*.py' -v
+      - name: Protect research status
+        run: |
+          echo 'Source validation only: checkpoint is preserved separately.'
+          echo 'No DEV claim is inferred from CI; independent TEST remains sealed.'
