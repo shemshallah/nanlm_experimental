@@ -1,0 +1,54 @@
+{
+  "candidate_promoted": false,
+  "checkpoint_sha256": "0acd9c671d0cd8984867e67efa7a07be4d8e201c9fabdef7d692b6f7cdf40979",
+  "schema": "terminal-rsi-v102-feedback-temperature-legacy-diagnostic-v1",
+  "splits": {
+    "dev2": {
+      "books": 24,
+      "books_improved": 9,
+      "feedback_bpc_gain_ci95": [
+        -0.0015636041592753298,
+        0.002364492151256651
+      ],
+      "global_temperature_ablation_bpc": 2.16306825639481,
+      "inherited_bpc": 2.1635072112550895,
+      "reason_not_independent": "This book set was inspected in prior architecture rounds",
+      "recurrent_feedback_bpc": 2.1632423723513665,
+      "scored_bytes": 11520,
+      "top1": 0.5565972222222222,
+      "top5": 0.8517361111111111
+    },
+    "test2": {
+      "books": 24,
+      "books_improved": 10,
+      "feedback_bpc_gain_ci95": [
+        -0.0016517988659116207,
+        0.0024720941453670042
+      ],
+      "global_temperature_ablation_bpc": 2.1610755894923424,
+      "inherited_bpc": 2.161564979636344,
+      "reason_not_independent": "This book set was inspected in prior architecture rounds",
+      "recurrent_feedback_bpc": 2.161236182897183,
+      "scored_bytes": 11520,
+      "top1": 0.5491319444444445,
+      "top5": 0.8486979166666667
+    },
+    "test3": {
+      "books": 8,
+      "books_improved": 5,
+      "feedback_bpc_gain_ci95": [
+        -0.001597768490587237,
+        0.007532328286445622
+      ],
+      "global_temperature_ablation_bpc": 2.288848297433718,
+      "inherited_bpc": 2.2905901762700784,
+      "reason_not_independent": "This book set was inspected in prior architecture rounds",
+      "recurrent_feedback_bpc": 2.287816276195939,
+      "scored_bytes": 3840,
+      "top1": 0.5377604166666666,
+      "top5": 0.8369791666666667
+    }
+  },
+  "status": "POST_HOC_INSPECTED_BOOKS_NOT_INDEPENDENT",
+  "training_updates_during_diagnostic": 0
+}

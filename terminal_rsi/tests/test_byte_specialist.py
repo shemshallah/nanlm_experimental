@@ -42,6 +42,7 @@ class SpecialistTests(unittest.TestCase):
             model=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
             model.echo.g[:]=(.1,-.1,.3)
             model.weights[:,1:]=rng.normal(0.,.4,(2,5))
+            model.temp_w[:]=rng.normal(0.,.015,6)
             offline,_=model.distributions(p,targets,n,classes,counts,orders)
             live=StreamingRSICore(model)
             actual=[];idx=0
@@ -58,6 +59,53 @@ class SpecialistTests(unittest.TestCase):
             np.testing.assert_allclose(np.stack(actual),offline,rtol=1e-13,atol=1e-13)
             with self.assertRaisesRegex(ValueError,'without prior prediction'):
                 live.observe(97)
+
+    def test_rsi_temperature_feedback_trains_without_resetting_inherited_adam(self):
+        rng=np.random.default_rng(341)
+        probs=rng.uniform(.01,1.,(96,256));probs/=probs.sum(axis=1,keepdims=True)
+        targets=rng.integers(0,256,size=96)
+        classes=rng.integers(0,7,size=96)
+        counts=rng.integers(0,3,size=(96,256),dtype=np.uint16)
+        orders=rng.integers(0,4,size=96,dtype=np.uint8)
+        original=ResidualPolicy()
+        original.train(probs,targets,steps=8,lr=.005,phase='RSR')
+        context=ContextualResidual(original)
+        context.train(probs,targets,classes,steps=8,lr=.005)
+        trust=TrustGate(context)
+        trust.train(probs,targets,classes,steps=8,lr=.005)
+        echo=CausalEcho(trust)
+        echo.train(probs,targets,classes,counts,orders,steps=8,lr=.005)
+        rsi=FeedbackRSI(echo)
+        rsi.train(probs,targets,12,classes,counts,orders,steps=8,lr=.005)
+        old=(rsi.weights.copy(),rsi.m.copy(),rsi.v.copy(),rsi.step,
+             echo.g.copy(),echo.step,trust.g.copy(),trust.step,
+             context.t,context.ct)
+        initial=rsi.score(probs,targets,12,classes,counts,orders)
+        rsi.train_temperature(probs,targets,12,classes,counts,orders,
+                              steps=20,lr=.002)
+        final=rsi.score(probs,targets,12,classes,counts,orders)
+        self.assertEqual(rsi.temp_step,20)
+        self.assertTrue(np.any(rsi.temp_w!=0))
+        self.assertEqual((initial['top1'],initial['top5']),
+                         (final['top1'],final['top5']))
+        self.assertTrue(np.array_equal(old[0],rsi.weights))
+        self.assertTrue(np.array_equal(old[1],rsi.m))
+        self.assertTrue(np.array_equal(old[2],rsi.v))
+        self.assertEqual(old[3],rsi.step)
+        self.assertTrue(np.array_equal(old[4],echo.g))
+        self.assertEqual(old[5],echo.step)
+        self.assertTrue(np.array_equal(old[6],trust.g))
+        self.assertEqual(old[7:],(trust.step,context.t,context.ct))
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'unified.npz'
+            rsi.checkpoint(path)
+            with np.load(path,allow_pickle=False) as d:
+                self.assertEqual(d['rsi_temp_m'].shape,(6,))
+                self.assertEqual(int(d['rsi_temp_step']),20)
+            loaded=FeedbackRSI.from_checkpoint(path)
+            self.assertTrue(np.array_equal(loaded.temp_w,rsi.temp_w))
+            self.assertTrue(np.array_equal(loaded.temp_m,rsi.temp_m))
+            self.assertEqual(loaded.score(probs,targets,12,classes,counts,orders),final)
 
     def test_rsi_critic_observes_only_prior_target_and_resets_per_book(self):
         p=np.full((12,256),1/256.,np.float64)

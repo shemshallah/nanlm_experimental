@@ -1,0 +1,82 @@
+{
+  "baseline_dev3": {
+    "bpc": 2.2373506475191505,
+    "mean_echo_scale": 1.0,
+    "mean_trust_scale": 1.0,
+    "rsi_adam_step": 0,
+    "temperature_adam_step": 0,
+    "top1": 0.5480034722222222,
+    "top5": 0.8427083333333333
+  },
+  "books_improved_over_bias_ablation": 11,
+  "books_improved_over_inherited": 11,
+  "candidate_promoted": false,
+  "caveat": "DEV3 is reused. Validation of the recurrent effect requires untouched books",
+  "dynamic_vs_bias_ablation_dev3_gain_ci95": [
+    -0.0007050856947462639,
+    0.0021813913071727733
+  ],
+  "full_vs_inherited_dev3_gain_ci95": [
+    -0.0009416473904604872,
+    0.004614088825714578
+  ],
+  "parent_checkpoint_sha256": "9ef80ef79a1643813d83bc1b40e64705d632a77f8c6b47dde131b9c2a3a24392",
+  "schema": "terminal-rsi-v102-causal-feedback-temperature-v1",
+  "selected_bias_ablation_dev3_bpc": 2.236267747454495,
+  "selected_dev3_bpc": 2.235608152852183,
+  "selected_feedback_coefficients": [
+    -0.01909516695919969,
+    -0.008334416452334277,
+    -0.02997362073073574,
+    -0.030020963556811348,
+    -0.022057961352085004,
+    -0.0038808953175857213
+  ],
+  "selected_full_feedback_dev3_bpc": 2.235608152852183,
+  "selected_temperature_step": 64,
+  "stages": [
+    {
+      "bias_only_dev3_bpc": 2.2358940579972293,
+      "full_feedback_dev3": {
+        "bpc": 2.235608152852183,
+        "mean_echo_scale": 1.0,
+        "mean_trust_scale": 1.0,
+        "rsi_adam_step": 0,
+        "temperature_adam_step": 64,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.002,
+      "temperature_step": 64
+    },
+    {
+      "bias_only_dev3_bpc": 2.2358937059387567,
+      "full_feedback_dev3": {
+        "bpc": 2.235656903072431,
+        "mean_echo_scale": 1.0,
+        "mean_trust_scale": 1.0,
+        "rsi_adam_step": 0,
+        "temperature_adam_step": 128,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.001,
+      "temperature_step": 128
+    },
+    {
+      "bias_only_dev3_bpc": 2.235893139867251,
+      "full_feedback_dev3": {
+        "bpc": 2.2356020075701886,
+        "mean_echo_scale": 1.0,
+        "mean_trust_scale": 1.0,
+        "rsi_adam_step": 0,
+        "temperature_adam_step": 256,
+        "top1": 0.5480034722222222,
+        "top5": 0.8427083333333333
+      },
+      "lr": 0.0005,
+      "temperature_step": 256
+    }
+  ],
+  "zero_initialization_prediction_preserving": true
+}

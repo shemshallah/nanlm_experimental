@@ -362,3 +362,74 @@ The combined DEV4 plus 64-book frozen donor replay was interrupted by a
 restart of the local execution environment. Its partial probability output
 is unscorable, so no fresh-book result or promotion is claimed. The optional
 GitHub CPU workflow now includes both unseen evaluations and RSI comparison.
+
+## Eighth round: feedback-conditioned, rank-preserving calibration
+
+`FeedbackRSI` now includes a six-parameter **temperature head** as a final
+component of the *same* model. Before predicting byte `t`, it reads a feature
+vector containing a bias, the recurrent critic's two past counterfactual
+route advantages, previous surprise and error, and the current available
+causal-recall order. It produces a positive temperature
+`exp(clip(features @ weights, -.4, .4))`. Raising all 256 final probabilities
+to that power and renormalizing changes confidence but **never class order**.
+The target at `t` updates the critic only after prediction; the calibration
+therefore cannot consume future targets. The fully streaming predict-observe
+implementation applies the identical head.
+
+The new head starts at zero weights, so its initial predictions equal the
+previous RSI model exactly. Its own Adam weights/moments/step are stored
+alongside *all* inherited optimizer groups in one flat checkpoint, with
+backward-compatible loading of older RSI checkpoints that lack the head.
+
+```bash
+python -m terminal_rsi.byte_specialist.feedback_core temperature-train \
+  --work /path/to/local-work
+# After fully frozen donor evidence is available:
+python -m terminal_rsi.byte_specialist.feedback_core temperature-evaluate \
+  --work /path/to/local-work --split dev4
+```
+
+On the **reused 24-book DEV3**, 64 calibration Adam updates produced:
+
+| DEV3 configuration | Bits/byte (lower) |
+|---|---:|
+| Inherited RSI + causal echo | 2.237351 |
+| Matched-update *bias-only* temperature control | 2.235894 |
+| Six-feature recurrent RSI calibration | **2.235608** |
+
+That is a 0.001743 BPC reduction versus the inherited model, including a
+0.000286 BPC gain versus the separate matched-update global-temperature
+control. Removing the five feedback coefficients *from the selected full
+model* gives 2.236268 BPC, a descriptive 0.000660 difference. Both controls
+are necessary: calibration alone helps, and feedback adds a smaller gain on
+this exploratory split. Top-1 remains 54.8003% and top-5 remains 84.2708%
+*exactly*, regardless of the unseen target, because temperature is positive.
+
+Training continuations at 128 and 256 updates were evaluated, with step 64
+selected under the predefined improvement threshold. The six-feature result
+is **not a promotion**: DEV3 already influenced prior design. Complete frozen
+DEV4 and 64-book holdout evidence, ideally followed by a new untouched TEST,
+is required to claim generalization.
+
+A 2,000-resample **whole-book** bootstrap on DEV3 yields a descriptive BPC
+gain interval of `[-0.000942,+0.004614]` against inherited RSI; only 11/24
+books improved. The feedback-specific ablation interval is
+`[-0.000705,+0.002181]`. Both cross zero; the aggregate gain is not yet
+statistically established at book level.
+
+The read-only `temperature-legacy-diagnostic` command checks three other
+**previously inspected** book splits using exactly the same checkpoint. It
+never updates any weights and is explicitly disallowed as a promotion gate:
+
+| Archived split | Books | Inherited BPC | RSI-calibrated BPC | Bias-only ablation BPC |
+|---|---:|---:|---:|---:|
+| DEV2 | 24 | 2.163507 | 2.163242 | 2.163068 |
+| TEST2 | 24 | 2.161565 | 2.161236 | 2.161076 |
+| TEST3 | 8 | 2.290590 | 2.287816 | 2.288848 |
+
+In all three archived splits, the calibrated model has lower aggregate BPC
+than inherited RSI, with **exactly unchanged** top-1/top-5. The feedback
+features outperform bias-only on TEST3 but *underperform* it on DEV2/TEST2.
+All three book-bootstrap intervals for calibrated versus inherited BPC include
+zero. These are useful replication diagnostics on older material, **not
+independent validation or proof of a general feedback advantage**.

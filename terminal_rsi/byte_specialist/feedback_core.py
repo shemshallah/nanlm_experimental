@@ -74,6 +74,13 @@ class FeedbackRSI:
         self.m = np.zeros((2,6), np.float64)
         self.v = np.zeros((2,6), np.float64)
         self.step = 0
+        # A rank-preserving, recurrent temperature head. Zero initialization
+        # is the identity; it has an independent Adam group in this *same*
+        # model and can train while older parameter groups stay frozen.
+        self.temp_w = np.zeros(6, np.float64)
+        self.temp_m = np.zeros(6, np.float64)
+        self.temp_v = np.zeros(6, np.float64)
+        self.temp_step = 0
 
     def _experts(self, probs, classes, counts, orders):
         residual, trust, echo = self.echo.distributions(
@@ -117,10 +124,20 @@ class FeedbackRSI:
                 raise AssertionError('RSI rank-protection invariant broken')
         return proposed, factors
 
+    def _calibrate(self, distribution, feature_rows):
+        if not np.any(self.temp_w):
+            return distribution.copy()
+        log_t=np.clip(feature_rows@self.temp_w,-.4,.4)
+        result=normalize(np.log(np.maximum(distribution,1e-30))*np.exp(log_t)[:,None])
+        if not np.all(_same_top5(distribution,result)):
+            raise AssertionError('RSI calibration changed the top-1/top-5 ranking')
+        return result
+
     def distributions(self, probs, targets, per, classes, counts, orders, *, guard=True):
         experts = self._experts(probs, classes, counts, orders)
         features = self.replay_features(experts, targets, orders, per)
-        return self._mix(experts, features, guard=guard)
+        proposed,factors=self._mix(experts, features, guard=guard)
+        return self._calibrate(proposed,features),factors
 
     def score(self, probs, targets, per, classes, counts, orders, *, guard=True):
         distribution, factors = self.distributions(probs,targets,per,classes,counts,orders,
@@ -133,7 +150,7 @@ class FeedbackRSI:
                 'per_book_bpc':(losses.reshape(-1,per).mean(axis=1)/math.log(2)).tolist(),
                 'mean_trust_scale':float(np.mean(factors[:,0])),
                 'mean_echo_scale':float(np.mean(factors[:,1])),
-                'rsi_adam_step':self.step}
+                'rsi_adam_step':self.step,'temperature_adam_step':self.temp_step}
 
     def train(self, probs, targets, per, classes, counts, orders, *, steps, lr,
               seed=8800, guarded_objective=True, freeze_bias=True):
@@ -178,6 +195,33 @@ class FeedbackRSI:
             if freeze_bias:
                 self.weights[:,0]=0.
 
+    def train_temperature(self, probs, targets, per, classes, counts, orders, *,
+                          steps, lr, seed=9900, bias_only=False):
+        """Optimize only the rank-exact calibration head from causal evidence."""
+        experts=self._experts(probs,classes,counts,orders)
+        features=self.replay_features(experts,targets,orders,per)
+        base,_=self._mix(experts,features,guard=True)
+        logp=np.log(np.maximum(base,1e-30))
+        rng=np.random.default_rng(seed+self.temp_step)
+        for _ in range(steps):
+            ix=rng.integers(0,len(targets),size=min(512,len(targets)))
+            f=features[ix];y=targets[ix];lp=logp[ix]
+            unclipped=f@self.temp_w
+            log_t=np.clip(unclipped,-.4,.4)
+            temp=np.exp(log_t)
+            pred=normalize(lp*temp[:,None])
+            derivative=((pred*lp).sum(axis=1)-lp[np.arange(len(ix)),y])*temp
+            derivative[np.abs(unclipped)>=.4]=0.
+            grad=np.mean(f*derivative[:,None],axis=0)+.001*self.temp_w
+            if bias_only:
+                grad[1:]=0.
+            self.temp_step+=1
+            self.temp_m=.9*self.temp_m+.1*grad
+            self.temp_v=.999*self.temp_v+.001*grad*grad
+            self.temp_w-=lr*(self.temp_m/(1.-.9**self.temp_step))/(
+                np.sqrt(self.temp_v/(1.-.999**self.temp_step))+1e-8)
+            if bias_only:self.temp_w[1:]=0.
+
     def checkpoint(self,path:Path):
         buf=io.BytesIO()
         self.echo.checkpoint(buf)
@@ -185,17 +229,23 @@ class FeedbackRSI:
         with np.load(buf,allow_pickle=False) as d:
             fields={key:d[key].copy() for key in d.files}
         fields.update(rsi_weights=self.weights,rsi_m=self.m,rsi_v=self.v,
-                      rsi_step=np.array(self.step),rsi_decay=np.array(self.decay))
+                      rsi_step=np.array(self.step),rsi_decay=np.array(self.decay),
+                      rsi_temp_w=self.temp_w,rsi_temp_m=self.temp_m,
+                      rsi_temp_v=self.temp_v,rsi_temp_step=np.array(self.temp_step))
         np.savez_compressed(path,**fields)
 
     @classmethod
     def from_checkpoint(cls,path:Path):
         fields={'rsi_weights','rsi_m','rsi_v','rsi_step','rsi_decay'}
+        temp_fields={'rsi_temp_w','rsi_temp_m','rsi_temp_v','rsi_temp_step'}
         with np.load(path,allow_pickle=False) as d:
             if not fields.issubset(d.files):
                 raise ValueError('Incomplete RSI optimizer state')
-            prior={key:d[key].copy() for key in d.files if key not in fields}
+            if len(temp_fields.intersection(d.files)) not in (0,len(temp_fields)):
+                raise ValueError('Partial RSI calibration optimizer state')
+            prior={key:d[key].copy() for key in d.files if key not in fields|temp_fields}
             rsi={key:d[key].copy() for key in fields}
+            temp={key:d[key].copy() for key in temp_fields} if temp_fields.issubset(d.files) else {}
         buf=io.BytesIO()
         np.savez_compressed(buf,**prior)
         buf.seek(0)
@@ -206,6 +256,14 @@ class FeedbackRSI:
             setattr(out,field,rsi[key].astype(np.float64))
         out.step=int(rsi['rsi_step'])
         if out.step<0:raise ValueError('Bad RSI step')
+        for key,field in (('rsi_temp_w','temp_w'),('rsi_temp_m','temp_m'),('rsi_temp_v','temp_v')):
+            if key in temp:
+                if temp[key].shape!=(6,) or not np.isfinite(temp[key]).all():
+                    raise ValueError('Malformed RSI calibration field '+key)
+                setattr(out,field,temp[key].astype(np.float64))
+        if temp:
+            out.temp_step=int(temp['rsi_temp_step'])
+            if out.temp_step<0:raise ValueError('Bad RSI calibration step')
         return out
 
 
@@ -283,6 +341,7 @@ class StreamingRSICore:
         expert=self.model._experts(p.reshape(1,256), classes, counts, orders)
         features=self.critic.features(int(orders[0])).reshape(1,6)
         proposed,_=self.model._mix(expert,features,guard=True)
+        proposed=self.model._calibrate(proposed,features)
         self._pending=tuple(channel[0].copy() for channel in expert)
         return proposed[0].copy()
 
@@ -323,6 +382,138 @@ def train_stages(work:Path):
     return report
 
 
+def train_temperature_stages(work:Path):
+    """Continue the accepted RSI migration with proper-score calibration.
+
+    A matched-update bias-only control measures whether prior-outcome feedback
+    adds value beyond a global rank-preserving temperature adjustment.
+    """
+    parent_path=work/'rsi_candidate.npz'
+    model=FeedbackRSI.from_checkpoint(parent_path)
+    control=FeedbackRSI.from_checkpoint(parent_path)
+    if model.temp_step or control.temp_step:
+        raise ValueError('Expected unchanged temperature migration')
+    calibration=_data(work,'calibration')
+    dev=_data(work,'dev3')
+    initial=model.score(*dev)
+    selected_step=0;best=initial['bpc']
+    model.checkpoint(work/'rsi_temperature_candidate.npz')
+    stages=[]
+    for updates,lr in ((64,.002),(64,.001),(128,.0005)):
+        model.train_temperature(*calibration,steps=updates,lr=lr)
+        control.train_temperature(*calibration,steps=updates,lr=lr,bias_only=True)
+        tested=model.score(*dev)
+        bias_only=control.score(*dev)
+        stages.append({'temperature_step':model.temp_step,'lr':lr,
+                       'full_feedback_dev3':{k:v for k,v in tested.items() if k!='per_book_bpc'},
+                       'bias_only_dev3_bpc':bias_only['bpc']})
+        if tested['bpc']<best-.0001:
+            best=tested['bpc'];selected_step=model.temp_step
+            model.checkpoint(work/'rsi_temperature_candidate.npz')
+    selected=FeedbackRSI.from_checkpoint(work/'rsi_temperature_candidate.npz')
+    selected_dyn=selected.score(*dev)
+    selected_w=selected.temp_w.copy()
+    selected.temp_w[1:]=0.
+    selected_bias_ablation=selected.score(*dev)
+    gain=np.array(initial['per_book_bpc'])-np.array(selected_dyn['per_book_bpc'])
+    feedback_gain=(np.array(selected_bias_ablation['per_book_bpc'])-
+                   np.array(selected_dyn['per_book_bpc']))
+    nbooks=len(gain)
+    rng=random.Random(9713)
+    boot=sorted(float(np.mean(rng.choices(gain.tolist(),k=nbooks))) for _ in range(2000))
+    boot_feedback=sorted(float(np.mean(rng.choices(feedback_gain.tolist(),k=nbooks)))
+                         for _ in range(2000))
+    report={'schema':'terminal-rsi-v102-causal-feedback-temperature-v1',
+            'parent_checkpoint_sha256':hashlib.sha256(parent_path.read_bytes()).hexdigest(),
+            'zero_initialization_prediction_preserving':True,
+            'baseline_dev3':{k:v for k,v in initial.items() if k!='per_book_bpc'},
+            'stages':stages,'selected_temperature_step':selected_step,
+            'selected_dev3_bpc':best,
+            'selected_feedback_coefficients':selected_w.tolist(),
+            'selected_bias_ablation_dev3_bpc':selected_bias_ablation['bpc'],
+            'selected_full_feedback_dev3_bpc':selected_dyn['bpc'],
+            'full_vs_inherited_dev3_gain_ci95':[boot[50],boot[1949]],
+            'dynamic_vs_bias_ablation_dev3_gain_ci95':[boot_feedback[50],boot_feedback[1949]],
+            'books_improved_over_inherited':int(np.sum(gain>0)),
+            'books_improved_over_bias_ablation':int(np.sum(feedback_gain>0)),
+            'candidate_promoted':False,
+            'caveat':'DEV3 is reused. Validation of the recurrent effect requires untouched books'}
+    (work/'rsi_temperature_search.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+    return report
+
+
+def evaluate_temperature_saved(work:Path,split:str):
+    if split not in ('dev4','holdout4'):
+        raise ValueError('Reserved independent evaluation split required')
+    parent=FeedbackRSI.from_checkpoint(work/'rsi_candidate.npz')
+    path=work/'rsi_temperature_candidate.npz'
+    selected=FeedbackRSI.from_checkpoint(path)
+    data=_data(work,split)
+    original=parent.score(*data)
+    corrected=selected.score(*data)
+    saved=selected.temp_w.copy()
+    selected.temp_w[1:]=0.
+    bias_only=selected.score(*data)
+    selected.temp_w[:]=saved
+    if (original['top1'],original['top5'])!=(corrected['top1'],corrected['top5']):
+        raise AssertionError('Temperature changed top-1/top-5')
+    n=len(data[1])//data[2]
+    difference=np.array(original['per_book_bpc'])-np.array(corrected['per_book_bpc'])
+    rng=random.Random(12800+len(data[1]))
+    ci=sorted(float(np.mean(rng.choices(difference.tolist(),k=n))) for _ in range(2000))
+    report={'schema':'terminal-rsi-v102-causal-temperature-independent-v1',
+            'split':split,'books':n,'positions':len(data[1]),
+            'training_updates_during_evaluation':0,
+            'checkpoint_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+            'inherited_rsi':original,'calibrated_rsi':corrected,
+            'bias_only_ablation':bias_only,
+            'bpc_gain_ci95':[ci[50],ci[1949]],
+            'books_improved':int(np.sum(difference>0)),
+            'candidate_promoted':False}
+    (work/f'rsi_temperature_{split}_search.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+    return report
+
+
+def diagnose_legacy_temperature(work:Path):
+    """Read-only stress test on previously inspected books; NEVER a promotion gate."""
+    baseline=FeedbackRSI.from_checkpoint(work/'rsi_candidate.npz')
+    selected=FeedbackRSI.from_checkpoint(work/'rsi_temperature_candidate.npz')
+    report={'schema':'terminal-rsi-v102-feedback-temperature-legacy-diagnostic-v1',
+            'status':'POST_HOC_INSPECTED_BOOKS_NOT_INDEPENDENT',
+            'training_updates_during_diagnostic':0,
+            'checkpoint_sha256':hashlib.sha256(
+                (work/'rsi_temperature_candidate.npz').read_bytes()).hexdigest(),
+            'splits':{},'candidate_promoted':False}
+    for split in ('dev2','test2','test3'):
+        data=_data(work,split)
+        inherited=baseline.score(*data)
+        feedback=selected.score(*data)
+        saved=selected.temp_w.copy()
+        selected.temp_w[1:]=0.
+        global_only=selected.score(*data)
+        selected.temp_w[:]=saved
+        if ((inherited['top1'],inherited['top5']) !=
+                (feedback['top1'],feedback['top5'])):
+            raise AssertionError('Legacy feedback altered protected rankings')
+        n=len(data[1])//data[2]
+        diff=(np.array(inherited['per_book_bpc'])-
+              np.array(feedback['per_book_bpc']))
+        rng=random.Random(15000+n+len(data[1]))
+        boot=sorted(float(np.mean(rng.choices(diff.tolist(),k=n))) for _ in range(2000))
+        report['splits'][split]={
+            'books':n,'scored_bytes':len(data[1]),
+            'inherited_bpc':inherited['bpc'],
+            'recurrent_feedback_bpc':feedback['bpc'],
+            'global_temperature_ablation_bpc':global_only['bpc'],
+            'top1':feedback['top1'],'top5':feedback['top5'],
+            'feedback_bpc_gain_ci95':[boot[50],boot[1949]],
+            'books_improved':int(np.sum(diff>0)),
+            'reason_not_independent':'This book set was inspected in prior architecture rounds'}
+    (work/'rsi_temperature_legacy_diagnostic.json').write_text(
+        json.dumps(report,sort_keys=True,indent=2)+'\n')
+    return report
+
+
 def evaluate_saved(work:Path,split:str):
     if split not in ('dev4','holdout4'):
         raise ValueError('Reserved RSI evaluation split required')
@@ -351,14 +542,18 @@ def evaluate_saved(work:Path,split:str):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=('train','evaluate'))
+    p.add_argument('command',choices=('train','evaluate','temperature-train',
+                                      'temperature-evaluate','temperature-legacy-diagnostic'))
     p.add_argument('--work',type=Path,required=True)
     p.add_argument('--split',choices=('dev4','holdout4'))
     args=p.parse_args()
     if args.command=='train':out=train_stages(args.work)
+    elif args.command=='temperature-train':out=train_temperature_stages(args.work)
+    elif args.command=='temperature-legacy-diagnostic':out=diagnose_legacy_temperature(args.work)
     else:
         if not args.split:p.error('--split required')
-        out=evaluate_saved(args.work,args.split)
+        out=(evaluate_saved(args.work,args.split) if args.command=='evaluate'
+             else evaluate_temperature_saved(args.work,args.split))
     print(json.dumps(out,sort_keys=True,indent=2))
 
 
