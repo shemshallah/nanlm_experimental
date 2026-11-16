@@ -90,7 +90,8 @@ def main(argv=None):
     for field, path in supplied.items():
         wanted = historical.get(field)
         if wanted and path is None:
-            raise ValueError(f"Original checkpoint requires --{field.replace('_', '-')} "
+            flag = "--reference-dev" if field == "c_dev_reference" else "--reference-full256"
+            raise ValueError(f"Original checkpoint requires {flag} "
                              f"(SHA-256 {wanted}); original main() cannot replay without it")
         if path is not None:
             if not path.is_file():
