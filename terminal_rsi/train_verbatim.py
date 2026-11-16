@@ -23,6 +23,7 @@ import torch
 from torch.nn import functional as F
 from torch import nn
 
+from .build_fresh_dev import validate_fresh_dev
 from .legacy_v103_reference import (
     PARITY_CONTEXT, PARITY_SCHEMA, build_train_features, feature_manifest,
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
@@ -131,7 +132,8 @@ def build_book_disjoint_probes(book_path: Path, n: int, history: int,
 
 
 def verify_parent_source(source: dict, raw: bytes, ranks_path: Path,
-                         feature_info: dict, dev_digest: str):
+                         feature_info: dict, dev_digest: str,
+                         *, explicit_new_dev: bool = False):
     actual_sha = hashlib.sha256(raw).hexdigest()
     if source.get("schema") != PARITY_SCHEMA:
         raise ValueError("Not the actual v103 full-system checkpoint")
@@ -143,7 +145,7 @@ def verify_parent_source(source: dict, raw: bytes, ranks_path: Path,
     if previous != feature_info:
         raise ValueError("BPE/word/match v103 features differ; refuse false verbatim parity")
     orig_dev = source.get("holdout_digests", {}).get("dev")
-    if orig_dev and orig_dev != dev_digest:
+    if orig_dev and orig_dev != dev_digest and not explicit_new_dev:
         raise ValueError("Independent DEV digest differs from original checkpoint")
     sampler = dict(source.get("sampler") or {})
     window_count = len(raw) - PARITY_CONTEXT
@@ -163,7 +165,9 @@ def main(argv=None):
     p.add_argument("--train-stream", type=Path, required=True)
     p.add_argument("--bpe-merges", type=Path, required=True)
     p.add_argument("--dev-bin", type=Path, required=True,
-                   help="Original book-disjoint NaNCM win_dev.bin, NOT test")
+                   help="Book-bounded NaNCM win_dev.bin, historic or new English DEV")
+    p.add_argument("--dev-manifest", type=Path,
+                   help="Required for NEW DEV; checks book list and TRAIN/DEV SHA without opening TEST")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--seconds", type=float, default=0.0,
                    help="Start with 0 CPU parity; only then authorize training")
@@ -198,7 +202,22 @@ def main(argv=None):
     if heldout is None:
         raise RuntimeError("Book-disjoint DEV cannot be omitted")
     dev, dev_digest = heldout
-    sampler = verify_parent_source(source, raw, args.bpe_merges, manifest, dev_digest)
+    historical_dev_digest = (source.get("holdout_digests") or {}).get("dev")
+    using_new_dev = historical_dev_digest != dev_digest
+    fresh_dev_metadata = None
+    if args.dev_manifest:
+        fresh_dev_metadata = validate_fresh_dev(
+            args.dev_bin, args.dev_manifest,
+            train_sha256=hashlib.sha256(raw).hexdigest())
+        if not using_new_dev:
+            raise ValueError("NEW DEV manifest supplied for historical original DEV")
+    elif using_new_dev:
+        raise ValueError("Different DEV requires explicit --dev-manifest with verified contents")
+    if using_new_dev and args.reference_full256:
+        raise ValueError("Historic frozen C full256 positions cannot score a NEW DEV")
+    sampler = verify_parent_source(
+        source, raw, args.bpe_merges, manifest, dev_digest,
+        explicit_new_dev=fresh_dev_metadata is not None)
     # CPU-resident features avoid filling 96GB GPU memory with 10M × 6 fields.
     train_data, _ = make_windows(raw, torch.device("cpu"), train_all=True,
                                  history=PARITY_CONTEXT)
@@ -237,7 +256,9 @@ def main(argv=None):
     provenance.update({"source_sha256": hashlib.sha256(raw).hexdigest(),
                        "feature_manifest": manifest, "dev_sha256": dev_digest,
                        "upgrade_context": upgrade_context,
-                       "original_two_adam_groups": [g["lr"] for g in optimizer.param_groups[:2]]})
+                       "original_two_adam_groups": [g["lr"] for g in optimizer.param_groups[:2]],
+                       "fresh_dev_manifest_sha256": (hashlib.sha256(args.dev_manifest.read_bytes()).hexdigest()
+                                                     if args.dev_manifest else None)})
     step = int(source["steps"])
     events = []
     if args.resume:
@@ -309,6 +330,10 @@ def main(argv=None):
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
                "book_disjoint_dev_digest": dev_digest,
+               "new_dev_books": fresh_dev_metadata["books"] if fresh_dev_metadata else None,
+               "new_dev_scored_positions": fresh_dev_metadata["scored_positions"] if fresh_dev_metadata else None,
+               "new_dev_id_level_train_disjoint_proven": (fresh_dev_metadata["id_level_train_disjoint_proven"]
+                                                          if fresh_dev_metadata else None),
                "original_c256_parity_before": c256_before,
                "original_c256_parity_after": c256_after,
                "test_untouched": True,
