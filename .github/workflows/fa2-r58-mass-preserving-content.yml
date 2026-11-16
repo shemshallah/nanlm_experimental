@@ -1,0 +1,38 @@
+name: FA2 R58 - Mass-Preserving Content Successor
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/train_r55_pair_successor.py'
+      - 'poincare_mirror/tests/test_r58_conditional_successor.py'
+      - '.github/workflows/fa2-r58-mass-preserving-content.yml'
+  workflow_dispatch:
+
+jobs:
+  mass-conservation-and-continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile model and experiments
+        run: python -m compileall -q poincare_mirror
+      - name: Test R58 causality, mass conservation and inherited Adam
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r58_conditional_successor.py' -v
+      - name: Repeat R54 and R55 tests
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r55_pair_successor_train.py' -v
+
+# This source CI job does not claim to evaluate Gutenberg38. The independently
+# SHA-verified 281 MB trained checkpoint and corpus are not part of the repo.

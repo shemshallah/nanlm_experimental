@@ -203,6 +203,7 @@ class Config:
     reciprocal_scales: bool = False  # causal five-scale tokenizer <-> existing simplex/meta geometry
     reciprocal_content_trust: bool = False  # R41, causal confidence gate on reciprocal feedback
     pair_successor_copy: bool = False  # R54 opt-in exact-pair causal successor memory
+    pair_successor_conditional: bool = False  # R58 mass-preserving non-space successor expert
 
     def check(self):
         if self.legacy_attention_dim:
@@ -240,6 +241,7 @@ class Config:
         assert not self.reciprocal_scales or self.vocab_size == 257  # byte+EOS, not arbitrary BPE IDs
         assert not self.reciprocal_content_trust or self.reciprocal_scales
         assert not self.pair_successor_copy or (self.symbiotic_rank and self.simplex_transfer)
+        assert not self.pair_successor_conditional or self.pair_successor_copy
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -1297,7 +1299,9 @@ class MirrorLM(nn.Module):
         self.norm = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.head = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         self.head.weight = self.embed.weight  # a single shared vocabulary head
-        self.pair_successor = PairSuccessorTrust() if cfg.pair_successor_copy else None
+        self.pair_successor = (PairSuccessorTrust(
+            conditional_content=cfg.pair_successor_conditional)
+            if cfg.pair_successor_copy else None)
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank,
                                                    cfg.reciprocal_content_trust)
@@ -1342,6 +1346,20 @@ class MirrorLM(nn.Module):
         if optimizer is not None:
             optimizer.param_groups[0]['params'].extend(self.pair_successor.parameters())
         return self.pair_successor
+
+    def enable_conditional_pair_successor(self, optimizer=None):
+        """R58: attach conditional content capacity to inherited FA2/Adam."""
+        if self.pair_successor is None:
+            raise ValueError('R58 needs inherited R54 successor memory')
+        if self.cfg.pair_successor_conditional:
+            raise ValueError('R58 content specialist already enabled')
+        if optimizer is not None and len(optimizer.param_groups) != 1:
+            raise ValueError('R58 requires one preserved Adam group')
+        new_parameter = self.pair_successor.enable_conditional_content()
+        self.cfg.pair_successor_conditional = True
+        if optimizer is not None:
+            optimizer.param_groups[0]['params'].append(new_parameter)
+        return new_parameter
 
     @staticmethod
     def _init(m):

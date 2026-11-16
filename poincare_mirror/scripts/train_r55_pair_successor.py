@@ -79,7 +79,11 @@ def cache_books(model, mem, lengths, context, windows, batch, seed):
             pairs = geometry.r54_last_pairs
             if pairs is None or pairs.shape[:2] != observed.shape:
                 raise AssertionError('No causal geometric address capture')
-            items.append((logits.detach(), plus2.detach(), plus3.detach(),
+            # Cache the inherited byte-head logits BEFORE successor correction.
+            # R58 can thereby continue a *nonzero* R55 trust gate without
+            # accidentally applying that inherited gate twice.
+            base_logits = model.head(hidden).detach()
+            items.append((base_logits, plus2.detach(), plus3.detach(),
                           pairs.clone().detach(), observed,
                           (ids[:, 1:-2], ids[:, 2:-1], ids[:, 3:])))
         records.append(items)
@@ -88,20 +92,32 @@ def cache_books(model, mem, lengths, context, windows, batch, seed):
 
 @contextmanager
 def memory_arm(module, arm, wrong_queries):
-    previous = (module.query_map, module.value_control)
-    previous_weight = module.weight.detach().clone()
+    conditional = module.content_weight is not None
+    if conditional:
+        previous = (module.conditional_query_map,module.conditional_value_control)
+        previous_weight = module.content_weight.detach().clone()
+    else:
+        previous = (module.query_map, module.value_control)
+        previous_weight = module.weight.detach().clone()
     try:
-        module.query_map = wrong_queries if arm == 'wrong_address' else None
-        module.value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
+        if conditional:
+            module.conditional_query_map = wrong_queries if arm == 'wrong_address' else None
+            module.conditional_value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
+        else:
+            module.query_map = wrong_queries if arm == 'wrong_address' else None
+            module.value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
         if arm == 'neutral':
             with torch.no_grad():
-                module.weight.zero_()
+                (module.content_weight if conditional else module.weight).zero_()
         yield
     finally:
-        module.query_map, module.value_control = previous
+        if conditional:
+            module.conditional_query_map,module.conditional_value_control = previous
+        else:
+            module.query_map,module.value_control = previous
         if arm == 'neutral':
             with torch.no_grad():
-                module.weight.copy_(previous_weight)
+                (module.content_weight if conditional else module.weight).copy_(previous_weight)
 
 
 @torch.no_grad()
@@ -146,6 +162,8 @@ def train_only_gate(module, optimizer, records, updates, lr, seed,
     if not batches:
         raise ValueError('No verified TRAIN windows')
     generator = np.random.default_rng(seed)
+    trained_parameter = (module.content_weight if module.content_weight is not None
+                         else module.weight)
     original_lr = optimizer.param_groups[0]['lr']
     original_decay = optimizer.param_groups[0]['weight_decay']
     losses, examples = [], 0
@@ -163,10 +181,11 @@ def train_only_gate(module, optimizer, records, updates, lr, seed,
             corrected, _ = module(logits, pairs, observed)
             loss = content_balanced_ce(corrected, targets[0], nonspace_weight)
             loss.backward()
-            if not torch.isfinite(module.weight.grad).all():
+            if (trained_parameter.grad is None or
+                    not torch.isfinite(trained_parameter.grad).all()):
                 raise FloatingPointError('Nonfinite trust gradient')
             optimizer.step()
-            if not torch.isfinite(module.weight).all():
+            if not torch.isfinite(trained_parameter).all():
                 raise FloatingPointError('Nonfinite trust weights')
             losses.append(float(loss.detach()))
             examples += targets[0].numel()
@@ -180,11 +199,11 @@ def train_only_gate(module, optimizer, records, updates, lr, seed,
             'nonspace_weight':nonspace_weight}
 
 
-def audit_inheritance(saved, model, optimizer, new_gate):
+def audit_inheritance(saved, model, optimizer, new_gate, content_only=False):
     current = model.state_dict()
     errors = []
     for name, tensor in saved['model'].items():
-        if not new_gate and name == 'pair_successor.weight':
+        if not new_gate and not content_only and name == 'pair_successor.weight':
             continue  # The resumed gate, and only this gate, is allowed to learn.
         if name not in current or not torch.equal(tensor, current[name]):
             errors.append('Inherited tensor changed: ' + name)
@@ -196,12 +215,12 @@ def audit_inheritance(saved, model, optimizer, new_gate):
     new_ids = current_opt['param_groups'][0]['params']
     if new_ids[:len(old_ids)] != old_ids:
         errors.append('Inherited Adam parameter IDs reordered')
-    if not new_gate and len(new_ids) != len(old_ids):
+    if not new_gate and not content_only and len(new_ids) != len(old_ids):
         errors.append('Resumed gate changed parameter count')
-    if new_gate and len(new_ids) != len(old_ids)+1:
+    if (new_gate or content_only) and len(new_ids) != len(old_ids)+1:
         errors.append('Exactly one new trust tensor expected')
     for pid, before in old['state'].items():
-        if not new_gate and pid == old_ids[-1]:
+        if not new_gate and not content_only and pid == old_ids[-1]:
             continue  # Resumed gate Adam moments must advance, not stay frozen.
         after = current_opt['state'].get(pid)
         if after is None or any(k not in after or
@@ -214,7 +233,8 @@ def audit_inheritance(saved, model, optimizer, new_gate):
             'inherited_tensors':len(saved['model']),
             'inherited_adam_states':len(old['state']),
             'retained_adam_states':sum(i in current_opt['state'] for i in old['state']),
-            'new_trust_parameter':new_gate,
+            'new_trust_parameter':new_gate or content_only,
+            'conditional_specialist':content_only,
             'gate_adam_state_present':bool(current_opt['state'].get(new_ids[-1]))}
 
 
@@ -261,6 +281,8 @@ def main():
     p.add_argument('--lr', type=float, default=.02)
     p.add_argument('--nonspace-weight', type=float, default=1.0,
                    help='R56 TRAIN-only content-byte weighting; 1 retains R55')
+    p.add_argument('--conditional-content', action='store_true',
+                   help='R58: append zero-init mass-preserving content expert')
     p.add_argument('--bootstrap', type=int, default=2000)
     p.add_argument('--seed', type=int, default=2026)
     p.add_argument('--threads', type=int, default=2)
@@ -277,6 +299,9 @@ def main():
     parent_sha = file_hash(args.checkpoint)
     saved = torch.load(args.checkpoint,map_location='cpu',weights_only=False)
     new_gate = not saved['config'].get('pair_successor_copy',False)
+    if args.conditional_content and (new_gate or
+                                     saved['config'].get('pair_successor_conditional',False)):
+        raise ValueError('R58 needs existing non-conditional R55 successor gate')
     if new_gate and parent_sha != PROTECTED_SHA:
         raise ValueError('R55 initial migration requires exact protected step2993 SHA')
     if args.expected_parent_sha256 and parent_sha != args.expected_parent_sha256:
@@ -291,10 +316,20 @@ def main():
     optimizer.load_state_dict(saved['optimizer'])
     if new_gate:
         model.enable_pair_successor(optimizer)
+    if args.conditional_content:
+        with torch.no_grad():
+            parity_input = torch.tensor([[65,32,66,67,65,32,66,67]],dtype=torch.long)
+            parity_before = model(parity_input)[0]
+        model.enable_conditional_pair_successor(optimizer)
+        with torch.no_grad():
+            if not torch.equal(parity_before,model(parity_input)[0]):
+                raise AssertionError('R58 zero-init migration changed inherited logits')
     if model.pair_successor is None:
         raise AssertionError('Successor gate not attached')
     for name, param in model.named_parameters():
-        param.requires_grad_(name == 'pair_successor.weight')
+        param.requires_grad_(name == ('pair_successor.content_weight'
+                                      if args.conditional_content else
+                                      'pair_successor.weight'))
     with memory_arm(model.pair_successor, 'neutral', None):
         train_cache = cache_books(model,streams['train'],meta['train_doc_lengths'],
                                   args.context,args.train_windows_per_book,args.batch,args.seed+1)
@@ -310,7 +345,7 @@ def main():
                                args.updates,args.lr,args.seed,
                                args.nonspace_weight)
     training_seconds = perf_counter()-begin
-    lineage = audit_inheritance(saved,model,optimizer,new_gate)
+    lineage = audit_inheritance(saved,model,optimizer,new_gate,args.conditional_content)
     if not lineage['pass']:
         raise AssertionError('Inherited lineage damaged: '+str(lineage['issues']))
     arm_rows, elapsed = {}, {}
@@ -333,7 +368,8 @@ def main():
     candidate['step'] = saved['step']+args.updates
     candidate['seen_tokens'] = saved['seen_tokens']+learning['tokens_processed']
     candidate['growth_history'] = list(saved.get('growth_history',[]))+[{
-        'kind':'r55_train_only_causal_pair_successor',
+        'kind':('r58_conditional_content_successor' if args.conditional_content
+                else 'r55_train_only_causal_pair_successor'),
         'from_step':saved['step'],'to_step':candidate['step'],
         'parent_sha256':parent_sha,'seed':args.seed,
         'learning_rate':args.lr,'train_only_gate_updates':args.updates,
@@ -347,7 +383,9 @@ def main():
         os.replace(temporary,args.output_checkpoint)
     finally:
         temporary.unlink(missing_ok=True)
-    report = {'status':'R55_TRAIN_only_candidate_DEV_screen_not_promoted',
+    report = {'status':('R58_mass_preserving_content_candidate_DEV_not_promoted'
+                        if args.conditional_content else
+                        'R55_TRAIN_only_candidate_DEV_screen_not_promoted'),
         'parent_step':saved['step'],'candidate_step':candidate['step'],
         'parent_sha256':parent_sha,
         'candidate_sha256':file_hash(args.output_checkpoint),
@@ -361,6 +399,8 @@ def main():
         'familywise':'Bonferroni across exact vs parent/address/value',
         'learning':learning,'train_seconds':training_seconds,
         'final_gate_weights':model.pair_successor.weight.detach().tolist(),
+        'final_content_weights':(model.pair_successor.content_weight.detach().tolist()
+                                 if args.conditional_content else None),
         'lineage':lineage,'results':results,'comparisons':paired,
         'dev_screen_pass':passed,'promoted':False,
         'next_gate':'Only after a positive, corrected book-disjoint DEV screen: '
