@@ -26,9 +26,11 @@ from torch import nn
 from .legacy_v103_reference import (
     PARITY_CONTEXT, PARITY_SCHEMA, build_train_features, feature_manifest,
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
-    byte_metrics, coverage_indices, terminal_feedback,
+    coverage_indices, terminal_feedback,
 )
 from .unified import PRESETS, device_for
+from .verbatim_metrics import byte_metrics_wrapped
+from .legacy_v103_local_copy import book_local_features
 from .verbatim_v103 import (
     VerbatimV103RSI, build_v103_optimizer, restore_v103_parent,
     exact_parent_parity, save_combined,
@@ -135,13 +137,25 @@ def main(argv=None):
     model = VerbatimV103RSI(args.mode).to(device)
     optimizer = build_v103_optimizer(model)
     provenance = restore_v103_parent(args.legacy_checkpoint, model, optimizer)
+    dev_local = None
+    if model.original.causal_copy_enabled:
+        # The original read-only local-copy specialist must receive true
+        # target-causal DEV book matches. Zero local features change BPB.
+        local_np, local_digest = book_local_features(
+            args.dev_bin, expected_sha256=dev_digest)
+        if local_digest != dev_digest:
+            raise AssertionError("Original local-copy DEV digest mismatch")
+        dev_local = torch.from_numpy(local_np).to(device=device, dtype=torch.int32)
+        if dev_local.shape != (*dev.shape[:2], 4):
+            raise AssertionError("Causal local specialist misaligned with DEV targets")
     # The old CPU↔GPU path must not implicitly replace the inherited model;
     # this also verifies bit-for-bit equality with actual BPE/match feature IDs.
     actual = train_data[:args.batch].to(device=device, dtype=torch.long)
     actual_aux = aux_data[:args.batch].to(device=device)
     proof = exact_parent_parity(model, actual[:, :-1], actual[:, -1], actual_aux)
-    before = byte_metrics(model, dev, n=args.max_dev_positions,
-                          topk_n=args.max_dev_positions, auxiliary=dev_aux)
+    before = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
+                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
+                                  local=dev_local)
     print("VERBATIM CPU-compatible v103 parent parity:", json.dumps(proof))
     print("DEV before:", before)
     provenance.update({"source_sha256": hashlib.sha256(raw).hexdigest(),
@@ -165,8 +179,9 @@ def main(argv=None):
     if args.seconds:
         # Preserve original Terminal-RSI's REAL verified actor-critic loop.
         events.extend(terminal_feedback(model.original, optimizer))
-    after = byte_metrics(model, dev, n=args.max_dev_positions,
-                         topk_n=args.max_dev_positions, auxiliary=dev_aux)
+    after = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
+                                 topk_n=args.max_dev_positions, auxiliary=dev_aux,
+                                 local=dev_local)
     receipt = {"mode": args.mode, "legacy_step": provenance["legacy_step"],
                "final_step": step, "updates": step - int(source["steps"]),
                "before": before, "after": after,
