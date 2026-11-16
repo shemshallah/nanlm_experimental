@@ -45,6 +45,16 @@ A 200-step control also wired token-aligned concept state into the MTP branch
 context.  It regressed exact BPB from 2.37255 to 2.37564, so MTP context remains
 global while the trunk router stays token-aligned.
 
+A second control removed the pooled concept component from the trunk router,
+leaving only token state:
+
+| Row | BPB | BPC |
+|---|---:|---:|
+| global + token router | **2.37274** | **2.37705** |
+| token-only router | 2.37434 | 2.37866 |
+
+The pooled concept component is retained; token-only is slightly worse.
+
 ## 200-step controls (exact denominators)
 
 | Row | Loss | Bits/byte | Bits/char |
