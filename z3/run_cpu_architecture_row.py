@@ -44,6 +44,7 @@ ROWS = {
         "--no-concept-router-tokens",
     ],
     "concept_router_tokens": [],
+    "concept_router_tokens_only": ["--no-concept-router-global"],
 }
 
 

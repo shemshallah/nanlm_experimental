@@ -124,6 +124,7 @@ class V3Config:
     concept_loop_scale: float = 1.0
     concept_loop_attention: bool = False
     concept_router_tokens: bool = True
+    concept_router_global: bool = True
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8
@@ -335,6 +336,7 @@ class Block(nn.Module):
         self.concept_loop = bool(cfg.use_concept_loop)
         self.loop_scale = float(cfg.concept_loop_scale)
         self.loop_to_attention = bool(cfg.concept_loop_attention)
+        self.router_global = bool(cfg.concept_router_global)
         self.loop_to_state = (
             nn.Linear(cfg.d_model, cfg.d_model, bias=False)
             if self.concept_loop else None
@@ -380,7 +382,7 @@ class Block(nn.Module):
         lb = z = aux = None
         if self.is_moe:
             router_context = route_ctx
-            if loop_ctx is not None:
+            if loop_ctx is not None and self.router_global:
                 scaled_loop = self.loop_scale * loop_ctx
                 router_context = (
                     scaled_loop if router_context is None
