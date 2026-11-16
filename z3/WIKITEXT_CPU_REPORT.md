@@ -183,6 +183,29 @@ These are wiring/timing gates, not quality results. The 99-test suite and
 five-row ablation matrix pass. Speculative decode is a correctness-preserving
 inference path; it is not trained as a separate objective.
 
+### Equal-wall context probe (3 minutes training)
+
+The same `concept_frontier_all` row was trained for the same 180s wall budget
+at three context lengths on the same WikiText-2 bins:
+
+| ctx | Steps | Tokens | Step time | BPB | BPC | Top-1 | Top-5 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 296 | 37,888 | 0.610s | **2.28514** | **2.29392** | 19.29% | 31.10% |
+| 256 | 103 | 26,368 | 1.763s | 2.44355 | 2.44799 | 6.27% | 25.10% |
+| 512 | 47 | 24,064 | 3.919s | 2.74159 | 2.74403 | 1.47% | 11.15% |
+
+This is an **equal-wall** result, not an equal-token or equal-update context
+ablation. Context 128 processed 44% more tokens and 2.9x more optimizer steps
+than 256 in the same three minutes, which explains most or all of its BPB
+advantage. It does not prove that shorter context is intrinsically better.
+The earlier 256-vs-512 comparison used 20 vs 8 steps and was not comparable.
+
+The 512 path had no NaNs, no router discontinuity, and no connectivity failure.
+Its deficit is consistent with fewer optimizer updates, fewer tokens, a larger
+local-attention window, and a short single-seed run. A clean context ablation
+must equalize tokens and updates, keep the local window/global frequency fixed,
+and use multiple seeds.
+
 A consolidated 4-hour FineWeb-Edu ctx-512 run is active:
 <https://github.com/shemshallah/nanlm_experimental/actions/runs/43939945177>
 
@@ -245,6 +268,32 @@ old 115M byte reference (1.6969) and worse than the 1,000-step WikiText-2
 2.05332 BPB.  The model is 36.95M parameters trained for four CPU hours on
 FineWeb-Edu; the full-corpus zero-shot protocol and the FineWeb-only training
 mix are also harder than the earlier fixed-window WikiText validation.
+
+## Path toward 1.6 BPB
+
+The current 36.95M checkpoint saw 2.05M tokens; the 5-minute probes see 24k–38k
+tokens. That is far below the compute/data scale needed for 1.6 BPB:
+
+- The 37M model has seen about 0.055 tokens/parameter. A Chinchilla-style
+  budget is roughly 20 tokens/parameter, or ~740M tokens.
+- The current 4-hour CPU run is ~370x short of that token budget.
+- The old 115M byte reference reached 1.6969 BPB; matching or beating it needs
+  a model in that class plus orders of magnitude more tokens, not another
+  diagnostic head.
+
+Priority order:
+
+1. Train on 0.5–2B tokens with a GPU, using gradient accumulation for an
+   effective batch of 8–32.
+2. Add a prose/Wikipedia/books mix for the WT2/WT103 target distribution;
+   FineWeb-Edu alone is out of domain.
+3. Keep the token-aligned router and hard object IDs, but treat full-byte,
+   cross-resolution, and speculative paths as diagnostics/inference unless a
+   matched-token ablation shows a main-loss gain.
+4. Use a 128/256-token curriculum first, then extend to 512/1024 with the local
+   window and global-layer frequency held fixed.
+5. Report full WT2/WT103 BPB and BPC, fixed-window BPB, and multi-seed spread;
+   do not compare token CE to byte BPB.
 
 ## Decision
 
