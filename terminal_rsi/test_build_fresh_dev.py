@@ -10,7 +10,7 @@ import unittest
 
 import torch
 
-from terminal_rsi.build_fresh_dev import build, validate_fresh_dev
+from terminal_rsi.build_fresh_dev import build, validate_fresh_dev, language_rejection
 from terminal_rsi.legacy_v103_reference import heldout_windows, PARITY_CONTEXT
 
 
@@ -66,9 +66,15 @@ class FreshNaNROUTERDevTest(unittest.TestCase):
         self.assertEqual(manifest["scored_positions"], 1440)
         self.assertTrue(manifest["id_level_train_disjoint_proven"])
         self.assertTrue(manifest["id_level_test_disjoint_proven"])
-        self.assertGreaterEqual(manifest["excluded_reason_counts"]["cyrillic_text"], 1)
-        self.assertGreaterEqual(manifest["excluded_reason_counts"]["russian_language_metadata"], 1)
-        self.assertGreaterEqual(manifest["excluded_reason_counts"]["russian_author_conservative_exclusion"], 1)
+        self.assertEqual(language_rejection(
+            (self.corpus / "2010--unknown--story.txt").read_bytes(),
+            "2010--unknown--story.txt", {}), "cyrillic_text")
+        self.assertEqual(language_rejection(english_book(2011),
+            "2011--unknown--story.txt", {"language": "ru"}),
+            "russian_language_metadata")
+        self.assertEqual(language_rejection(english_book(2012),
+            "2012--Chekhov--english-translation.txt", {}),
+            "russian_author_conservative_exclusion")
         excluded = {"1000", "1001", "1002", "2010", "2011", "2012"}
         self.assertFalse(excluded & {e["gutenberg_id"] for e in manifest["selected_books"]})
         valid = validate_fresh_dev(
@@ -111,6 +117,7 @@ class FreshNaNROUTERDevTest(unittest.TestCase):
 
     def test_provenance_not_overclaimed_without_id_lists(self):
         manifest = self.build_data(book_count=18,
+                                   output_dir=self.root / "second_dev",
                                    train_book_ids=None,
                                    sealed_test_book_ids=None)
         self.assertFalse(manifest["id_level_train_disjoint_proven"])
