@@ -84,23 +84,47 @@ class OriginalCPUReplayEndToEnd(unittest.TestCase):
             self.assertEqual(after["source_sha256"], before["source_sha256"])
             self.assertEqual(after["v103_feature_manifest"],
                              before["v103_feature_manifest"])
-            # Exactly zero new optimizer steps, so every inherited neural
-            # tensor and Adam moment is preserved. Only the verified online
-            # terminal-feedback buffers are permitted to evolve.
+            # Zero BYTE-training steps does not mean zero RSI updates:
+            # the original main() ALWAYS performs two verified terminal
+            # actor/critic optimizer steps, even at --seconds=0.
             self.assertEqual(after["optimizer"]["param_groups"],
                              before["optimizer"]["param_groups"])
+            actor = {"actor_logits", "actor_feedback.weight",
+                     "actor_feedback.bias", "reward_critic.weight",
+                     "reward_critic.bias"}
             for key, value in before["model"].items():
-                if key in ("feedback_state", "verified_events"):
+                if key in ("feedback_state", "verified_events") or key in actor:
                     continue
                 self.assertTrue(torch.equal(after["model"][key], value), key)
+            self.assertFalse(torch.equal(after["model"]["actor_logits"],
+                                         before["model"]["actor_logits"]))
+            # The parameter IDs in original grouped AdamW are assigned in
+            # historical base-first, v103-second order. Resolve them by name.
+            from terminal_rsi.legacy_v103_reference import V103ParityGPUFullSystem
+            probe = V103ParityGPUFullSystem()
+            names = ([name for name, _ in probe.named_parameters()
+                      if not name.startswith("v103_")] +
+                     [name for name, _ in probe.named_parameters()
+                      if name.startswith("v103_")])
+            ids = [idx for group in before["optimizer"]["param_groups"]
+                   for idx in group["params"]]
+            self.assertEqual(len(names), len(ids))
+            actor_ids = {idx for name, idx in zip(names, ids) if name in actor}
+            self.assertEqual(len(actor_ids), len(actor))
             for param_id, moment_dict in before["optimizer"]["state"].items():
                 for key, value in moment_dict.items():
                     seen = after["optimizer"]["state"][param_id][key]
-                    if isinstance(value, torch.Tensor):
-                        self.assertTrue(torch.equal(seen, value),
-                                        f"Adam parameter {param_id}: {key}")
-                    else:
-                        self.assertEqual(seen, value)
+                    if param_id in actor_ids and key == "step":
+                        self.assertEqual(int(seen), int(value) + 2,
+                                         f"RSI actor/critic Adam step {param_id}")
+                    elif param_id not in actor_ids:
+                        if isinstance(value, torch.Tensor):
+                            self.assertTrue(torch.equal(seen, value),
+                                            f"Adam parameter {param_id}: {key}")
+                        else:
+                            self.assertEqual(seen, value)
+            self.assertEqual([e["verified_success"]
+                              for e in after["events"][-3:-1]], [False, True])
             self.assertGreater(
                 int(after["model"]["verified_events"]),
                 int(before["model"]["verified_events"]))
