@@ -60,9 +60,11 @@ class VerbatimV103RSI(nn.Module):
     def forward(self, previous: torch.Tensor, target: torch.Tensor,
                 aux: torch.Tensor | None = None,
                 local: torch.Tensor | None = None):
-        if previous.shape[1] != 32:
-            raise ValueError("Exact v103 consumes 32 previous observed bytes")
-        old_logits, bits = self.original(previous, target, aux, local)
+        if previous.ndim != 2 or previous.shape[1] < 32:
+            raise ValueError("Exact v103 needs >=32 observed bytes; legacy uses LAST 32")
+        # The archived v103 model always receives exactly its original 32
+        # bytes; additive attention may see up to preset.context causal bytes.
+        old_logits, bits = self.original(previous[:, -32:], target, aux, local)
         # When untrained, this extra model receives context but cannot perturb
         # the inherited v103 prediction because residual_gate is exact zero.
         current = self.upgrades(previous.long())["logits"][0, :, -1, :]
@@ -195,7 +197,7 @@ def exact_parent_parity(model: VerbatimV103RSI, previous: torch.Tensor,
     """Read-only exact same-device parity, including saved online buffers."""
     model.eval()
     with torch.no_grad():
-        baseline, bits_a = model.original(previous, target, aux)
+        baseline, bits_a = model.original(previous[:, -32:], target, aux)
         migrated, bits_b = model(previous, target, aux)
     if not torch.equal(bits_a, bits_b) or not torch.equal(baseline, migrated):
         raise AssertionError("VERBATIM V103 PARITY FAILED. Refuse further training.")
