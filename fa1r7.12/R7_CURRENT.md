@@ -1,5 +1,22 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.49 latest unpromoted, single-checkpoint research:** Built directly on
+the complete R7.48 mirror-pair value memory, appending causal exact-address
+coefficients and a bounded signed-rail reliability gate as optimizer group
+29 without replacing any R7 weights or optimizer history. The selected
+64+96-update continuation is recoverable. Its 15-DEV-book 512-position
+independent-reload comparison improved next-word NLL 5.431809 → 5.431276
+(+0.000533 nats/word; descriptive whole-book bootstrap interval
+[+0.000185,+0.000904]), with 11/15 DEV books improving. The signed gate
+attenuates approximately 91% of the previously harmful signed channel,
+but residual signed and exact-address attribution still FAIL their strict
+gate. Independent integrity confirms 454 frozen backbone tensors, 27
+optimizer groups and 432 inherited AdamW states bit-identical. Two
+coefficient sweeps suggest an inhibitory exact-match signal rather than
+an always-positive copy cue; this is exploratory, not promoted. TEST sealed;
+accepted step-14,416 model protected. See
+`FA1_R7p49_CAUSAL_ADDRESS_RELIABILITY.md`.
+
 **R7.48 latest experimental continuation (no promotion):** the existing
 R7.47 word-value path now has an actual 32,640-address trainable mirror-pair
 value bank and 256 shared head factors, read through the existing
