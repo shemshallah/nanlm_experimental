@@ -34,6 +34,9 @@ class UnifiedTerminalPolicy(FeedbackPolicy):
             raise ValueError("Unknown Terminal-RSI compute mode")
         self.cfg = PRESETS[mode]
         self.device = device_for(mode)
+        if self.device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.cuda.set_per_process_memory_fraction(0.90)
         self.neural = TerminalRSI(self.cfg).to(self.device)
         self.action_gate = torch.nn.Parameter(torch.tensor(-0.51, device=self.device))
         self.neural_optimizer = torch.optim.AdamW(list(self.neural.parameters()) + [self.action_gate], lr=self.cfg.lr)
