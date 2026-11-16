@@ -823,6 +823,19 @@ def _token_byte_lengths(
 ) -> list[int] | None:
     table = getattr(tokenizer, "token_byte_lengths", None)
     if table is None or not table:
+        # The v4 BPE adapter shares the layered tokenizer's byte table.  Load
+        # that table for exact target-byte denominators without paying for the
+        # slower layered structural encode.
+        try:
+            from layered_tokenizer import load_artifact
+
+            layered = load_artifact(LAYERED_TOKENIZER_PATH)
+            table = tuple(
+                len(raw) for raw in layered.subword.token_bytes
+            )
+        except Exception:
+            return None
+    if not table:
         return None
     limit = len(table) - 1
     return [int(table[min(max(int(index), 0), limit)]) for index in ids]
