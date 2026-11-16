@@ -205,6 +205,7 @@ class Config:
     pair_successor_copy: bool = False  # R54 opt-in exact-pair causal successor memory
     pair_successor_conditional: bool = False  # R58 mass-preserving non-space successor expert
     pair_successor_joint: bool = False  # R59 causal compound (pair, observed-byte) content rail
+    pair_successor_key_mode: str = "pair_byte"  # R60 optional exact-to-head causal backoff
 
     def check(self):
         if self.legacy_attention_dim:
@@ -244,6 +245,8 @@ class Config:
         assert not self.pair_successor_copy or (self.symbiotic_rank and self.simplex_transfer)
         assert not self.pair_successor_conditional or self.pair_successor_copy
         assert not self.pair_successor_joint or self.pair_successor_conditional
+        assert self.pair_successor_key_mode in ("pair_byte","pair_bigram",
+                                                "head_byte","hierarchical")
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -1305,6 +1308,8 @@ class MirrorLM(nn.Module):
             conditional_content=cfg.pair_successor_conditional,
             joint_content=cfg.pair_successor_joint)
             if cfg.pair_successor_copy else None)
+        if self.pair_successor is not None:
+            self.pair_successor.joint_key_mode = cfg.pair_successor_key_mode
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank,
                                                    cfg.reciprocal_content_trust)
@@ -1364,7 +1369,7 @@ class MirrorLM(nn.Module):
             optimizer.param_groups[0]['params'].append(new_parameter)
         return new_parameter
 
-    def enable_joint_pair_successor(self, optimizer=None):
+    def enable_joint_pair_successor(self, optimizer=None, key_mode="pair_byte"):
         """R59: append compound-key rail to the SAME R58 model/Adam group."""
         if self.pair_successor is None or not self.cfg.pair_successor_conditional:
             raise ValueError("R59 requires an inherited R58 content rail")
@@ -1372,8 +1377,12 @@ class MirrorLM(nn.Module):
             raise ValueError("R59 compound-key specialist already enabled")
         if optimizer is not None and len(optimizer.param_groups) != 1:
             raise ValueError("R59 requires one preserved Adam group")
+        if key_mode not in ("pair_byte","pair_bigram","head_byte","hierarchical"):
+            raise ValueError("Invalid compound-key read mode")
         parameter = self.pair_successor.enable_joint_content()
+        self.pair_successor.joint_key_mode = key_mode
         self.cfg.pair_successor_joint = True
+        self.cfg.pair_successor_key_mode = key_mode
         if optimizer is not None:
             optimizer.param_groups[0]["params"].append(parameter)
         return parameter

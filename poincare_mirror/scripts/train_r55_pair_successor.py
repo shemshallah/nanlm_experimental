@@ -254,6 +254,38 @@ def audit_inheritance(saved, model, optimizer, new_gate, content_only=False,
             'gate_adam_state_present':bool(current_opt['state'].get(new_ids[-1]))}
 
 
+@torch.no_grad()
+def compound_coverage_audit(records,horizon):
+    """Describe how often exact vs hierarchical causal reads have support.
+
+    Only observed INPUT bytes and frozen geometric addresses are inspected.
+    Zero TEST data and zero future target labels are accessed.
+    """
+    from pair_successor_memory import retrieve_pair_successors
+    total_positions=0
+    weighted_exact=weighted_hier=hit_exact=hit_hier=0.
+    for book in records:
+        for _,_,_,pairs,observed,_ in book:
+            n=observed.numel()
+            total_positions+=n
+            for mode in ("pair_byte","hierarchical"):
+                _,coverage,hits=retrieve_pair_successors(
+                    pairs,observed,horizon=horizon,vocab=257,key_mode=mode)
+                if mode=="pair_byte":
+                    weighted_exact+=coverage.sum().item()
+                    hit_exact+=hits.gt(0).sum().item()
+                else:
+                    weighted_hier+=coverage.sum().item()
+                    hit_hier+=hits.gt(0).sum().item()
+    if not total_positions:
+        raise ValueError("Empty DEV coverage sample")
+    return {"observed_positions":total_positions,
+            "exact_mean_edge_coverage":weighted_exact/total_positions,
+            "hierarchical_confidence_weighted_edge_coverage":weighted_hier/total_positions,
+            "exact_position_hit_rate":hit_exact/total_positions,
+            "hierarchical_position_hit_rate":hit_hier/total_positions}
+
+
 def evaluate(arm_rows, bootstrap, seed, targets, raw_bytes, elapsed):
     baseline = arm_rows['neutral']
     comparisons = {}
@@ -307,7 +339,10 @@ def main():
     p.add_argument('--conditional-content', action='store_true',
                    help='R58: append zero-init mass-preserving content expert')
     p.add_argument('--joint-content', action='store_true',
-                   help='R59: append zero-init causal compound-key content rail')
+                   help='R59/R60: append zero-init causal compound-key content rail')
+    p.add_argument('--joint-key-mode', default='pair_byte',
+                   choices=('pair_byte','pair_bigram','head_byte','hierarchical'),
+                   help='R60: exact-key or shared-head causal geometric backoff')
     p.add_argument('--bootstrap', type=int, default=2000)
     p.add_argument('--seed', type=int, default=2026)
     p.add_argument('--threads', type=int, default=2)
@@ -330,7 +365,9 @@ def main():
     if args.joint_content and (args.conditional_content or
                               not saved['config'].get('pair_successor_conditional',False) or
                               saved['config'].get('pair_successor_joint',False)):
-        raise ValueError('R59 needs existing non-joint R58 successor content rail')
+        raise ValueError('R59/R60 needs existing non-joint R58 successor content rail')
+    if not args.joint_content and args.joint_key_mode != 'pair_byte':
+        raise ValueError('Compound-key mode override requires --joint-content')
     if new_gate and parent_sha != PROTECTED_SHA:
         raise ValueError('R55 initial migration requires exact protected step2993 SHA')
     if args.expected_parent_sha256 and parent_sha != args.expected_parent_sha256:
@@ -357,7 +394,7 @@ def main():
         with torch.no_grad():
             parity_input = torch.tensor([[65,32,66,67,65,32,66,67]],dtype=torch.long)
             parity_before = model(parity_input)[0]
-        model.enable_joint_pair_successor(optimizer)
+        model.enable_joint_pair_successor(optimizer,key_mode=args.joint_key_mode)
         with torch.no_grad():
             if not torch.equal(parity_before,model(parity_input)[0]):
                 raise AssertionError('R59 zero-init migration changed inherited logits')
@@ -387,6 +424,8 @@ def main():
                                 args.joint_content)
     if not lineage['pass']:
         raise AssertionError('Inherited lineage damaged: '+str(lineage['issues']))
+    coverage_audit = (compound_coverage_audit(dev_cache,model.pair_successor.horizon)
+                      if args.joint_content else None)
     arm_rows, elapsed = {}, {}
     for arm in (COMPOUND_ARMS if args.joint_content else ARMS):
         tic = perf_counter()
@@ -407,7 +446,9 @@ def main():
     candidate['step'] = saved['step']+args.updates
     candidate['seen_tokens'] = saved['seen_tokens']+learning['tokens_processed']
     candidate['growth_history'] = list(saved.get('growth_history',[]))+[{
-        'kind':('r59_compound_pair_byte_content_successor' if args.joint_content
+        'kind':(('r60_hierarchical_pair_head_byte_successor' if
+                 args.joint_key_mode == 'hierarchical' else
+                 'r59_compound_'+args.joint_key_mode+'_content_successor') if args.joint_content
                 else 'r58_conditional_content_successor' if args.conditional_content
                 else 'r55_train_only_causal_pair_successor'),
         'from_step':saved['step'],'to_step':candidate['step'],
@@ -423,7 +464,9 @@ def main():
         os.replace(temporary,args.output_checkpoint)
     finally:
         temporary.unlink(missing_ok=True)
-    report = {'status':('R59_compound_successor_candidate_DEV_not_promoted'
+    report = {'status':(('R60_hierarchical_successor_candidate_DEV_not_promoted'
+                         if args.joint_key_mode == 'hierarchical' else
+                         'R59_compound_successor_candidate_DEV_not_promoted')
                         if args.joint_content else
                         'R58_mass_preserving_content_candidate_DEV_not_promoted'
                         if args.conditional_content else
@@ -447,6 +490,9 @@ def main():
                                  if model.pair_successor.content_weight is not None else None),
         'final_joint_weights':(model.pair_successor.joint_weight.detach().tolist()
                                if args.joint_content else None),
+        'joint_key_mode':(model.cfg.pair_successor_key_mode if args.joint_content
+                          else None),
+        'dev_retrieval_coverage':coverage_audit,
         'lineage':lineage,'results':results,'comparisons':paired,
         'dev_screen_pass':passed,'promoted':False,
         'next_gate':'Only after a positive, corrected book-disjoint DEV screen: '

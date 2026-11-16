@@ -26,7 +26,8 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
     if pair_ids.device != observed.device:
         raise ValueError("Addresses and bytes must use the same device")
     if (horizon < 1 or vocab < 2 or value_control not in ("exact", "rotated")
-            or key_mode not in ("pair", "pair_byte", "pair_bigram")):
+            or key_mode not in ("pair", "pair_byte", "pair_bigram",
+                                "head_byte", "hierarchical")):
         raise ValueError("Invalid memory horizon, vocabulary or value control")
     if query_map is not None and (query_map.shape != (32640,) or
                                   query_map.dtype != torch.long):
@@ -45,6 +46,10 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
             (query_byte_map < 0) | (query_byte_map >= vocab)):
         raise ValueError("Query byte remapping exceeds vocabulary")
     previous = torch.cat((observed[:, :1], observed[:, :-1]), dim=1)
+    # R60: O(32640) canonical-index lookup; evaluated only for coarse keys.
+    # The exact canonical encoding is a*(511-a)//2 + b-a-1 for a<b.
+    endpoints = (torch.triu_indices(256,256,1,device=pair_ids.device)
+                 if key_mode in ("head_byte","hierarchical") else None)
     histograms = [torch.zeros(batch, vocab, device=pair_ids.device)]
     coverage = [torch.zeros(batch, device=pair_ids.device)]
     positions = [torch.zeros(batch, device=pair_ids.device)]
@@ -62,6 +67,27 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
             # Compound keys are formed from OBSERVED input x[t], never a label.
             match = match & query_byte[:,None,None,None].eq(
                 observed[:,first:t][:,None,:,None])
+            if key_mode in ("head_byte", "hierarchical"):
+                # Shared endpoint allows a causal geometric backoff even when
+                # exact pair IDs do not repeat within a short model window.
+                q_a,q_b = endpoints[0][query],endpoints[1][query]  # B,E
+                k_a,k_b = endpoints[0][keys],endpoints[1][keys]  # B,H,E
+                overlap = (q_a[:,:,None,None].eq(k_a[:,None,:,:]) |
+                           q_a[:,:,None,None].eq(k_b[:,None,:,:]) |
+                           q_b[:,:,None,None].eq(k_a[:,None,:,:]) |
+                           q_b[:,:,None,None].eq(k_b[:,None,:,:]))
+                head_match = overlap & query_byte[:,None,None,None].eq(
+                    observed[:,first:t][:,None,:,None])
+                if key_mode == "hierarchical":
+                    # Exact compound matches win per query edge. Only absent
+                    # exact matches fall back to shared-head lexical matches.
+                    has_exact = match.any(dim=(2,3),keepdim=True)
+                    match = torch.where(has_exact,match,head_match)
+                    confidence = torch.where(has_exact.squeeze(-1).squeeze(-1),
+                                             1.0,0.25)
+                else:
+                    match = head_match
+                    confidence = torch.full((batch,edges),0.25,device=observed.device)
             if key_mode == "pair_bigram":
                 # No invented predecessor at u=0: that historical key is invalid.
                 valid = torch.arange(first,t,device=observed.device).ge(1)
@@ -80,7 +106,12 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
         hist = torch.zeros(batch,vocab,device=pair_ids.device)
         hist.scatter_add_(1,successors,historical_weight)
         histograms.append(hist)
-        coverage.append(active.float().mean(1))
+        if key_mode in ("head_byte","hierarchical"):
+            # Head-only backoff contributes at quarter-confidence; exact
+            # matches retain R59 unit confidence. This is not a probability.
+            coverage.append((active.float()*confidence).mean(1))
+        else:
+            coverage.append(active.float().mean(1))
         positions.append(match.any(dim=(1,3)).float().sum(1))
     return (torch.stack(histograms,1),
             torch.stack(coverage,1),

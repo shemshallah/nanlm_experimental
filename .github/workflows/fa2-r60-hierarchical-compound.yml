@@ -1,0 +1,39 @@
+name: FA2 R60 - Hierarchical Causal Geometric Backoff
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/train_r55_pair_successor.py'
+      - 'poincare_mirror/tests/test_r60_hierarchical_compound.py'
+      - '.github/workflows/fa2-r60-hierarchical-compound.yml'
+  workflow_dispatch:
+
+jobs:
+  exact-pair-to-head-byte-backoff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile FA2 Python source
+        run: python -m compileall -q poincare_mirror
+      - name: New R60 tests including synthetic training and causal controls
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r60_hierarchical_compound.py' -v
+      - name: Full R54 through R59 causal regression
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r55_pair_successor_train.py' -v
+          python -m unittest discover -s tests -p 'test_r58_conditional_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r59_compound_successor.py' -v
+
+# Synthetic training is a mechanical positive control, NOT real-book FA2 DEV.
