@@ -99,7 +99,9 @@ def load_calibrated(path, root, threads=2, with_apex_feedback=False):
                                           'FA1_R7_37_CLOSED_FEEDBACK_V1',
                                           'FA1_R7_38_CAUSAL_RELIABILITY_V1',
                                           'FA1_R7_39_SIGNED_CROSS_RAIL_V1',
-                                          'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1'):
+                                          'FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1',
+                                          'FA1_R7_44_CAUSAL_WORD_BACKOFF_V1',
+                                          'FA1_R7_45_GEOMETRIC_VALUE_READ_V1'):
         if not hasattr(model.diamond.hierarchy, 'byte_geometry_router'):
             raise AssertionError('saved R7.32 trust router was not restored')
         if with_apex_feedback and not hasattr(model.diamond.hierarchy, 'apex_feedback'):

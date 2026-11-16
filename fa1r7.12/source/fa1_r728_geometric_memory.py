@@ -999,6 +999,33 @@ def passes_gate(reference, candidate, min_gain):
                 'word_book_bootstrap','byte_book_bootstrap',
                 'specificity_book_bootstrap','byte_specificity_book_bootstrap')):
             return False
+    # A new normalized word distribution cannot claim promotion merely by
+    # copying repeated words. Its incremental contribution must be positive
+    # both for correct-vs-foreign content and for the *actual* Diamond.
+    if 'r744_word_backoff_gain' in candidate:
+        if any(candidate.get(k,0)<=0 for k in (
+                'r744_word_backoff_gain',
+                'r744_correct_vs_foreign_word_advantage',
+                'r744_geometry_specificity')):
+            return False
+        if any(candidate[k]['book_bootstrap_ci95'][0]<=0 for k in (
+                'r744_word_gain_book_bootstrap',
+                'r744_history_book_bootstrap',
+                'r744_geometry_book_bootstrap')):
+            return False
+    if 'r745_incremental_word_gain' in candidate:
+        if any(candidate.get(k,0)<=0 for k in (
+                'r745_incremental_word_gain',
+                'r745_geometric_address_specificity',
+                'r745_apex_specificity',
+                'r745_correct_vs_foreign_history')):
+            return False
+        if any(candidate[k]['book_bootstrap_ci95'][0]<=0 for k in (
+                'r745_incremental_word_bootstrap',
+                'r745_geometric_address_bootstrap',
+                'r745_apex_bootstrap',
+                'r745_correct_vs_foreign_bootstrap')):
+            return False
     if 'conditional_byte_geometry_gain_nats_per_byte' in candidate:
         if (candidate['conditional_byte_geometry_gain_nats_per_byte']<=0 or
                 candidate['conditional_byte_apex_gain_nats_per_byte']<=0 or
@@ -1093,6 +1120,14 @@ def candidate_priority(reference, candidate, min_gain):
         geometry_ready = geometry_ready and all(candidate['r740_calibration_'+metric]>0
             for metric in ('word_gain','branch_gain','byte_gain_nats_per_byte',
                            'specificity_nats_per_word','byte_specificity_nats_per_byte'))
+    if 'r744_word_backoff_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate.get(k,0)>0 for k in (
+            'r744_word_backoff_gain','r744_correct_vs_foreign_word_advantage',
+            'r744_geometry_specificity'))
+    if 'r745_incremental_word_gain' in candidate:
+        geometry_ready = geometry_ready and all(candidate.get(k,0)>0 for k in (
+            'r745_incremental_word_gain','r745_geometric_address_specificity',
+            'r745_apex_specificity','r745_correct_vs_foreign_history'))
     tier = 2 if strict else 1 if geometry_ready else 0
     return (tier, -candidate['full_word_nll'],
             -candidate.get('conditional_spelling_bits_per_byte', float('inf')))

@@ -317,6 +317,10 @@ class CombinatorialDiamond(nn.Module):
                 'selected_sectors':sector_ids.detach(),
                 'triangle_addresses':tri_ids.detach(),
                 'triangle_attention':triangle_weights.detach(),
+                # R7.45 reads observed prior word values from the *real*
+                # triangle -> apex -> pair -> point descent. This tensor is
+                # causal, has no current target, and is not a decoder bypass.
+                'descended_point_summary':point_summary,
                 'active_pair_addresses':pair_ix.detach(),
                 'apex_std':apex.detach().std(),
                 'gate':self.gate.detach().clone(),'trust_logit':trust_logit,

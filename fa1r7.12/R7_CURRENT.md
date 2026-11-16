@@ -1,5 +1,35 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.47 latest experimental checkpoint (no promotion):** R7.46 isolated
+the source of R7.45's geometric-word gain: exact 256-point address swaps
+produce no measurable benefit, while swapping lexical context towers
+does. R7.47 adds an explicit target-free vocabulary-head/pair orientation
+read through the *same* inherited R7 model and one unified optimizer, now
+27 groups. A 192-update CPU pilot produced an independently reloaded,
+unpromoted candidate. On 2,048 separately sampled positions from all
+15 DEV books it improved full word NLL **5.404824 to 5.399044** with whole-book
+95% gain interval **[+0.002449,+0.009162]**. The correct-vs-foreign-history
+advantage is positive, but exact-address specificity remains approximately
+zero and pair/apex contribution intervals include zero. All 448 inherited
+model tensors, 26 inherited optimizer groups and 427 AdamW states are
+bit-identical; the complete source suite passes **113 tests**. **No
+independent TEST access or promotion.** See
+`FA1_R7p47_EXACT_HEAD_ADDRESS_WORD_COPY.md`.
+
+**R7.45 latest experimental continuation (no promotion):** R7.40 recovery
+restored one complete 24-group optimizer, R7.44 appended group 25 for a
+causal normalized word-copy mixture, and R7.45 appended group 26 for a sparse
+geometric value read based on the final descended Diamond point state. Zero
+gates preserve each inherited parent exactly. All 26 groups and optimizer
+moments have passed a real checkpoint save/reload. A 2,048-prediction,
+15-independent-DEV-book matched comparison shows R7.44 improved word NLL
+5.417024 → 5.405410 (95% book CI for gain [+0.004515,+0.020455]); R7.45
+improved it further to 5.404824 (incremental CI [+0.000110,+0.001098]).
+The apex-specific signal is positive, but exact-address specificity has a
+bootstrap interval crossing zero. **R7.45 remains unpromoted and TEST sealed.**
+See `FA1_R7p45_CAUSAL_GEOMETRIC_WORD_MEMORY.md` for the causal controls,
+metric scope, optimizer continuity and limits.
+
 **R7.40 normalized-rail CPU result:** continued from the exact recovered
 R7.39 candidate, preserving its 23 optimizer groups/moments and adding one
 zero-gated calibration group. All 24 CPU updates completed; no new
