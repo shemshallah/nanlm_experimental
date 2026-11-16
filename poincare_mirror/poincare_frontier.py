@@ -2063,8 +2063,9 @@ def freeze_inherited_backbone_for_geometry(model):
 
 
 def geometric_address_margin_loss(exact_logits, shuffled_logits, targets,
-                                  margin=0.005, temperature=0.01):
-    """R51: smooth TRAIN-only address-alignment ranking loss, no extra head.
+                                  margin=0.005, temperature=0.01,
+                                  content_only=False):
+    """R51/R52: smooth TRAIN-only address-alignment ranking loss, no extra head.
 
     Penalizes CE(exact) >= CE(shuffled)-margin on the same *causal* targets.
     Both logits remain differentiable: the shuffled path supplies a real
@@ -2074,8 +2075,19 @@ def geometric_address_margin_loss(exact_logits, shuffled_logits, targets,
         raise ValueError('R51 requires finite nonnegative margin and positive temperature')
     if exact_logits.shape != shuffled_logits.shape or exact_logits.shape[:-1] != targets.shape:
         raise ValueError('R51 exact/shuffled logits and targets must be aligned')
-    exact_ce = F.cross_entropy(exact_logits.flatten(0,1), targets.flatten())
-    scrambled_ce = F.cross_entropy(shuffled_logits.flatten(0,1), targets.flatten())
+    if content_only:
+        # Byte 32 (space) dominated R51's apparent gains, while non-space CE
+        # degraded. Reserve address specificity for actual content bytes; EOS
+        # is a structural marker rather than a byte of document content.
+        content_mask = (targets != 32) & (targets >= 0) & (targets < 256)
+        if not bool(content_mask.any()):
+            zero = (exact_logits.sum() + shuffled_logits.sum()) * 0.
+            return zero, zero.detach()
+        exact_logits = exact_logits[content_mask]
+        shuffled_logits = shuffled_logits[content_mask]
+        targets = targets[content_mask]
+    exact_ce = F.cross_entropy(exact_logits.reshape(-1, exact_logits.shape[-1]), targets.reshape(-1))
+    scrambled_ce = F.cross_entropy(shuffled_logits.reshape(-1, shuffled_logits.shape[-1]), targets.reshape(-1))
     gap = scrambled_ce - exact_ce
     loss = temperature * F.softplus((margin - gap) / temperature)
     return loss, gap.detach()
@@ -2101,6 +2113,7 @@ def train(args):
     address_margin = getattr(args, 'address_contrast_margin', 0.005)
     address_temperature = getattr(args, 'address_contrast_temperature', 0.01)
     address_mode = getattr(args, 'address_contrast_mode', 'all_scrambled')
+    address_content_only = getattr(args, 'address_contrast_content_only', False)
     if not math.isfinite(address_weight) or not 0. <= address_weight <= .5:
         raise ValueError('R51 address contrast weight must be finite in [0,0.5]')
     if not math.isfinite(address_margin) or address_margin < 0. or not math.isfinite(address_temperature) or address_temperature <= 0.:
@@ -2109,6 +2122,8 @@ def train(args):
                            trust_aux_weight or residual_aux_weight or
                            getattr(args, 'future_only', False)):
         raise ValueError('R51 requires geometry-only with no other counterfactual training losses')
+    if address_content_only and not address_weight:
+        raise ValueError('R52 content-only address contrast requires nonzero address-contrast-weight')
     address_permutations = address_intervention = None
     if address_weight:
         from geometry_address_controls import address_ablation, fixed_permutations, MODES
@@ -2468,10 +2483,12 @@ def train(args):
                         'no_new_model_or_optimizer':True,
                         'evaluation_objective':'ordinary_unweighted_ce'})
     if args.steps > 0 and address_weight:
-        history.append({'kind':'r51_train_only_address_specificity',
+        history.append({'kind':'r52_content_byte_address_specificity' if address_content_only else 'r51_train_only_address_specificity',
                         'step':start, 'updates':args.steps, 'weight':address_weight,
                         'margin_nats':address_margin, 'temperature_nats':address_temperature,
                         'negative':address_mode, 'permutation':'new TRAIN-only bijection per microbatch',
+                        'content_only':bool(address_content_only),
+                        'excluded_targets':[32, 256] if address_content_only else [],
                         'both_paths_differentiable':True,
                         'frozen_inherited_model_and_adam_moments':True,
                         'no_added_model_or_optimizer':True,
@@ -2570,7 +2587,8 @@ def train(args):
                         shuffled_logits, _, _ = model(batch[:, :-3])
                     address_aux, address_gap = geometric_address_margin_loss(
                         losses.pop('next_logits'), shuffled_logits, batch[:, 1:-2],
-                        address_margin, address_temperature)
+                        address_margin, address_temperature,
+                        content_only=address_content_only)
                 if trust_aux_weight or residual_aux_weight:
                     # Same frozen-at-this-step model supplies its matched
                     # no-reciprocal counterfactual. Labels stay TRAIN-only.
@@ -3290,6 +3308,8 @@ def main():
     tr.add_argument('--address-contrast-mode', choices=('pair_address_scrambled',
                     'triangle_address_scrambled','incidence_scrambled','all_scrambled'),
                     default='all_scrambled', help='R51: TRAIN-only scrambled geometric negative')
+    tr.add_argument('--address-contrast-content-only', action='store_true',
+                    help='R52: apply TRAIN-only address ranking only to non-space content bytes; excludes EOS')
     tr.add_argument('--report-byte-metrics', action='store_true',
                     help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,

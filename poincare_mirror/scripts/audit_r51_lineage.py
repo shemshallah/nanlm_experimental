@@ -25,9 +25,11 @@ def audit(before, after):
         issues.append('Step did not advance')
     if before['model'].keys() != after['model'].keys():
         issues.append('Model parameter keys changed')
-    if any(k not in [entry.get('kind') for entry in after.get('growth_history',[])]
-           for k in ('geometry_only_warmup','r51_train_only_address_specificity')):
-        issues.append('R51 TRAIN-only or geometry-only provenance missing')
+    observed = {entry.get('kind') for entry in after.get('growth_history',[])}
+    if ('geometry_only_warmup' not in observed or
+            not observed.intersection({'r51_train_only_address_specificity',
+                                       'r52_content_byte_address_specificity'})):
+        issues.append('R51/R52 TRAIN-only or geometry-only provenance missing')
     names = list(dict(MirrorLM(Config(**before['config'])).named_parameters()))
     old_groups, new_groups = before['optimizer']['param_groups'], after['optimizer']['param_groups']
     if len(old_groups)!=1 or len(new_groups)!=1:
