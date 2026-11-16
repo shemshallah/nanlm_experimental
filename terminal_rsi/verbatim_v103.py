@@ -67,7 +67,17 @@ class VerbatimV103RSI(nn.Module):
         old_logits, bits = self.original(previous[:, -32:], target, aux, local)
         # When untrained, this extra model receives context but cannot perturb
         # the inherited v103 prediction because residual_gate is exact zero.
-        current = self.upgrades(previous.long())["logits"][0, :, -1, :]
+        # Blackwell: BF16 tensor cores and native fused causal SDPA are used
+        # ONLY for the additive specialist. Keep archived v103 logits, RSI
+        # actor/critic and inherited AdamW groups in their original FP32
+        # execution path. This changes no checkpoint keys or parameters.
+        if self.cfg.name == "blackwell" and previous.is_cuda:
+            if not torch.cuda.is_bf16_supported():
+                raise RuntimeError("Blackwell upgrade requires BF16-capable CUDA")
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                current = self.upgrades(previous.long())["logits"][0, :, -1, :]
+        else:
+            current = self.upgrades(previous.long())["logits"][0, :, -1, :]
         proposed = self._byte_to_conditional_bit_logits(current, target)
         # Recursive RSI is the mixing-policy controller in ALL three modes.
         # Its persistent state comes from prior byte errors and verified
