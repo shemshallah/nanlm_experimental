@@ -100,6 +100,7 @@ class TerminalRSI(nn.Module):
     def __init__(self, cfg: Preset):
         super().__init__()
         self.cfg = cfg
+        self.gradient_checkpointing = cfg.name == "blackwell"
         d = cfg.width
         assert d % cfg.heads == 0
         self.byte = nn.Embedding(256, d)
@@ -138,7 +139,11 @@ class TerminalRSI(nn.Module):
             mixed = sum(choice[..., j:j+1] * branches[j] for j in range(4))
             h = h + 0.25 * (mixed - basis)
             for layer in self.backbone:
-                h = layer(h)
+                if self.training and self.gradient_checkpointing:
+                    from torch.utils.checkpoint import checkpoint
+                    h = checkpoint(layer, h, use_reentrant=False)
+                else:
+                    h = layer(h)
             state = self.norm(h)
             raw_next = self.output[0](state)
             predicted_surprise = F.softplus(self.critic(state).squeeze(-1))
