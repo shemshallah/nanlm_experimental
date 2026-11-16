@@ -1,4 +1,9 @@
-# Blackwell 115M 10-minute smoke
+# Blackwell 115M 10-minute smoke (subword diagnostic)
+
+> **Superseded for parity by `BLACKWELL_BYTE_115M_REPORT.md`.** The previous
+> implementation was a 273-way byte model; the subword run below is not the
+> comparable architecture. Byte-model parity run: 112,899,328 params,
+> 717 steps, top-1 55.69% / top-5 84.26% on FineWeb valid.
 
 Session: <https://sb-88942244062351a9.sb.molab.run/>  
 GPU: NVIDIA RTX PRO 6000 Blackwell Server Edition, 97,887 MiB  
