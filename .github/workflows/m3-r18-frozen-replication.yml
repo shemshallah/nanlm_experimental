@@ -1,0 +1,45 @@
+name: M3 R18 precommitted 32-book spatial-wave replication
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r18/**'
+      - '.github/workflows/m3-r18-frozen-replication.yml'
+  workflow_dispatch:
+
+jobs:
+  frozen-replication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Verify software and original R17 frozen coefficients before TEST
+        run: |
+          python -m unittest discover -s m3_r17 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r18 -p 'test_*.py' -v
+      - name: Download SHA-256-verified corpus release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r18_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r18_corpus
+          cd /tmp/m3_r18_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Score only the predeclared, previously untouched R18 TEST documents
+        run: |
+          python -m m3_r18.locked_replication \
+            --corpus-root /tmp/m3_r18_corpus \
+            --output m3_r18/results/R18_NaNROUTER_TEST.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r18-frozen-32-book-replication
+          path: m3_r18/results/R18_NaNROUTER_TEST.json
+          if-no-files-found: warn
