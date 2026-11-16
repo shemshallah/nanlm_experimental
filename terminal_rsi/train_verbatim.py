@@ -33,7 +33,7 @@ from .verbatim_metrics import byte_metrics_wrapped
 from .legacy_v103_local_copy import book_local_features
 from .verbatim_v103 import (
     VerbatimV103RSI, build_v103_optimizer, restore_v103_parent,
-    exact_parent_parity, save_combined,
+    exact_parent_parity, save_combined, resume_combined,
 )
 
 COMBINED_SCHEMA = "terminal-rsi-verbatim-v103-plus-upgrades-v1"
@@ -93,6 +93,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mode", choices=PRESETS, default="cpu")
     p.add_argument("--legacy-checkpoint", type=Path, required=True)
+    p.add_argument("--resume", type=Path, help="Resume exact-mode unified candidate with all Adam/RSI state")
     p.add_argument("--train-stream", type=Path, required=True)
     p.add_argument("--bpe-merges", type=Path, required=True)
     p.add_argument("--dev-bin", type=Path, required=True,
@@ -109,8 +110,8 @@ def main(argv=None):
         p.error("Nonnegative seconds and positive batch/dev sample required")
     if args.output.resolve() == args.legacy_checkpoint.resolve():
         p.error("Never overwrite the original trained v103 checkpoint")
-    if args.output.exists():
-        p.error("Destination exists; preserve candidate until audited resume support")
+    if args.output.exists() and (args.resume is None or args.output.resolve() != args.resume.resolve()):
+        p.error("Destination exists; use --resume of that exact unified candidate")
     device = device_for(args.mode)
     source = torch.load(args.legacy_checkpoint, map_location="cpu", weights_only=True)
     raw = args.train_stream.read_bytes()
@@ -148,21 +149,43 @@ def main(argv=None):
         dev_local = torch.from_numpy(local_np).to(device=device, dtype=torch.int32)
         if dev_local.shape != (*dev.shape[:2], 4):
             raise AssertionError("Causal local specialist misaligned with DEV targets")
-    # The old CPU↔GPU path must not implicitly replace the inherited model;
-    # this also verifies bit-for-bit equality with actual BPE/match feature IDs.
+    # The old CPU↔GPU path must not implicitly replace the inherited model.
     actual = train_data[:args.batch].to(device=device, dtype=torch.long)
     actual_aux = aux_data[:args.batch].to(device=device)
     proof = exact_parent_parity(model, actual[:, :-1], actual[:, -1], actual_aux)
-    before = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
-                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
-                                  local=dev_local)
-    print("VERBATIM CPU-compatible v103 parent parity:", json.dumps(proof))
-    print("DEV before:", before)
+    print("VERBATIM v103 original checkpoint, gate=0:", json.dumps(proof))
     provenance.update({"source_sha256": hashlib.sha256(raw).hexdigest(),
                        "feature_manifest": manifest, "dev_sha256": dev_digest,
                        "original_two_adam_groups": [g["lr"] for g in optimizer.param_groups[:2]]})
     step = int(source["steps"])
     events = []
+    if args.resume:
+        resumed = resume_combined(args.resume, model, optimizer,
+                                  source_sha256=provenance["source_sha256"],
+                                  feature_manifest=manifest, dev_sha256=dev_digest)
+        step = int(resumed["step"])
+        sampler = resumed["sampler"]
+        events = resumed["events"]
+        provenance = resumed["legacy_provenance"]
+        if len(train_data) != sampler["train_positions"]:
+            raise ValueError("Changed coverage length in unified RSI resume")
+        state = resumed["rng"]
+        torch.set_rng_state(state["torch_rng"])
+        if device.type == "cuda" and state.get("cuda_rng"):
+            torch.cuda.set_rng_state_all(state["cuda_rng"])
+        random.setstate(state["python_rng"])
+        print("Exact unified RSI checkpoint resumed at", step)
+    else:
+        if "torch_rng" in source:
+            torch.set_rng_state(source["torch_rng"])
+        if device.type == "cuda" and source.get("cuda_rng"):
+            torch.cuda.set_rng_state_all(source["cuda_rng"])
+        if "python_rng" in source:
+            random.setstate(source["python_rng"])
+    before = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
+                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
+                                  local=dev_local)
+    print("DEV before:", before)
     clock = time.monotonic()
     while time.monotonic() - clock < args.seconds:
         indices = coverage_indices(sampler["cursor"], args.batch,
@@ -183,7 +206,7 @@ def main(argv=None):
                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
                                  local=dev_local)
     receipt = {"mode": args.mode, "legacy_step": provenance["legacy_step"],
-               "final_step": step, "updates": step - int(source["steps"]),
+               "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"])),
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
@@ -191,7 +214,11 @@ def main(argv=None):
                "test_untouched": True,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
     provenance["sampler"] = sampler
-    save_combined(args.output, model, optimizer, step, provenance, events)
+    save_combined(args.output, model, optimizer, step, provenance, events,
+                  training_state={"sampler": sampler,
+                                  "torch_rng": torch.get_rng_state(),
+                                  "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+                                  "python_rng": random.getstate()})
     # Exact reload guard on CPU or GPU: no numerical reinterpretation on save.
     saved = torch.load(args.output, map_location="cpu", weights_only=True)
     if saved["schema"] != COMBINED_SCHEMA or saved["steps"] != step:
