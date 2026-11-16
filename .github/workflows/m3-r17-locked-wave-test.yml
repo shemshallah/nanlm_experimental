@@ -1,0 +1,41 @@
+name: M3 R17 locked independent-book wave TEST
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r17/**'
+      - '.github/workflows/m3-r17-locked-wave-test.yml'
+  workflow_dispatch:
+
+jobs:
+  frozen-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Verify frozen software before reading TEST
+        run: python -m unittest discover -s m3_r17 -p 'test_*.py' -v
+      - name: Download checksum-verified NaNROUTER short stories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r17_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r17_corpus
+          cd /tmp/m3_r17_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: One-shot fixed-weights R16 spatial-wave independent TEST
+        run: |
+          python -m m3_r17.locked_test \
+            --corpus-root /tmp/m3_r17_corpus \
+            --output m3_r17/results/R17_NaNROUTER_TEST.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m3-r17-independent-book-test
+          path: m3_r17/results/R17_NaNROUTER_TEST.json
