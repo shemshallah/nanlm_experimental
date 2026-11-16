@@ -113,3 +113,42 @@ corpus mismatch. This prevents optimizer history from being silently discarded.
   independent books and bytes (different corpora cannot be compared).
 - Independent TEST once for accepted candidate, never for repeated tuning.
 - No accepted checkpoint is overwritten by a speculative candidate.
+
+## Verified-action RSI mode (the original agent remains in charge)
+
+The **same neural module** is now wired to the existing Terminal-RSI planner's
+verified-action loop in [`unified_agent.py`](unified_agent.py), not forked into
+a second agent. Pre-existing `terminal_agent.py` and `planner.py` own the
+trusted subprocess check, success/failure receipts, actor critic and on-policy
+credit. The neural specialist scores only **manifest-approved argv choices**
+and receives its policy-gradient reward strictly *after* independent success
+verification. Its language-model/critic loss trains causally on observed
+command bytes. A learned gate controls the neural contribution to the actor.
+
+Full actor+critic+receipt, neural+optimizer, gate, and RSI controller checkpoint
+in one `.pt`, with atomic replacement. Existing original JSON checkpoints and
+byte-model checkpoints are neither read nor overwritten unless explicitly
+given as an import source.
+
+```bash
+# Real-command CPU gate, then verified command training:
+python -m unittest terminal_rsi.test_agent_unified -v
+python -m terminal_rsi.unified_agent \
+  --plan terminal_rsi/examples/plan_probe.json --root . \
+  --checkpoint /tmp/terminal_rsi_unified_agent_candidate.pt \
+  --mode cpu --train --max-commands 1
+```
+
+The T4 and Blackwell arguments use that *same* `unified_agent` entrypoint.
+For a fresh agent use `--byte-pretrain /path/to/same-mode-byte-checkpoint.pt`
+to inherit the exact trained byte-model weights **and** matching Adam moments.
+After an agent checkpoint exists, use the exact same preset; mismatched
+optimizer shapes fail fast. Scaling to a larger preset currently requires a
+separate audited architecture migration; it is not silently initialized.
+
+Caution: full Blackwell action checkpoints can be tens of gigabytes each
+because the verifier saves after every observed action. Do not use a 10-minute
+Blackwell run until CPU tests, data provenance, checkpoint size and I/O
+capacity have been measured. More GPU memory does not make the verifier more
+reliable; externally checked terminal-task success remains the acceptance
+metric.
