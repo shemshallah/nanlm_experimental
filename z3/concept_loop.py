@@ -387,7 +387,23 @@ def _segment_pool(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return gathered segment summaries and segment count per batch row."""
     b, t, d = x.shape
-    max_segments = max(1, int(ids.max().item())) if ids.numel() else 1
+    if ids.numel():
+        valid_ids = ids > 0
+        if valid_ids.any():
+            # Byte-aligned sidecars carry global word/sentence IDs.  Remap
+            # them to compact per-batch IDs before allocating the segment
+            # table; otherwise max(id) can create tens of gigabytes of zeros.
+            _unique, _inverse = torch.unique(
+                ids[valid_ids], return_inverse=True
+            )
+            compact = torch.zeros_like(ids)
+            compact[valid_ids] = _inverse + 1
+            ids = compact
+            max_segments = max(1, int(_unique.numel()))
+        else:
+            max_segments = 1
+    else:
+        max_segments = 1
     out = torch.zeros(
         b, max_segments + 1, d, device=x.device, dtype=x.dtype
     )
