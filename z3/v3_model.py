@@ -999,6 +999,25 @@ class V3LM(nn.Module):
         rank = probs @ self.tok.weight
         return self.tok_up(rank) if self.tok_up is not None else rank
 
+    def embed_mixture(
+        self,
+        probs: torch.Tensor,
+        target_ids: torch.Tensor,
+        mix: torch.Tensor | float,
+    ) -> torch.Tensor:
+        """Embed ``(1-mix)*probs + mix*one_hot(target)`` without a dense one-hot.
+
+        The MTP soft teacher only needs the embedding of the mixed next-token
+        distribution.  Materializing the ``[B,T,V]`` one-hot costs gigabytes at
+        64k vocabulary and forced the Blackwell smoke into a much smaller batch.
+        """
+        rank = probs @ self.tok.weight
+        target = self.tok(
+            target_ids.long().clamp_min(0).clamp_max(self.cfg.vocab_size - 1)
+        ).to(dtype=rank.dtype)
+        rank = (1.0 - mix) * rank + mix * target
+        return self.tok_up(rank) if self.tok_up is not None else rank
+
     def project_logits(self, hidden: torch.Tensor) -> torch.Tensor:
         """Project hidden states to vocabulary logits through the token basis."""
         if self.tok_up is not None:
@@ -1181,23 +1200,13 @@ class V3LM(nn.Module):
             )
             teacher_prob = min(1.0, max(0.0, float(teacher_prob)))
             next_ids = torch.cat([tokens[:, 1:], tokens[:, -1:]], dim=1)
-            gt = F.one_hot(
-                next_ids.clamp_min(0), num_classes=self.cfg.vocab_size
-            ).to(dtype=pred_probs.dtype)
-
             explicit_teacher = mtp_next_tokens is not None
             if explicit_teacher:
-                # Diagnostics may inject a known/corrupted t+1 target.  Keep
-                # the predicted distribution in the mix even then; a hard
-                # one-hot is never the sole branch input.
-                explicit = F.one_hot(
-                    mtp_next_tokens.clamp_min(0).clamp_max(self.cfg.vocab_size - 1),
-                    num_classes=self.cfg.vocab_size,
-                ).to(dtype=pred_probs.dtype)
+                target_ids = mtp_next_tokens
                 mix = 1.0 if mtp_gt_mix is None else gt_mix
                 mix = min(0.95, max(0.0, mix))
-                next_soft = (1.0 - mix) * pred_probs + mix * explicit
             elif mtp_teacher and gt_mix > 0.0:
+                target_ids = next_ids
                 mix = gt_mix
                 if self.training and teacher_prob < 1.0:
                     keep = (
@@ -1205,10 +1214,12 @@ class V3LM(nn.Module):
                         < teacher_prob
                     ).to(dtype=pred_probs.dtype)
                     mix = mix * keep
-                next_soft = (1.0 - mix) * pred_probs + mix * gt
             else:
-                next_soft = pred_probs
-            next_emb = self.mtp_next_norm(self.embed_distribution(next_soft))
+                target_ids = next_ids
+                mix = 0.0
+            next_emb = self.mtp_next_norm(
+                self.embed_mixture(pred_probs, target_ids, mix)
+            )
 
             ent = -(pred_probs * torch.log(pred_probs.clamp_min(1e-9))).sum(
                 dim=-1, keepdim=True
