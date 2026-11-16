@@ -11,7 +11,7 @@ from terminal_rsi.unified import PRESETS, Preset
 from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer, save_combined, resume_combined
 from terminal_rsi.verbatim_metrics import byte_metrics_wrapped
 from terminal_rsi.train_verbatim import (
-    score_byte_observations, train_one_batch, verify_parent_source,
+    score_byte_observations, train_one_batch, finish_rsi_round, verify_parent_source,
     build_causal_contexts, build_book_disjoint_probes,
 )
 from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA
@@ -44,6 +44,20 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertGreater(report["bpb"], 0)
         self.assertFalse(torch.equal(before, self.model.original.v103_slot_counts))
         self.assertNotEqual(self.model.residual_gate.item(), 0.0)
+        self.assertGreater(len(self.optimizer.state), 0)
+        self.assertEqual(len(self.optimizer.param_groups), 3)
+
+    def test_original_terminal_rsi_is_active_even_when_byte_training_is_zero(self):
+        """Original always performs two verifier-driven actor/critic steps."""
+        previous = self.model.original.actor_logits.detach().clone()
+        initial_events = int(self.model.original.verified_events)
+        report = finish_rsi_round(self.model, self.optimizer)
+        self.assertEqual(len(report), 2)
+        self.assertEqual([event["verified_success"] for event in report],
+                         [False, True])
+        self.assertFalse(torch.equal(previous, self.model.original.actor_logits))
+        self.assertEqual(int(self.model.original.verified_events),
+                         initial_events + 2)
         self.assertGreater(len(self.optimizer.state), 0)
         self.assertEqual(len(self.optimizer.param_groups), 3)
 
