@@ -22,6 +22,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install numpy
+      - name: Verify archived 600-entry v103 BPE table is bitwise original
+        run: |
+          python -c "import hashlib,pathlib; p=pathlib.Path('terminal_rsi/reference/nancm_v103_bpe.txt'); assert hashlib.sha256(p.read_bytes()).hexdigest() == 'cff04c727f2d91e3ae3c2f2bdcf0adeca1422c3a8403488d96aaa759440e8ff5', 'Original v103 BPE merge table changed'"
       - name: Causal, gradient, checkpoint and recursive-feedback acceptance
         run: |
           python terminal_rsi/test_unified.py
