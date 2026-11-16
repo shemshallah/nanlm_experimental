@@ -1,11 +1,13 @@
 """CPU contract tests for exact v103-training loop and RSI online adaptation."""
 from __future__ import annotations
 import hashlib
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 import torch
 from terminal_rsi.unified import PRESETS, Preset
-from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer
+from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer, save_combined, resume_combined
 from terminal_rsi.verbatim_metrics import byte_metrics_wrapped
 from terminal_rsi.train_verbatim import (
     score_byte_observations, train_one_batch, verify_parent_source,
@@ -73,6 +75,36 @@ class VerbatimTrainingCPU(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "six causal features"):
             train_one_batch(self.model, self.optimizer, self.context,
                             self.target, None)
+
+    def test_combined_checkpoint_exact_restart_all_rsi_and_adam_tensors(self):
+        train_one_batch(self.model, self.optimizer, self.context,
+                        self.target, self.aux)
+        provenance = {"source_sha256": "orig-sha", "feature_manifest": {"sha": "causal"},
+                      "dev_sha256": "dev-sha",
+                      "sampler": {"cursor": 128, "stride": 1, "train_positions": 64}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "unified.pt"
+            save_combined(path, self.model, self.optimizer, 42, provenance,
+                          feedback_events=[{"verified": True}])
+            recovered = VerbatimV103RSI("cpu")
+            recovered_optimizer = build_v103_optimizer(recovered)
+            report = resume_combined(path, recovered, recovered_optimizer,
+                                     source_sha256="orig-sha",
+                                     feature_manifest={"sha": "causal"},
+                                     dev_sha256="dev-sha")
+            self.assertEqual(report["step"], 42)
+            self.assertEqual(report["sampler"]["cursor"], 128)
+            self.assertEqual(len(recovered_optimizer.state),
+                             len(self.optimizer.state))
+            for name, prior in self.model.state_dict().items():
+                self.assertTrue(torch.equal(prior, recovered.state_dict()[name]), name)
+            for first, second in zip(self.optimizer.param_groups,
+                                     recovered_optimizer.param_groups):
+                self.assertEqual(first["lr"], second["lr"])
+            with self.assertRaisesRegex(ValueError, "source|identity"):
+                resume_combined(path, recovered, recovered_optimizer,
+                                source_sha256="wrong", feature_manifest={"sha":"causal"},
+                                dev_sha256="dev-sha")
 
     def test_original_sampler_and_feature_fingerprints_cannot_drift(self):
         raw = bytes(range(70))
