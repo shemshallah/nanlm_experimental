@@ -34,6 +34,66 @@ PRESETS = {
 }
 
 
+def static_upgrade_parameter_count(cfg: Preset) -> int:
+    """Exact TerminalRSI new-parameter count without allocating Blackwell weights."""
+    d = cfg.width
+    c = cfg.context
+    if d % 4:
+        raise ValueError("Critic width must be divisible by four")
+    return (
+        256 * d + (c + 4) * d +               # byte and position embeddings
+        (4 + 16 + 64) * d + 3 * d * d +        # three causal conv specialists
+        4 * d + 4 +                            # four-way routing
+        cfg.layers * (16 * d * d + 2 * d) +    # causal SDPA/GLU, two RMSNorm
+        d + 3 * 256 * d +                      # final norm, next/+2/+3
+        d + d * (d // 4) + (d // 4) +          # critic norm + hidden
+        (d // 4) + 1 +                        # critic scalar output
+        2 * d + 1                             # feedback and refine scale
+    )
+
+
+def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
+                          usable_fraction: float = 0.92) -> dict:
+    """Preflight of 96-GiB Blackwell upgrade, without 3B-parameter allocation.
+
+    FP32 weights/grads/Adam first+second moments occupy ~16 bytes/parameter.
+    BF16 autocast saves activation compute memory, NOT 32-bit master weights.
+    Activation lower bound is approximate: actual peak must be measured on GPU.
+    """
+    cfg = PRESETS["blackwell"]
+    if not 0.5 <= usable_fraction <= 1.0 or physical_vram_gib <= 0:
+        raise ValueError("Invalid Blackwell VRAM or reserve fraction")
+    params = static_upgrade_parameter_count(cfg)
+    state_gib = params * 16 / (1024 ** 3)
+    # One BF16 checkpoint tensor per layer per recursive pass; underestimate,
+    # because attention kernels, router branches, and temporary buffers add.
+    checkpoint_activation_floor = (
+        cfg.microbatch * cfg.context * cfg.width *
+        cfg.layers * cfg.recursive_passes * 2 / (1024 ** 3))
+    budget = physical_vram_gib * usable_fraction
+    return {
+        "preset": "blackwell",
+        "parameter_count_additive_specialist": params,
+        "hidden_width": cfg.width,
+        "layers": cfg.layers,
+        "context_bytes": cfg.context,
+        "recursive_passes": cfg.recursive_passes,
+        "microbatch": cfg.microbatch,
+        "physical_vram_gib": physical_vram_gib,
+        "usable_vram_budget_gib": budget,
+        "fp32_weights_grad_adam_gib_approx": state_gib,
+        "bf16_checkpoint_activation_floor_gib": checkpoint_activation_floor,
+        "provisional_headroom_gib": budget - state_gib - checkpoint_activation_floor,
+        "bf16_cuda_upgrade_only": True,
+        "archived_v103_fp32_unchanged": True,
+        "same_three_optimizer_groups": True,
+        "native_pytorch_causal_sdpa": True,
+        "gradient_checkpointing": True,
+        "gpu_peak_verified": False,
+        "note": "Lower-bound planning only: measure CUDA max_memory_allocated and OOM retry before a long run",
+    }
+
+
 def device_for(mode: str) -> torch.device:
     if mode == "cpu":
         return torch.device("cpu")
