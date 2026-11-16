@@ -280,9 +280,10 @@ def main(argv=None):
         step += 1
         if step % 50 == 0:
             print("RSI step", step, "train", report, flush=True)
-    if args.seconds:
-        # Preserve original Terminal-RSI's REAL verified actor-critic loop.
-        events.extend(terminal_feedback(model.original, optimizer))
+    # The archived v103 original ALWAYS performs both verified actor/critic
+    # Adam updates, even when --seconds=0 (zero BYTE optimizer updates).
+    # Keep that exact recursive learning behavior in all three presets.
+    events.extend(terminal_feedback(model.original, optimizer))
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=len(probes), auxiliary=probe_aux,
                                  local=probe_local)
