@@ -62,6 +62,15 @@ class MirrorWaveTests(unittest.TestCase):
         self.assertGreater(max(signal), 0.5)
         self.assertLess(min(signal), -0.5)
 
+    def test_matched_onsite_oscillator_control(self):
+        cfg = WaveConfig(pair_speed=0, head_speed=0, bridge=0, onsite_frequency=1)
+        w = M3MirrorWave(cfg)
+        w.inject_transition(0, 128)
+        w.step(8)
+        self.assertGreater(abs(w.pair_u[0, 0, 128]), 0.5)
+        self.assertEqual(w.pair_u[0, 1, 128], 0)
+        self.assertLess(abs(w.energy() / 1.5 - 1), 0.02)
+
     def test_signed_rail_orientation_and_conservation(self):
         w = M3MirrorWave(WaveConfig(bridge=0.3, shared_head_fraction=0.25))
         w.inject_transition(24, 79)

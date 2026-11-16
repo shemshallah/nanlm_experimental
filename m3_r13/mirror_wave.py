@@ -54,6 +54,7 @@ class WaveConfig:
     damping: float = 0.0
     bridge: float = 0.2
     shared_head_fraction: float = 0.0
+    onsite_frequency: float = 0.0
 
     def __post_init__(self) -> None:
         if not (0.0 < self.dt <= 0.5):
@@ -62,6 +63,8 @@ class WaveConfig:
             raise ValueError("wave speeds must lie in [0, 2]")
         if not (0.0 <= self.damping <= 2.0 and 0.0 <= self.bridge <= 2.0):
             raise ValueError("damping and bridge must lie in [0, 2]")
+        if not (0.0 <= self.onsite_frequency <= 2.0):
+            raise ValueError("onsite_frequency must lie in [0, 2]")
         if not (0.0 <= self.shared_head_fraction <= 1.0):
             raise ValueError("shared_head_fraction must lie in [0, 1]")
 
@@ -104,9 +107,15 @@ class M3MirrorWave:
             raise ValueError("rail must be 0 or 1; state must be (256, 256)")
         # Move one pair endpoint one lattice hop, leaving the other fixed.
         # Moves onto the forbidden pair diagonal are suppressed.
-        nearby = np.zeros_like(rail_state)
-        for neighborhood in self.neighbors.T:
-            nearby += rail_state[neighborhood, :] + rail_state[:, neighborhood]
+        # The pair coordinate is a 16x16 head lattice times another 16x16
+        # lattice. Four spatial axes with +/- unit shifts exactly reproduce
+        # the original shared-endpoint adjacency, without slow gathers.
+        pair_lattice = rail_state.reshape(SIDE, SIDE, SIDE, SIDE)
+        nearby = np.zeros_like(pair_lattice)
+        for axis in range(4):
+            nearby += np.roll(pair_lattice, 1, axis=axis)
+            nearby += np.roll(pair_lattice, -1, axis=axis)
+        nearby = nearby.reshape(N, N)
         local = (self.degree * rail_state - nearby) / 8.0
         if self.config.shared_head_fraction:
             marginal = rail_state.sum(axis=1)
@@ -124,7 +133,10 @@ class M3MirrorWave:
     def head_laplacian(self, state: np.ndarray) -> np.ndarray:
         if state.shape != (N,):
             raise ValueError("head field must have 256 entries")
-        return (4.0 * state - state[self.neighbors].sum(axis=1)) / 4.0
+        lattice = state.reshape(SIDE, SIDE)
+        adjacent = (np.roll(lattice, 1, axis=0) + np.roll(lattice, -1, axis=0)
+                    + np.roll(lattice, 1, axis=1) + np.roll(lattice, -1, axis=1))
+        return ((4.0 * lattice - adjacent) / 4.0).ravel()
 
     def _residuals(self) -> np.ndarray:
         head_p, head_m = self.head_u
@@ -137,14 +149,20 @@ class M3MirrorWave:
         return residual
 
     def _accelerations(self) -> tuple[np.ndarray, np.ndarray]:
-        pair_accel = np.stack([
-            -(self.config.pair_speed ** 2) * self.pair_laplacian(self.pair_u[r], r)
-            for r in (0, 1)
-        ])
-        head_accel = np.stack([
-            -(self.config.head_speed ** 2) * self.head_laplacian(self.head_u[r])
-            for r in (0, 1)
-        ])
+        pair_accel = (
+            np.stack([-(self.config.pair_speed ** 2) * self.pair_laplacian(self.pair_u[r], r)
+                      for r in (0, 1)])
+            if self.config.pair_speed else np.zeros_like(self.pair_u)
+        )
+        head_accel = (
+            np.stack([-(self.config.head_speed ** 2) * self.head_laplacian(self.head_u[r])
+                      for r in (0, 1)])
+            if self.config.head_speed else np.zeros_like(self.head_u)
+        )
+        if self.config.onsite_frequency:
+            omega2 = self.config.onsite_frequency ** 2
+            pair_accel -= omega2 * self.pair_u
+            head_accel -= omega2 * self.head_u
         if self.config.bridge:
             residual = self._residuals()
             spring = self.config.bridge / (N - 1)
@@ -219,11 +237,15 @@ class M3MirrorWave:
             float(np.dot(self.head_u[r], self.head_laplacian(self.head_u[r])))
             for r in (0, 1)
         )
+        onsite_potential = self.config.onsite_frequency ** 2 * (
+            0.25 * float(np.sum(self.pair_u ** 2))
+            + 0.5 * float(np.sum(self.head_u ** 2))
+        )
         residual = self._residuals()
         bridge_potential = (self.config.bridge / (4.0 * (N - 1))) * float(
             np.sum(residual ** 2)
         )
-        return pair_kin + head_kin + pair_potential + head_potential + bridge_potential
+        return pair_kin + head_kin + pair_potential + head_potential + onsite_potential + bridge_potential
 
     def features24(self) -> np.ndarray:
         """A new deterministic 24D spectral probe, NOT R12's trained basis.
