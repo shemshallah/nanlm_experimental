@@ -69,7 +69,14 @@ class VerbatimV103RSI(nn.Module):
         # the inherited v103 prediction because residual_gate is exact zero.
         current = self.upgrades(previous.long())["logits"][0, :, -1, :]
         proposed = self._byte_to_conditional_bit_logits(current, target)
-        gate = torch.tanh(self.residual_gate)
+        # Recursive RSI is the mixing-policy controller in ALL three modes.
+        # Its persistent state comes from prior byte errors and verified
+        # terminal outcomes only; no future target enters this trust signal.
+        # With residual_gate=0 the inherited v103 logits remain EXACT, while
+        # a learned nonzero gate adapts continuously to verified RSI feedback.
+        trust = 1.0 + 0.25 * torch.tanh(
+            self.original.feedback_state.detach().float().mean())
+        gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
         return old_logits + gate * (proposed - old_logits), bits
 
     @torch.no_grad()
