@@ -27,5 +27,6 @@ jobs:
           python terminal_rsi/test_unified.py
           python -m unittest terminal_rsi.test_agent_unified -v
           python -m unittest terminal_rsi.test_migrate -v
+          python -m unittest terminal_rsi.test_v103_parity -v
       - name: Existing standalone Terminal-RSI regressions
         run: python -m unittest discover -s terminal_rsi/tests -v
