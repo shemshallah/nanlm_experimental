@@ -1,0 +1,33 @@
+name: FA2 R53 - Causal Address-Keyed Pair History
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/causal_pair_history.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/probe_r53_pair_history.py'
+      - 'poincare_mirror/tests/test_r53_causal_pair_history.py'
+      - '.github/workflows/fa2-r53-pair-history.yml'
+  workflow_dispatch:
+
+jobs:
+  causal-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile FA2 source
+        run: python -m compileall -q poincare_mirror
+      - name: Strict causal history and inherited-path regressions
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r53_causal_pair_history.py' -v
+          python -m unittest discover -s tests -p 'test_r52_gain_address.py' -v
+          python -m unittest discover -s tests -p 'test_r51_address_contrast.py' -v

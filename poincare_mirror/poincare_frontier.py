@@ -37,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from causal_pair_history import retrieve_past_pair_values
 from torch import nn
 from torch.nn import functional as F
 
@@ -920,6 +921,11 @@ class SymbioticGeometry(nn.Module):
         self.meta_moe_enabled = True
         self.simplex_enabled = True
         self.simplex = SparseSimplexTransfer(rank) if simplex_transfer else None
+        # R53 opt-in experimental address-keyed temporal read. It is NOT a
+        # learned weight/checkpoint key, and zero preserves the old forward.
+        self.pair_history_gain = 0.0
+        self.pair_history_horizon = 16
+        self.pair_history_query_map = None
         self.curvature_enabled = True
         self.holonomy_enabled = True
         self.holonomy_feedback_enabled = True  # auxiliary-only training control
@@ -1084,6 +1090,14 @@ class SymbioticGeometry(nn.Module):
         if self.simplex is not None and self.simplex_enabled:
             back = self.simplex.downward(point, simplex_parts, down)
             feedback = feedback + simplex_gate*(back+simplex_store.reshape(-1,rank))
+            if self.pair_history_gain:
+                edge_i, edge_j = self.simplex.edge_vertices.unbind(-1)
+                prior_ids = self.pair_address(point_ids[:,edge_i], point_ids[:,edge_j])
+                read, _ = retrieve_past_pair_values(
+                    prior_ids.reshape(batch,length,-1),
+                    simplex_parts[0].reshape(batch,length,-1,rank),
+                    self.pair_history_horizon, self.pair_history_query_map)
+                feedback = feedback + self.pair_history_gain*read.reshape(-1,rank)
         if self.curvature is not None and self.curvature_enabled:
             feedback = feedback + curvature_gate*curvature_read.reshape(-1,rank)
             if holonomy_read is not None and self.holonomy_feedback_enabled:
