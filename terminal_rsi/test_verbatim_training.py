@@ -47,6 +47,30 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertGreater(len(self.optimizer.state), 0)
         self.assertEqual(len(self.optimizer.param_groups), 3)
 
+    def test_verified_rsi_feedback_controls_the_same_neural_upgrade_path(self):
+        """A bounded RSI trust change alters learned residuals, never the gate-zero parent."""
+        historic, _ = self.model.original(self.context, self.target, self.aux)
+        inherited, _ = self.model(self.context, self.target, self.aux)
+        self.assertTrue(torch.equal(historic, inherited))
+        with torch.no_grad():
+            self.model.residual_gate.fill_(0.1)
+            self.model.original.feedback_state.zero_()
+        early_historic, _ = self.model.original(self.context, self.target, self.aux)
+        early, _ = self.model(self.context, self.target, self.aux)
+        residual = early - early_historic
+        self.assertGreater(float(residual.abs().sum()), 0)
+        with torch.no_grad():
+            self.model.original.feedback_state.fill_(4.0)
+        late_historic, _ = self.model.original(self.context, self.target, self.aux)
+        late, _ = self.model(self.context, self.target, self.aux)
+        factor = 1.0 + 0.25 * torch.tanh(torch.tensor(4.0))
+        torch.testing.assert_close(late - late_historic, residual * factor,
+                                   atol=3e-5, rtol=3e-4)
+        with torch.no_grad():
+            self.model.residual_gate.zero_()
+        restored, _ = self.model(self.context, self.target, self.aux)
+        self.assertTrue(torch.equal(restored, late_historic))
+
     def test_original_terminal_rsi_is_active_even_when_byte_training_is_zero(self):
         """Original always performs two verifier-driven actor/critic steps."""
         previous = self.model.original.actor_logits.detach().clone()
