@@ -156,6 +156,36 @@ mean/std.
 Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/43812135296>  
 Commit: `59e34d1`
 
+### Integrated `concept_frontier_all` row
+
+The consolidated row now includes all nine requested upgrades:
+
+| # | Upgrade | Integration |
+|---:|---|---|
+| 1 | Detached multi-resolution probes | probe hidden state is detached by default |
+| 2 | Full-byte probes | per-token 48-byte sequence head and exact next-token byte targets |
+| 3 | Cross-resolution distillation | token distribution → first-byte marginal and first-byte head → token marginal |
+| 4 | Learned router-context gate | positive learned route/pooled/token gates, initialized to identity |
+| 5 | Hard object-ID stream | exact 32,640-row pair-ID embedding selected from hard object IDs |
+| 6 | Speculative MTP decode | main draft + MTP t+2 draft + verification forward |
+| 7 | Full-validation uncertainty | every target token scored; window BPB mean/std |
+| 8 | Hard negatives | hardest-negative margin on pair/triple pointer logits |
+| 9 | Long-context path | 8k RoPE headroom, YaRN auto, activation checkpointing at ctx ≥ 1024 |
+
+Short CPU gates on WikiText-2:
+
+| Gate | Steps | Params | Step time | BPB | Full-byte top-1/top-5 | Cross-res loss | Non-finite |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ctx 256 | 20 | 39,313,002 | 2.464s | 3.55972 | 5.26% / 21.89% | 3.35195 | 0 |
+| ctx 512 | 8 | 39,313,002 | 5.263s | 3.56735 | 1.22% / 4.48% | 3.59188 | 0 |
+
+These are wiring/timing gates, not quality results. The 99-test suite and
+five-row ablation matrix pass. Speculative decode is a correctness-preserving
+inference path; it is not trained as a separate objective.
+
+A consolidated 4-hour FineWeb-Edu ctx-512 run is active:
+<https://github.com/shemshallah/nanlm_experimental/actions/runs/43939945177>
+
 ### Completed 4-hour FineWeb-Edu run
 
 | Metric | Value |
