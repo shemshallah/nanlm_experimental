@@ -48,55 +48,33 @@ jobs:
       - name: Install data dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy tokenizers kaggle pyarrow
-      - name: Download public FineWeb-Edu (Kaggle primary, HF fallback)
-        run: |
-          mkdir -p data
-          set +e
-          kaggle datasets download -d nameonlu/fineweb-edu \
-            -f fineweb_edu_0000.txt -p data --unzip
-          kaggle_status=$?
-          set -e
-          if [ "$kaggle_status" -ne 0 ] || [ ! -f data/fineweb_edu_0000.txt ]; then
-            echo "Kaggle anonymous download failed; using public HF parquet fallback"
-            rm -rf data/fineweb_edu_0000.txt data/*.zip
-            curl -L --retry 3 --fail -o data/fineweb_edu.parquet \
-              https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/main/sample/10BT/000_00000.parquet
-            python - <<'PY'
-            import pyarrow.parquet as pq
-            table = pq.read_table('data/fineweb_edu.parquet', columns=['text'])
-            with open('data/fineweb_edu.txt', 'w', encoding='utf-8') as handle:
-                for value in table.column('text').to_pylist():
-                    if value:
-                        handle.write(value)
-                        handle.write('\n')
-            PY
-          else
-            mv data/fineweb_edu_0000.txt data/fineweb_edu.txt
-          fi
-          ls -lh data
-      - name: Slice into train and validation text
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          slice_mb = int(os.environ.get('SLICE_MB', '64'))
-          with Path('data/fineweb_edu.txt').open('rb') as handle:
-              raw = handle.read(slice_mb * 1024 * 1024)
-          cut = raw.rfind(b'\n')
-          if cut > 0:
-              raw = raw[:cut]
-          split = int(len(raw) * 0.96)
-          split = raw.rfind(b'\n', 0, split) if split > 0 else -1
-          if split <= 0:
-              split = int(len(raw) * 0.96)
-          Path('data/train.txt').write_bytes(raw[:split])
-          Path('data/valid.txt').write_bytes(raw[split:])
-          print({'raw_bytes': len(raw), 'train_bytes': split,
-                 'valid_bytes': len(raw) - split})
-          PY
+          python -m pip install numpy tokenizers pyarrow
+      - name: Download public FineWeb-Edu range from Kaggle
         env:
           SLICE_MB: ${{ inputs.slice_mb || '64' }}
+        run: |
+          mkdir -p data
+          slice_end=$(( SLICE_MB * 1024 * 1024 - 1 ))
+          url='https://www.kaggle.com/api/v1/datasets/download/nameonlu/fineweb-edu/fineweb_edu_0000.txt'
+          if ! curl -L --fail --retry 3 --range "0-${slice_end}" \
+              -o data/fineweb_edu.txt "$url"; then
+            echo "Kaggle range download failed; using public HF parquet fallback"
+            curl -L --retry 3 --fail -o data/fineweb_edu.parquet \
+              https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/main/sample/10BT/000_00000.parquet
+            python z3/parquet_to_text.py \
+              --input data/fineweb_edu.parquet \
+              --output data/fineweb_edu.txt
+          fi
+          ls -lh data/fineweb_edu.txt
+      - name: Slice into train and validation text
+        env:
+          SLICE_MB: ${{ inputs.slice_mb || '64' }}
+        run: |
+          python z3/prepare_fineweb_slice.py \
+            --input data/fineweb_edu.txt \
+            --out-dir data \
+            --slice-mb "$SLICE_MB" \
+            --valid-fraction 0.04
       - name: Encode bins with the layered tokenizer
         run: |
           python z3/prepare_cpu_bins.py \
@@ -185,15 +163,9 @@ jobs:
             https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/test.txt
           curl -L --retry 3 --fail -o eval_data/wt103.parquet \
             https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/wikitext-103-raw-v1/test-00000-of-00001.parquet
-          python - <<'PY'
-          import pyarrow.parquet as pq
-          table = pq.read_table('eval_data/wt103.parquet', columns=['text'])
-          with open('eval_data/wt103_test.txt', 'w', encoding='utf-8') as handle:
-              for value in table.column('text').to_pylist():
-                  if value:
-                      handle.write(value)
-                      handle.write('\n')
-          PY
+          python z3/parquet_to_text.py \
+            --input eval_data/wt103.parquet \
+            --output eval_data/wt103_test.txt
           wc -c eval_data/wt2_test.txt eval_data/wt103_test.txt
       - name: Locate checkpoint and run zero-shot evaluation
         run: |
