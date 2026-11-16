@@ -1,0 +1,35 @@
+name: FA2 R54 - Causal Pair Successor Memory
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/tests/test_r54_pair_successor.py'
+      - '.github/workflows/fa2-r54-pair-successor.yml'
+  workflow_dispatch:
+
+jobs:
+  successor-memory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile FA2
+        run: python -m compileall -q poincare_mirror
+      - name: R54 strict causal, negative control and lineage tests
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+      - name: Verify inherited R53/R52 causal regression
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r53_causal_pair_history.py' -v
+          python -m unittest discover -s tests -p 'test_r52_gain_address.py' -v
