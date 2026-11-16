@@ -1,0 +1,42 @@
+name: M3 R16 geometric residual attribution
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r16/**'
+      - '.github/workflows/m3-r16-counterfactual-wave.yml'
+  workflow_dispatch:
+
+jobs:
+  geometric-attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - run: python -m unittest discover -s m3_r16 -p 'test_*.py' -v
+      - name: Download checksum-verified NaNROUTER short stories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r16_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r16_corpus
+          cd /tmp/m3_r16_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: TRAIN-only geometry gate and independent DEV
+        run: |
+          python -m m3_r16.counterfactual_wave_gate \
+            --corpus-root /tmp/m3_r16_corpus \
+            --train-books 8 --dev-books 6 \
+            --bytes-per-book 4096 --warmup 1024 --seed 160016 \
+            --output m3_r16/results/R16_NaNROUTER_DEV.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m3-r16-counterfactual-book-dev
+          path: m3_r16/results/R16_NaNROUTER_DEV.json
