@@ -1,5 +1,7 @@
 # Terminal-RSI: single recursive CPU / T4 / 96GB Blackwell architecture
 
+> **Historical RSI lineage note (November 16, 2026):** This document records the *new stand-alone neural candidate* only. The canonical implementation that preserves the last actually trained v103 GPU RSI source, original 32-context/word/BPE/match state, two inherited Adam groups and exact source/DEV parity is [VERBATIM_PARITY.md](VERBATIM_PARITY.md) with `train_verbatim.py`. Use it for CPU/T4/Blackwell continuation. Nothing in this older page promotes the stand-alone candidate over the protected v103 checkpoint.
+
 **Terminal-RSI is the system.** FA1, FA2, M3 and Poincare experiments are independent.
 This directory is deliberately isolated from them.
 
