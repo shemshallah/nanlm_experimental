@@ -41,6 +41,10 @@ Removing the composition auxiliary head in router-only mode changes global
 router BPB only from 2.07577 to 2.07603, so the composition head is neutral and
 stays enabled.
 
+A 200-step control also wired token-aligned concept state into the MTP branch
+context.  It regressed exact BPB from 2.37255 to 2.37564, so MTP context remains
+global while the trunk router stays token-aligned.
+
 ## 200-step controls (exact denominators)
 
 | Row | Loss | Bits/byte | Bits/char |
