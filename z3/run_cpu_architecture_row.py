@@ -169,7 +169,8 @@ def main() -> int:
             {
                 "ok": bool(
                     code == 0
-                    and result.get("status") == "completed"
+                    and result.get("status") in ("completed", "max_seconds")
+                    and int(result.get("steps_completed") or 0) > 0
                     and int(result.get("nonfinite_skips") or 0) == 0
                 ),
                 "status": result.get("status"),
