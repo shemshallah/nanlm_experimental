@@ -204,13 +204,20 @@ def exact_parent_parity(model: VerbatimV103RSI, previous: torch.Tensor,
 
 
 def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
-                  provenance: dict, feedback_events=None):
+                  provenance: dict, feedback_events=None,
+                  training_state: dict | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     bundle = {"schema": "terminal-rsi-verbatim-v103-plus-upgrades-v1",
               "mode": model.cfg.name, "config": vars(model.cfg),
               "model": model.state_dict(), "optimizer": optimizer.state_dict(),
               "steps": step, "legacy_provenance": provenance,
-              "feedback_events": list(feedback_events or [])}
+              "feedback_events": list(feedback_events or []),
+              "training_state": training_state or {
+                  "torch_rng": torch.get_rng_state(),
+                  "cuda_rng": (torch.cuda.get_rng_state_all()
+                               if torch.cuda.is_available() else []),
+                  "python_rng": __import__("random").getstate(),
+                  "sampler": provenance.get("sampler")}}
     with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".incomplete", delete=False) as f:
         tmp = Path(f.name)
     try:
@@ -219,6 +226,36 @@ def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
+                    *, source_sha256: str, feature_manifest: dict,
+                    dev_sha256: str):
+    """One exact-mode checkpoint with all old/new optimizer, RNG and RSI state.
+
+    Cross-preset growth needs separate audited migration, never an implicit
+    load_state_dict(strict=False) that loses specialist histories.
+    """
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    if checkpoint.get("schema") != "terminal-rsi-verbatim-v103-plus-upgrades-v1":
+        raise ValueError("Not a complete unified Terminal-RSI checkpoint")
+    if checkpoint.get("config") != vars(model.cfg):
+        raise ValueError("Mode/architecture changed: require explicit capacity migration")
+    prior = checkpoint["legacy_provenance"]
+    if (prior.get("source_sha256") != source_sha256 or
+            prior.get("feature_manifest") != feature_manifest or
+            prior.get("dev_sha256") != dev_sha256):
+        raise ValueError("Original train/BPE/DEV identity changed across RSI resume")
+    model.load_state_dict(checkpoint["model"], strict=True)
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    if len(optimizer.param_groups) != 3:
+        raise ValueError("Inherited two Adam groups and additive upgrade group lost")
+    state = checkpoint.get("training_state")
+    if not state or "sampler" not in state or "torch_rng" not in state:
+        raise ValueError("Unified RSI checkpoint lacks restartable RNG/sampler state")
+    return {"step": checkpoint["steps"], "sampler": dict(state["sampler"]),
+            "events": list(checkpoint.get("feedback_events", [])),
+            "rng": state, "legacy_provenance": prior}
 
 
 def main():
