@@ -100,6 +100,31 @@ the no-probe 1,000-step run (2.05941 vs 2.05705). They are diagnostic heads, not
 part of the default generation path. Byte accuracy means the first byte of the
 next token; word accuracy means the lexical word identity of the next token.
 
+## 300-step timed smoke
+
+Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/43804560939>
+
+| Metric | Value |
+|---|---:|
+| Steps | 300 |
+| Parameters | 34,852,448 |
+| Train time | 528.19s (8m48.2s) |
+| Row wall time | 532.26s (8m52.3s) |
+| Step time | 1.7606s |
+| Loss | 6.77685 |
+| BPB | 2.26030 |
+| BPC | 2.26441 |
+| Subword/token top-1 | 15.10% |
+| Subword/token top-5 | 30.78% |
+| Byte top-1 | 88.04% |
+| Byte top-5 | 95.69% |
+| Word top-1 | 7.25% |
+| Word top-5 | 18.73% |
+
+At 1.7606 s/step, a 4-hour CPU window is about 8,179 steps and
+2.09M tokens. With a 4.4 bytes/token corpus average, the raw slice floor is
+about 9.2 MB; a 64 MB FineWeb-Edu slice provides roughly a 7x safety margin.
+
 ## Decision
 
 - Router-only concept feedback: default.
