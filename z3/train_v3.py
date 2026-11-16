@@ -831,6 +831,14 @@ def evaluate(
     mtp_pointer_tokens = 0
     target_bytes = 0
     target_chars = 0
+    byte_probe_ce = 0.0
+    byte_probe_tokens = 0
+    byte_probe_correct = 0
+    byte_probe_top5 = 0
+    word_probe_ce = 0.0
+    word_probe_tokens = 0
+    word_probe_correct = 0
+    word_probe_top5 = 0
     triple_pointer_sum = 0.0
     triple_pointer_tokens = 0
     mtp_triple_pointer_sum = 0.0
@@ -924,6 +932,52 @@ def evaluate(
             top = main_logits.topk(k, dim=-1).indices
             top_hits = (top == targets.unsqueeze(-1)).any(-1)
             top5 += int((top_hits & valid).sum())
+            if sidecar is not None and aux.get("byte_probe_logits") is not None:
+                byte_logits = aux["byte_probe_logits"][:, :-1]
+                byte_targets = sidecar.first_byte[:, 1:].long()
+                byte_ce = F.cross_entropy(
+                    byte_logits.reshape(-1, byte_logits.size(-1)),
+                    byte_targets.reshape(-1),
+                    reduction="none",
+                )
+                byte_probe_ce += float(byte_ce.sum())
+                byte_probe_tokens += int(byte_targets.numel())
+                byte_probe_correct += int(
+                    (byte_logits.argmax(-1) == byte_targets).sum()
+                )
+                byte_top = byte_logits.topk(
+                    min(5, byte_logits.size(-1)), dim=-1
+                ).indices
+                byte_probe_top5 += int(
+                    (byte_top == byte_targets.unsqueeze(-1)).any(-1).sum()
+                )
+            if sidecar is not None and aux.get("word_probe_logits") is not None:
+                word_logits = aux["word_probe_logits"][:, :-1]
+                word_targets = sidecar.word_vocab_ids[:, 1:].long()
+                word_mask = word_targets > 0
+                if word_mask.any():
+                    word_ce = F.cross_entropy(
+                        word_logits.reshape(-1, word_logits.size(-1)),
+                        word_targets.reshape(-1),
+                        reduction="none",
+                        ignore_index=0,
+                    ).view(word_targets.shape)
+                    word_probe_ce += float(word_ce[word_mask].sum())
+                    word_probe_tokens += int(word_mask.sum())
+                    word_probe_correct += int(
+                        (word_logits.argmax(-1) == word_targets)[
+                            word_mask
+                        ].sum()
+                    )
+                    word_top = word_logits.topk(
+                        min(5, word_logits.size(-1)), dim=-1
+                    ).indices
+                    word_probe_top5 += int(
+                        (
+                            (word_top == word_targets.unsqueeze(-1))
+                            .any(-1)
+                        )[word_mask].sum()
+                    )
             if task_ids is not None:
                 task_values = task_ids.detach().cpu().tolist()
                 for task in sorted(set(int(value) for value in task_values)):
@@ -1196,6 +1250,34 @@ def evaluate(
         "perplexity": math.exp(main_loss) if main_loss < 50 else None,
         "accuracy": correct / max(1, main_tokens),
         "top5": top5 / max(1, main_tokens),
+        "token_top1": correct / max(1, main_tokens),
+        "token_top5": top5 / max(1, main_tokens),
+        "subword_top1": correct / max(1, main_tokens),
+        "subword_top5": top5 / max(1, main_tokens),
+        "byte_probe_loss": (
+            byte_probe_ce / byte_probe_tokens
+            if byte_probe_tokens else None
+        ),
+        "byte_probe_accuracy": (
+            byte_probe_correct / byte_probe_tokens
+            if byte_probe_tokens else None
+        ),
+        "byte_probe_top5": (
+            byte_probe_top5 / byte_probe_tokens
+            if byte_probe_tokens else None
+        ),
+        "word_probe_loss": (
+            word_probe_ce / word_probe_tokens
+            if word_probe_tokens else None
+        ),
+        "word_probe_accuracy": (
+            word_probe_correct / word_probe_tokens
+            if word_probe_tokens else None
+        ),
+        "word_probe_top5": (
+            word_probe_top5 / word_probe_tokens
+            if word_probe_tokens else None
+        ),
         "per_task": {
             str(task): {
                 "tokens": int(entry["tokens"]),
@@ -1362,6 +1444,11 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-top-triples", type=int, default=2)
     model.add_argument("--composition-head", action=argparse.BooleanOptionalAction,
                        default=True)
+    model.add_argument("--byte-probe", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="auxiliary 256-way next-token first-byte probe")
+    model.add_argument("--word-probe-size", type=int, default=0,
+                       help="auxiliary word-vocabulary probe rows (0 disables)")
     model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
                        default=False,
                        help="legacy post-hoc C(V,2)/C(V,3) memory")
@@ -1463,6 +1550,10 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--no-ema", action="store_true")
     train.add_argument("--composition-weight", type=float, default=0.05,
                        help="auxiliary composition-event CE weight")
+    train.add_argument("--byte-probe-weight", type=float, default=0.02,
+                       help="auxiliary next-token first-byte probe weight")
+    train.add_argument("--word-probe-weight", type=float, default=0.02,
+                       help="auxiliary next-token word-identity probe weight")
     train.add_argument("--mtp-composition-weight", type=float, default=0.02,
                        help="future MTP structural-event BCE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
@@ -1776,6 +1867,8 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         concept_top_pairs=int(args.concept_top_pairs),
         concept_top_triples=int(args.concept_top_triples),
         composition_head=bool(args.composition_head),
+        byte_probe=bool(args.byte_probe),
+        word_probe_size=int(args.word_probe_size),
         use_combinatorial_memory=bool(args.combinatorial_memory),
         comb_vertices=int(args.comb_vertices),
         comb_dim=int(args.comb_dim),
@@ -2605,6 +2698,33 @@ def main(argv: list[str] | None = None) -> int:
                         ignore_index=-100,
                     )
                 loss = loss + args.composition_weight * composition_loss
+            byte_probe_loss = None
+            word_probe_loss = None
+            if sidecar is not None:
+                byte_logits = aux.get("byte_probe_logits")
+                if byte_logits is not None:
+                    byte_targets = sidecar.first_byte[:, 1:].long()
+                    byte_probe_loss = F.cross_entropy(
+                        byte_logits[:, :-1].reshape(
+                            -1, byte_logits.size(-1)
+                        ),
+                        byte_targets.reshape(-1),
+                    )
+                    loss = loss + args.byte_probe_weight * byte_probe_loss
+                word_logits = aux.get("word_probe_logits")
+                if word_logits is not None:
+                    word_targets = sidecar.word_vocab_ids[:, 1:].long()
+                    if (word_targets > 0).any():
+                        word_probe_loss = F.cross_entropy(
+                            word_logits[:, :-1].reshape(
+                                -1, word_logits.size(-1)
+                            ),
+                            word_targets.reshape(-1),
+                            ignore_index=0,
+                        )
+                        loss = loss + (
+                            args.word_probe_weight * word_probe_loss
+                        )
             pointer_loss = None
             triple_pointer_loss = None
             core = _model_core(model)
@@ -2826,6 +2946,14 @@ def main(argv: list[str] | None = None) -> int:
             "composition": (
                 _finite(composition_loss)
                 if composition_loss is not None else None
+            ),
+            "byte_probe": (
+                _finite(byte_probe_loss)
+                if byte_probe_loss is not None else None
+            ),
+            "word_probe": (
+                _finite(word_probe_loss)
+                if word_probe_loss is not None else None
             ),
             "mtp_composition": (
                 _finite(mtp_composition_loss)

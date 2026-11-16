@@ -131,6 +131,10 @@ class V3Config:
     concept_top_pairs: int = 4
     concept_top_triples: int = 2
     composition_head: bool = True
+    # Auxiliary multi-resolution probes.  They are trained on the shared
+    # hidden state and do not feed generation.
+    byte_probe: bool = False
+    word_probe_size: int = 0
     grad_checkpoint: bool = False
     comb_vertices: int = 64
     comb_dim: int = 128
@@ -673,6 +677,14 @@ class V3LM(nn.Module):
         self.composition_head = (
             CompositionHead(cfg.d_model)
             if cfg.composition_head else None
+        )
+        self.byte_probe = (
+            nn.Linear(cfg.d_model, 256, bias=False)
+            if cfg.byte_probe else None
+        )
+        self.word_probe = (
+            nn.Linear(cfg.d_model, cfg.word_probe_size, bias=False)
+            if cfg.word_probe_size > 0 else None
         )
         # Tied main head.  MTP heads are either separate full-vocab
         # projections or, for 64k vocabularies, tied to the main token
@@ -1352,6 +1364,10 @@ class V3LM(nn.Module):
                 aux["mtp_composition_lags"] = [
                     2 + idx for idx in range(len(mtp_composition_logits))
                 ]
+        if self.byte_probe is not None:
+            aux["byte_probe_logits"] = self.byte_probe(x)
+        if self.word_probe is not None:
+            aux["word_probe_logits"] = self.word_probe(x)
         if mtp_object_pointer_logits:
             aux["mtp_object_pointer_logits"] = mtp_object_pointer_logits
             aux["mtp_object_pointer_lags"] = [

@@ -71,23 +71,27 @@ class SpanSidecar:
     """Token-aligned structural labels for one window."""
 
     word_ids: torch.Tensor
+    word_vocab_ids: torch.Tensor
     sentence_ids: torch.Tensor
     math_kind: torch.Tensor
     event_ids: torch.Tensor
     byte_start: torch.Tensor
     byte_len: torch.Tensor
     char_len: torch.Tensor
+    first_byte: torch.Tensor
     event_multi: torch.Tensor
 
     def to(self, device: torch.device | str) -> "SpanSidecar":
         return SpanSidecar(
             word_ids=self.word_ids.to(device),
+            word_vocab_ids=self.word_vocab_ids.to(device),
             sentence_ids=self.sentence_ids.to(device),
             math_kind=self.math_kind.to(device),
             event_ids=self.event_ids.to(device),
             byte_start=self.byte_start.to(device),
             byte_len=self.byte_len.to(device),
             char_len=self.char_len.to(device),
+            first_byte=self.first_byte.to(device),
             event_multi=self.event_multi.to(device),
         )
 
@@ -95,12 +99,14 @@ class SpanSidecar:
         end = start + length
         return SpanSidecar(
             word_ids=self.word_ids[start:end],
+            word_vocab_ids=self.word_vocab_ids[start:end],
             sentence_ids=self.sentence_ids[start:end],
             math_kind=self.math_kind[start:end],
             event_ids=self.event_ids[start:end],
             byte_start=self.byte_start[start:end],
             byte_len=self.byte_len[start:end],
             char_len=self.char_len[start:end],
+            first_byte=self.first_byte[start:end],
             event_multi=self.event_multi[start:end],
         )
 
@@ -110,6 +116,7 @@ class SpanSidecar:
         spans = list(encoding.subword.spans)
         n = len(spans)
         word_ids = torch.zeros(n, dtype=torch.long)
+        word_vocab_ids = torch.zeros(n, dtype=torch.long)
         sentence_ids = torch.zeros(n, dtype=torch.long)
         math_kind = torch.zeros(n, dtype=torch.long)
         event_ids = torch.zeros(n, dtype=torch.long)
@@ -129,6 +136,11 @@ class SpanSidecar:
                 - bisect.bisect_left(offsets, s)
                 for s, e in spans
             ],
+            dtype=torch.long,
+        )
+        token_bytes = list(encoding.subword.token_bytes)
+        first_byte = torch.tensor(
+            [int(raw[0]) if raw else 0 for raw in token_bytes],
             dtype=torch.long,
         )
 
@@ -163,6 +175,8 @@ class SpanSidecar:
                 continue
             for idx in indices:
                 word_ids[idx] = word_index
+                if unit.word_id is not None:
+                    word_vocab_ids[idx] = int(unit.word_id) + 1
             mark(indices[0], EVENT_IDS["<word_start>"])
             mark(indices[-1], EVENT_IDS["<word_end>"])
             if len(indices) > 1:
@@ -191,12 +205,14 @@ class SpanSidecar:
 
         return cls(
             word_ids=word_ids,
+            word_vocab_ids=word_vocab_ids,
             sentence_ids=sentence_ids,
             math_kind=math_kind,
             event_ids=event_ids,
             byte_start=byte_start,
             byte_len=byte_len,
             char_len=char_len,
+            first_byte=first_byte,
             event_multi=event_multi,
         )
 
@@ -216,21 +232,24 @@ class SpanSidecar:
             raise ValueError("need at least one sidecar")
         max_len = max(int(s.word_ids.numel()) for s in sidecars)
         fields: dict[str, list[torch.Tensor]] = {
-            "word_ids": [], "sentence_ids": [], "math_kind": [],
+            "word_ids": [], "word_vocab_ids": [], "sentence_ids": [],
+            "math_kind": [],
             "event_ids": [], "byte_start": [], "byte_len": [],
-            "char_len": [], "event_multi": [],
+            "char_len": [], "first_byte": [], "event_multi": [],
         }
         for sidecar in sidecars:
             n = int(sidecar.word_ids.numel())
             pad = max_len - n
             for name, value in (
                 ("word_ids", sidecar.word_ids),
+                ("word_vocab_ids", sidecar.word_vocab_ids),
                 ("sentence_ids", sidecar.sentence_ids),
                 ("math_kind", sidecar.math_kind),
                 ("event_ids", sidecar.event_ids),
                 ("byte_start", sidecar.byte_start),
                 ("byte_len", sidecar.byte_len),
                 ("char_len", sidecar.char_len),
+                ("first_byte", sidecar.first_byte),
                 ("event_multi", sidecar.event_multi),
             ):
                 value = value.to(device)
