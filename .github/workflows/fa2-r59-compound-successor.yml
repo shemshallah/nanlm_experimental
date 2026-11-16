@@ -1,0 +1,38 @@
+name: FA2 R59 - Causal Compound Geometric Successor
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/train_r55_pair_successor.py'
+      - 'poincare_mirror/tests/test_r59_compound_successor.py'
+      - '.github/workflows/fa2-r59-compound-successor.yml'
+  workflow_dispatch:
+
+jobs:
+  causal-compound-content-rail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile all FA2 source
+        run: python -m compileall -q poincare_mirror
+      - name: R59 compound address, causal/negative-control and optimizer continuity
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r59_compound_successor.py' -v
+      - name: R54-R58 compatibility
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+          python -m unittest discover -s tests -p 'test_r55_pair_successor_train.py' -v
+          python -m unittest discover -s tests -p 'test_r58_conditional_successor.py' -v
+
+# Source-only CI. No checkpoint-backed predictive claim; sealed TEST not opened.

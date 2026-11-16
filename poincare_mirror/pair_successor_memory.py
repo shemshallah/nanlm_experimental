@@ -10,11 +10,14 @@ from torch import nn
 
 
 def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
-                             query_map=None, value_control="exact"):
+                             query_map=None, value_control="exact",
+                             key_mode="pair", query_byte_map=None):
     """Return B,T,V next-byte histograms, B,T edge coverage, B,T hit positions.
 
-    The wrong-value control retains *identical address matches and coverage*,
-    rotating only the already seen successor values inside each causal prefix.
+    The wrong-value control preserves matched locations and coverage. R59
+    compound modes require exact pair AND current observed byte (optionally
+    its predecessor) to match earlier observed keys. Every successor is x[u+1]
+    with u<t, hence x[u+1] is already available at prediction position t.
     """
     if pair_ids.ndim != 3 or observed.ndim != 2 or pair_ids.shape[:2] != observed.shape:
         raise ValueError("Need matching B,T,E pair IDs and B,T observed bytes")
@@ -22,16 +25,26 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
         raise ValueError("Pair addresses and observed bytes must use torch.long")
     if pair_ids.device != observed.device:
         raise ValueError("Addresses and bytes must use the same device")
-    if horizon < 1 or vocab < 2 or value_control not in ("exact", "rotated"):
+    if (horizon < 1 or vocab < 2 or value_control not in ("exact", "rotated")
+            or key_mode not in ("pair", "pair_byte", "pair_bigram")):
         raise ValueError("Invalid memory horizon, vocabulary or value control")
     if query_map is not None and (query_map.shape != (32640,) or
                                   query_map.dtype != torch.long):
         raise ValueError("Query map must be 32640 integer entries")
+    if query_byte_map is not None and (query_byte_map.shape != (vocab,) or
+                                       query_byte_map.dtype != torch.long):
+        raise ValueError("Query byte map must have one integer per vocabulary entry")
     if torch.any((pair_ids < 0) | (pair_ids >= 32640)) or torch.any(
             (observed < 0) | (observed >= vocab)):
         raise ValueError("Addresses or observed bytes out of range")
     batch, length, edges = pair_ids.shape
     query_map = query_map.to(pair_ids.device) if query_map is not None else None
+    query_byte_map = (query_byte_map.to(observed.device)
+                      if query_byte_map is not None else None)
+    if query_byte_map is not None and torch.any(
+            (query_byte_map < 0) | (query_byte_map >= vocab)):
+        raise ValueError("Query byte remapping exceeds vocabulary")
+    previous = torch.cat((observed[:, :1], observed[:, :-1]), dim=1)
     histograms = [torch.zeros(batch, vocab, device=pair_ids.device)]
     coverage = [torch.zeros(batch, device=pair_ids.device)]
     positions = [torch.zeros(batch, device=pair_ids.device)]
@@ -42,6 +55,19 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
         if query_map is not None:
             query = query_map[query]  # only queries remapped, never stored keys
         match = query[:,:,None,None].eq(keys[:,None,:,:])  # B,E,H,E
+        if key_mode != "pair":
+            query_byte = observed[:, t]
+            if query_byte_map is not None:
+                query_byte = query_byte_map[query_byte]
+            # Compound keys are formed from OBSERVED input x[t], never a label.
+            match = match & query_byte[:,None,None,None].eq(
+                observed[:,first:t][:,None,:,None])
+            if key_mode == "pair_bigram":
+                # No invented predecessor at u=0: that historical key is invalid.
+                valid = torch.arange(first,t,device=observed.device).ge(1)
+                match = match & valid[None,None,:,None]
+                match = match & observed[:,t-1][:,None,None,None].eq(
+                    previous[:,first:t][:,None,:,None])
         hit_counts = match.sum((2,3))                       # B,E
         active = hit_counts > 0
         by_time = match.sum(-1).float() / hit_counts.clamp_min(1)[:,:,None]
@@ -64,24 +90,36 @@ def retrieve_pair_successors(pair_ids, observed, horizon=32, vocab=257,
 class PairSuccessorTrust(nn.Module):
     """Causal successor recall with optional mass-preserving content expert.
 
-    R58 adds a second four-parameter trust rail. It adjusts the *conditional*
+    R58 adds a second four-parameter trust rail. R59 adds a third optional
+    four-parameter rail using compound (geometric-pair, observed-byte) keys.
+    Both are zero-initialized expansions of the one inherited FA2 model.
+    The rails adjust the *conditional*
     distribution among 255 non-space, non-EOS bytes while retaining exactly
     the original group log-sum-exp, space logit and EOS logit. The inherited
     general trust rail and its Adam moments remain unchanged.
     """
-    def __init__(self, horizon=32, smoothing=0.10, conditional_content=False):
+    def __init__(self, horizon=32, smoothing=0.10, conditional_content=False,
+                 joint_content=False):
         super().__init__()
         if horizon < 1 or not 0.0 < smoothing < 1.0:
             raise ValueError("Invalid local memory settings")
+        if joint_content and not conditional_content:
+            raise ValueError("R59 joint rail requires R58 content rail")
         self.weight = nn.Parameter(torch.zeros(4))
         self.register_parameter('content_weight',
                                 nn.Parameter(torch.zeros(4)) if conditional_content else None)
+        self.register_parameter('joint_weight',
+                                nn.Parameter(torch.zeros(4)) if joint_content else None)
         self.horizon = horizon
         self.smoothing = smoothing
         self.query_map = None
         self.value_control = "exact"
         self.conditional_query_map = None
         self.conditional_value_control = 'exact'
+        self.joint_query_map = None
+        self.joint_value_control = 'exact'
+        self.joint_query_byte_map = None
+        self.joint_key_mode = 'pair_byte'
 
     def enable_conditional_content(self):
         """Add one zero-init tensor to the SAME module; older outputs are exact."""
@@ -90,11 +128,21 @@ class PairSuccessorTrust(nn.Module):
         self.content_weight = nn.Parameter(torch.zeros_like(self.weight.detach()))
         return self.content_weight
 
+    def enable_joint_content(self):
+        """R59: add exactly one zero tensor; retain all inherited Adam slots."""
+        if self.content_weight is None:
+            raise ValueError("R59 requires R58 content capacity")
+        if self.joint_weight is not None:
+            raise ValueError("R59 joint rail already enabled")
+        self.joint_weight = nn.Parameter(torch.zeros_like(self.weight.detach()))
+        return self.joint_weight
+
     def _read_features(self, pairs, observed, vocab, query_map, value_control,
-                       baseline):
+                       baseline, key_mode="pair", query_byte_map=None):
         with torch.no_grad():
             copy, coverage, positions = retrieve_pair_successors(
-                pairs, observed, self.horizon, vocab, query_map, value_control)
+                pairs, observed, self.horizon, vocab, query_map, value_control,
+                key_mode=key_mode, query_byte_map=query_byte_map)
             log_evidence = (copy * (1-self.smoothing) + self.smoothing/vocab).log()
             log_evidence = log_evidence + math.log(vocab)
             entropy = -(copy*copy.clamp_min(1e-12).log()).sum(-1)/math.log(vocab)
@@ -142,4 +190,28 @@ class PairSuccessorTrust(nn.Module):
             corrected[...,content_mask] = proposed - normalization.to(logits.dtype)
             stats['content_trust'] = content_strength.detach()
             stats['content_coverage'] = content_cov.detach()
+        if self.joint_weight is not None:
+            if self.content_weight is None or vocab != 257:
+                raise ValueError("R59 needs R58 content and byte/EOS vocabulary")
+            joint_log,joint_cov,joint_positions,joint_features = self._read_features(
+                pairs,observed,vocab,self.joint_query_map,self.joint_value_control,
+                corrected,key_mode=self.joint_key_mode,
+                query_byte_map=self.joint_query_byte_map)
+            joint_strength = torch.tanh((joint_features.to(self.joint_weight.dtype)*
+                                         self.joint_weight).sum(-1))*joint_cov
+            # Same probability-mass-preserving decomposition as R58, now
+            # specialized on the joint lexical/geometric address.
+            mask = torch.ones(vocab,device=logits.device,dtype=torch.bool)
+            mask[32] = False
+            mask[256] = False
+            before = corrected[...,mask]
+            proposed = before + (joint_strength.unsqueeze(-1)*
+                                  joint_log[...,mask]).to(logits.dtype)
+            offset = (torch.logsumexp(proposed.float(),dim=-1,keepdim=True)
+                      -torch.logsumexp(before.float(),dim=-1,keepdim=True))
+            corrected = corrected.clone()
+            corrected[...,mask] = proposed-offset.to(logits.dtype)
+            stats["joint_trust"] = joint_strength.detach()
+            stats["joint_coverage"] = joint_cov.detach()
+            stats["joint_matched_positions"] = joint_positions.detach()
         return corrected,stats

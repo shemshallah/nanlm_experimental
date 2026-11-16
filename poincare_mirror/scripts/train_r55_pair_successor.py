@@ -27,6 +27,7 @@ from probe_r47_selective_emission import book_comparison
 
 PROTECTED_SHA = '74478d2f77b3c2da7978458f3660dffe8aad788938ce4a7ab6eae7cff2de0817'
 ARMS = ('neutral', 'exact', 'wrong_address', 'wrong_successor')
+COMPOUND_ARMS = ARMS + ('wrong_byte',)
 
 
 def checked_corpus(directory, saved):
@@ -92,33 +93,45 @@ def cache_books(model, mem, lengths, context, windows, batch, seed):
 
 @contextmanager
 def memory_arm(module, arm, wrong_queries):
-    conditional = module.content_weight is not None
-    if conditional:
+    """Intervene only on the newest active rail; inherited rails stay exact."""
+    joint = module.joint_weight is not None
+    conditional = not joint and module.content_weight is not None
+    if joint:
+        previous = (module.joint_query_map,module.joint_value_control,
+                    module.joint_query_byte_map)
+        previous_weight = module.joint_weight.detach().clone()
+        module.joint_query_map = wrong_queries if arm == 'wrong_address' else None
+        module.joint_value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
+        module.joint_query_byte_map = (torch.arange(257,dtype=torch.long).roll(1)
+                                       if arm == 'wrong_byte' else None)
+    elif conditional:
         previous = (module.conditional_query_map,module.conditional_value_control)
         previous_weight = module.content_weight.detach().clone()
+        module.conditional_query_map = wrong_queries if arm == 'wrong_address' else None
+        module.conditional_value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
     else:
-        previous = (module.query_map, module.value_control)
+        previous = (module.query_map,module.value_control)
         previous_weight = module.weight.detach().clone()
+        module.query_map = wrong_queries if arm == 'wrong_address' else None
+        module.value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
+    active_weight = (module.joint_weight if joint else
+                     module.content_weight if conditional else module.weight)
     try:
-        if conditional:
-            module.conditional_query_map = wrong_queries if arm == 'wrong_address' else None
-            module.conditional_value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
-        else:
-            module.query_map = wrong_queries if arm == 'wrong_address' else None
-            module.value_control = 'rotated' if arm == 'wrong_successor' else 'exact'
         if arm == 'neutral':
             with torch.no_grad():
-                (module.content_weight if conditional else module.weight).zero_()
+                active_weight.zero_()
         yield
     finally:
-        if conditional:
+        if joint:
+            (module.joint_query_map,module.joint_value_control,
+             module.joint_query_byte_map) = previous
+        elif conditional:
             module.conditional_query_map,module.conditional_value_control = previous
         else:
             module.query_map,module.value_control = previous
         if arm == 'neutral':
             with torch.no_grad():
-                (module.content_weight if conditional else module.weight).copy_(previous_weight)
-
+                active_weight.copy_(previous_weight)
 
 @torch.no_grad()
 def score_books(module, records, arm, wrong_queries):
@@ -162,8 +175,9 @@ def train_only_gate(module, optimizer, records, updates, lr, seed,
     if not batches:
         raise ValueError('No verified TRAIN windows')
     generator = np.random.default_rng(seed)
-    trained_parameter = (module.content_weight if module.content_weight is not None
-                         else module.weight)
+    trained_parameter = (module.joint_weight if module.joint_weight is not None else
+                         module.content_weight if module.content_weight is not None else
+                         module.weight)
     original_lr = optimizer.param_groups[0]['lr']
     original_decay = optimizer.param_groups[0]['weight_decay']
     losses, examples = [], 0
@@ -199,11 +213,12 @@ def train_only_gate(module, optimizer, records, updates, lr, seed,
             'nonspace_weight':nonspace_weight}
 
 
-def audit_inheritance(saved, model, optimizer, new_gate, content_only=False):
+def audit_inheritance(saved, model, optimizer, new_gate, content_only=False,
+                      joint_only=False):
     current = model.state_dict()
     errors = []
     for name, tensor in saved['model'].items():
-        if not new_gate and not content_only and name == 'pair_successor.weight':
+        if not new_gate and not content_only and not joint_only and name == 'pair_successor.weight':
             continue  # The resumed gate, and only this gate, is allowed to learn.
         if name not in current or not torch.equal(tensor, current[name]):
             errors.append('Inherited tensor changed: ' + name)
@@ -215,12 +230,12 @@ def audit_inheritance(saved, model, optimizer, new_gate, content_only=False):
     new_ids = current_opt['param_groups'][0]['params']
     if new_ids[:len(old_ids)] != old_ids:
         errors.append('Inherited Adam parameter IDs reordered')
-    if not new_gate and not content_only and len(new_ids) != len(old_ids):
+    if not new_gate and not content_only and not joint_only and len(new_ids) != len(old_ids):
         errors.append('Resumed gate changed parameter count')
-    if (new_gate or content_only) and len(new_ids) != len(old_ids)+1:
+    if (new_gate or content_only or joint_only) and len(new_ids) != len(old_ids)+1:
         errors.append('Exactly one new trust tensor expected')
     for pid, before in old['state'].items():
-        if not new_gate and not content_only and pid == old_ids[-1]:
+        if not new_gate and not content_only and not joint_only and pid == old_ids[-1]:
             continue  # Resumed gate Adam moments must advance, not stay frozen.
         after = current_opt['state'].get(pid)
         if after is None or any(k not in after or
@@ -233,8 +248,9 @@ def audit_inheritance(saved, model, optimizer, new_gate, content_only=False):
             'inherited_tensors':len(saved['model']),
             'inherited_adam_states':len(old['state']),
             'retained_adam_states':sum(i in current_opt['state'] for i in old['state']),
-            'new_trust_parameter':new_gate or content_only,
+            'new_trust_parameter':new_gate or content_only or joint_only,
             'conditional_specialist':content_only,
+            'joint_specialist':joint_only,
             'gate_adam_state_present':bool(current_opt['state'].get(new_ids[-1]))}
 
 
@@ -242,25 +258,32 @@ def evaluate(arm_rows, bootstrap, seed, targets, raw_bytes, elapsed):
     baseline = arm_rows['neutral']
     comparisons = {}
     results = {}
-    for arm in ARMS:
+    current_arms = COMPOUND_ARMS if 'wrong_byte' in arm_rows else ARMS
+    for arm in current_arms:
         rows = arm_rows[arm]
         means = {metric:float(np.mean([r[metric] for r in rows])) for metric in METRICS}
         results[arm] = {'metrics':{**means,
             'bits_per_raw_byte':means['ce_1']*targets/raw_bytes/math.log(2),
             'bits_per_byte_or_eos_target':means['ce_1']/math.log(2)},
             'scored_targets_per_second':targets/max(elapsed[arm],1e-9)}
-    # Corrected together across the three predeclared comparisons.
-    for reference, name in [('neutral','vs_parent'),
-                            ('wrong_address','vs_wrong_address'),
-                            ('wrong_successor','vs_wrong_successor')]:
+    # Bonferroni-correct across all predeclared candidate comparisons.
+    controls = [('neutral','vs_parent'),
+                ('wrong_address','vs_wrong_address'),
+                ('wrong_successor','vs_wrong_successor')]
+    if 'wrong_byte' in arm_rows:
+        controls.append(('wrong_byte','vs_wrong_byte'))
+    for reference, name in controls:
         comparisons[name] = book_comparison(arm_rows[reference],
-                                             arm_rows['exact'],bootstrap,seed,3)
+                                             arm_rows['exact'],bootstrap,seed,len(controls))
     against_parent = comparisons['vs_parent']
     exact_address = comparisons['vs_wrong_address']
     exact_value = comparisons['vs_wrong_successor']
+    required = [against_parent, exact_address, exact_value]
+    if 'vs_wrong_byte' in comparisons:
+        required.append(comparisons['vs_wrong_byte'])
     gate = (all(c['ce_1']['ci95_bonferroni'][0] > 0 and
                 c['ce_nonspace_1']['ci95_bonferroni'][0] > 0
-                for c in (against_parent, exact_address, exact_value)) and
+                for c in required) and
             against_parent['acc_nonspace_1']['mean_gain'] >= 0 and
             against_parent['top5_nonspace_1']['mean_gain'] >= 0 and
             all(against_parent[k]['mean_gain'] >= 0 for k in ('ce_2','ce_3')))
@@ -283,6 +306,8 @@ def main():
                    help='R56 TRAIN-only content-byte weighting; 1 retains R55')
     p.add_argument('--conditional-content', action='store_true',
                    help='R58: append zero-init mass-preserving content expert')
+    p.add_argument('--joint-content', action='store_true',
+                   help='R59: append zero-init causal compound-key content rail')
     p.add_argument('--bootstrap', type=int, default=2000)
     p.add_argument('--seed', type=int, default=2026)
     p.add_argument('--threads', type=int, default=2)
@@ -302,6 +327,10 @@ def main():
     if args.conditional_content and (new_gate or
                                      saved['config'].get('pair_successor_conditional',False)):
         raise ValueError('R58 needs existing non-conditional R55 successor gate')
+    if args.joint_content and (args.conditional_content or
+                              not saved['config'].get('pair_successor_conditional',False) or
+                              saved['config'].get('pair_successor_joint',False)):
+        raise ValueError('R59 needs existing non-joint R58 successor content rail')
     if new_gate and parent_sha != PROTECTED_SHA:
         raise ValueError('R55 initial migration requires exact protected step2993 SHA')
     if args.expected_parent_sha256 and parent_sha != args.expected_parent_sha256:
@@ -324,10 +353,19 @@ def main():
         with torch.no_grad():
             if not torch.equal(parity_before,model(parity_input)[0]):
                 raise AssertionError('R58 zero-init migration changed inherited logits')
+    if args.joint_content:
+        with torch.no_grad():
+            parity_input = torch.tensor([[65,32,66,67,65,32,66,67]],dtype=torch.long)
+            parity_before = model(parity_input)[0]
+        model.enable_joint_pair_successor(optimizer)
+        with torch.no_grad():
+            if not torch.equal(parity_before,model(parity_input)[0]):
+                raise AssertionError('R59 zero-init migration changed inherited logits')
     if model.pair_successor is None:
         raise AssertionError('Successor gate not attached')
     for name, param in model.named_parameters():
-        param.requires_grad_(name == ('pair_successor.content_weight'
+        param.requires_grad_(name == ('pair_successor.joint_weight' if args.joint_content
+                                      else 'pair_successor.content_weight'
                                       if args.conditional_content else
                                       'pair_successor.weight'))
     with memory_arm(model.pair_successor, 'neutral', None):
@@ -345,11 +383,12 @@ def main():
                                args.updates,args.lr,args.seed,
                                args.nonspace_weight)
     training_seconds = perf_counter()-begin
-    lineage = audit_inheritance(saved,model,optimizer,new_gate,args.conditional_content)
+    lineage = audit_inheritance(saved,model,optimizer,new_gate,args.conditional_content,
+                                args.joint_content)
     if not lineage['pass']:
         raise AssertionError('Inherited lineage damaged: '+str(lineage['issues']))
     arm_rows, elapsed = {}, {}
-    for arm in ARMS:
+    for arm in (COMPOUND_ARMS if args.joint_content else ARMS):
         tic = perf_counter()
         arm_rows[arm] = score_books(model.pair_successor,dev_cache,arm,wrong_queries)
         elapsed[arm] = perf_counter()-tic
@@ -368,7 +407,8 @@ def main():
     candidate['step'] = saved['step']+args.updates
     candidate['seen_tokens'] = saved['seen_tokens']+learning['tokens_processed']
     candidate['growth_history'] = list(saved.get('growth_history',[]))+[{
-        'kind':('r58_conditional_content_successor' if args.conditional_content
+        'kind':('r59_compound_pair_byte_content_successor' if args.joint_content
+                else 'r58_conditional_content_successor' if args.conditional_content
                 else 'r55_train_only_causal_pair_successor'),
         'from_step':saved['step'],'to_step':candidate['step'],
         'parent_sha256':parent_sha,'seed':args.seed,
@@ -383,7 +423,9 @@ def main():
         os.replace(temporary,args.output_checkpoint)
     finally:
         temporary.unlink(missing_ok=True)
-    report = {'status':('R58_mass_preserving_content_candidate_DEV_not_promoted'
+    report = {'status':('R59_compound_successor_candidate_DEV_not_promoted'
+                        if args.joint_content else
+                        'R58_mass_preserving_content_candidate_DEV_not_promoted'
                         if args.conditional_content else
                         'R55_TRAIN_only_candidate_DEV_screen_not_promoted'),
         'parent_step':saved['step'],'candidate_step':candidate['step'],
@@ -396,11 +438,15 @@ def main():
         'dev_windows_per_book':args.dev_windows_per_book,
         'dev_targets_per_arm':n,'dev_literal_bytes_per_arm':raw,
         'bootstrap_unit':'whole DEV book','bootstrap_replicates':args.bootstrap,
-        'familywise':'Bonferroni across exact vs parent/address/value',
+        'familywise':('Bonferroni across exact vs parent/address/value/byte'
+                      if args.joint_content else
+                      'Bonferroni across exact vs parent/address/value'),
         'learning':learning,'train_seconds':training_seconds,
         'final_gate_weights':model.pair_successor.weight.detach().tolist(),
         'final_content_weights':(model.pair_successor.content_weight.detach().tolist()
-                                 if args.conditional_content else None),
+                                 if model.pair_successor.content_weight is not None else None),
+        'final_joint_weights':(model.pair_successor.joint_weight.detach().tolist()
+                               if args.joint_content else None),
         'lineage':lineage,'results':results,'comparisons':paired,
         'dev_screen_pass':passed,'promoted':False,
         'next_gate':'Only after a positive, corrected book-disjoint DEV screen: '
