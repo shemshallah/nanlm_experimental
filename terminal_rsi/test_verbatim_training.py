@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import tempfile
+import struct
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer, sa
 from terminal_rsi.verbatim_metrics import byte_metrics_wrapped
 from terminal_rsi.train_verbatim import (
     score_byte_observations, train_one_batch, verify_parent_source,
+    build_causal_contexts, build_book_disjoint_probes,
 )
 from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA
 
@@ -70,6 +72,48 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertAlmostEqual(scored["bpb"], 8.0, places=5)
         self.assertAlmostEqual(scored["maximum_log_probability_mass_error"],
                                0.0, places=5)
+
+    def test_longer_context_never_changes_inherited_v103_bits(self):
+        early = torch.randint(0, 256, (2, 32))
+        long_history = torch.cat((early, self.context), dim=-1)
+        old, bits_a = self.model.original(self.context, self.target, self.aux)
+        new, bits_b = self.model(long_history, self.target, self.aux)
+        self.assertTrue(torch.equal(old, new))
+        self.assertTrue(torch.equal(bits_a, bits_b))
+        # First scored historical byte at offset32 has 32 left padding bytes.
+        raw = torch.arange(96, dtype=torch.uint8)
+        windows = build_causal_contexts(raw, torch.tensor([32, 64]), 64)
+        self.assertEqual(windows.shape, (2, 65))
+        self.assertTrue(torch.equal(windows[0, :32], torch.zeros(32, dtype=torch.long)))
+        self.assertTrue(torch.equal(windows[0, 32:-1], raw[:32].long()))
+        self.assertEqual(windows[0, -1].item(), 32)
+
+    def test_long_context_dev_is_book_sealed_and_last32_exact(self):
+        first = bytes(range(35))
+        second = bytes(range(100, 135))
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "win_dev.bin"
+            with file.open("wb") as fh:
+                fh.write(struct.pack("<II", 2, 32))
+                for book in (first, second):
+                    fh.write(struct.pack("<I", len(book)))
+                    fh.write(book)
+            # Original independent DEV evaluator windows target positions 32..34.
+            full = torch.stack([torch.tensor(
+                [list(book[i-32:i+1]) for i in range(32,35)],
+                dtype=torch.long) for book in (first,second)])
+            aux = torch.zeros(2,3,6,dtype=torch.int32)
+            local = torch.zeros(2,3,4,dtype=torch.int32)
+            probes, features, book_matches, digest = build_book_disjoint_probes(
+                file, 6, 64, full, aux, local, torch.device("cpu"))
+            self.assertEqual(probes.shape, (6,65))
+            self.assertEqual(features.shape, (6,6))
+            self.assertEqual(book_matches.shape, (6,4))
+            self.assertTrue(torch.equal(probes[:, -33:],
+                                        full.reshape(-1,33)))
+            # Second book must NOT inherit the first book's final bytes.
+            self.assertTrue(torch.equal(probes[3,:32],torch.zeros(32,dtype=torch.long)))
+            self.assertEqual(probes[3,-1].item(),132)
 
     def test_no_train_on_fake_missing_causal_features(self):
         with self.assertRaisesRegex(ValueError, "six causal features"):
