@@ -68,6 +68,38 @@ The pooled concept component is retained; token-only is slightly worse.
 The ordering is consistent across horizons.  Scaling the concept loop down did
 not help.
 
+## Timed 1,000-step multi-resolution run
+
+Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/43795909157>  
+Commit: `0889234`  
+Architecture: token-aligned router, global+token context, global MTP context,
+composition head, byte/word probe heads.
+
+| Metric | Value |
+|---|---:|
+| Training steps | 1,000 |
+| Parameters | 34,852,448 |
+| Non-finite skips | 0 |
+| Train time | 30m21.9s |
+| Row wall time | 30m27.1s |
+| Full workflow wall time | 31m49s |
+| Final loss | 6.16333 |
+| BPB | 2.05568 |
+| BPC | 2.05941 |
+| Subword/token top-1 | 20.00% |
+| Subword/token top-5 | 32.16% |
+| Byte top-1 (next token first byte) | 94.31% |
+| Byte top-5 | 95.10% |
+| Word top-1 (next token lexical word) | 12.08% |
+| Word top-5 | 24.47% |
+| Byte probe loss | 0.37756 |
+| Word probe loss | 6.62169 |
+
+The probe heads add ~3.1M parameters and slightly increase the main BPC versus
+the no-probe 1,000-step run (2.05941 vs 2.05705). They are diagnostic heads, not
+part of the default generation path. Byte accuracy means the first byte of the
+next token; word accuracy means the lexical word identity of the next token.
+
 ## Decision
 
 - Router-only concept feedback: default.
