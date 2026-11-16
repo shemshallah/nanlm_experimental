@@ -23,7 +23,7 @@ The inherited original is not a Mamba state-space model and is not a Transformer
 | Tesla T4 (16 GB) | Same exact parent and state | width 512, 8 layers, 8 heads, 1K context | Pilot; no presumed extra corpus | Requires actual GPU acceptance |
 | Blackwell (96 GB GPU, 32 GB RAM) | Same exact parent and state | width 2560, 32 layers, 40 heads, up to 8192 context | Multi-billion-param, checkpoint/VRAM risk | Requires VRAM profiling, streaming and actual GPU acceptance |
 
-IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The larger neural branch can later read longer causal histories, but current `VerbatimV103RSI.forward` feeds its last 32 bytes only. Do not claim 8K effective inherited context or that all upgrades reached performance parity. F32 CPU↔CUDA can differ numerically; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
+IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The additive neural branch now consumes 256/1024/up-to-8192 causally padded context bytes, with an explicit boundary test showing the old last-32+target rows remain identical. Do not claim 8K effective **historical** context or real-book gain without benchmarking. F32 CPU↔CUDA can differ numerically; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
 
 ## CPU FIRST: sealed original data and notebook state
 
