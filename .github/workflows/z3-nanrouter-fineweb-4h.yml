@@ -1,0 +1,219 @@
+name: NaNROUTER FineWeb-Edu 4h CPU
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: GitHub runner label (ubuntu-latest) or registered self-hosted label
+        required: true
+        default: ubuntu-latest
+        type: string
+      slice_mb:
+        description: Raw FineWeb-Edu slice size in MB
+        required: true
+        default: "64"
+        type: string
+      steps:
+        description: Training-step cap
+        required: true
+        default: "8000"
+        type: string
+      max_seconds:
+        description: Wall-clock training cap
+        required: true
+        default: "14400"
+        type: string
+      ctx:
+        description: Context length
+        required: true
+        default: "256"
+        type: string
+
+env:
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  prepare:
+    name: Prepare FineWeb-Edu slice
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install data dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers kaggle pyarrow
+      - name: Download public FineWeb-Edu (Kaggle primary, HF fallback)
+        run: |
+          mkdir -p data
+          set +e
+          kaggle datasets download -d nameonlu/fineweb-edu \
+            -f fineweb_edu_0000.txt -p data --unzip
+          kaggle_status=$?
+          set -e
+          if [ "$kaggle_status" -ne 0 ] || [ ! -f data/fineweb_edu_0000.txt ]; then
+            echo "Kaggle anonymous download failed; using public HF parquet fallback"
+            rm -rf data/fineweb_edu_0000.txt data/*.zip
+            curl -L --retry 3 --fail -o data/fineweb_edu.parquet \
+              https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu/resolve/main/sample/10BT/000_00000.parquet
+            python - <<'PY'
+            import pyarrow.parquet as pq
+            table = pq.read_table('data/fineweb_edu.parquet', columns=['text'])
+            with open('data/fineweb_edu.txt', 'w', encoding='utf-8') as handle:
+                for value in table.column('text').to_pylist():
+                    if value:
+                        handle.write(value)
+                        handle.write('\n')
+            PY
+          else
+            mv data/fineweb_edu_0000.txt data/fineweb_edu.txt
+          fi
+          ls -lh data
+      - name: Slice into train and validation text
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          slice_mb = int(os.environ.get('SLICE_MB', '64'))
+          with Path('data/fineweb_edu.txt').open('rb') as handle:
+              raw = handle.read(slice_mb * 1024 * 1024)
+          cut = raw.rfind(b'\n')
+          if cut > 0:
+              raw = raw[:cut]
+          split = int(len(raw) * 0.96)
+          split = raw.rfind(b'\n', 0, split) if split > 0 else -1
+          if split <= 0:
+              split = int(len(raw) * 0.96)
+          Path('data/train.txt').write_bytes(raw[:split])
+          Path('data/valid.txt').write_bytes(raw[split:])
+          print({'raw_bytes': len(raw), 'train_bytes': split,
+                 'valid_bytes': len(raw) - split})
+          PY
+        env:
+          SLICE_MB: ${{ inputs.slice_mb || '64' }}
+      - name: Encode bins with the layered tokenizer
+        run: |
+          python z3/prepare_cpu_bins.py \
+            --train-text data/train.txt \
+            --valid-text data/valid.txt \
+            --out data/fineweb_bins \
+            --dtype uint16
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nanrouter-fineweb-bins
+          path: |
+            data/fineweb_bins
+            data/train.txt
+            data/valid.txt
+          if-no-files-found: error
+
+  train:
+    name: NaNROUTER 4h CPU training
+    needs: prepare
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nanrouter-fineweb-bins
+          path: data
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy tokenizers
+      - name: Train NaNROUTER with token router and probes
+        run: |
+          python z3/run_cpu_architecture_row.py \
+            --row concept_router_tokens \
+            --train-bin data/fineweb_bins/train.bin \
+            --valid-bin data/fineweb_bins/valid.bin \
+            --out run \
+            --steps "${{ inputs.steps || '8000' }}" \
+            --ctx "${{ inputs.ctx || '256' }}" \
+            --max-seconds "${{ inputs.max_seconds || '14400' }}" \
+            --timeout 18000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nanrouter-fineweb-checkpoint
+          path: |
+            run/row_result.json
+            run/run.log
+            run/history.json
+            run/result.json
+            run/final.pt
+            run/best.pt
+            run/config.json
+          if-no-files-found: warn
+
+  evaluate:
+    name: Zero-shot WT2 and WT103
+    needs: train
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nanrouter-fineweb-checkpoint
+          path: trained
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch and evaluation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy tokenizers pyarrow
+      - name: Download WT2 test and WT103 test
+        run: |
+          mkdir -p eval_data
+          curl -L --retry 3 --fail -o eval_data/wt2_test.txt \
+            https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/test.txt
+          curl -L --retry 3 --fail -o eval_data/wt103.parquet \
+            https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/wikitext-103-raw-v1/test-00000-of-00001.parquet
+          python - <<'PY'
+          import pyarrow.parquet as pq
+          table = pq.read_table('eval_data/wt103.parquet', columns=['text'])
+          with open('eval_data/wt103_test.txt', 'w', encoding='utf-8') as handle:
+              for value in table.column('text').to_pylist():
+                  if value:
+                      handle.write(value)
+                      handle.write('\n')
+          PY
+          wc -c eval_data/wt2_test.txt eval_data/wt103_test.txt
+      - name: Locate checkpoint and run zero-shot evaluation
+        run: |
+          checkpoint=$(find trained -name final.pt | head -1)
+          test -n "$checkpoint"
+          python z3/eval_v3.py \
+            --checkpoint "$checkpoint" \
+            --corpus wt2=eval_data/wt2_test.txt \
+            --corpus wt103=eval_data/wt103_test.txt \
+            --tokenizer layered \
+            --ctx "${{ inputs.ctx || '256' }}" \
+            --batch-size 2 --batches 64 \
+            --device cpu \
+            --out eval_zero_shot.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nanrouter-zero-shot-eval
+          path: |
+            eval_zero_shot.json
+            eval_data/wt2_test.txt
+            eval_data/wt103_test.txt
+          if-no-files-found: warn

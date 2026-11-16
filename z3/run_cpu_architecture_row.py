@@ -109,6 +109,7 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--ctx", type=int, default=256)
+    parser.add_argument("--max-seconds", type=int, default=0)
     parser.add_argument("--timeout", type=int, default=3000)
     args = parser.parse_args()
     out = Path(args.out).expanduser().resolve()
@@ -123,6 +124,8 @@ def main() -> int:
             args.steps,
             args.ctx,
         ),
+        *(["--max-seconds", str(args.max_seconds)]
+          if args.max_seconds > 0 else []),
         *ROWS[args.row],
     ]
     log = out / "run.log"

@@ -1449,6 +1449,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="auxiliary 256-way next-token first-byte probe")
     model.add_argument("--word-probe-size", type=int, default=0,
                        help="auxiliary word-vocabulary probe rows (0 disables)")
+    model.add_argument("--probe-detach", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="train probes on detached hidden state")
     model.add_argument("--combinatorial-memory", action=argparse.BooleanOptionalAction,
                        default=False,
                        help="legacy post-hoc C(V,2)/C(V,3) memory")
@@ -1869,6 +1872,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         composition_head=bool(args.composition_head),
         byte_probe=bool(args.byte_probe),
         word_probe_size=int(args.word_probe_size),
+        probe_detach=bool(args.probe_detach),
         use_combinatorial_memory=bool(args.combinatorial_memory),
         comb_vertices=int(args.comb_vertices),
         comb_dim=int(args.comb_dim),

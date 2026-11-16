@@ -135,6 +135,7 @@ class V3Config:
     # hidden state and do not feed generation.
     byte_probe: bool = False
     word_probe_size: int = 0
+    probe_detach: bool = True
     grad_checkpoint: bool = False
     comb_vertices: int = 64
     comb_dim: int = 128
@@ -1364,10 +1365,11 @@ class V3LM(nn.Module):
                 aux["mtp_composition_lags"] = [
                     2 + idx for idx in range(len(mtp_composition_logits))
                 ]
+        probe_hidden = x.detach() if self.cfg.probe_detach else x
         if self.byte_probe is not None:
-            aux["byte_probe_logits"] = self.byte_probe(x)
+            aux["byte_probe_logits"] = self.byte_probe(probe_hidden)
         if self.word_probe is not None:
-            aux["word_probe_logits"] = self.word_probe(x)
+            aux["word_probe_logits"] = self.word_probe(probe_hidden)
         if mtp_object_pointer_logits:
             aux["mtp_object_pointer_logits"] = mtp_object_pointer_logits
             aux["mtp_object_pointer_lags"] = [
