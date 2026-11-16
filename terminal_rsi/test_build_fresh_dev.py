@@ -18,8 +18,8 @@ def english_book(book_id: int) -> bytes:
     # Use distinct natural-English sentences; 64-byte shingles contain ID/line
     # information and do not accidentally match across books.
     sentences = [
-        (f"The traveler in book {book_id} had a dream at chapter {i:05d}. "
-         f"She walked to the forest and the river was quiet. \n")
+        (f"The story {book_id} and the traveler {book_id} went to the river "
+         f"{book_id} in the forest {book_id} at chapter {i:05d}. \n")
         for i in range(180)
     ]
     return "".join(sentences).encode()
