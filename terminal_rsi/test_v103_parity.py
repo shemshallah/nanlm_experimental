@@ -1,0 +1,91 @@
+"""Verbatim v103 implementation parity before any RSI upgrade or GPU run."""
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import torch
+from torch.nn import functional as F
+
+from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA, V103ParityGPUFullSystem
+from terminal_rsi.unified import PRESETS, Preset
+from terminal_rsi.verbatim_v103 import VerbatimV103RSI, restore_v103_parent, exact_parent_parity
+
+
+class VerbatimGPUParityCPUTests(unittest.TestCase):
+    def setUp(self):
+        self.small = Preset("cpu", 32, 1, 4, 64, 1, 2, 1e-3, 1)
+        self.patch = patch.dict(PRESETS, {"cpu": self.small})
+        self.patch.start()
+        torch.manual_seed(1003)
+        self.history = torch.randint(0, 256, (2, 32))
+        self.target = torch.randint(0, 256, (2,))
+
+    def tearDown(self):
+        self.patch.stop()
+
+    def test_v103_source_verbatim_and_zero_impact_upgrade(self):
+        original = V103ParityGPUFullSystem()
+        model = VerbatimV103RSI("cpu")
+        model.original.load_state_dict(original.state_dict(), strict=True)
+        report = exact_parent_parity(model, self.history, self.target)
+        self.assertEqual(report["max_abs_logit_error"], 0)
+        self.assertTrue(report["exact_parity"])
+        self.assertEqual(model.residual_gate.item(), 0)
+        self.assertEqual(model.original.state_dict().keys(), original.state_dict().keys())
+        for key, tensor in original.state_dict().items():
+            self.assertTrue(torch.equal(model.original.state_dict()[key], tensor), key)
+
+    def test_trainable_upgrade_obeys_inherited_bitwise_path(self):
+        model = VerbatimV103RSI("cpu")
+        optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3)
+        old, _ = model.original(self.history, self.target)
+        out, bits = model(self.history, self.target)
+        self.assertTrue(torch.equal(old, out))
+        loss = F.binary_cross_entropy_with_logits(out, bits)
+        loss.backward()
+        self.assertIsNotNone(model.residual_gate.grad)
+        self.assertGreater(model.residual_gate.grad.abs().item(), 0)
+        optimizer.step()
+        self.assertNotEqual(model.residual_gate.item(), 0)
+        optimizer.zero_grad(set_to_none=True)
+        logits, bits = model(self.history, self.target)
+        F.binary_cross_entropy_with_logits(logits, bits).backward()
+        self.assertIsNotNone(model.upgrades.output[0].weight.grad)
+        self.assertGreater(model.upgrades.output[0].weight.grad.abs().sum().item(), 0)
+
+    def test_original_adam_state_and_online_buffers_recover_exactly(self):
+        prior = V103ParityGPUFullSystem()
+        opt = torch.optim.AdamW(prior.parameters(), lr=1e-3)
+        logits, bits = prior(self.history, self.target)
+        F.binary_cross_entropy_with_logits(logits, bits).backward()
+        opt.step()
+        prior.observe_online_bits(self.history, self.target, prior._default_aux(self.history))
+        prior.observe_byte_loss(3.1, 0.5)
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "parent_v103.pt"
+            torch.save({"schema": PARITY_SCHEMA, "model": prior.state_dict(),
+                        "optimizer": opt.state_dict(), "steps": 127,
+                        "configuration": {"causal_copy_enabled": False}}, file)
+            model = VerbatimV103RSI("cpu")
+            unified_opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+            summary = restore_v103_parent(file, model, unified_opt)
+            self.assertEqual(summary["legacy_step"], 127)
+            self.assertEqual(summary["legacy_adam_states"], len(opt.state))
+            self.assertEqual(len(unified_opt.state), len(opt.state))
+            self.assertTrue(torch.equal(model.original.v103_slot_counts,
+                                        prior.v103_slot_counts))
+            self.assertTrue(torch.equal(model.original.feedback_state,
+                                        prior.feedback_state))
+            exact_parent_parity(model, self.history, self.target)
+            # Inherited moments must land on the intended original parameter,
+            # not on the newly registered top-level residual gate.
+            a = prior.context_table.weight
+            b = model.original.context_table.weight
+            self.assertTrue(torch.equal(opt.state[a]["exp_avg"],
+                                        unified_opt.state[b]["exp_avg"]))
+            self.assertNotIn(model.residual_gate, unified_opt.state)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
