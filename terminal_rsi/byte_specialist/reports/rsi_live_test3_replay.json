@@ -1,0 +1,37 @@
+{
+  "bits_per_byte": 2.2878162761959375,
+  "book_count": 8,
+  "book_receipt_sha256": [
+    "0352b1d4b16e845a360529032ab9ed5c1cc81dc832c11cbbaa79f56cc300055c",
+    "9c5ca04fdab0070890f8ded746ed3cec2610d3d3c1179fc52f60298e85a44b7b",
+    "9706efd134683aa7d405239edf56799ba030c056b12e02c3cfe5784afea7ff6e",
+    "0f3e7cd24e7264eb3755a3e076af5f4221ff1ba74eee94f151a2ba5ea919eeac",
+    "a41828a4562227a950545f1fbce5aded7ac070a2edd19e88c92d00bfa2d6ff76",
+    "0613d8ddcbefa535a3e9a508ee3490c6c7f46de7b79d8aa662abe83c2ed763e6",
+    "09dfab5803ae197d2bfb50e9fe4fc8224ad7926d94c49400313da05346d5d519",
+    "fdcc1a4d6729bbc872bd3e612981b7d9c9e2e2e184355f710f4a41c740ca4e7b"
+  ],
+  "bytes_per_second": 3570.78,
+  "candidate_promoted": false,
+  "caveat": "Previously inspected book set; not an independent promotion gate",
+  "checkpoint_resume_count": 16,
+  "elapsed_seconds": 1.075,
+  "exact_batch_metric_equivalence": true,
+  "per_book_bpc": [
+    2.2637024509216204,
+    2.162515721684786,
+    2.405099040250276,
+    1.8457040240782623,
+    2.6552384559957916,
+    2.8316880789133245,
+    2.1497078899465207,
+    1.9888745477769272
+  ],
+  "schema": "terminal-rsi-v102-live-feedback-bridge-v1",
+  "scored_bytes": 3840,
+  "source_checkpoint_sha256": "0acd9c671d0cd8984867e67efa7a07be4d8e201c9fabdef7d692b6f7cdf40979",
+  "split": "test3",
+  "top1": 0.5377604166666666,
+  "top5": 0.8369791666666667,
+  "training_updates_during_replay": 0
+}

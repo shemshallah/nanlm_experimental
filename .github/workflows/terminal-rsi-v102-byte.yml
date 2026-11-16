@@ -96,6 +96,11 @@ jobs:
         run: |
           python -m terminal_rsi.byte_specialist.feedback_core temperature-legacy-diagnostic \
             --work corpus/work
+      - name: Verify frozen-donor live RSI replay and checkpoint resumption
+        run: |
+          python -m terminal_rsi.byte_specialist.stream_bridge \
+            --work corpus/work --split test3 --resume-every 160 \
+            --checkpoint corpus/work/rsi_temperature_candidate.npz
       - name: Prepare two independent untouched-book evaluations
         run: |
           python -m terminal_rsi.byte_specialist.contextual prepare-guard \
@@ -118,6 +123,9 @@ jobs:
             --work corpus/work --split dev4
           python -m terminal_rsi.byte_specialist.feedback_core temperature-evaluate \
             --work corpus/work --split dev4
+          python -m terminal_rsi.byte_specialist.stream_bridge \
+            --work corpus/work --split dev4 --resume-every 160 \
+            --checkpoint corpus/work/rsi_temperature_candidate.npz
       - name: Independent never-trained 64-book remainder audit
         run: |
           python -m terminal_rsi.byte_specialist.holdout evaluate \
@@ -130,6 +138,9 @@ jobs:
             --work corpus/work --split holdout4
           python -m terminal_rsi.byte_specialist.feedback_core temperature-evaluate \
             --work corpus/work --split holdout4
+          python -m terminal_rsi.byte_specialist.stream_bridge \
+            --work corpus/work --split holdout4 --resume-every 160 \
+            --checkpoint corpus/work/rsi_temperature_candidate.npz
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -159,4 +170,5 @@ jobs:
             corpus/work/rsi_temperature_candidate.npz
             corpus/work/rsi_temperature_search.json
             corpus/work/rsi_temperature_legacy_diagnostic.json
+            corpus/work/rsi_live_*_replay.json
           retention-days: 14

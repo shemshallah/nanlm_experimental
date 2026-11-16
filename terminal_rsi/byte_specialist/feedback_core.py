@@ -277,15 +277,25 @@ class StreamingRSICore:
     """
     def __init__(self, model: FeedbackRSI):
         self.model = model
+        buf=io.BytesIO()
+        model.checkpoint(buf)
+        self.model_sha256=hashlib.sha256(buf.getvalue()).hexdigest()
         self.reset_book()
 
-    def reset_book(self):
+    def reset_book(self, book_id='unassigned'):
         if getattr(self, '_pending', None) is not None:
             raise ValueError('Observe pending prediction before book reset')
+        if not isinstance(book_id,str) or not book_id:
+            raise ValueError('A nonempty book ID is required')
+        self.book_id=book_id
         self.history = bytearray()
         self.memories = [None] + [defaultdict(Counter) for _ in range(3)]
         self.critic = FeedbackState(self.model.decay)
         self._pending = None
+        self._pending_digest = None
+        self.stream_digest=hashlib.sha256(
+            b'terminal-rsi-v102-stream-v1\x00'+self.model_sha256.encode()+
+            b'\x00'+book_id.encode('utf-8')).hexdigest()
 
     def _record(self, byte):
         if not isinstance(byte, (int, np.integer)) or not 0 <= int(byte) < 256:
@@ -343,6 +353,11 @@ class StreamingRSICore:
         proposed,_=self.model._mix(expert,features,guard=True)
         proposed=self.model._calibrate(proposed,features)
         self._pending=tuple(channel[0].copy() for channel in expert)
+        self._pending_digest=hashlib.sha256(
+            bytes.fromhex(self.stream_digest)+
+            np.asarray(p,dtype='<f8').tobytes()+
+            np.asarray(proposed[0],dtype='<f8').tobytes()+
+            len(self.history).to_bytes(8,'little')).digest()
         return proposed[0].copy()
 
     def observe(self, target_byte):
@@ -352,7 +367,69 @@ class StreamingRSICore:
             raise ValueError('Invalid scored byte')
         self.critic.observe(*self._pending,int(target_byte))
         self._record(int(target_byte))
+        self.stream_digest=hashlib.sha256(
+            self._pending_digest+bytes([int(target_byte)])+
+            len(self.history).to_bytes(8,'little')).hexdigest()
         self._pending=None
+        self._pending_digest=None
+
+    def snapshot(self):
+        """Canonical, self-checking checkpoint at a completed prediction boundary.
+
+        This has accidental-corruption integrity, not authenticity: SHA-256
+        here is unkeyed. Serialized history rebuilds exact suffix tables;
+        the critic registers are stored because donor probabilities cannot be
+        reconstructed from observed bytes alone.
+        """
+        if self._pending is not None:
+            raise ValueError('Cannot checkpoint an unobserved prediction')
+        state={'schema':'terminal-rsi-v102-stream-state-v1',
+               'model_sha256':self.model_sha256,
+               'book_id':self.book_id,
+               'observed_history_hex':self.history.hex(),
+               'critic_values':self.critic.values.tolist(),
+               'critic_observations':self.critic.observations,
+               'stream_digest':self.stream_digest}
+        data=json.dumps(state,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+        state['state_sha256']=hashlib.sha256(data).hexdigest()
+        return state
+
+    @classmethod
+    def from_snapshot(cls,model:FeedbackRSI,state):
+        if not isinstance(state,dict) or set(state)!={
+                'schema','model_sha256','book_id','observed_history_hex',
+                'critic_values','critic_observations','stream_digest','state_sha256'}:
+            raise ValueError('Malformed RSI stream snapshot')
+        payload={k:v for k,v in state.items() if k!='state_sha256'}
+        try:
+            digest=hashlib.sha256(json.dumps(
+                payload,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+            history=bytes.fromhex(state['observed_history_hex'])
+            values=np.asarray(state['critic_values'],dtype=np.float64)
+        except (ValueError,TypeError,OverflowError) as e:
+            raise ValueError('Corrupt RSI stream snapshot') from e
+        if digest!=state['state_sha256'] or state['schema']!='terminal-rsi-v102-stream-state-v1':
+            raise ValueError('RSI snapshot integrity check failed')
+        out=cls(model)
+        if out.model_sha256!=state['model_sha256']:
+            raise ValueError('RSI snapshot targets different model/optimizer state')
+        if (not isinstance(state['stream_digest'],str) or
+                len(state['stream_digest'])!=64 or
+                any(c not in '0123456789abcdef' for c in state['stream_digest'])):
+            raise ValueError('Malformed RSI stream digest')
+        n=state['critic_observations']
+        if type(n) is not int or not 0<=n<=len(history):
+            raise ValueError('Impossible RSI observation count')
+        if (values.shape!=(4,) or not np.isfinite(values).all() or
+                np.max(np.abs(values))>4.000000001):
+            raise ValueError('Invalid RSI critic history')
+        out.reset_book(state['book_id'])
+        for b in history:
+            out._record(b)
+        out.critic.values=values
+        out.critic.observations=n
+        out.stream_digest=state['stream_digest']
+        return out
 
 
 def train_stages(work:Path):

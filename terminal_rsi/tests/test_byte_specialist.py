@@ -20,9 +20,78 @@ from terminal_rsi.byte_specialist.holdout import prepare_remainder
 from terminal_rsi.byte_specialist.trustgate import TrustGate
 from terminal_rsi.byte_specialist.causal_echo import CausalEcho, causal_counts
 from terminal_rsi.byte_specialist.feedback_core import FeedbackRSI, FeedbackState, StreamingRSICore
+from terminal_rsi.byte_specialist.stream_bridge import replay as live_donor_replay
 
 
 class SpecialistTests(unittest.TestCase):
+    def test_live_frozen_donor_bridge_preserves_metrics_across_restarts(self):
+        windows=(b'abc xyz abc xyz abc xyz!',b'xyz abc xyz abc xyz abc!')
+        skip=5
+        rng=np.random.default_rng(337)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            payload=struct.pack('<II',2,skip)
+            for book in windows:payload+=struct.pack('<I',len(book))+book
+            (root/'win_test3.bin').write_bytes(payload)
+            targets=np.frombuffer(b''.join(book[skip:] for book in windows),dtype=np.uint8)
+            per=len(windows[0])-skip
+            probs=rng.uniform(.01,1.,(len(targets),256))
+            probs/=probs.sum(axis=1,keepdims=True)
+            classes=previous_byte_classes(root,'test3')
+            counts,orders=causal_counts(root,'test3')
+            model=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
+            model.echo.g[:]=(.03,-.02,.04)
+            model.temp_w[:]=[.015,-.01,.005,.02,-.012,.003]
+            checkpoint=root/'combined.npz';model.checkpoint(checkpoint)
+            with patch('terminal_rsi.byte_specialist.stream_bridge._data',
+                       return_value=(probs,targets,per,classes,counts,orders)):
+                report=live_donor_replay(root,'test3',checkpoint,resume_every=7)
+            self.assertTrue(report['exact_batch_metric_equivalence'])
+            self.assertEqual(report['scored_bytes'],2*per)
+            self.assertGreater(report['checkpoint_resume_count'],0)
+            self.assertEqual(report['training_updates_during_replay'],0)
+            self.assertFalse(report['candidate_promoted'])
+            self.assertEqual(len(report['book_receipt_sha256']),2)
+            self.assertTrue((root/'rsi_live_test3_replay.json').is_file())
+
+    def test_stream_rsi_checkpoint_resume_receipts_and_integrity(self):
+        rng=np.random.default_rng(202611)
+        model=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
+        model.echo.g[:]=(.12,-.04,.07)
+        model.temp_w[:]=np.array([-.015,.02,-.01,.01,.015,-.01])
+        data=b'abcabcabc--abcabcabc word test!'
+        probabilities=rng.uniform(.002,1.,(len(data)-4,256))
+        probabilities/=probabilities.sum(axis=1,keepdims=True)
+        stream=StreamingRSICore(model)
+        stream.reset_book('standalone-book-001')
+        for char in data[:4]:stream.warmup(int(char))
+        for pos in range(7):
+            stream.predict(probabilities[pos])
+            stream.observe(int(data[4+pos]))
+        state=stream.snapshot()
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'stream_state.json'
+            path.write_text(json.dumps(state,sort_keys=True))
+            replay=json.loads(path.read_text())
+            recovered=StreamingRSICore.from_snapshot(model,replay)
+        self.assertEqual(recovered.snapshot(),state)
+        for pos in range(7,len(probabilities)):
+            a=stream.predict(probabilities[pos])
+            b=recovered.predict(probabilities[pos])
+            self.assertTrue(np.array_equal(a,b))
+            with self.assertRaisesRegex(ValueError,'Cannot checkpoint'):
+                recovered.snapshot()
+            stream.observe(int(data[4+pos]))
+            recovered.observe(int(data[4+pos]))
+        self.assertEqual(stream.stream_digest,recovered.stream_digest)
+        self.assertEqual(stream.snapshot(),recovered.snapshot())
+        damaged=dict(state);damaged['observed_history_hex']='00'+damaged['observed_history_hex'][2:]
+        with self.assertRaisesRegex(ValueError,'integrity'):
+            StreamingRSICore.from_snapshot(model,damaged)
+        modified=FeedbackRSI(CausalEcho(TrustGate(ContextualResidual(ResidualPolicy()))))
+        with self.assertRaisesRegex(ValueError,'different model'):
+            StreamingRSICore.from_snapshot(modified,state)
+
     def test_live_rsi_predict_then_observe_matches_offline_replay(self):
         rng=np.random.default_rng(822)
         a=b'abc abcabcabc XYZ! 12345 abcabc'

@@ -24,6 +24,11 @@ jobs:
         run: python -m pip install 'numpy>=1.26,<3'
       - name: Verify verifier, actor, reward, split and phase contracts
         run: python -m unittest discover -s terminal_rsi/tests -v
+      - name: Exercise real-command RSI choose execute verify learn cycle
+        run: |
+          python -m terminal_rsi.terminal_agent \
+            --tasks terminal_rsi/examples/live_probe.json --root . \
+            --checkpoint /tmp/terminal-rsi-live-smoke.json --train
       - name: Train verified synthetic tasks with preserved optimizer moments
         run: |
           python -m terminal_rsi.run --sft-updates 200 --rpr-updates 100 \

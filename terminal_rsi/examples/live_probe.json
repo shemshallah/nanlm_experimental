@@ -1,0 +1,20 @@
+[
+  {
+    "task_id": "terminal-probe-1",
+    "family": "terminal-probe",
+    "choices": [
+      ["python3", "-c", "print('not ready')"],
+      ["python3", "-c", "print('ready')"]
+    ],
+    "expected_stdout": "ready"
+  },
+  {
+    "task_id": "terminal-probe-2",
+    "family": "terminal-probe",
+    "choices": [
+      ["python3", "-c", "print('not ready')"],
+      ["python3", "-c", "print('ready')"]
+    ],
+    "expected_stdout": "ready"
+  }
+]

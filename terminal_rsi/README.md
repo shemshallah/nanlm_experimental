@@ -62,3 +62,43 @@ the agent now owns an **optional v10.2-inspired byte specialist** at
 features and vocabulary-aware predictions without replacing this actor or
 importing FA1/FA2. Its separate book BPC metrics and terminal-task scores
 remain explicitly different evaluation tracks.
+
+## First real terminal execution loop
+
+`terminal_agent.py` connects the existing verified-outcome and turn-aware
+advantage primitives to real subprocess execution. The runnable path is:
+
+**policy proposes one of the user-supplied command arrays → executes without
+a shell → checks exit code and exact expected stdout → critic gets verified reward →
+optional actor/Adam update → atomic checkpoint and chained receipt.**
+
+Unlike the ten-digit toy actor, this is a separate *terminal command* action
+representation; it does not pretend the toy learned weights can choose arbitrary
+shell commands. It is one Terminal-RSI research track, not a fork of FA1/FA2 or
+a new byte-specialist checkpoint. The manifest explicitly lists executable
+commands, and the agent does not invent commands or edit its own source.
+
+```bash
+# From the repository root: learn from two safe real Python subprocesses.
+python -m terminal_rsi.terminal_agent \
+  --tasks terminal_rsi/examples/live_probe.json \
+  --root . --checkpoint /tmp/terminal-rsi-live-probe.json --train
+
+# Run the same commands with frozen actor weights (critic still observes).
+python -m terminal_rsi.terminal_agent \
+  --tasks terminal_rsi/examples/live_probe.json \
+  --root . --checkpoint /tmp/terminal-rsi-live-probe.json
+```
+
+The JSON checkpoint contains the actor logits, Adam moments, critic values,
+per-family step counts, and a SHA-256 observation chain. It is written after
+each complete command, and its checksum is checked on restore. A missing
+command, nonzero exit, timeout, or incorrect output gets unsuccessful reward.
+Timeouts stop the process group. The runtime fixes the working directory and
+limits how much output it reads; it does **not** claim OS sandbox containment
+of explicitly supplied commands, authenticated remote receipts, task planning,
+or automatic retry after a mid-command crash.
+
+These are working executor/feedback mechanics. `benchmark_eligible=false`
+remains appropriate until independently checked real multi-step terminal tasks
+and external baselines demonstrate reliable performance.

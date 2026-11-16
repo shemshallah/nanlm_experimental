@@ -433,3 +433,38 @@ features outperform bias-only on TEST3 but *underperform* it on DEV2/TEST2.
 All three book-bootstrap intervals for calibrated versus inherited BPC include
 zero. These are useful replication diagnostics on older material, **not
 independent validation or proof of a general feedback advantage**.
+
+## Ninth round: resumable end-to-end streaming feedback
+
+The byte loop now has a single operational interface:
+
+`observed prefix -> predict(donor 256-way probabilities) -> observe(actual byte)`.
+
+`StreamingRSICore.snapshot()` captures complete causal suffix history, four
+critic registers, scored-observation count, model-checkpoint SHA-256, and a
+chained prediction/observation receipt. `from_snapshot()` rebuilds exact
+suffix counts and resumes; a checkpoint while a prediction is still pending
+is rejected. The snapshot SHA-256 detects accidental state corruption, **not
+forgery by an attacker**. Inherited RSI and Adam groups remain in the same
+combined `.npz` checkpoint.
+
+`stream_bridge.py` is an audited adapter over the frozen v102 evaluation
+records. It verifies full donor 256-way probability rows against independently
+saved loss records, then feeds the frozen distributions chronologically to the
+live core. The true next byte reaches only `observe()`. It checkpoints and
+resumes during replay and requires live BPC and top-1/top-5 to equal the
+independent vectorized evaluator within numeric tolerance.
+
+```bash
+python -m terminal_rsi.byte_specialist.stream_bridge \
+  --work /path/to/local-work \
+  --checkpoint /path/to/rsi_temperature_candidate.npz \
+  --split test3 --resume-every 160
+```
+
+On the **previously inspected** eight-book TEST3 split (3,840 scored bytes),
+live replay achieved 2.287816 BPC, top-1 53.7760%, top-5 83.6979%,
+and 16 exact pause/resume boundaries, at roughly 3,571 scored bytes/sec on
+the local CPU. This is an integration/throughput test, not an untouched
+generalization result. The adapter replays frozen donor probabilities; it
+does not claim a live v102 socket or a recoverable trained C donor checkpoint.
