@@ -1,0 +1,22 @@
+{
+  "architecture": "M3 R13 spatial mirror graph wave candidate",
+  "source_round": "new, no R12 decoder/checkpoint loaded",
+  "heads": 256,
+  "unordered_mirrors": 32640,
+  "signed_pair_rails": 2,
+  "conservative_energy_initial": 1.5,
+  "conservative_energy_after_120_steps": 1.5042689142978922,
+  "conservative_relative_drift": 0.0028459428652614083,
+  "damped_energy_fraction_after_80_steps": 0.09220899428138442,
+  "neighbor_amplitude_after_1_step": 0.0,
+  "neighbor_amplitude_after_2_steps": 0.001953125,
+  "distant_amplitude_after_2_steps": 0.0,
+  "uncoupled_neighbor_after_2_steps": 0.0,
+  "pair_ringing_max_48_steps": 1.013109858242496,
+  "pair_ringing_min_48_steps": -0.6559188033079372,
+  "standing_mode_half_period_correlation": -0.9998032326196,
+  "pair_parity_error": 0.0,
+  "text_bpb": null,
+  "text_bpc": null,
+  "checkpoint_promotion": "none"
+}
