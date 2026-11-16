@@ -225,4 +225,8 @@ mix are also harder than the earlier fixed-window WikiText validation.
 - Probe heads are detached by default so diagnostics cannot perturb the trunk.
 - Full validation is teacher-forced over every target token; `bits_per_byte`
   uses the bytes of those scored targets, not the corpus-average ratio.
+- The 4-hour FineWeb checkpoint reached 1.78936 valid BPB but only 2.85339 /
+  2.68467 zero-shot BPB on WT2 / WT103. It does not beat the old byte
+  reference or the 1,000-step WT2 result.
+- 96 unit/smoke tests and the 5-row ablation matrix pass.
 - Gains are small and single-seed; not a frontier claim.
