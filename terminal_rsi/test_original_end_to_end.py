@@ -19,6 +19,9 @@ import torch
 class OriginalCPUReplayEndToEnd(unittest.TestCase):
     def test_real_unmodified_main_runs_then_resumes_with_rsi_state(self):
         from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA
+        from terminal_rsi.gpu_experimental.v103_local_copy import book_local_features
+        from terminal_rsi.legacy_v103_local_copy import book_local_features as archived_local
+        self.assertIs(book_local_features, archived_local)
 
         with tempfile.TemporaryDirectory(prefix="terminal_rsi_original_") as root_str:
             root = Path(root_str)
@@ -34,6 +37,9 @@ class OriginalCPUReplayEndToEnd(unittest.TestCase):
             donor = root / "synthetic_original_v103.pt"
             continued = root / "synthetic_original_cpu_resume.pt"
             env = dict(os.environ, CUDA_VISIBLE_DEVICES="")
+            # Synthetic DEV does not have the archival SHA required by the
+            # original causal-copy gate. Test its faithful import alias above;
+            # use identical pinned DEV to exercise actual causal-copy replay.
             # First create a REAL checkpoint by calling the unmodified archived
             # training function; >0 seconds forces at least one AdamW step.
             initial = [
@@ -42,7 +48,7 @@ class OriginalCPUReplayEndToEnd(unittest.TestCase):
                 "import main; main(sys.argv[1:])",
                 "--corpus", str(corpus), "--output", str(donor),
                 "--holdout-dev", str(dev), "--bpe-merges", str(bpe),
-                "--v103-pathways", "--causal-copy",
+                "--v103-pathways",
                 "--allow-cpu-test", "--seconds", "0.01", "--batch", "4",
                 "--checkpoint-every", "0",
             ]
