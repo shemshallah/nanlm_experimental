@@ -1,0 +1,52 @@
+name: Inspect run metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Source workflow run ID
+        required: true
+        type: string
+
+jobs:
+  inspect:
+    name: Extract JSON summaries only
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nanrouter-zero-shot-eval
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: source-eval
+      - uses: actions/download-artifact@v4
+        with:
+          name: nanrouter-fineweb-checkpoint
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: source-checkpoint
+      - name: Print evaluation summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('source-eval/eval_zero_shot.json')
+          payload = json.loads(path.read_text())
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+      - name: Copy only JSON metadata
+        run: |
+          mkdir -p metadata
+          cp source-eval/eval_zero_shot.json metadata/
+          for name in row_result.json result.json history.json config.json; do
+            if [ -f "source-checkpoint/$name" ]; then
+              cp "source-checkpoint/$name" "metadata/$name"
+            fi
+          done
+          ls -lh metadata
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nanrouter-run-metadata
+          path: metadata
+          if-no-files-found: error
