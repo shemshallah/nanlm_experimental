@@ -9,7 +9,7 @@ from torch.nn import functional as F
 
 from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA, V103ParityGPUFullSystem
 from terminal_rsi.unified import PRESETS, Preset
-from terminal_rsi.verbatim_v103 import VerbatimV103RSI, restore_v103_parent, exact_parent_parity
+from terminal_rsi.verbatim_v103 import VerbatimV103RSI, restore_v103_parent, exact_parent_parity, build_v103_optimizer
 
 
 class VerbatimGPUParityCPUTests(unittest.TestCase):
@@ -53,6 +53,43 @@ class VerbatimGPUParityCPUTests(unittest.TestCase):
         F.binary_cross_entropy_with_logits(logits, bits).backward()
         self.assertIsNotNone(model.upgrades.output[0].weight.grad)
         self.assertGreater(model.upgrades.output[0].weight.grad.abs().sum().item(), 0)
+
+    def test_historical_two_optimizer_groups_remain_distinct(self):
+        prior = V103ParityGPUFullSystem()
+        base = [p for name, p in prior.named_parameters()
+                if not name.startswith("v103_")]
+        newer = [p for name, p in prior.named_parameters()
+                 if name.startswith("v103_")]
+        opt = torch.optim.AdamW([
+            {"params": base, "lr": 2e-3},
+            {"params": newer, "lr": 5e-4},
+        ])
+        for _ in range(2):
+            old, bits = prior(self.history, self.target)
+            opt.zero_grad(set_to_none=True)
+            F.binary_cross_entropy_with_logits(old, bits).backward()
+            opt.step()
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "real_group_layout.pt"
+            torch.save({"schema": PARITY_SCHEMA, "model": prior.state_dict(),
+                        "optimizer": opt.state_dict(), "steps": 59182,
+                        "configuration": {"causal_copy_enabled": True}}, file)
+            model = VerbatimV103RSI("cpu")
+            combined = build_v103_optimizer(model)
+            summary = restore_v103_parent(file, model, combined)
+            self.assertEqual(summary["legacy_adam_states"], len(opt.state))
+            self.assertEqual(len(combined.param_groups), 3)
+            self.assertEqual([g["lr"] for g in combined.param_groups[:2]],
+                             [2e-3, 5e-4])
+            self.assertEqual(model.original.causal_copy_enabled, True)
+            for pname, parent_param in prior.named_parameters():
+                child_param = dict(model.original.named_parameters())[pname]
+                a, b = opt.state[parent_param], combined.state[child_param]
+                for k in ("step", "exp_avg", "exp_avg_sq"):
+                    self.assertTrue(torch.equal(a[k], b[k]), pname + "." + k)
+            self.assertNotIn(model.residual_gate, combined.state)
+            self.assertTrue(exact_parent_parity(model, self.history,
+                                               self.target)["exact_parity"])
 
     def test_original_adam_state_and_online_buffers_recover_exactly(self):
         prior = V103ParityGPUFullSystem()
