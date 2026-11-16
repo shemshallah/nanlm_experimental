@@ -53,7 +53,7 @@ class DefaultTestChecks(unittest.TestCase):
                 return {name:uniform for name in m.ARMS}
             def observe(self,byte):
                 self.n += 1
-        books = [b"aa aaaaa"]*24
+        books = [b"aaaaaa a"]*24
         with patch.object(m,"M3DefaultPredictor",FakePredictor), patch.object(m,"WARMUP",4):
             result=m.score_streamed_test(books,[f"fixture-{i}" for i in range(24)],
                                          np.ones(256)/256)
