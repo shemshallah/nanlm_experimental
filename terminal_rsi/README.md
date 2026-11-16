@@ -135,3 +135,23 @@ demonstrate the full interface. **No live trained v102 donor checkpoint exists
 yet**, so these tests do not claim actual v102 command-proposal quality, real
 task benchmark success, or that low BPC implies correct commands. Compare
 RSI-only versus BPC-ranked proposals on distinct task sets before promotion.
+
+
+---
+
+## Unified CPU / T4 / 96GB Blackwell next-byte specialist (experimental)
+
+A separate **candidate inside the existing Terminal-RSI agent** now lives in
+[`unified.py`](unified.py), with CPU-first trainer
+[`train.py`](train.py) and regression [`test_unified.py`](test_unified.py).
+Its CPU/T4/Blackwell presets use the same causal byte predictor, learned
+recursive feedback, specialized local context, model/optimizer checkpoint, and
+book-disjoint evaluation, with different layer sizes and execution precision.
+These are unpromoted candidate modules, not a replacement for the verified
+terminal-action actor, critic, replay receipts, planner or existing checkpoints.
+
+Run `python terminal_rsi/test_unified.py` as the first acceptance gate.
+No legacy v103 C or WordNet checkpoint has been silently imported or discarded.
+Neural suggestions must continue through the existing verified-outcome
+RSR/RPR/actor-critic cycle; predictive BPC alone does not establish terminal-task
+success. Integration into the live agent is staged behind CPU tests.
