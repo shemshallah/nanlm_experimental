@@ -30,15 +30,29 @@ except ImportError:  # script execution from z3/
 
 
 def build_byte_sidecar(raw: bytes, layered) -> tuple[torch.Tensor, SpanSidecar]:
+    """Build byte-aligned subword/word/sentence labels without the slow
+    layered word/sentence encoder.  Native subword offsets plus lightweight
+    regex spans are enough for the feedback loop and are fast on a 4-core host.
+    """
+    import re
+    from layered_tokenizer import _char_byte_offsets
+
     text = raw.decode("utf-8", errors="ignore")
     text_bytes = text.encode("utf-8")
     n = len(text_bytes)
-    encoding = layered.encode(text, add_document_frame=False)
-    spans = list(encoding.subword.spans)
+    char_to_byte = _char_byte_offsets(text)
+
+    def to_byte(char_index: int) -> int:
+        return int(char_to_byte[min(max(char_index, 0), len(text))])
+
     subword_ids = torch.zeros(n, dtype=torch.long)
-    for (start, end), token_id in zip(spans, encoding.subword.ids):
-        start = max(0, min(n, int(start)))
-        end = max(start, min(n, int(end)))
+    native = getattr(layered.subword, "native", None)
+    if native is None:
+        raise RuntimeError("native subword tokenizer is required")
+    encoding = native.encode(text)
+    for token_id, (char_start, char_end) in zip(encoding.ids, encoding.offsets):
+        start = to_byte(char_start)
+        end = to_byte(char_end)
         if end > start:
             subword_ids[start:end] = int(token_id)
 
@@ -54,34 +68,50 @@ def build_byte_sidecar(raw: bytes, layered) -> tuple[torch.Tensor, SpanSidecar]:
             event_ids[index] = event
             event_multi[index, event] = 1.0
 
-    def fill(span_start: int, span_end: int, target: torch.Tensor, value: int):
-        start = max(0, min(n, int(span_start)))
-        end = max(start, min(n, int(span_end)))
+    def fill(start: int, end: int, target: torch.Tensor, value: int):
+        start = max(0, min(n, int(start)))
+        end = max(start, min(n, int(end)))
         if end > start:
             target[start:end] = int(value)
         return start, end
 
-    word_units = [unit for unit in encoding.word_units if unit.is_word]
-    for word_index, unit in enumerate(word_units, start=1):
-        start, end = fill(unit.start, unit.end, word_ids, word_index)
+    for word_index, match in enumerate(
+        re.finditer(r"[^\W\d_]+|\d+|[^\w\s]+", text, re.UNICODE), start=1
+    ):
+        start, end = fill(
+            to_byte(match.start()), to_byte(match.end()),
+            word_ids, word_index,
+        )
         if end <= start:
             continue
-        if unit.word_id is not None:
-            word_vocab_ids[start:end] = int(unit.word_id) + 1
         mark(start, EVENT_NAMES.index("<word_start>"))
         mark(end - 1, EVENT_NAMES.index("<word_end>"))
         if end - start > 1:
             mark(end - 1, EVENT_NAMES.index("<compose>"))
 
-    for sent_index, (start, end) in enumerate(encoding.sentence_spans, start=1):
-        start, end = fill(start, end, sentence_ids, sent_index)
+    sentence_spans = []
+    sentence_start = 0
+    for match in re.finditer(r"[.!?]+|\n+", text):
+        sentence_spans.append((sentence_start, match.end()))
+        sentence_start = match.end()
+    if sentence_start < len(text):
+        sentence_spans.append((sentence_start, len(text)))
+    for sent_index, (char_start, char_end) in enumerate(sentence_spans, start=1):
+        start, end = fill(
+            to_byte(char_start), to_byte(char_end), sentence_ids, sent_index
+        )
         if end > start:
             mark(end - 1, EVENT_NAMES.index("<sentence_end>"))
 
-    for span in getattr(encoding, "math_spans", []):
-        name = f"<{span.kind}>"
-        kind = MATH_KINDS.index(name) if name in MATH_KINDS else 0
-        start, end = fill(span.start, span.end, math_kind, kind)
+    for match in re.finditer(r"\$[^$]{1,200}\$|\\[A-Za-z]+", text):
+        kind = (
+            MATH_KINDS.index("<display>")
+            if text[match.start():match.end()].startswith("$")
+            else MATH_KINDS.index("<command>")
+        )
+        start, end = fill(
+            to_byte(match.start()), to_byte(match.end()), math_kind, kind
+        )
         if end > start:
             mark(start, EVENT_NAMES.index("<math_start>"))
             mark(end - 1, EVENT_NAMES.index("<math_end>"))
