@@ -15,13 +15,15 @@ from pathlib import Path
 import torch
 
 from terminal_rsi import legacy_v103_reference as original
+from terminal_rsi.build_fresh_dev import validate_fresh_dev
 
 
 def benchmark(*, checkpoint: Path, train_stream: Path, dev_bin: Path,
               bpe_merges: Path, topk_probes: int = 512,
               max_bpb_bytes: int | None = None,
               reference_dev: Path | None = None,
-              reference_full256: Path | None = None) -> dict:
+              reference_full256: Path | None = None,
+              dev_manifest: Path | None = None) -> dict:
     if topk_probes < 1 or (max_bpb_bytes is not None and max_bpb_bytes < 1):
         raise ValueError("Benchmark position counts must be positive")
     torch.set_num_threads(min(4, max(1, torch.get_num_threads())))
@@ -52,8 +54,19 @@ def benchmark(*, checkpoint: Path, train_stream: Path, dev_bin: Path,
                                            history=original.PARITY_CONTEXT)
     windows, dev_sha = independent
     old_dev = (saved.get("holdout_digests") or {}).get("dev")
-    if old_dev and old_dev != dev_sha:
-        raise ValueError("Original independent-book DEV digest changed")
+    new_dev = (old_dev != dev_sha)
+    fresh_metadata = None
+    if dev_manifest is not None:
+        fresh_metadata = validate_fresh_dev(
+            dev_bin, dev_manifest, train_sha256=corpus_sha)
+        if not new_dev:
+            raise ValueError("Provided NEW DEV manifest but original DEV SHA was unchanged")
+    elif new_dev:
+        raise ValueError(
+            "Original independent-book DEV digest changed. A newly built DEV "
+            "requires --dev-manifest with verified corpus/train/SHA provenance")
+    if new_dev and (reference_dev is not None or reference_full256 is not None):
+        raise ValueError("Original C reference positions are for the OLD DEV only")
     aux = original.heldout_auxiliary(str(dev_bin), torch.device("cpu"),
                                     ranks, historic_index)
     copy_enabled = bool((saved.get("configuration") or {}).get("causal_copy_enabled", False))
@@ -77,7 +90,8 @@ def benchmark(*, checkpoint: Path, train_stream: Path, dev_bin: Path,
         if not torch.equal(model.state_dict()[key].cpu(), value.cpu()):
             raise AssertionError("DEV scoring unexpectedly modified RSI: " + key)
     report = {
-        "protocol": "terminal-rsi-original-v103-native-CPU-book-disjoint-DEV",
+        "protocol": ("terminal-rsi-original-v103-CPU-new-DEV"
+                     if new_dev else "terminal-rsi-original-v103-native-CPU-book-disjoint-DEV"),
         "trained_steps": int(saved["steps"]),
         "historical_adam_groups": 2,
         "original_checkpoint_sha256": hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
@@ -88,6 +102,14 @@ def benchmark(*, checkpoint: Path, train_stream: Path, dev_bin: Path,
         "causal_copy_enabled": copy_enabled,
         "train_bytes": len(corpus),
         "device": "cpu",
+        "new_dev_manifest_sha256": (hashlib.sha256(dev_manifest.read_bytes()).hexdigest()
+                                    if dev_manifest is not None else None),
+        "new_dev_books": (fresh_metadata["books"] if fresh_metadata else None),
+        "new_dev_positions": (fresh_metadata["scored_positions"] if fresh_metadata else None),
+        "new_dev_train_id_disjoint_proven": (fresh_metadata["id_level_train_disjoint_proven"]
+                                            if fresh_metadata else None),
+        "new_dev_test_id_disjoint_proven": (fresh_metadata["id_level_test_disjoint_proven"]
+                                           if fresh_metadata else None),
         **results,
     }
     refs = (saved.get("holdout_digests") or {})
@@ -116,13 +138,16 @@ def main(argv=None):
     p.add_argument("--max-bpb-bytes", type=int, default=None)
     p.add_argument("--reference-dev", type=Path, default=None)
     p.add_argument("--reference-full256", type=Path, default=None)
+    p.add_argument("--dev-manifest", type=Path, default=None,
+                   help="Explicit fresh-English-DEV provenance; never silently replaces historic DEV")
     args = p.parse_args(argv)
     print(json.dumps(benchmark(
         checkpoint=args.checkpoint, train_stream=args.train_stream,
         dev_bin=args.dev_bin, bpe_merges=args.bpe_merges,
         topk_probes=args.topk_probes, max_bpb_bytes=args.max_bpb_bytes,
         reference_dev=args.reference_dev,
-        reference_full256=args.reference_full256), indent=2,
+        reference_full256=args.reference_full256,
+        dev_manifest=args.dev_manifest), indent=2,
         sort_keys=True))
 
 
