@@ -82,6 +82,26 @@ def _finite(x: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _hard_negative_margin(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    margin: float = 1.0,
+) -> torch.Tensor:
+    """Margin loss against the highest-scoring incorrect object vertex.
+
+    The usual CE already treats every other vertex as a negative.  This term
+    puts explicit pressure on the *hardest* negative in each row, which keeps
+    pointer predictions from becoming merely calibrated but locally ambiguous.
+    """
+    rows = torch.arange(logits.size(-1), device=logits.device)
+    gold = logits.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+    negatives = logits.masked_fill(
+        rows.unsqueeze(0) == targets.unsqueeze(-1), float("-inf")
+    )
+    hardest = negatives.max(dim=-1).values
+    return torch.relu(float(margin) + hardest - gold).mean()
+
+
 def _torch_load(path: Path) -> Any:
     try:
         return torch.load(path, map_location="cpu", weights_only=False)
@@ -146,6 +166,12 @@ _RESUME_NEW_PARAMS = (
     "concept_loop.carry_gate",
     "concept_loop.object_triple_pointer.weight",
 )
+_RESUME_NEW_SUFFIXES = (
+    ".router_mix",
+    ".object_id_embedding.weight",
+    ".object_id_to_state.weight",
+    ".object_id_gate",
+)
 
 
 def _load_resume_state(
@@ -156,7 +182,10 @@ def _load_resume_state(
 ) -> None:
     missing, unexpected = module.load_state_dict(state, strict=False)
     allowed = set(_RESUME_NEW_PARAMS)
-    bad_missing = sorted(set(missing) - allowed)
+    bad_missing = sorted(
+        key for key in set(missing) - allowed
+        if not key.endswith(_RESUME_NEW_SUFFIXES)
+    )
     if bad_missing or unexpected:
         parts = []
         if bad_missing:
@@ -1437,11 +1466,19 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-router-global",
                        action=argparse.BooleanOptionalAction, default=True,
                        help="also add the pooled concept state to MoE routers")
+    model.add_argument("--learned-router-mix",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="learn positive gates for route/pooled/token router context")
     model.add_argument("--concept-vertices", type=int, default=256)
     model.add_argument("--concept-dim", type=int, default=128)
     model.add_argument("--concept-top-vertices", type=int, default=8)
     model.add_argument("--concept-top-pairs", type=int, default=4)
     model.add_argument("--concept-top-triples", type=int, default=2)
+    model.add_argument("--object-id-embedding",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="learned hard C(256,2) object-ID readout")
+    model.add_argument("--object-id-dim", type=int, default=64,
+                       help="embedding width for the hard pair-ID vocabulary")
     model.add_argument("--composition-head", action=argparse.BooleanOptionalAction,
                        default=True)
     model.add_argument("--byte-probe", action=argparse.BooleanOptionalAction,
@@ -1561,6 +1598,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="future MTP structural-event BCE weight")
     train.add_argument("--object-pointer-weight", type=float, default=0.02,
                        help="auxiliary C(256,2) object-pointer CE weight")
+    train.add_argument("--object-negative-weight", type=float, default=0.0,
+                       help="hardest-negative margin weight for object pointers")
+    train.add_argument("--object-negative-margin", type=float, default=1.0,
+                       help="margin for the hardest-negative object pointer loss")
     train.add_argument("--object-triple-pointer-weight", type=float, default=0.01,
                        help="auxiliary C(256,3) object-triple-pointer CE weight")
     train.add_argument("--mtp-object-pointer-weight", type=float, default=0.01,
@@ -1864,11 +1905,14 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         concept_loop_attention=bool(args.concept_loop_attention),
         concept_router_tokens=bool(args.concept_router_tokens),
         concept_router_global=bool(args.concept_router_global),
+        learned_router_mix=bool(args.learned_router_mix),
         concept_loop_vertices=int(args.concept_vertices),
         concept_loop_dim=int(args.concept_dim),
         concept_top_vertices=int(args.concept_top_vertices),
         concept_top_pairs=int(args.concept_top_pairs),
         concept_top_triples=int(args.concept_top_triples),
+        object_id_embedding=bool(args.object_id_embedding),
+        object_id_dim=int(args.object_id_dim),
         composition_head=bool(args.composition_head),
         byte_probe=bool(args.byte_probe),
         word_probe_size=int(args.word_probe_size),
@@ -2731,6 +2775,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
             pointer_loss = None
             triple_pointer_loss = None
+            object_negative_loss = None
             core = _model_core(model)
             mtp_pointer_loss = None
             mtp_triple_pointer_loss = None
@@ -2755,6 +2800,21 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     )
                     loss = loss + args.object_pointer_weight * pointer_loss
+                    if args.object_negative_weight > 0:
+                        object_negative_loss = 0.5 * (
+                            _hard_negative_margin(
+                                ptr[:, :, 0], u_target,
+                                args.object_negative_margin,
+                            )
+                            + _hard_negative_margin(
+                                ptr[:, :, 1], v_target,
+                                args.object_negative_margin,
+                            )
+                        )
+                        loss = loss + (
+                            args.object_negative_weight
+                            * object_negative_loss
+                        )
             if (
                 aux.get("object_triple_pointer_logits") is not None
                 and getattr(
@@ -2776,6 +2836,26 @@ def main(argv: list[str] | None = None) -> int:
                         args.object_triple_pointer_weight
                         * triple_pointer_loss
                     )
+                    if args.object_negative_weight > 0:
+                        triple_negative = sum(
+                            _hard_negative_margin(
+                                ptr3[:, :, slot],
+                                target3[:, :, slot],
+                                args.object_negative_margin,
+                            )
+                            for slot in range(3)
+                        ) / 3.0
+                        object_negative_loss = (
+                            triple_negative
+                            if object_negative_loss is None
+                            else 0.5 * (
+                                object_negative_loss + triple_negative
+                            )
+                        )
+                        loss = loss + (
+                            args.object_negative_weight
+                            * triple_negative
+                        )
             if (
                 getattr(core, "concept_loop", None) is not None
                 and getattr(core.concept_loop, "last_object_vertices", None)
@@ -2969,6 +3049,10 @@ def main(argv: list[str] | None = None) -> int:
             "object_triple_pointer": (
                 _finite(triple_pointer_loss)
                 if triple_pointer_loss is not None else None
+            ),
+            "object_negative": (
+                _finite(object_negative_loss)
+                if object_negative_loss is not None else None
             ),
             "mtp_object_pointer": (
                 _finite(mtp_pointer_loss)

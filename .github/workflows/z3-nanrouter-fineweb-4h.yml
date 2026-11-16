@@ -28,6 +28,16 @@ on:
         required: true
         default: "256"
         type: string
+      row:
+        description: Architecture row
+        required: true
+        default: concept_router_tokens
+        type: choice
+        options:
+          - concept_router_tokens
+          - concept_frontier
+          - concept_router_tokens_mix
+          - concept_router_tokens_object_id
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -114,7 +124,7 @@ jobs:
       - name: Train NaNROUTER with token router and probes
         run: |
           python z3/run_cpu_architecture_row.py \
-            --row concept_router_tokens \
+            --row "${{ inputs.row || 'concept_router_tokens' }}" \
             --train-bin data/fineweb_bins/train.bin \
             --valid-bin data/fineweb_bins/valid.bin \
             --out run \
@@ -177,7 +187,8 @@ jobs:
             --corpus wt103=eval_data/wt103_test.txt \
             --tokenizer layered \
             --ctx "${{ inputs.ctx || '256' }}" \
-            --batch-size 2 --batches 64 \
+            --full \
+            --batch-size 1 \
             --device cpu \
             --out eval_zero_shot.json
       - uses: actions/upload-artifact@v4

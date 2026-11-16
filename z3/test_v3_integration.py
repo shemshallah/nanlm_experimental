@@ -14,10 +14,10 @@ import torch
 
 try:
     from .moe_vectorized import VectorizedSparseMoE
-    from .v3_model import SparseMoE, V3Config, V3LM
+    from .v3_model import Block, SparseMoE, V3Config, V3LM
 except ImportError:  # script execution from z3/
     from moe_vectorized import VectorizedSparseMoE
-    from v3_model import SparseMoE, V3Config, V3LM
+    from v3_model import Block, SparseMoE, V3Config, V3LM
 
 
 class V3IntegrationTest(unittest.TestCase):
@@ -158,6 +158,84 @@ class V3IntegrationTest(unittest.TestCase):
             model.blocks[-1].mlp.inner.expert_context.weight.shape[1],
             cfg.d_model,
         )
+
+    def test_learned_router_mix_starts_at_identity_and_gets_gradient(self):
+        common = dict(
+            vocab_size=64, ctx=16, max_ctx=16, d_model=32,
+            n_layers=2, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=2, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            moe_hierarchical=True, moe_context_router=True,
+            moe_hyperdimensional=True, moe_route_feedback=True,
+            dropout=0.0, use_memory=False, mtp=1, mtp_block=False,
+        )
+        fixed = Block(V3Config(**common, learned_router_mix=False), 1)
+        mixed = Block(V3Config(**common, learned_router_mix=True), 1)
+        missing, unexpected = mixed.load_state_dict(
+            fixed.state_dict(), strict=False
+        )
+        self.assertEqual(missing, ["router_mix"])
+        self.assertEqual(unexpected, [])
+        x = torch.randn(2, 5, 32)
+        route = torch.randn(2, 32)
+        loop = torch.randn(2, 32)
+        token = torch.randn(2, 5, 32)
+        fixed.eval()
+        mixed.eval()
+        with torch.no_grad():
+            fixed_out = fixed(x, route, loop, token)
+            mixed_out = mixed(x, route, loop, token)
+        torch.testing.assert_close(fixed_out[0], mixed_out[0])
+        torch.testing.assert_close(
+            torch.nn.functional.softplus(mixed.router_mix),
+            torch.ones(3),
+        )
+        mixed.train()
+        out = mixed(x, route, loop, token)
+        out[0].square().mean().backward()
+        self.assertIsNotNone(mixed.router_mix.grad)
+        self.assertTrue(torch.isfinite(mixed.router_mix.grad).all())
+
+    def test_hard_object_id_embedding_is_addressable(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=16, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=1, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            dropout=0.0, use_memory=False, mtp=1, mtp_block=False,
+            use_concept_loop=True, concept_loop_dim=16,
+            concept_top_pairs=4, concept_top_triples=2,
+            object_id_embedding=True, object_id_dim=8,
+        )
+        model = V3LM(cfg)
+        embedding = model.concept_loop.object_id_embedding
+        self.assertEqual(embedding.num_embeddings, 32640)
+        tokens = torch.randint(0, 64, (2, 16))
+        logits, _mtp, _aux = model(tokens)
+        self.assertTrue(torch.isfinite(logits).all())
+        logits.float().logsumexp(-1).mean().backward()
+        self.assertIsNotNone(embedding.weight.grad)
+        self.assertIsNotNone(
+            model.concept_loop.object_id_to_state.weight.grad
+        )
+
+    def test_detached_probes_do_not_backprop_to_trunk(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=16, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=1, moe_layers=0, n_experts=4,
+            topk=2, shared_experts=0, expert_hidden=64,
+            dropout=0.0, use_memory=False, mtp=1, mtp_block=False,
+            byte_probe=True, word_probe_size=16, probe_detach=True,
+        )
+        model = V3LM(cfg)
+        tokens = torch.randint(0, 64, (2, 16))
+        _logits, _mtp, aux = model(tokens)
+        aux["byte_probe_logits"].float().logsumexp(-1).mean().backward()
+        self.assertIsNotNone(model.byte_probe.weight.grad)
+        self.assertIsNone(model.tok.weight.grad)
+        self.assertIsNone(model.blocks[0].attn.qkv.weight.grad)
+        self.assertIsNone(model.tok_up.weight.grad)
 
     def test_sparse_moe_uses_vectorized_inner(self):
         cfg = V3Config(

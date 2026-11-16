@@ -44,6 +44,13 @@ ROWS = {
         "--no-concept-router-tokens",
     ],
     "concept_router_tokens": [],
+    "concept_router_tokens_mix": ["--learned-router-mix"],
+    "concept_router_tokens_object_id": ["--object-id-embedding"],
+    "concept_frontier": [
+        "--learned-router-mix",
+        "--object-id-embedding",
+        "--object-negative-weight", "0.01",
+    ],
     "concept_router_tokens_only": ["--no-concept-router-global"],
 }
 

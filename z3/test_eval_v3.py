@@ -104,6 +104,36 @@ class EvalV3Tests(unittest.TestCase):
         self.assertLessEqual(positions["max"], positions["allowed_max"])
         self.assertEqual(len(positions["digest"]), 16)
 
+    def test_full_evaluation_covers_every_target_and_uses_exact_bytes(self) -> None:
+        torch.manual_seed(2)
+        cfg = tiny_config()
+        model = V3LM(cfg)
+        token_ids = [(i * 29) % cfg.vocab_size for i in range(70)]
+        metrics = eval_v3.evaluate_ids_full(
+            model,
+            token_ids,
+            cfg,
+            ctx=16,
+            device="cpu",
+            name="full-unit",
+            token_byte_lengths=[1] * len(token_ids),
+        )
+        self.assertEqual(metrics["tokens"], len(token_ids) - 1)
+        self.assertEqual(metrics["eval_bytes"], len(token_ids) - 1)
+        self.assertAlmostEqual(
+            metrics["eval_bits_per_byte"],
+            metrics["bits_per_token"],
+            places=6,
+        )
+        self.assertEqual(metrics["val_positions"]["mode"], "full")
+        self.assertEqual(metrics["val_positions"]["covered_targets"], 69)
+        self.assertGreaterEqual(metrics["val_positions"]["windows"], 4)
+        self.assertIsNotNone(metrics["window_bits_per_byte_mean"])
+        self.assertIsNotNone(metrics["window_bits_per_byte_std"])
+        self.assertEqual(set(metrics["mtp_top1"]), {"t+2", "t+3"})
+        self.assertTrue(math.isfinite(metrics["loss"]))
+        self.assertLessEqual(metrics["top1"], metrics["top5"])
+
     def test_fixed_positions_are_deterministic(self) -> None:
         first, meta_first = eval_v3.make_positions(40, 16, 6, 3, 5, "unit")
         second, meta_second = eval_v3.make_positions(40, 16, 6, 3, 5, "unit")

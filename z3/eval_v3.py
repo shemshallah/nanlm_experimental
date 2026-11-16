@@ -385,6 +385,7 @@ class BytesTokenizer:
 
     def __init__(self) -> None:
         self.vocab_size = 256
+        self.token_byte_lengths = tuple([1] * 256)
 
     def encode(self, text: str) -> list[int]:
         return list(text.encode("utf-8", errors="replace"))
@@ -524,6 +525,9 @@ class LayeredTokenizerAdapter:
         self._layered = load_artifact(self.path)
         self.vocab_size = self._layered.vocab_size
         self.backend = "layered"
+        self.token_byte_lengths = tuple(
+            len(raw) for raw in self._layered.subword.token_bytes
+        )
 
     def encode(self, text: str) -> list[int]:
         encoded = self._layered.encode(text, add_document_frame=False)
@@ -814,6 +818,16 @@ def _ids_list(ids: Iterable[int] | torch.Tensor) -> list[int]:
     return [int(x) for x in ids]
 
 
+def _token_byte_lengths(
+    tokenizer: Any, ids: Sequence[int]
+) -> list[int] | None:
+    table = getattr(tokenizer, "token_byte_lengths", None)
+    if table is None or not table:
+        return None
+    limit = len(table) - 1
+    return [int(table[min(max(int(index), 0), limit)]) for index in ids]
+
+
 def evaluate_ids(
     model: V3LM,
     token_ids: Iterable[int] | torch.Tensor,
@@ -826,10 +840,13 @@ def evaluate_ids(
     device: str | torch.device = "cpu",
     name: str = "corpus",
     router_accumulator: RouterAccumulator | None = None,
+    token_byte_lengths: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Evaluate a model on fixed positions drawn from ``token_ids``."""
 
     ids = _ids_list(token_ids)
+    if token_byte_lengths is not None and len(token_byte_lengths) != len(ids):
+        raise ValueError("token_byte_lengths must align with token_ids")
     horizon = max(1, int(cfg.mtp))
     positions, position_meta = make_positions(
         len(ids), int(ctx), int(batch_size) * int(batches), horizon, seed, name
@@ -841,6 +858,7 @@ def evaluate_ids(
     correct = 0
     top5_correct = 0
     total = 0
+    eval_bytes = 0
     mtp_stats: dict[int, dict[str, float]] = {}
     aux_lb_sum = 0.0
     aux_lb_tokens = 0
@@ -871,6 +889,10 @@ def evaluate_ids(
                 loss = F.cross_entropy(logits, yb, reduction="sum")
                 loss_sum += float(loss.detach().cpu())
                 total += b
+                if token_byte_lengths is not None:
+                    eval_bytes += sum(
+                        int(token_byte_lengths[p]) for p in batch_positions
+                    )
 
                 correct += int((logits.argmax(dim=-1) == yb).sum().item())
                 topk = min(5, logits.shape[-1])
@@ -944,6 +966,11 @@ def evaluate_ids(
         "tokens_available": len(ids),
         "loss": mean_loss,
         "bits_per_token": mean_loss / math.log(2),
+        "eval_bytes": eval_bytes if token_byte_lengths is not None else None,
+        "eval_bits_per_byte": (
+            loss_sum / math.log(2) / eval_bytes
+            if token_byte_lengths is not None and eval_bytes > 0 else None
+        ),
         "top1": correct / total,
         "top5": top5_correct / total,
         "mtp": mtp_items,
@@ -952,6 +979,194 @@ def evaluate_ids(
         "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
         "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
         "val_positions": position_meta,
+        "eval_seconds": round(time.time() - started, 4),
+    }
+    return metrics
+
+
+def evaluate_ids_full(
+    model: V3LM,
+    token_ids: Iterable[int] | torch.Tensor,
+    cfg: V3Config,
+    *,
+    ctx: int,
+    batch_size: int = 1,
+    seed: int = DEFAULT_SEED,
+    device: str | torch.device = "cpu",
+    name: str = "corpus",
+    router_accumulator: RouterAccumulator | None = None,
+    token_byte_lengths: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    """Teacher-forced full evaluation over every target token.
+
+    Windows start at stride ``ctx`` and contain ``ctx + 1`` tokens, so every
+    token after the first is scored once.  Unlike sampled evaluation this
+    reports the entire corpus and exact byte denominators for the scored
+    target tokens.
+    """
+
+    ids = _ids_list(token_ids)
+    if not ids:
+        raise ValueError("full evaluation needs at least one token")
+    if token_byte_lengths is not None and len(token_byte_lengths) != len(ids):
+        raise ValueError("token_byte_lengths must align with token_ids")
+    ctx = int(ctx)
+    if ctx < 1:
+        raise ValueError("ctx must be >= 1")
+    torch_device = torch.device(device)
+    was_training = model.training
+    tracker = RouterTracker(model)
+    started = time.time()
+    loss_sum = 0.0
+    correct = 0
+    top5_correct = 0
+    total = 0
+    eval_bytes = 0
+    mtp_stats: dict[int, dict[str, float]] = {}
+    aux_lb_sum = 0.0
+    aux_lb_tokens = 0
+    aux_z_sum = 0.0
+    aux_z_tokens = 0
+    window_bpb: list[float] = []
+    windows = 0
+    model.eval()
+    try:
+        with torch.inference_mode():
+            for start in range(0, len(ids) - 1, ctx):
+                end = min(len(ids), start + ctx + 1)
+                window_ids = ids[start:end]
+                if len(window_ids) < 2:
+                    continue
+                xb = torch.tensor(
+                    [window_ids], dtype=torch.long, device=torch_device
+                )
+                logits, mtp_logits, aux = model(xb)
+                predictions = logits[:, :-1].float()
+                targets = xb[:, 1:]
+                rows = predictions.reshape(-1, predictions.size(-1))
+                flat_targets = targets.reshape(-1)
+                losses = F.cross_entropy(
+                    rows, flat_targets, reduction="none"
+                )
+                window_loss = float(losses.sum().detach().cpu())
+                window_tokens = int(flat_targets.numel())
+                loss_sum += window_loss
+                total += window_tokens
+                windows += 1
+                correct += int(
+                    (predictions.argmax(dim=-1) == targets).sum().item()
+                )
+                k = min(5, predictions.size(-1))
+                top5 = predictions.topk(k, dim=-1).indices
+                top5_correct += int(
+                    (top5 == targets.unsqueeze(-1)).any(dim=-1).sum().item()
+                )
+                if token_byte_lengths is not None:
+                    window_bytes = sum(
+                        int(token_byte_lengths[index])
+                        for index in range(start + 1, end)
+                    )
+                    eval_bytes += window_bytes
+                    if window_bytes > 0:
+                        window_bpb.append(
+                            window_loss / math.log(2) / window_bytes
+                        )
+
+                if isinstance(mtp_logits, torch.Tensor):
+                    heads = [mtp_logits]
+                else:
+                    heads = list(mtp_logits or [])
+                for head_index, head in enumerate(heads):
+                    offset = head_index + 2
+                    if offset > cfg.mtp or offset >= xb.size(1):
+                        break
+                    head_len = xb.size(1) - offset
+                    head_logits = head[:, :head_len, :].reshape(
+                        -1, head.size(-1)
+                    )
+                    head_targets = xb[:, offset:].reshape(-1)
+                    stat = mtp_stats.setdefault(
+                        offset,
+                        {"loss_sum": 0.0, "correct": 0.0, "tokens": 0.0},
+                    )
+                    head_loss = F.cross_entropy(head_logits, head_targets)
+                    stat["loss_sum"] += float(head_loss) * head_len
+                    stat["correct"] += float(
+                        (head_logits.argmax(dim=-1) == head_targets).sum()
+                    )
+                    stat["tokens"] += head_len
+
+                if isinstance(aux, dict):
+                    weight = max(1, window_tokens)
+                    load_balance = aux.get("load_balance")
+                    if load_balance is not None:
+                        aux_lb_sum += float(load_balance.detach().cpu()) * weight
+                        aux_lb_tokens += weight
+                    router_z = aux.get("router_z")
+                    if router_z is not None:
+                        aux_z_sum += float(router_z.detach().cpu()) * weight
+                        aux_z_tokens += weight
+    finally:
+        router_summary = tracker.summary()
+        if router_accumulator is not None:
+            router_accumulator.add(tracker.entries)
+        tracker.close()
+        model.train(was_training)
+
+    if total < 1:
+        raise RuntimeError("full evaluation produced no targets")
+    mean_loss = loss_sum / total
+    mtp_items = []
+    mtp_top1: dict[str, float] = {}
+    for offset in sorted(mtp_stats):
+        stat = mtp_stats[offset]
+        tokens = max(1, int(stat["tokens"]))
+        item = {
+            "offset": offset,
+            "tokens": int(stat["tokens"]),
+            "loss": stat["loss_sum"] / tokens,
+            "bits_per_token": (stat["loss_sum"] / tokens) / math.log(2),
+            "top1": stat["correct"] / tokens,
+        }
+        mtp_items.append(item)
+        mtp_top1[f"t+{offset}"] = item["top1"]
+    if window_bpb:
+        mean_bpb = sum(window_bpb) / len(window_bpb)
+        variance = sum((value - mean_bpb) ** 2 for value in window_bpb) / len(
+            window_bpb
+        )
+    else:
+        mean_bpb = None
+        variance = None
+    metrics = {
+        "name": name,
+        "tokens": total,
+        "tokens_available": len(ids),
+        "loss": mean_loss,
+        "bits_per_token": mean_loss / math.log(2),
+        "eval_bytes": eval_bytes if token_byte_lengths is not None else None,
+        "eval_bits_per_byte": (
+            loss_sum / math.log(2) / eval_bytes
+            if token_byte_lengths is not None and eval_bytes > 0 else None
+        ),
+        "top1": correct / total,
+        "top5": top5_correct / total,
+        "mtp": mtp_items,
+        "mtp_top1": mtp_top1,
+        "router_utilization": router_summary,
+        "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
+        "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
+        "val_positions": {
+            "mode": "full",
+            "windows": windows,
+            "start": 0,
+            "covered_targets": total,
+            "corpus_tokens": len(ids),
+        },
+        "window_bits_per_byte_mean": mean_bpb,
+        "window_bits_per_byte_std": (
+            math.sqrt(variance) if variance is not None else None
+        ),
         "eval_seconds": round(time.time() - started, 4),
     }
     return metrics
@@ -1107,6 +1322,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ctx", type=int, default=0, help="context length; 0 uses the model config")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--batches", type=int, default=16)
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="teacher-force every target token and report exact byte denominators",
+    )
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, cuda:0, ...")
     parser.add_argument("--out", default="eval_v3.json", help="output JSON path")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="validation position seed")
@@ -1213,8 +1433,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if args.batch_size < 1:
         raise ValueError("--batch-size must be >= 1")
-    if args.batches < 1:
-        raise ValueError("--batches must be >= 1")
+    if args.batches < 1 and not args.full:
+        raise ValueError("--batches must be >= 1 unless --full is used")
     if args.max_bytes < 0:
         raise ValueError("--max-bytes must be >= 0")
     device = _resolve_device(args.device)
@@ -1292,18 +1512,34 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                     f"corpus {name!r} produced token id {largest}, but the model "
                     f"vocab_size is {cfg.vocab_size}; tokenizer/model mismatch"
                 )
-            metrics = evaluate_ids(
-                model,
-                ids,
-                cfg,
-                ctx=ctx,
-                batch_size=args.batch_size,
-                batches=args.batches,
-                seed=args.seed,
-                device=device,
-                name=name,
-                router_accumulator=router_accumulator,
-            )
+            byte_lengths = _token_byte_lengths(tokenizer, ids)
+            if args.full:
+                metrics = evaluate_ids_full(
+                    model,
+                    ids,
+                    cfg,
+                    ctx=ctx,
+                    batch_size=args.batch_size,
+                    seed=args.seed,
+                    device=device,
+                    name=name,
+                    router_accumulator=router_accumulator,
+                    token_byte_lengths=byte_lengths,
+                )
+            else:
+                metrics = evaluate_ids(
+                    model,
+                    ids,
+                    cfg,
+                    ctx=ctx,
+                    batch_size=args.batch_size,
+                    batches=args.batches,
+                    seed=args.seed,
+                    device=device,
+                    name=name,
+                    router_accumulator=router_accumulator,
+                    token_byte_lengths=byte_lengths,
+                )
             metrics["path"] = str(path)
             metrics["tokenizer"] = tokenizer.kind
             metrics["tokenizer_backend"] = getattr(tokenizer, "backend", "builtin")
@@ -1315,8 +1551,14 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             metrics["raw_bytes"] = raw_bytes
             metrics["encoded_tokens"] = len(ids)
             metrics["bytes_per_token"] = bytes_per_token
+            corpus_bits_per_byte = metrics["bits_per_token"] / bytes_per_token
+            metrics["corpus_bits_per_byte"] = corpus_bits_per_byte
+            # Prefer the byte denominator of the tokens that were actually
+            # scored.  The corpus-average ratio remains available above.
             metrics["bits_per_byte"] = (
-                metrics["bits_per_token"] / bytes_per_token
+                metrics["eval_bits_per_byte"]
+                if metrics.get("eval_bits_per_byte") is not None
+                else corpus_bits_per_byte
             )
             corpora[name] = metrics
 

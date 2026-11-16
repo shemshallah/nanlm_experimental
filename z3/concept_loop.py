@@ -709,6 +709,7 @@ class ConceptLoop(nn.Module):
         top_vertices: int = 16,
         top_pairs: int = 8,
         top_triples: int = 8,
+        object_id_dim: int = 0,
     ) -> None:
         super().__init__()
         if vertices != 256:
@@ -747,6 +748,24 @@ class ConceptLoop(nn.Module):
         self.object_memory.seed_vertices(byte_keys, byte_values)
         self.concept_to_state = nn.Linear(d_model, d_model, bias=False)
         self.object_to_state = nn.Linear(d_model, d_model, bias=False)
+        self.object_id_dim = int(object_id_dim)
+        if self.object_id_dim > 0:
+            # Explicit hard object-ID vocabulary for the addressable pair
+            # space.  IDs are selected by the object router; the table only
+            # supplies a learned readout for the selected hard address.
+            self.object_id_embedding = nn.Embedding(
+                binomial(self.vertices, 2), self.object_id_dim
+            )
+            nn.init.normal_(self.object_id_embedding.weight, std=0.02)
+            self.object_id_to_state = nn.Linear(
+                self.object_id_dim, d_model, bias=False
+            )
+            nn.init.zeros_(self.object_id_to_state.weight)
+            self.object_id_gate = nn.Parameter(torch.zeros(()))
+        else:
+            self.object_id_embedding = None
+            self.object_id_to_state = None
+            self.object_id_gate = None
         self.object_pointer = nn.Linear(d_model, 2 * self.vertices, bias=False)
         self.object_triple_pointer = nn.Linear(
             d_model, 3 * self.vertices, bias=False
@@ -870,6 +889,16 @@ class ConceptLoop(nn.Module):
         # identity; pointer_prev above is the hard recurrent stream.
         object_ctx = object_ctx + pointer_gate * pointer_ctx
         object_ctx = object_ctx + 0.5 * pointer_gate * triple_ctx
+        if self.object_id_embedding is not None:
+            pair_ids = object_aux.get("pair_ids")
+            if pair_ids is not None and pair_ids.numel() > 0:
+                pair_ids = pair_ids.long().clamp(
+                    0, self.object_id_embedding.num_embeddings - 1
+                )
+                id_vec = self.object_id_embedding(pair_ids).mean(dim=2)
+                object_ctx = object_ctx + torch.sigmoid(
+                    self.object_id_gate
+                ).to(dtype=object_ctx.dtype) * self.object_id_to_state(id_vec)
         # Causal object recurrence along the sequence.  Token t+1 sees the
         # object/pointer state selected at t; the shift is a one-token delay,
         # so no future token can leak.  This is a feed-forward scan, not a

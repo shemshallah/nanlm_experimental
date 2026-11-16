@@ -125,6 +125,16 @@ class V3Config:
     concept_loop_attention: bool = False
     concept_router_tokens: bool = True
     concept_router_global: bool = True
+    # Learn one positive gate per router-context component (route, pooled
+    # concept, token-aligned concept).  The gates start at 1.0, so the first
+    # step is numerically identical to the fixed sum, then the model can learn
+    # how much each resolution contributes.
+    learned_router_mix: bool = False
+    # Explicit learned embedding for selected C(256,2) object IDs.  This
+    # turns the hard pointer readout into a real object-ID vocabulary entry
+    # instead of exposing only bound vertex vectors.
+    object_id_embedding: bool = False
+    object_id_dim: int = 64
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
     concept_top_vertices: int = 8
@@ -326,6 +336,19 @@ class SparseMoE(nn.Module):
         return out, aux["load_balance"], aux["router_z"], aux
 
 
+def _router_add(base: torch.Tensor | None, value: torch.Tensor) -> torch.Tensor:
+    """Add router context tensors with either global or token alignment."""
+    if base is None:
+        return value
+    if base.ndim == value.ndim:
+        return base + value
+    if base.ndim == 2 and value.ndim == 3:
+        return base[:, None, :] + value
+    if base.ndim == 3 and value.ndim == 2:
+        return base + value[:, None, :]
+    return base + value
+
+
 class Block(nn.Module):
     def __init__(self, cfg: V3Config, layer: int):
         super().__init__()
@@ -342,6 +365,12 @@ class Block(nn.Module):
         self.loop_scale = float(cfg.concept_loop_scale)
         self.loop_to_attention = bool(cfg.concept_loop_attention)
         self.router_global = bool(cfg.concept_router_global)
+        self.learned_router_mix = bool(cfg.learned_router_mix and self.is_moe)
+        if self.learned_router_mix:
+            # softplus(raw) == 1.0 at initialization.
+            self.router_mix = nn.Parameter(
+                torch.full((3,), math.log(math.e - 1.0))
+            )
         self.loop_to_state = (
             nn.Linear(cfg.d_model, cfg.d_model, bias=False)
             if self.concept_loop else None
@@ -386,23 +415,41 @@ class Block(nn.Module):
         h = self.n2(x)
         lb = z = aux = None
         if self.is_moe:
-            router_context = route_ctx
-            if loop_ctx is not None and self.router_global:
-                scaled_loop = self.loop_scale * loop_ctx
-                router_context = (
-                    scaled_loop if router_context is None
-                    else router_context + scaled_loop
-                )
-            if token_ctx is not None:
-                token_part = self.loop_scale * token_ctx
-                if router_context is None:
-                    router_context = token_part
-                elif router_context.ndim == 2:
-                    router_context = (
-                        router_context[:, None, :] + token_part
+            if self.learned_router_mix:
+                weights = F.softplus(self.router_mix).to(dtype=x.dtype)
+                router_context = None
+                if route_ctx is not None:
+                    router_context = _router_add(
+                        router_context, weights[0] * route_ctx
                     )
-                else:
-                    router_context = router_context + token_part
+                if loop_ctx is not None and self.router_global:
+                    router_context = _router_add(
+                        router_context,
+                        weights[1] * self.loop_scale * loop_ctx,
+                    )
+                if token_ctx is not None:
+                    router_context = _router_add(
+                        router_context,
+                        weights[2] * self.loop_scale * token_ctx,
+                    )
+            else:
+                router_context = route_ctx
+                if loop_ctx is not None and self.router_global:
+                    scaled_loop = self.loop_scale * loop_ctx
+                    router_context = (
+                        scaled_loop if router_context is None
+                        else router_context + scaled_loop
+                    )
+                if token_ctx is not None:
+                    token_part = self.loop_scale * token_ctx
+                    if router_context is None:
+                        router_context = token_part
+                    elif router_context.ndim == 2:
+                        router_context = (
+                            router_context[:, None, :] + token_part
+                        )
+                    else:
+                        router_context = router_context + token_part
             h, lb, z, aux = self.mlp(h, context=router_context)
             x = x + self.drop(h)
         else:
@@ -672,6 +719,9 @@ class V3LM(nn.Module):
                 top_vertices=cfg.concept_top_vertices,
                 top_pairs=cfg.concept_top_pairs,
                 top_triples=cfg.concept_top_triples,
+                object_id_dim=(
+                    cfg.object_id_dim if cfg.object_id_embedding else 0
+                ),
             )
             if cfg.use_concept_loop else None
         )
