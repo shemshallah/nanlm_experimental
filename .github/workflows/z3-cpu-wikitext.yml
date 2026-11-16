@@ -18,6 +18,11 @@ on:
         required: true
         default: "256"
         type: string
+      max_seconds:
+        description: Optional wall-clock training cap per row (0 disables)
+        required: true
+        default: "0"
+        type: string
       rows:
         description: JSON array of architecture rows
         required: true
@@ -99,7 +104,8 @@ jobs:
             --valid-bin data/wikitext_bins/valid.bin \
             --out "rows/${{ matrix.row }}" \
             --steps "${{ inputs.steps || '200' }}" \
-            --ctx "${{ inputs.ctx || '256' }}"
+            --ctx "${{ inputs.ctx || '256' }}" \
+            --max-seconds "${{ inputs.max_seconds || '0' }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
