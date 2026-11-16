@@ -86,8 +86,41 @@ Tokenizer: v4 (same 64,060 subword artifact). Full teacher-forced coverage.
 MTP top-1: WT2 t+2 5.41%, t+3 3.36%; WT103 t+2 4.93%, t+3 3.46%.
 Evaluation wall time: 22.76s.
 
+## Why token top-1/top-5 look “crashed”
+
+They are not comparable to the old 60–70% numbers. The old 115M reference used
+a **256-way byte vocabulary**; this model uses a **64,060-way subword
+vocabulary**. A 64k token top-1 of 6.3% is not a 6% byte model:
+
+- 64k random top-1 is 0.00156%, so 6.36% is ~4,000× random.
+- 64k random top-5 is 0.0078%, so 13.83% is ~1,770× random.
+- The old byte model’s 70%/90% top-1/top-5 are over 256 classes.
+
+For functional parity, map the token distribution to the next target token’s
+first-byte marginal and measure 256-way byte top-k. The checkpoint gives:
+
+| Corpus | Targets | Byte top-1 | Byte top-5 |
+|---|---:|---:|---:|
+| WT2 | 296,497 | **71.78%** | **84.30%** |
+| WT103 | 282,681 | **72.64%** | **89.94%** |
+
+Old 115M byte reference (WT103): **68.55% / 87.28%**. The Blackwell checkpoint
+is at or above that byte-level parity despite only 3.72M training tokens.
+
+Reproduce with:
+
+```sh
+python z3/eval_byte_parity.py \
+  --checkpoint runs/blackwell_115m/final.pt \
+  --corpus wt2=data/eval/wt2_test.txt \
+  --corpus wt103=data/eval/wt103_test.txt \
+  --tokenizer v4 --ctx 512 --batch-size 8 --device cuda \
+  --out runs/blackwell_115m/byte_parity.json
+```
+
 The 115M model saw only 3.72M tokens. It is undertrained relative to the CPU
-37M/4h checkpoint and is not a frontier comparison.
+37M/4h checkpoint and is not a frontier comparison; the byte-level top-k parity
+only shows that the subword-to-byte evaluation bridge is working correctly.
 
 ## Artifacts
 
