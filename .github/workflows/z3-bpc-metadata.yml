@@ -1,0 +1,91 @@
+name: Derive BPC metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Source workflow run ID
+        required: true
+        type: string
+
+jobs:
+  bpc:
+    name: Character denominators for zero-shot corpora
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install tokenizer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy tokenizers
+      - uses: actions/download-artifact@v4
+        with:
+          name: nanrouter-zero-shot-eval
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: source-eval
+      - name: Compute corpus-character BPC
+        run: |
+          mkdir -p metadata
+          python - <<'PY'
+          import bisect
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "z3")
+          from layered_tokenizer import _char_byte_offsets, load_artifact
+
+          root = Path("source-eval")
+          eval_payload = json.loads((root / "eval_zero_shot.json").read_text())
+          tokenizer = load_artifact(
+              Path("z3/tokenizers/layered_v1/layered_tokenizer.json")
+          )
+          output = {"source_run": eval_payload.get("run_id"), "corpora": {}}
+          total_bits = 0.0
+          total_chars = 0
+          for name, filename in (
+              ("wt2", "wt2_test.txt"),
+              ("wt103", "wt103_test.txt"),
+          ):
+              text = (root / "eval_data" / filename).read_text(
+                  encoding="utf-8", errors="ignore"
+              )
+              encoded = tokenizer.encode(text, add_document_frame=False)
+              first = encoded.subword.token_bytes[0] if encoded.subword.token_bytes else b""
+              first_chars = len(first.decode("utf-8", errors="ignore"))
+              chars = len(text) - first_chars
+              metrics = eval_payload["corpora"][name]
+              bits = float(metrics["bits_per_token"]) * int(metrics["tokens"])
+              bpc = bits / max(1, chars)
+              total_bits += bits
+              total_chars += chars
+              output["corpora"][name] = {
+                  "characters": chars,
+                  "first_token_chars": first_chars,
+                  "eval_tokens": int(metrics["tokens"]),
+                  "total_bits": bits,
+                  "bits_per_char": bpc,
+                  "bits_per_byte": metrics["bits_per_byte"],
+                  "window_bits_per_char_mean": None,
+                  "window_bits_per_char_std": None,
+              }
+          output["aggregate"] = {
+              "total_bits": total_bits,
+              "characters": total_chars,
+              "bits_per_char": total_bits / max(1, total_chars),
+          }
+          path = Path("metadata/bpc.json")
+          path.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(output, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nanrouter-bpc-metadata
+          path: metadata/bpc.json
+          if-no-files-found: error
