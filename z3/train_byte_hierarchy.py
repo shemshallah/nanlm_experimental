@@ -237,7 +237,7 @@ def main() -> int:
         use_concept_loop=True, subword_embedding=True,
         subword_vocab_size=64060, composition_head=False,
         attn_gate=True, mtp=2, mtp_block=False,
-        dropout=0.1,
+        grad_checkpoint=True, dropout=0.1,
     )
     model = V3LM(cfg).to(device)
     n_params = model.parameter_count()
