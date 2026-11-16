@@ -1397,7 +1397,8 @@ class MirrorLM(nn.Module):
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.zeros_(m.bias)
 
-    def forward(self, ids, targets=None, nonspace_weight=1.0):
+    def forward(self, ids, targets=None, nonspace_weight=1.0,
+                joint_memory_override=None):
         if self.pair_successor is not None:
             self._r54_geometry().r54_last_pairs = None
         x = self.embed(ids)
@@ -1432,7 +1433,8 @@ class MirrorLM(nn.Module):
             addresses = self._r54_geometry().r54_last_pairs
             if addresses is None or addresses.shape[:2] != ids.shape:
                 raise AssertionError('R54 address capture missing or stale')
-            logits, copy_stats = self.pair_successor(logits, addresses, ids)
+            logits, copy_stats = self.pair_successor(
+                logits, addresses, ids, joint_memory_override=joint_memory_override)
             metrics['pair_successor_coverage'] = copy_stats['coverage'].mean()
         if targets is not None:
             metrics['next_ce'] = F.cross_entropy(logits.flatten(0, 1), targets.flatten())

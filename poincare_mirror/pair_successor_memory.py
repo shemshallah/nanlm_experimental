@@ -174,6 +174,8 @@ class PairSuccessorTrust(nn.Module):
         """R59: add exactly one zero tensor; retain all inherited Adam slots."""
         if self.content_weight is None:
             raise ValueError("R59 requires R58 content capacity")
+        if joint_memory_override is not None and self.joint_weight is None:
+            raise ValueError("External book history needs R59/R60 joint rail")
         if self.joint_weight is not None:
             raise ValueError("R59 joint rail already enabled")
         self.joint_weight = nn.Parameter(torch.zeros_like(self.weight.detach()))
@@ -195,7 +197,7 @@ class PairSuccessorTrust(nn.Module):
                 1-entropy, agreement),-1)
         return log_evidence, coverage, positions, features
 
-    def forward(self, logits, pairs, observed):
+    def forward(self, logits, pairs, observed, joint_memory_override=None):
         if logits.ndim != 3 or logits.shape[:2] != pairs.shape[:2]:
             raise ValueError("Logits and geometric address windows must align")
         vocab = logits.size(-1)
@@ -236,10 +238,41 @@ class PairSuccessorTrust(nn.Module):
         if self.joint_weight is not None:
             if self.content_weight is None or vocab != 257:
                 raise ValueError("R59 needs R58 content and byte/EOS vocabulary")
-            joint_log,joint_cov,joint_positions,joint_features = self._read_features(
-                pairs,observed,vocab,self.joint_query_map,self.joint_value_control,
-                corrected,key_mode=self.joint_key_mode,
-                query_byte_map=self.joint_query_byte_map)
+            if joint_memory_override is None:
+                joint_log,joint_cov,joint_positions,joint_features = self._read_features(
+                    pairs,observed,vocab,self.joint_query_map,self.joint_value_control,
+                    corrected,key_mode=self.joint_key_mode,
+                    query_byte_map=self.joint_query_byte_map)
+            else:
+                # R62 explicitly injected causal per-book prefix memory.
+                # A source stream guarantees no future target is included;
+                # the neural rail validates shapes, finiteness and mass.
+                if len(joint_memory_override)!=3:
+                    raise ValueError("External joint read needs histogram, coverage, positions")
+                read,cov,pos=joint_memory_override
+                if (read.shape!=logits.shape or cov.shape!=logits.shape[:2] or
+                        pos.shape!=logits.shape[:2]):
+                    raise ValueError("External joint history shape mismatch")
+                with torch.no_grad():
+                    read=read.to(logits.device,dtype=torch.float32)
+                    joint_cov=cov.to(logits.device,dtype=torch.float32)
+                    joint_positions=pos.to(logits.device,dtype=torch.float32)
+                    if (not torch.isfinite(read).all() or
+                            not torch.isfinite(joint_cov).all() or
+                            not torch.isfinite(joint_positions).all() or
+                            torch.any(read<0) or
+                            torch.any(joint_cov<0) or torch.any(joint_cov>1) or
+                            torch.any(joint_positions<0) or
+                            torch.any(read.sum(-1)>1.00001)):
+                        raise ValueError("Invalid external history probabilities/counts")
+                    joint_log=(read*(1-self.smoothing)+self.smoothing/vocab).log()
+                    joint_log=joint_log+math.log(vocab)
+                    entropy=-(read*read.clamp_min(1e-12).log()).sum(-1)/math.log(vocab)
+                    agreement=(read*corrected.detach().float().softmax(-1)).sum(-1)
+                    joint_features=torch.stack((
+                        joint_cov,
+                        torch.log1p(joint_positions)/math.log1p(self.horizon),
+                        1-entropy,agreement),-1)
             joint_strength = torch.tanh((joint_features.to(self.joint_weight.dtype)*
                                          self.joint_weight).sum(-1))*joint_cov
             # Same probability-mass-preserving decomposition as R58, now
