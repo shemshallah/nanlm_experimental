@@ -156,8 +156,65 @@ mean/std.
 Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/43812135296>  
 Commit: `59e34d1`
 
-The exact full-corpus zero-shot metrics and checkpoint artifact will be added
-here when the run completes.
+### Completed 4-hour FineWeb-Edu run
+
+| Metric | Value |
+|---|---:|
+| Steps completed | 8,000 |
+| Wall-cap | 14,400s (not reached) |
+| Train time | 14,163.25s (3h56m03s) |
+| Step time | 1.7704s |
+| Tokens seen | 2,048,000 |
+| Parameters | 36,953,706 |
+| Non-finite skips | 0 |
+| Train tokens available | 13,579,553 |
+| Validation tokens | 562,286 |
+| Training bytes/token | 4.7225 |
+| FineWeb valid loss | 6.51515 |
+| FineWeb valid BPB | 1.78936 |
+| FineWeb valid first-byte top-1 / top-5 | 85.29% / 94.12% |
+| FineWeb valid word top-1 / top-5 | 16.67% / 29.22% |
+| FineWeb valid subword top-1 / top-5 | 16.27% / 29.22% |
+
+The FineWeb validation result is from the two fixed validation batches used by
+the CPU row, so its exact denominator is small; it is not a full FineWeb
+validation estimate.
+
+Checkpoint artifact (weights remain in GitHub storage):
+<https://github.com/shemshallah/nanlm_experimental/actions/runs/43812135296/artifacts/14214040692>
+
+### Zero-shot WT2 and WT103, full coverage
+
+This evaluation teacher-forces every target token, not 128 sampled positions.
+BPB is exact for the scored target bytes; BPB uncertainty is the standard
+deviation of per-window BPB.
+
+| Corpus | Targets | Eval bytes | Eval chars | Bits/token | BPB | BPC | Top-1 | Top-5 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| WikiText-2 test | 299,552 | 1,256,448 | 1,255,018 | 11.96834 | **2.85339** | **2.85664** | 7.26% | 14.48% |
+| WikiText-103 test | 285,826 | 1,287,654 | 1,285,622 | 12.09453 | **2.68467** | **2.68892** | 7.42% | 15.95% |
+| Combined | 585,378 | 2,544,102 | 2,540,640 | 12.02995 | **2.76800** | **2.77177** | 7.34% | 15.20% |
+
+Window BPB was 2.88734 ± 0.36075 on WT2 and 2.71088 ± 0.32440 on WT103.
+MTP t+2 top-1 was 3.36% on WT2 and 4.10% on WT103.  The full evaluation took
+5,094.9s (84m55s).  The BPB denominator is the exact byte count of the scored
+target tokens.  The BPC denominator is the full corpus character count
+(2,540,640 characters); the full evaluation scores every token except the
+first, so this differs from the scored-target character denominator by at most
+that one token.  The corpus byte denominators match the raw files to within the
+first-token offset.
+
+Evaluation artifact:
+<https://github.com/shemshallah/nanlm_experimental/actions/runs/43812135296/artifacts/14219723033>
+
+BPC derivation run:
+<https://github.com/shemshallah/nanlm_experimental/actions/runs/43918342570>
+
+**This is not a frontier result.**  WT2 zero-shot BPB 2.853 is worse than the
+old 115M byte reference (1.6969) and worse than the 1,000-step WikiText-2
+2.05332 BPB.  The model is 36.95M parameters trained for four CPU hours on
+FineWeb-Edu; the full-corpus zero-shot protocol and the FineWeb-only training
+mix are also harder than the earlier fixed-window WikiText validation.
 
 ## Decision
 
