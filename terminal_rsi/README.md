@@ -1,5 +1,7 @@
 # Standalone Terminal-RSI research track
 
+**Canonical continuation of the last trained original V103 RSI GPU model:** [VERBATIM_PARITY.md](VERBATIM_PARITY.md) · `legacy_v103_reference.py` → `verbatim_v103.py` → `train_verbatim.py` → explicit `migrate_verbatim.py` for CPU, T4 and 96 GB Blackwell. It preserves original two-group Adam history, feedback state, BPE/match features, and zero-gate logit parity. The separately built `unified.py` remains an additive capacity experiment until real-book acceptance; no FA1/FA2 checkpoints are imported.
+
 **Separate from FA1/FA2, Poincaré Mirror LM, and all language-model checkpoints.**
 
 This directory implements the independently testable *mechanics* of
