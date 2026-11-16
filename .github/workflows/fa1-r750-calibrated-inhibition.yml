@@ -1,0 +1,46 @@
+name: FA1 R7.50 - causal exact-pair inhibition and state continuity
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r750-calibrated-inhibition.yml'
+      - 'fa1r7.12/source/fa1_r750_*.py'
+      - 'fa1r7.12/source/test_fa1_r750_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/FA1_R7p50_CALIBRATED_INHIBITION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r750-inhibitory-master
+  cancel-in-progress: false
+
+jobs:
+  exact-address-inhibition-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Syntax and causality tests
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r750_*.py fa1r7.12/source/fa1_r727_checkpoint.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r750_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r749_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r748_*.py' -v
+      - name: Publication and promotion caution
+        run: |
+          echo 'Research candidate only. No independent TEST or checkpoint promotion.'

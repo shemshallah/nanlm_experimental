@@ -1,5 +1,17 @@
 # FA1 R7 — one unified architecture on `master`
 
+**R7.50 latest source experiment, REJECTED (no promotion):** Started from
+the exact 29-group R7.49 checkpoint and appended a bounded, address-keyed
+inhibitory memory as group 30. The 32,640-row value bank and causal context
+gate have exact-zero migration parity; all 466 inherited state tensors,
+29 optimizer groups and 444 AdamW moments are bit-identical after the
+TRAIN-only CPU pilot. After 96 executed updates, DEV selected update 1.
+The independent-reload 512-position 15-DEV-book comparison gave word NLL
+5.431276 → 5.431263 (+0.000013 nats/word), CI crossing zero; correct
+address and learned-row attribution both failed. **R7.49 remains the
+better-supported experimental checkpoint; R7.50 is unpromoted and TEST
+is sealed.** See `FA1_R7p50_CALIBRATED_INHIBITION.md`.
+
 **R7.49 latest unpromoted, single-checkpoint research:** Built directly on
 the complete R7.48 mirror-pair value memory, appending causal exact-address
 coefficients and a bounded signed-rail reliability gate as optimizer group
