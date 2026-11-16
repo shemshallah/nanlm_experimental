@@ -9,7 +9,7 @@ from torch.nn import functional as F
 
 from terminal_rsi.legacy_v103_reference import PARITY_SCHEMA, V103ParityGPUFullSystem
 from terminal_rsi.unified import PRESETS, Preset
-from terminal_rsi.verbatim_v103 import VerbatimV103RSI, restore_v103_parent, exact_parent_parity, build_v103_optimizer
+from terminal_rsi.verbatim_v103 import VerbatimV103RSI, restore_v103_parent, exact_parent_parity, exhaustive_parent_byte_parity, build_v103_optimizer
 
 
 class VerbatimGPUParityCPUTests(unittest.TestCase):
@@ -53,6 +53,17 @@ class VerbatimGPUParityCPUTests(unittest.TestCase):
         F.binary_cross_entropy_with_logits(logits, bits).backward()
         self.assertIsNotNone(model.upgrades.output[0].weight.grad)
         self.assertGreater(model.upgrades.output[0].weight.grad.abs().sum().item(), 0)
+
+    def test_all_256_byte_candidates_verbatim_mass_and_logits(self):
+        original = V103ParityGPUFullSystem()
+        combined = VerbatimV103RSI("cpu")
+        combined.original.load_state_dict(original.state_dict(), strict=True)
+        aux = original._default_aux(self.history).to(torch.int32)
+        proof = exhaustive_parent_byte_parity(combined, self.history, aux)
+        self.assertEqual(proof["candidate_bytes_per_history"], 256)
+        self.assertTrue(proof["all_256_old_wrapper_probabilities_exact"])
+        self.assertEqual(proof["max_abs_logit_error"], 0.0)
+        self.assertLess(proof["maximum_byte_mass_error"], 2e-3)
 
     def test_verbatim_multistep_execution_replays_all_original_states(self):
         """Literal step-by-step parity to archived GPU v103 training semantics.
