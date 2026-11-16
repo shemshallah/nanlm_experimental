@@ -193,16 +193,52 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
 
 
 def exact_parent_parity(model: VerbatimV103RSI, previous: torch.Tensor,
-                        target: torch.Tensor, aux: torch.Tensor | None = None):
+                        target: torch.Tensor, aux: torch.Tensor | None = None,
+                        local: torch.Tensor | None = None):
     """Read-only exact same-device parity, including saved online buffers."""
     model.eval()
     with torch.no_grad():
-        baseline, bits_a = model.original(previous[:, -32:], target, aux)
-        migrated, bits_b = model(previous, target, aux)
+        baseline, bits_a = model.original(previous[:, -32:], target, aux, local)
+        migrated, bits_b = model(previous, target, aux, local)
     if not torch.equal(bits_a, bits_b) or not torch.equal(baseline, migrated):
         raise AssertionError("VERBATIM V103 PARITY FAILED. Refuse further training.")
     return {"exact_parity": True, "samples": int(len(target)),
             "max_abs_logit_error": float((baseline - migrated).abs().max().item())}
+
+
+@torch.no_grad()
+def exhaustive_parent_byte_parity(model: VerbatimV103RSI, observed: torch.Tensor,
+                                  aux: torch.Tensor | None = None,
+                                  local: torch.Tensor | None = None):
+    """All 256 byte outcomes; exact old-vs-wrapper probabilities and mass.
+
+    Unlike a four-target random smoke check, this catches target-prefix tree
+    and old v103 causality failures for each of the eight bit predictions.
+    No user data or optimizer state is changed.
+    """
+    if observed.ndim != 2 or observed.shape[1] < 32:
+        raise ValueError("Need historical causal byte contexts")
+    n = len(observed)
+    candidates = torch.arange(256, device=observed.device).repeat(n)
+    context = observed.repeat_interleave(256, dim=0)
+    expanded_aux = aux.repeat_interleave(256, dim=0) if aux is not None else None
+    expanded_local = local.repeat_interleave(256, dim=0) if local is not None else None
+    result = exact_parent_parity(model, context, candidates, expanded_aux,
+                                 expanded_local)
+    logits, bits = model(context, candidates, expanded_aux, expanded_local)
+    logp = -F.binary_cross_entropy_with_logits(logits, bits,
+                                                reduction="none").sum(-1)
+    probs = logp.reshape(n, 256).exp()
+    if not torch.isfinite(probs).all():
+        raise AssertionError("A causal byte probability is not finite")
+    mass_error = (probs.sum(-1) - 1).abs().max().item()
+    if mass_error > 2e-3:
+        raise AssertionError("Inherited 256-way v103 probability mass not normalized")
+    result.update({"candidate_bytes_per_history": 256,
+                   "maximum_byte_mass_error": float(mass_error),
+                   "context_histories": n,
+                   "all_256_old_wrapper_probabilities_exact": True})
+    return result
 
 
 def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
@@ -274,7 +310,10 @@ def main():
     p = torch.randint(0, 256, (4, 32), generator=g).to(dev)
     t = torch.randint(0, 256, (4,), generator=g).to(dev)
     report = exact_parent_parity(model, p, t)
-    print(json.dumps({"checkpoint": audit, "inherited_model_parameter_count":
+    byte_report = exhaustive_parent_byte_parity(
+        model, p, model.original._default_aux(p).to(torch.int32))
+    print(json.dumps({"checkpoint": audit, "exhaustive_256_byte_parity": byte_report,
+                      "inherited_model_parameter_count":
                       model.original.count_parameters() if hasattr(model.original, "count_parameters")
                       else sum(v.numel() for v in model.original.parameters()),
                       "unified_parameter_count": model.count_parameters(),
