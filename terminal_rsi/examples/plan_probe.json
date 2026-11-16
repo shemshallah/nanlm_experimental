@@ -1,0 +1,21 @@
+{
+  "plan_id": "terminal-rsi-two-step-demo",
+  "goal": "Run two verified terminal steps, recover from a bad second command",
+  "steps": [
+    {
+      "family": "prepare-step",
+      "choices": [["python3", "-c", "print('prepared')"]],
+      "expected_stdout": "prepared"
+    },
+    {
+      "family": "complete-step",
+      "choices": [
+        ["python3", "-c", "print('incorrect')"],
+        ["python3", "-c", "print('completed')"]
+      ],
+      "expected_stdout": "completed",
+      "max_attempts": 2,
+      "max_generated": 0
+    }
+  ]
+}

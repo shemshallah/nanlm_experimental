@@ -67,13 +67,18 @@ class FeedbackPolicy:
         self.rows={}
         self.total_updates=0
         self.receipt_digest='0'*64
+        self.episode=None
+        self.episode_history=[]
 
     def _row(self,family,n):
         row=self.rows.get(family)
         if row is None:
             row={'logits':[0.]*n,'m':[0.]*n,'v':[0.]*n,
-                 'step':0,'observations':0,'critic':.5}
+                 'step':0,'observations':0,'train_observations':0,'critic':.5}
             self.rows[family]=row
+        if 'train_observations' not in row:
+            # Older v1 checkpoints are migrated, not reset or replaced.
+            row['train_observations']=row['step']
         if len(row['logits'])!=n:
             raise ValueError('Changing command count for an existing family')
         return row
@@ -84,17 +89,24 @@ class FeedbackPolicy:
         weights=np.exp(values-values.max())
         return weights/weights.sum()
 
-    def choose(self,task,*,train=False):
+    def choose(self,task,*,train=False,excluded=()):
         p=self.probabilities(task)
         row=self._row(task.family,len(task.choices))
-        if train and row['observations']<len(task.choices):
+        banned=set(excluded)
+        if any(type(i) is not int or i<0 or i>=len(task.choices) for i in banned):
+            raise ValueError('Invalid excluded command index')
+        available=[i for i in range(len(task.choices)) if i not in banned]
+        if not available:raise ValueError('No untried command alternatives')
+        if train and row['train_observations']<len(task.choices):
             # Visit every explicitly supplied candidate before exploiting.
-            return row['observations'], p
-        return int(np.argmax(p)),p
+            first=row['train_observations']
+            if first in available:return first,p
+        return max(available,key=lambda i:(p[i],-i)),p
 
     def observe(self,task,choice,success,*,train=False,lr=.08):
         if type(success) is not bool or not 0<=choice<len(task.choices):
             raise ValueError('Bad observed command outcome')
+        if train and not 0<lr<=.2:raise ValueError('Bad optimizer rate')
         row=self._row(task.family,len(task.choices))
         previous=float(row['critic'])
         reward=spr_reward(Outcome(task.family, success),Calibration({}))
@@ -104,7 +116,7 @@ class FeedbackPolicy:
         row['critic']=.9*previous+.1*reward
         row['observations']+=1
         if train:
-            if not 0<lr<=.2:raise ValueError('Bad optimizer rate')
+            row['train_observations']+=1
             p=self.probabilities(task)
             gradient=p.copy();gradient[choice]-=1.
             gradient*=advantage
@@ -127,7 +139,8 @@ class FeedbackPolicy:
     def state(self):
         return {'schema':'terminal-rsi-live-actor-v1','seed':self.seed,
                 'rows':self.rows,'total_updates':self.total_updates,
-                'receipt_digest':self.receipt_digest}
+                'receipt_digest':self.receipt_digest,'episode':self.episode,
+                'episode_history':self.episode_history}
 
     @classmethod
     def from_state(cls,state):
@@ -136,9 +149,13 @@ class FeedbackPolicy:
         obj=cls(state['seed'])
         obj.total_updates=state['total_updates']
         obj.receipt_digest=state['receipt_digest']
+        obj.episode=state.get('episode')
+        obj.episode_history=state.get('episode_history',[])
         if (type(obj.total_updates) is not int or obj.total_updates<0 or
                 not isinstance(obj.receipt_digest,str) or
-                len(obj.receipt_digest)!=64):
+                len(obj.receipt_digest)!=64 or
+                any(c not in '0123456789abcdef' for c in obj.receipt_digest) or
+                not isinstance(obj.episode_history,list)):
             raise ValueError('Malformed terminal agent history')
         for family,row in state['rows'].items():
             n=len(row['logits'])
@@ -148,6 +165,8 @@ class FeedbackPolicy:
                     for key in ('logits','m','v')) or
                     type(row['step']) is not int or row['step']<0 or
                     type(row['observations']) is not int or row['observations']<0 or
+                    type(row.get('train_observations',row['step'])) is not int or
+                    row.get('train_observations',row['step'])<0 or
                     not 0<=float(row['critic'])<=1):
                 raise ValueError('Malformed terminal policy parameters')
         obj.rows=state['rows']
@@ -202,9 +221,9 @@ def execute(root:Path, argv,timeout=5.,output_limit=32768):
 
 
 def attempt(task:CommandTask,policy:FeedbackPolicy,root:Path,*,train=False,
-            timeout=5.,lr=.08):
+            timeout=5.,lr=.08,excluded=()):
     """Predict -> execute -> independently verify -> critic -> actor update."""
-    choice,probs=policy.choose(task,train=train)
+    choice,probs=policy.choose(task,train=train,excluded=excluded)
     execution=execute(root,task.choices[choice],timeout=timeout)
     success=(not execution['timed_out'] and
              execution['returncode']==task.expected_code and

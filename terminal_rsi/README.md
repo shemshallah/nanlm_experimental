@@ -102,3 +102,36 @@ or automatic retry after a mid-command crash.
 These are working executor/feedback mechanics. `benchmark_eligible=false`
 remains appropriate until independently checked real multi-step terminal tasks
 and external baselines demonstrate reliable performance.
+
+## Multi-step planning, repaired commands, and the next low-BPC experiment
+
+`planner.py` uses the **same** live actor, critic, Adam moments and checkpoint.
+It runs ordered terminal steps, selects an alternate command when one fails,
+and saves the episode cursor, attempted choices, observed outputs, and receipt
+chain after each command. Resuming does not repeat a verified earlier step.
+Successful or exhausted plans can be followed by a new plan while retaining
+the one inherited optimizer history. Failed steps never unlock later steps.
+
+```bash
+python -m terminal_rsi.planner \
+  --plan terminal_rsi/examples/plan_probe.json --root . \
+  --checkpoint /tmp/terminal-rsi-plan.json --train --max-commands 2
+# Resume the same saved plan:
+python -m terminal_rsi.planner \
+  --plan terminal_rsi/examples/plan_probe.json --root . \
+  --checkpoint /tmp/terminal-rsi-plan.json --train
+```
+
+An optional `CommandProposer.propose(goal, prior_results)` can suggest fresh
+argument arrays after predefined alternatives fail. Such suggestions are
+persisted *before* execution and are checked by the same verifier. Neither
+the proposer nor a low-BPC language model supplies its own success verdict.
+
+`byte_specialist/command_scoring.py` provides the alternate experiment port:
+a next-byte donor stream feeds `StreamingRSICore`, which scores every command
+byte strictly before observing it. `LowBPCRanker` measures command-text BPC;
+`BPCRankedProposer` can reorder fresh suggestions. Controlled predictor tests
+demonstrate the full interface. **No live trained v102 donor checkpoint exists
+yet**, so these tests do not claim actual v102 command-proposal quality, real
+task benchmark success, or that low BPC implies correct commands. Compare
+RSI-only versus BPC-ranked proposals on distinct task sets before promotion.

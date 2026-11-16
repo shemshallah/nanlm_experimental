@@ -29,6 +29,15 @@ jobs:
           python -m terminal_rsi.terminal_agent \
             --tasks terminal_rsi/examples/live_probe.json --root . \
             --checkpoint /tmp/terminal-rsi-live-smoke.json --train
+      - name: Exercise real multi-step repair and checkpoint resumption
+        run: |
+          python -m terminal_rsi.planner \
+            --plan terminal_rsi/examples/plan_probe.json --root . \
+            --checkpoint /tmp/terminal-rsi-plan-smoke.json --train \
+            --max-commands 2
+          python -m terminal_rsi.planner \
+            --plan terminal_rsi/examples/plan_probe.json --root . \
+            --checkpoint /tmp/terminal-rsi-plan-smoke.json --train
       - name: Train verified synthetic tasks with preserved optimizer moments
         run: |
           python -m terminal_rsi.run --sft-updates 200 --rpr-updates 100 \
