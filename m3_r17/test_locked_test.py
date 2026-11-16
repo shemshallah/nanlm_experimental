@@ -45,6 +45,12 @@ class LockedR16Test(unittest.TestCase):
         np.testing.assert_array_equal(a, expected_a)
         np.testing.assert_array_equal(b, expected_b)
 
+    def test_frozen_manifest_fingerprints_are_valid(self):
+        self.assertEqual(len(m.R16_TRAIN_DEV_SHA256), m.TRAIN_BOOKS + m.DEV_BOOKS)
+        self.assertEqual(len(set(m.R16_TRAIN_DEV_SHA256)), m.TRAIN_BOOKS + m.DEV_BOOKS)
+        for fingerprint in m.R16_TRAIN_DEV_SHA256:
+            self.assertRegex(fingerprint, r"\A[0-9a-f]{64}\Z")
+
     def test_prefix_rejects_mismatch_and_duplicate(self):
         books = [f"distinct book {i}".encode() for i in range(20)]
         with self.assertRaisesRegex(ValueError, "identity mismatch"):
