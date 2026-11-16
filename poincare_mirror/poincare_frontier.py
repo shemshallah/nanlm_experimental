@@ -38,6 +38,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from causal_pair_history import retrieve_past_pair_values
+from pair_successor_memory import PairSuccessorTrust
 from torch import nn
 from torch.nn import functional as F
 
@@ -201,6 +202,7 @@ class Config:
     holonomy_aux_weight: float = 0.02
     reciprocal_scales: bool = False  # causal five-scale tokenizer <-> existing simplex/meta geometry
     reciprocal_content_trust: bool = False  # R41, causal confidence gate on reciprocal feedback
+    pair_successor_copy: bool = False  # R54 opt-in exact-pair causal successor memory
 
     def check(self):
         if self.legacy_attention_dim:
@@ -237,6 +239,7 @@ class Config:
         assert not self.reciprocal_scales or self.layers >= self.moe_every
         assert not self.reciprocal_scales or self.vocab_size == 257  # byte+EOS, not arbitrary BPE IDs
         assert not self.reciprocal_content_trust or self.reciprocal_scales
+        assert not self.pair_successor_copy or (self.symbiotic_rank and self.simplex_transfer)
         assert 0 <= self.curvature_aux_weight <= 1
         assert 0 <= self.holonomy_aux_weight <= 1
 
@@ -926,6 +929,8 @@ class SymbioticGeometry(nn.Module):
         self.pair_history_gain = 0.0
         self.pair_history_horizon = 16
         self.pair_history_query_map = None
+        self.r54_capture = False
+        self.r54_last_pairs = None
         self.curvature_enabled = True
         self.holonomy_enabled = True
         self.holonomy_feedback_enabled = True  # auxiliary-only training control
@@ -996,6 +1001,10 @@ class SymbioticGeometry(nn.Module):
         score, selected = scores.topk(self.ACTIVE, dim=-1)
         selected, order = selected.sort(dim=-1)  # canonical signed orientation
         point_ids = selected
+        if self.r54_capture:
+            ei, ej = self.choose2.unbind(-1)
+            self.r54_last_pairs = self.pair_address(
+                selected[:,ei], selected[:,ej]).reshape(batch,length,-1).detach()
         weights = score.softmax(-1).gather(1, order)
         point = self.point_values[selected]
         if self.micro_meta and self.point_micro_enabled:
@@ -1288,6 +1297,7 @@ class MirrorLM(nn.Module):
         self.norm = RMSNorm(cfg.dim, cfg.norm_divisor or cfg.dim)
         self.head = nn.Linear(cfg.dim, cfg.vocab_size, bias=False)
         self.head.weight = self.embed.weight  # a single shared vocabulary head
+        self.pair_successor = PairSuccessorTrust() if cfg.pair_successor_copy else None
         self.hierarchy = CausalTokenHierarchy(cfg.dim, cfg.hierarchy_rank) if cfg.hierarchy_rank else None
         self.reciprocal = (ReciprocalScaleGeometry(cfg.dim,cfg.hierarchy_rank,cfg.symbiotic_rank,
                                                    cfg.reciprocal_content_trust)
@@ -1308,6 +1318,30 @@ class MirrorLM(nn.Module):
                 nn.init.zeros_(block.ff.symbiotic.to_hidden.weight)
         if self.hierarchy is not None:
             nn.init.zeros_(self.hierarchy.to_hidden.weight)
+        if self.pair_successor is not None:
+            self._r54_geometry().r54_capture = True
+
+    def _r54_geometry(self):
+        for block in reversed(self.blocks):
+            if block.use_moe and block.ff.symbiotic is not None and (
+                    block.ff.symbiotic.simplex is not None):
+                return block.ff.symbiotic
+        raise ValueError('R54 needs inherited sparse simplex geometry')
+
+    def enable_pair_successor(self, optimizer=None):
+        """Enable R54 in the SAME model, preserving inherited Adam slots."""
+        if self.pair_successor is not None:
+            raise ValueError('R54 already enabled')
+        if optimizer is not None and len(optimizer.param_groups) != 1:
+            raise ValueError('R54 migration requires a unified Adam group')
+        geometry = self._r54_geometry()
+        self.pair_successor = PairSuccessorTrust().to(self.embed.weight.device)
+        self.pair_successor.train(self.training)
+        self.cfg.pair_successor_copy = True
+        geometry.r54_capture = True
+        if optimizer is not None:
+            optimizer.param_groups[0]['params'].extend(self.pair_successor.parameters())
+        return self.pair_successor
 
     @staticmethod
     def _init(m):
@@ -1317,6 +1351,8 @@ class MirrorLM(nn.Module):
                 nn.init.zeros_(m.bias)
 
     def forward(self, ids, targets=None, nonspace_weight=1.0):
+        if self.pair_successor is not None:
+            self._r54_geometry().r54_last_pairs = None
         x = self.embed(ids)
         aux = x.new_zeros(())
         if self.reciprocal is not None and self.reciprocal.enabled:
@@ -1345,6 +1381,12 @@ class MirrorLM(nn.Module):
         h = self.norm(x)
         logits = self.head(h)
         metrics = {'balancing': aux}
+        if self.pair_successor is not None:
+            addresses = self._r54_geometry().r54_last_pairs
+            if addresses is None or addresses.shape[:2] != ids.shape:
+                raise AssertionError('R54 address capture missing or stale')
+            logits, copy_stats = self.pair_successor(logits, addresses, ids)
+            metrics['pair_successor_coverage'] = copy_stats['coverage'].mean()
         if targets is not None:
             metrics['next_ce'] = F.cross_entropy(logits.flatten(0, 1), targets.flatten())
             weighted_ce = (metrics['next_ce'] if nonspace_weight == 1.0 else
