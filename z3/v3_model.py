@@ -139,6 +139,10 @@ class V3Config:
     object_id_dim: int = 64
     concept_loop_vertices: int = 256
     concept_loop_dim: int = 128
+    # Byte models can feed a token-aligned subword-ID embedding into the
+    # byte -> subword -> word concept encoder.
+    subword_embedding: bool = False
+    subword_vocab_size: int = 64060
     concept_top_vertices: int = 8
     concept_top_pairs: int = 4
     concept_top_triples: int = 2
@@ -724,6 +728,9 @@ class V3LM(nn.Module):
                 top_triples=cfg.concept_top_triples,
                 object_id_dim=(
                     cfg.object_id_dim if cfg.object_id_embedding else 0
+                ),
+                subword_vocab_size=(
+                    cfg.subword_vocab_size if cfg.subword_embedding else 0
                 ),
             )
             if cfg.use_concept_loop else None

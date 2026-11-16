@@ -84,6 +84,7 @@ class SpanSidecar:
     first_byte: torch.Tensor
     event_multi: torch.Tensor
     token_bytes: torch.Tensor | None = None
+    subword_ids: torch.Tensor | None = None
 
     def to(self, device: torch.device | str) -> "SpanSidecar":
         return SpanSidecar(
@@ -100,6 +101,10 @@ class SpanSidecar:
             token_bytes=(
                 self.token_bytes.to(device)
                 if self.token_bytes is not None else None
+            ),
+            subword_ids=(
+                self.subword_ids.to(device)
+                if self.subword_ids is not None else None
             ),
         )
 
@@ -119,6 +124,10 @@ class SpanSidecar:
             token_bytes=(
                 self.token_bytes[start:end]
                 if self.token_bytes is not None else None
+            ),
+            subword_ids=(
+                self.subword_ids[start:end]
+                if self.subword_ids is not None else None
             ),
         )
 
@@ -236,6 +245,9 @@ class SpanSidecar:
             first_byte=first_byte,
             event_multi=event_multi,
             token_bytes=byte_matrix,
+            subword_ids=torch.tensor(
+                list(encoding.subword.ids), dtype=torch.long
+            ),
         )
 
     @classmethod
@@ -258,7 +270,7 @@ class SpanSidecar:
             "math_kind": [],
             "event_ids": [], "byte_start": [], "byte_len": [],
             "char_len": [], "first_byte": [], "event_multi": [],
-            "token_bytes": [],
+            "token_bytes": [], "subword_ids": [],
         }
         for sidecar in sidecars:
             n = int(sidecar.word_ids.numel())
@@ -268,6 +280,9 @@ class SpanSidecar:
                 byte_matrix = torch.full(
                     (n, MAX_TOKEN_BYTES), -100, dtype=torch.long
                 )
+            subword_ids = sidecar.subword_ids
+            if subword_ids is None:
+                subword_ids = torch.zeros(n, dtype=torch.long)
             for name, value in (
                 ("word_ids", sidecar.word_ids),
                 ("word_vocab_ids", sidecar.word_vocab_ids),
@@ -280,6 +295,7 @@ class SpanSidecar:
                 ("first_byte", sidecar.first_byte),
                 ("event_multi", sidecar.event_multi),
                 ("token_bytes", byte_matrix),
+                ("subword_ids", subword_ids),
             ):
                 value = value.to(device)
                 if pad:
@@ -407,14 +423,20 @@ class ConceptEncoder(nn.Module):
         *,
         n_math_kinds: int = len(MATH_KINDS),
         n_events: int = len(EVENT_NAMES),
+        subword_vocab_size: int = 0,
     ) -> None:
         super().__init__()
         self.d_model = d_model
+        self.subword_embed = (
+            nn.Embedding(subword_vocab_size, d_model)
+            if subword_vocab_size > 0 else None
+        )
         self.word_proj = nn.Linear(d_model, d_model, bias=False)
         self.sentence_proj = nn.Linear(d_model, d_model, bias=False)
         self.math_embed = nn.Embedding(n_math_kinds, d_model)
         self.event_embed = nn.Embedding(n_events, d_model)
-        self.out = nn.Linear(4 * d_model, d_model, bias=False)
+        out_mult = 5 if self.subword_embed is not None else 4
+        self.out = nn.Linear(out_mult * d_model, d_model, bias=False)
         self.norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
 
     def forward(
@@ -465,7 +487,18 @@ class ConceptEncoder(nn.Module):
                 value = torch.cat([value[:, :width], pad], dim=1)
             return value.to(dtype=x.dtype)
 
-        word, _ = _segment_pool(x, align_ids(sidecar.word_ids))
+        subword = None
+        word_input = x
+        if self.subword_embed is not None and getattr(
+            sidecar, "subword_ids", None
+        ) is not None:
+            subword = self.subword_embed(
+                align_ids(sidecar.subword_ids).clamp(
+                    0, self.subword_embed.num_embeddings - 1
+                )
+            )
+            word_input = x + subword
+        word, _ = _segment_pool(word_input, align_ids(sidecar.word_ids))
         word_ctx = self.word_proj(word)
         # Sentence abstraction pools word-enriched states, not raw hidden
         # states.  This makes the hierarchy genuinely recursive at the
@@ -492,17 +525,10 @@ class ConceptEncoder(nn.Module):
             ).to(event.dtype)
         else:
             event = self.event_embed(event_ids)
-        concept = self.out(
-            torch.cat(
-                [
-                    x,
-                    word_ctx,
-                    self.sentence_proj(sent),
-                    math + event,
-                ],
-                dim=-1,
-            )
-        )
+        parts = [x, word_ctx, self.sentence_proj(sent), math + event]
+        if subword is not None:
+            parts.append(subword)
+        concept = self.out(torch.cat(parts, dim=-1))
         concept = F.normalize(concept, dim=-1)
         return concept, concept.mean(dim=1)
 
@@ -746,6 +772,7 @@ class ConceptLoop(nn.Module):
         top_pairs: int = 8,
         top_triples: int = 8,
         object_id_dim: int = 0,
+        subword_vocab_size: int = 0,
     ) -> None:
         super().__init__()
         if vertices != 256:
@@ -754,7 +781,9 @@ class ConceptLoop(nn.Module):
             pass
         self.d_model = int(d_model)
         self.vertices = int(vertices)
-        self.encoder = ConceptEncoder(d_model)
+        self.encoder = ConceptEncoder(
+            d_model, subword_vocab_size=subword_vocab_size
+        )
         self.object_memory = CombinatorialMemory(
             d_model=d_model,
             vertices=vertices,
