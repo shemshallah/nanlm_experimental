@@ -105,7 +105,8 @@ def load_unified(path, root, threads=2):
                                  'FA1_R7_47_EXACT_HEAD_ADDRESS_COPY_V1',
                                  'FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1',
                                  'FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                 'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                 'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
         obj = dict(obj, architecture_round='FA1_R7_40_NORMALIZED_SIGNED_RAILS_V1')
     old, old_optimizers, base, compositor = blank(root, threads, embedded_state=obj['model'])
     old = UnifiedR722(old.core, old.calibration, old.near, old.far)
@@ -213,34 +214,42 @@ def load_unified(path, root, threads=2):
                                          'FA1_R7_47_EXACT_HEAD_ADDRESS_COPY_V1',
                                          'FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1',
                                          'FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
                 from fa1_r744_causal_word_backoff import attach_causal_word_backoff
                 attach_causal_word_backoff(model, unified)
             if recorded_architecture in ('FA1_R7_45_GEOMETRIC_VALUE_READ_V1',
                                          'FA1_R7_47_EXACT_HEAD_ADDRESS_COPY_V1',
                                          'FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1',
                                          'FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
                 from fa1_r745_geometric_value_read import attach_geometric_value_read
                 attach_geometric_value_read(model, unified)
             if recorded_architecture in ('FA1_R7_47_EXACT_HEAD_ADDRESS_COPY_V1',
                                          'FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1',
                                          'FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
                 from fa1_r747_head_address_copy import attach_exact_head_copy
                 attach_exact_head_copy(model, unified, base)
             if recorded_architecture in ('FA1_R7_48_TRAINABLE_MIRROR_PAIR_VALUES_V1',
                                          'FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
                 from fa1_r748_mirror_pair_values import attach_mirror_pair_values
                 attach_mirror_pair_values(model, unified)
             if recorded_architecture in ('FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1',
-                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1'):
+                                         'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1',
+                                         'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1'):
                 from fa1_r749_address_reliability import attach_address_reliability
                 attach_address_reliability(model, unified)
             if recorded_architecture == 'FA1_R7_50_CALIBRATED_PAIR_INHIBITION_V1':
                 from fa1_r750_calibrated_inhibition import attach_calibrated_inhibition
                 attach_calibrated_inhibition(model, unified)
+            if recorded_architecture == 'FA1_R7_51_BIDIRECTIONAL_PAIR_EVIDENCE_V1':
+                from fa1_r751_bidirectional_evidence import attach_bidirectional_pair_evidence
+                attach_bidirectional_pair_evidence(model, unified)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)

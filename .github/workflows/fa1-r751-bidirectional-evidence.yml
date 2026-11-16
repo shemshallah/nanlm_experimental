@@ -1,0 +1,46 @@
+name: FA1 R7.51 - bidirectional pair evidence and calibration parity
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r751-bidirectional-evidence.yml'
+      - 'fa1r7.12/source/fa1_r751_*.py'
+      - 'fa1r7.12/source/test_fa1_r751_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/FA1_R7p51_BIDIRECTIONAL_EVIDENCE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r751-bidirectional-master
+  cancel-in-progress: false
+
+jobs:
+  bidirectional-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile and test causal evidence controls
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r751_*.py fa1r7.12/source/fa1_r727_checkpoint.py
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r751_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r750_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r749_*.py' -v
+      - name: Checkpoint and promotion caution
+        run: |
+          echo 'Source regressions only. No model training, sealed TEST opening or promotion.'
