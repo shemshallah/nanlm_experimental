@@ -174,8 +174,6 @@ class PairSuccessorTrust(nn.Module):
         """R59: add exactly one zero tensor; retain all inherited Adam slots."""
         if self.content_weight is None:
             raise ValueError("R59 requires R58 content capacity")
-        if joint_memory_override is not None and self.joint_weight is None:
-            raise ValueError("External book history needs R59/R60 joint rail")
         if self.joint_weight is not None:
             raise ValueError("R59 joint rail already enabled")
         self.joint_weight = nn.Parameter(torch.zeros_like(self.weight.detach()))
@@ -235,6 +233,8 @@ class PairSuccessorTrust(nn.Module):
             corrected[...,content_mask] = proposed - normalization.to(logits.dtype)
             stats['content_trust'] = content_strength.detach()
             stats['content_coverage'] = content_cov.detach()
+        if joint_memory_override is not None and self.joint_weight is None:
+            raise ValueError("External book history needs R59/R60 joint rail")
         if self.joint_weight is not None:
             if self.content_weight is None or vocab != 257:
                 raise ValueError("R59 needs R58 content and byte/EOS vocabulary")
