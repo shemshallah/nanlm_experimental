@@ -125,10 +125,47 @@ At 1.7606 s/step, a 4-hour CPU window is about 8,179 steps and
 2.09M tokens. With a 4.4 bytes/token corpus average, the raw slice floor is
 about 9.2 MB; a 64 MB FineWeb-Edu slice provides roughly a 7x safety margin.
 
+## Frontier gate and 4-hour FineWeb-Edu lane
+
+The `concept_frontier` row adds learned route/pooled/token router mixing,
+an exact 32,640-row hard pair-ID embedding, detached probe heads, and the
+hardest-negative pointer margin.  It passed a 20-step WikiText-2 wiring gate:
+
+| Metric | Value |
+|---|---:|
+| Steps | 20 |
+| Parameters | 36,953,706 |
+| Train time | 38.27s |
+| Step time | 1.9137s |
+| Non-finite skips | 0 |
+| Loss | 10.60622 |
+| BPB | 3.53753 |
+| BPC | 3.54395 |
+
+This is a wiring/timing gate, not a quality result.
+
+The FineWeb-Edu lane downloads only the first 64 MiB of a public Kaggle shard
+through an anonymous HTTP byte range, falls back to the public HuggingFace
+sample parquet if needed, and prepares `uint16` bins on the runner.  The timed
+run is capped at 8,000 steps or 14,400 seconds and uses the same 36.95M-param
+row.  At 1.9137 s/step the 4-hour window is about 7,524 steps / 1.93M tokens.
+After training, the checkpoint is evaluated zero-shot over **every** WT2 and
+WT103 target token with exact target-byte denominators and window-level BPB
+mean/std.
+
+Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/43812135296>  
+Commit: `59e34d1`
+
+The exact full-corpus zero-shot metrics and checkpoint artifact will be added
+here when the run completes.
+
 ## Decision
 
 - Router-only concept feedback: default.
 - Token-aligned concept/object router state: default.
 - Attention residual: off by default, explicit ablation only.
 - Composition head: kept; neutral at 1,000 steps.
+- Probe heads are detached by default so diagnostics cannot perturb the trunk.
+- Full validation is teacher-forced over every target token; `bits_per_byte`
+  uses the bytes of those scored targets, not the corpus-average ratio.
 - Gains are small and single-seed; not a frontier claim.
