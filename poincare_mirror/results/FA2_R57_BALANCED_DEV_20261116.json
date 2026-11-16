@@ -1,0 +1,596 @@
+{
+  "status": "R55_TRAIN_only_candidate_DEV_screen_not_promoted",
+  "parent_step": 2993,
+  "candidate_step": 3089,
+  "parent_sha256": "74478d2f77b3c2da7978458f3660dffe8aad788938ce4a7ab6eae7cff2de0817",
+  "candidate_sha256": "f51771d2694b703a61f37783ee6390cc1c598f1bbdeab50e25222e1af17f0689",
+  "train_sha256": "7e368e4a8b4260400b859146404673f1013293794f79f0af9386c6f5312e703f",
+  "dev_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
+  "test_opened": false,
+  "books_train": 12,
+  "books_dev": 12,
+  "window_context": 64,
+  "train_windows_per_book": 8,
+  "dev_windows_per_book": 8,
+  "dev_targets_per_arm": 6144,
+  "dev_literal_bytes_per_arm": 6144,
+  "bootstrap_unit": "whole DEV book",
+  "bootstrap_replicates": 2000,
+  "familywise": "Bonferroni across exact vs parent/address/value",
+  "learning": {
+    "first_ce": 2.5201916694641113,
+    "last_ce": 2.720292329788208,
+    "mean_ce": 2.3451600149273872,
+    "tokens_processed": 12288,
+    "updates": 96,
+    "learning_rate": 0.02,
+    "nonspace_weight": 2.0
+  },
+  "train_seconds": 2.0174081409932114,
+  "final_gate_weights": [
+    0.022025642916560173,
+    -0.009570835158228874,
+    0.01590445637702942,
+    -0.28267574310302734
+  ],
+  "lineage": {
+    "pass": true,
+    "issues": [],
+    "inherited_tensors": 198,
+    "inherited_adam_states": 194,
+    "retained_adam_states": 194,
+    "new_trust_parameter": true,
+    "gate_adam_state_present": true
+  },
+  "results": {
+    "neutral": {
+      "metrics": {
+        "ce_1": 2.3571993162234626,
+        "ce_2": 2.889247804880142,
+        "ce_3": 3.070084571838379,
+        "acc_1": 0.3551432291666667,
+        "acc_2": 0.23095703125,
+        "acc_3": 0.19303385416666666,
+        "top5_1": 0.7049153645833334,
+        "top5_2": 0.5515950520833334,
+        "top5_3": 0.4910481770833333,
+        "ce_nonspace_1": 2.6173785867242754,
+        "acc_nonspace_1": 0.269377947457432,
+        "top5_nonspace_1": 0.6617708613633538,
+        "ce_space_1": 1.1358458224085473,
+        "acc_space_1": 0.7594007496967009,
+        "top5_space_1": 0.9138116006815348,
+        "bits_per_raw_byte": 3.400719763902445,
+        "bits_per_byte_or_eos_target": 3.400719763902445
+      },
+      "scored_targets_per_second": 6145.215960064683
+    },
+    "exact": {
+      "metrics": {
+        "ce_1": 2.3561223025123277,
+        "ce_2": 2.889247804880142,
+        "ce_3": 3.070084571838379,
+        "acc_1": 0.3553059895833333,
+        "acc_2": 0.23095703125,
+        "acc_3": 0.19303385416666666,
+        "top5_1": 0.70556640625,
+        "top5_2": 0.5515950520833334,
+        "top5_3": 0.4910481770833333,
+        "ce_nonspace_1": 2.6119560445067695,
+        "acc_nonspace_1": 0.26953754110050737,
+        "top5_nonspace_1": 0.6614966664260423,
+        "ce_space_1": 1.1562951420913081,
+        "acc_space_1": 0.7594007496967009,
+        "top5_space_1": 0.9171045513690629,
+        "bits_per_raw_byte": 3.3991659615624212,
+        "bits_per_byte_or_eos_target": 3.3991659615624212
+      },
+      "scored_targets_per_second": 7067.776137995279
+    },
+    "wrong_address": {
+      "metrics": {
+        "ce_1": 2.357265623907248,
+        "ce_2": 2.889247804880142,
+        "ce_3": 3.070084571838379,
+        "acc_1": 0.3553059895833333,
+        "acc_2": 0.23095703125,
+        "acc_3": 0.19303385416666666,
+        "top5_1": 0.7047526041666666,
+        "top5_2": 0.5515950520833334,
+        "top5_3": 0.4910481770833333,
+        "ce_nonspace_1": 2.6172670113549397,
+        "acc_nonspace_1": 0.26957219765168217,
+        "top5_nonspace_1": 0.6617708613633538,
+        "ce_space_1": 1.136653745159647,
+        "acc_space_1": 0.7594007496967009,
+        "top5_space_1": 0.913300353237772,
+        "bits_per_raw_byte": 3.4008154256690153,
+        "bits_per_byte_or_eos_target": 3.4008154256690153
+      },
+      "scored_targets_per_second": 6909.254086230254
+    },
+    "wrong_successor": {
+      "metrics": {
+        "ce_1": 2.355248846113682,
+        "ce_2": 2.889247804880142,
+        "ce_3": 3.070084571838379,
+        "acc_1": 0.3567708333333333,
+        "acc_2": 0.23095703125,
+        "acc_3": 0.19303385416666666,
+        "top5_1": 0.7067057291666666,
+        "top5_2": 0.5515950520833334,
+        "top5_3": 0.4910481770833333,
+        "ce_nonspace_1": 2.6164363519247162,
+        "acc_nonspace_1": 0.2709422727087303,
+        "top5_nonspace_1": 0.6617301297526984,
+        "ce_space_1": 1.13233445646253,
+        "acc_space_1": 0.761075833871785,
+        "top5_space_1": 0.9205111287239313,
+        "bits_per_raw_byte": 3.3979058303476624,
+        "bits_per_byte_or_eos_target": 3.3979058303476624
+      },
+      "scored_targets_per_second": 6149.333464458303
+    }
+  },
+  "comparisons": {
+    "vs_parent": {
+      "ce_1": {
+        "baseline": 2.3571993162234626,
+        "candidate": 2.3561223025123277,
+        "mean_gain": 0.0010770137111345928,
+        "books_improved": 7,
+        "ci95_bonferroni": [
+          -0.0022731250358952416,
+          0.004961967426869606
+        ]
+      },
+      "ce_2": {
+        "baseline": 2.889247804880142,
+        "candidate": 2.889247804880142,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_3": {
+        "baseline": 3.070084571838379,
+        "candidate": 3.070084571838379,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_1": {
+        "baseline": 0.3551432291666667,
+        "candidate": 0.3553059895833333,
+        "mean_gain": 0.00016276041666666666,
+        "books_improved": 6,
+        "ci95_bonferroni": [
+          -0.0013020833333333333,
+          0.00146484375
+        ]
+      },
+      "acc_2": {
+        "baseline": 0.23095703125,
+        "candidate": 0.23095703125,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_3": {
+        "baseline": 0.19303385416666666,
+        "candidate": 0.19303385416666666,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_1": {
+        "baseline": 0.7049153645833334,
+        "candidate": 0.70556640625,
+        "mean_gain": 0.0006510416666666666,
+        "books_improved": 5,
+        "ci95_bonferroni": [
+          -0.0013020833333333333,
+          0.0026041666666666665
+        ]
+      },
+      "top5_2": {
+        "baseline": 0.5515950520833334,
+        "candidate": 0.5515950520833334,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_3": {
+        "baseline": 0.4910481770833333,
+        "candidate": 0.4910481770833333,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_nonspace_1": {
+        "baseline": 2.6173785867242754,
+        "candidate": 2.6119560445067695,
+        "mean_gain": 0.005422542217505784,
+        "books_improved": 11,
+        "ci95_bonferroni": [
+          0.002736259932059829,
+          0.00796562030793871
+        ]
+      },
+      "acc_nonspace_1": {
+        "baseline": 0.269377947457432,
+        "candidate": 0.26953754110050737,
+        "mean_gain": 0.0001595936430754142,
+        "books_improved": 6,
+        "ci95_bonferroni": [
+          -0.0015590306906613622,
+          0.0017757983998111775
+        ]
+      },
+      "top5_nonspace_1": {
+        "baseline": 0.6617708613633538,
+        "candidate": 0.6614966664260423,
+        "mean_gain": -0.0002741949373114283,
+        "books_improved": 4,
+        "ci95_bonferroni": [
+          -0.002439135481842381,
+          0.0019341193071986315
+        ]
+      },
+      "ce_space_1": {
+        "baseline": 1.1358458224085473,
+        "candidate": 1.1562951420913081,
+        "mean_gain": -0.02044931968276086,
+        "books_improved": 2,
+        "ci95_bonferroni": [
+          -0.02932598680971487,
+          -0.008785508131111593
+        ]
+      },
+      "acc_space_1": {
+        "baseline": 0.7594007496967009,
+        "candidate": 0.7594007496967009,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_space_1": {
+        "baseline": 0.9138116006815348,
+        "candidate": 0.9171045513690629,
+        "mean_gain": 0.0032929506875280326,
+        "books_improved": 3,
+        "ci95_bonferroni": [
+          0.0,
+          0.007918067748858615
+        ]
+      }
+    },
+    "vs_wrong_address": {
+      "ce_1": {
+        "baseline": 2.357265623907248,
+        "candidate": 2.3561223025123277,
+        "mean_gain": 0.0011433213949203491,
+        "books_improved": 7,
+        "ci95_bonferroni": [
+          -0.002211521172689067,
+          0.004985648766160014
+        ]
+      },
+      "ce_2": {
+        "baseline": 2.889247804880142,
+        "candidate": 2.889247804880142,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_3": {
+        "baseline": 3.070084571838379,
+        "candidate": 3.070084571838379,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_1": {
+        "baseline": 0.3553059895833333,
+        "candidate": 0.3553059895833333,
+        "mean_gain": 0.0,
+        "books_improved": 5,
+        "ci95_bonferroni": [
+          -0.0013576931423611113,
+          0.0013020833333333333
+        ]
+      },
+      "acc_2": {
+        "baseline": 0.23095703125,
+        "candidate": 0.23095703125,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_3": {
+        "baseline": 0.19303385416666666,
+        "candidate": 0.19303385416666666,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_1": {
+        "baseline": 0.7047526041666666,
+        "candidate": 0.70556640625,
+        "mean_gain": 0.0008138020833333334,
+        "books_improved": 5,
+        "ci95_bonferroni": [
+          -0.0011393229166666667,
+          0.0029296875
+        ]
+      },
+      "top5_2": {
+        "baseline": 0.5515950520833334,
+        "candidate": 0.5515950520833334,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_3": {
+        "baseline": 0.4910481770833333,
+        "candidate": 0.4910481770833333,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_nonspace_1": {
+        "baseline": 2.6172670113549397,
+        "candidate": 2.6119560445067695,
+        "mean_gain": 0.005310966848169822,
+        "books_improved": 11,
+        "ci95_bonferroni": [
+          0.0026361430467539792,
+          0.007814362727692285
+        ]
+      },
+      "acc_nonspace_1": {
+        "baseline": 0.26957219765168217,
+        "candidate": 0.26953754110050737,
+        "mean_gain": -3.465655117477808e-05,
+        "books_improved": 5,
+        "ci95_bonferroni": [
+          -0.001713359566854314,
+          0.0015864532320783856
+        ]
+      },
+      "top5_nonspace_1": {
+        "baseline": 0.6617708613633538,
+        "candidate": 0.6614966664260423,
+        "mean_gain": -0.0002741949373114283,
+        "books_improved": 4,
+        "ci95_bonferroni": [
+          -0.002439135481842381,
+          0.0019341193071986315
+        ]
+      },
+      "ce_space_1": {
+        "baseline": 1.136653745159647,
+        "candidate": 1.1562951420913081,
+        "mean_gain": -0.01964139693166103,
+        "books_improved": 2,
+        "ci95_bonferroni": [
+          -0.02858884987071092,
+          -0.007814337155761453
+        ]
+      },
+      "acc_space_1": {
+        "baseline": 0.7594007496967009,
+        "candidate": 0.7594007496967009,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_space_1": {
+        "baseline": 0.913300353237772,
+        "candidate": 0.9171045513690629,
+        "mean_gain": 0.003804198131290811,
+        "books_improved": 3,
+        "ci95_bonferroni": [
+          0.0,
+          0.009653386037632744
+        ]
+      }
+    },
+    "vs_wrong_successor": {
+      "ce_1": {
+        "baseline": 2.355248846113682,
+        "candidate": 2.3561223025123277,
+        "mean_gain": -0.0008734563986460367,
+        "books_improved": 4,
+        "ci95_bonferroni": [
+          -0.0028690316196944977,
+          0.0008123360574245461
+        ]
+      },
+      "ce_2": {
+        "baseline": 2.889247804880142,
+        "candidate": 2.889247804880142,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_3": {
+        "baseline": 3.070084571838379,
+        "candidate": 3.070084571838379,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_1": {
+        "baseline": 0.3567708333333333,
+        "candidate": 0.3553059895833333,
+        "mean_gain": -0.00146484375,
+        "books_improved": 1,
+        "ci95_bonferroni": [
+          -0.0032552083333333335,
+          -0.00016276041666666666
+        ]
+      },
+      "acc_2": {
+        "baseline": 0.23095703125,
+        "candidate": 0.23095703125,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "acc_3": {
+        "baseline": 0.19303385416666666,
+        "candidate": 0.19303385416666666,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_1": {
+        "baseline": 0.7067057291666666,
+        "candidate": 0.70556640625,
+        "mean_gain": -0.0011393229166666667,
+        "books_improved": 3,
+        "ci95_bonferroni": [
+          -0.004231770833333333,
+          0.0016276041666666667
+        ]
+      },
+      "top5_2": {
+        "baseline": 0.5515950520833334,
+        "candidate": 0.5515950520833334,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "top5_3": {
+        "baseline": 0.4910481770833333,
+        "candidate": 0.4910481770833333,
+        "mean_gain": 0.0,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          0.0,
+          0.0
+        ]
+      },
+      "ce_nonspace_1": {
+        "baseline": 2.6164363519247162,
+        "candidate": 2.6119560445067695,
+        "mean_gain": 0.004480307417946657,
+        "books_improved": 11,
+        "ci95_bonferroni": [
+          0.002197927428033936,
+          0.0064514280504886015
+        ]
+      },
+      "acc_nonspace_1": {
+        "baseline": 0.2709422727087303,
+        "candidate": 0.26953754110050737,
+        "mean_gain": -0.0014047316082229134,
+        "books_improved": 1,
+        "ci95_bonferroni": [
+          -0.003496322818434894,
+          0.00020062550015034197
+        ]
+      },
+      "top5_nonspace_1": {
+        "baseline": 0.6617301297526984,
+        "candidate": 0.6614966664260423,
+        "mean_gain": -0.00023346332665595085,
+        "books_improved": 3,
+        "ci95_bonferroni": [
+          -0.002317995623208652,
+          0.002150893162285237
+        ]
+      },
+      "ce_space_1": {
+        "baseline": 1.13233445646253,
+        "candidate": 1.1562951420913081,
+        "mean_gain": -0.02396068562877839,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          -0.026010222064682856,
+          -0.021877314457107874
+        ]
+      },
+      "acc_space_1": {
+        "baseline": 0.761075833871785,
+        "candidate": 0.7594007496967009,
+        "mean_gain": -0.0016750841750841812,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          -0.0042003367003367225,
+          0.0
+        ]
+      },
+      "top5_space_1": {
+        "baseline": 0.9205111287239313,
+        "candidate": 0.9171045513690629,
+        "mean_gain": -0.0034065773548683322,
+        "books_improved": 0,
+        "ci95_bonferroni": [
+          -0.011071854610965055,
+          0.0
+        ]
+      }
+    }
+  },
+  "dev_screen_pass": false,
+  "promoted": false,
+  "next_gate": "Only after a positive, corrected book-disjoint DEV screen: long-context regression and independent sealed TEST."
+}

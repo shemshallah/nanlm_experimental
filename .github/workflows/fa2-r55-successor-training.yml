@@ -1,0 +1,39 @@
+name: FA2 R55 - Train-only Successor Gate Regression
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/scripts/train_r55_pair_successor.py'
+      - 'poincare_mirror/tests/test_r55_pair_successor_train.py'
+      - 'poincare_mirror/tests/test_r54_pair_successor.py'
+      - '.github/workflows/fa2-r55-successor-training.yml'
+  workflow_dispatch:
+
+jobs:
+  inherited-optimizer-and-negative-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU PyTorch and NumPy
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile the unified FA2 implementation
+        run: python -m compileall -q poincare_mirror
+      - name: R55 TRAIN-only optimizer and experiment controls
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r55_pair_successor_train.py' -v
+      - name: Repeat inherited R54 causality and roundtrip tests
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r54_pair_successor.py' -v
+
+# This workflow tests source and migration behavior. It does not claim to
+# execute the book-disjoint benchmark without the SHA-verified checkpoint
+# and NaNROUTER/Gutenberg38 dataset, which remain outside source control.
