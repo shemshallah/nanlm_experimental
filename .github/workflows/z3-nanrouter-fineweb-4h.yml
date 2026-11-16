@@ -188,7 +188,7 @@ jobs:
             --tokenizer layered \
             --ctx "${{ inputs.ctx || '256' }}" \
             --full \
-            --batch-size 1 \
+            --batch-size 4 \
             --device cpu \
             --out eval_zero_shot.json
       - uses: actions/upload-artifact@v4

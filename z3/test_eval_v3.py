@@ -114,6 +114,7 @@ class EvalV3Tests(unittest.TestCase):
             token_ids,
             cfg,
             ctx=16,
+            batch_size=2,
             device="cpu",
             name="full-unit",
             token_byte_lengths=[1] * len(token_ids),

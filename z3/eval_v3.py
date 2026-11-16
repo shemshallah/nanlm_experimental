@@ -1010,6 +1010,18 @@ def evaluate_ids_full(
         raise ValueError("full evaluation needs at least one token")
     if token_byte_lengths is not None and len(token_byte_lengths) != len(ids):
         raise ValueError("token_byte_lengths must align with token_ids")
+    if int(batch_size) > 1:
+        return _evaluate_ids_full_batched(
+            model,
+            ids,
+            cfg,
+            ctx=ctx,
+            batch_size=batch_size,
+            device=device,
+            name=name,
+            router_accumulator=router_accumulator,
+            token_byte_lengths=token_byte_lengths,
+        )
     ctx = int(ctx)
     if ctx < 1:
         raise ValueError("ctx must be >= 1")
@@ -1170,6 +1182,210 @@ def evaluate_ids_full(
         "eval_seconds": round(time.time() - started, 4),
     }
     return metrics
+
+
+def _evaluate_ids_full_batched(
+    model: V3LM,
+    ids: list[int],
+    cfg: V3Config,
+    *,
+    ctx: int,
+    batch_size: int,
+    device: str | torch.device = "cpu",
+    name: str = "corpus",
+    router_accumulator: RouterAccumulator | None = None,
+    token_byte_lengths: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    """Batched teacher-forced full evaluation."""
+    ctx = int(ctx)
+    if ctx < 1:
+        raise ValueError("ctx must be >= 1")
+    torch_device = torch.device(device)
+    was_training = model.training
+    tracker = RouterTracker(model)
+    started = time.time()
+    loss_sum = 0.0
+    correct = 0
+    top5_correct = 0
+    total = 0
+    eval_bytes = 0
+    mtp_stats: dict[int, dict[str, float]] = {}
+    aux_lb_sum = 0.0
+    aux_lb_tokens = 0
+    aux_z_sum = 0.0
+    aux_z_tokens = 0
+    window_bpb: list[float] = []
+    windows_count = 0
+
+    windows = [
+        (start, min(len(ids), start + ctx + 1))
+        for start in range(0, len(ids) - 1, ctx)
+    ]
+    groups: list[list[tuple[int, int]]] = []
+    pending: list[tuple[int, int]] = []
+    full_length = ctx + 1
+    for start, end in windows:
+        if end - start == full_length:
+            pending.append((start, end))
+            if len(pending) >= int(batch_size):
+                groups.append(pending)
+                pending = []
+        else:
+            if pending:
+                groups.append(pending)
+                pending = []
+            groups.append([(start, end)])
+    if pending:
+        groups.append(pending)
+
+    model.eval()
+    try:
+        with torch.inference_mode():
+            for group in groups:
+                lengths = {end - start for start, end in group}
+                if len(lengths) != 1:
+                    raise RuntimeError("full-evaluation batch lengths differ")
+                xb = torch.tensor(
+                    [ids[start:end] for start, end in group],
+                    dtype=torch.long,
+                    device=torch_device,
+                )
+                starts = [start for start, _end in group]
+                b, length = xb.shape
+                logits, mtp_logits, aux = model(xb)
+                predictions = logits[:, :-1].float()
+                targets = xb[:, 1:]
+                loss_matrix = F.cross_entropy(
+                    predictions.reshape(-1, predictions.size(-1)),
+                    targets.reshape(-1),
+                    reduction="none",
+                ).view(b, length - 1)
+                batch_loss = float(loss_matrix.sum().detach().cpu())
+                batch_tokens = int(targets.numel())
+                loss_sum += batch_loss
+                total += batch_tokens
+                windows_count += b
+                correct += int(
+                    (predictions.argmax(dim=-1) == targets).sum().item()
+                )
+                k = min(5, predictions.size(-1))
+                top5 = predictions.topk(k, dim=-1).indices
+                top5_correct += int(
+                    (top5 == targets.unsqueeze(-1)).any(dim=-1).sum().item()
+                )
+
+                if token_byte_lengths is not None:
+                    for row, start in enumerate(starts):
+                        end = min(len(ids), start + ctx + 1)
+                        window_bytes = sum(
+                            int(token_byte_lengths[index])
+                            for index in range(start + 1, end)
+                        )
+                        eval_bytes += window_bytes
+                        if window_bytes > 0:
+                            window_bpb.append(
+                                float(loss_matrix[row].sum()) / math.log(2)
+                                / window_bytes
+                            )
+
+                if isinstance(mtp_logits, torch.Tensor):
+                    heads = [mtp_logits]
+                else:
+                    heads = list(mtp_logits or [])
+                for head_index, head in enumerate(heads):
+                    offset = head_index + 2
+                    if offset > cfg.mtp or offset >= length:
+                        break
+                    head_len = length - offset
+                    head_logits = head[:, :head_len, :].reshape(
+                        -1, head.size(-1)
+                    )
+                    head_targets = xb[:, offset:].reshape(-1)
+                    stat = mtp_stats.setdefault(
+                        offset,
+                        {"loss_sum": 0.0, "correct": 0.0, "tokens": 0.0},
+                    )
+                    head_loss = F.cross_entropy(head_logits, head_targets)
+                    stat["loss_sum"] += float(head_loss) * b * head_len
+                    stat["correct"] += float(
+                        (head_logits.argmax(dim=-1) == head_targets).sum()
+                    )
+                    stat["tokens"] += b * head_len
+
+                if isinstance(aux, dict):
+                    weight = max(1, batch_tokens)
+                    load_balance = aux.get("load_balance")
+                    if load_balance is not None:
+                        aux_lb_sum += float(load_balance.detach().cpu()) * weight
+                        aux_lb_tokens += weight
+                    router_z = aux.get("router_z")
+                    if router_z is not None:
+                        aux_z_sum += float(router_z.detach().cpu()) * weight
+                        aux_z_tokens += weight
+    finally:
+        router_summary = tracker.summary()
+        if router_accumulator is not None:
+            router_accumulator.add(tracker.entries)
+        tracker.close()
+        model.train(was_training)
+
+    if total < 1:
+        raise RuntimeError("full evaluation produced no targets")
+    mean_loss = loss_sum / total
+    mtp_items = []
+    mtp_top1: dict[str, float] = {}
+    for offset in sorted(mtp_stats):
+        stat = mtp_stats[offset]
+        tokens = max(1, int(stat["tokens"]))
+        item = {
+            "offset": offset,
+            "tokens": int(stat["tokens"]),
+            "loss": stat["loss_sum"] / tokens,
+            "bits_per_token": (stat["loss_sum"] / tokens) / math.log(2),
+            "top1": stat["correct"] / tokens,
+        }
+        mtp_items.append(item)
+        mtp_top1[f"t+{offset}"] = item["top1"]
+    if window_bpb:
+        mean_bpb = sum(window_bpb) / len(window_bpb)
+        variance = sum((value - mean_bpb) ** 2 for value in window_bpb) / len(
+            window_bpb
+        )
+    else:
+        mean_bpb = None
+        variance = None
+    return {
+        "name": name,
+        "tokens": total,
+        "tokens_available": len(ids),
+        "loss": mean_loss,
+        "bits_per_token": mean_loss / math.log(2),
+        "eval_bytes": eval_bytes if token_byte_lengths is not None else None,
+        "eval_bits_per_byte": (
+            loss_sum / math.log(2) / eval_bytes
+            if token_byte_lengths is not None and eval_bytes > 0 else None
+        ),
+        "top1": correct / total,
+        "top5": top5_correct / total,
+        "mtp": mtp_items,
+        "mtp_top1": mtp_top1,
+        "router_utilization": router_summary,
+        "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
+        "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
+        "val_positions": {
+            "mode": "full",
+            "windows": windows_count,
+            "start": 0,
+            "covered_targets": total,
+            "corpus_tokens": len(ids),
+            "batch_size": int(batch_size),
+        },
+        "window_bits_per_byte_mean": mean_bpb,
+        "window_bits_per_byte_std": (
+            math.sqrt(variance) if variance is not None else None
+        ),
+        "eval_seconds": round(time.time() - started, 4),
+    }
 
 
 def _weighted(entries: Sequence[dict[str, Any]], key: str) -> float | None:
