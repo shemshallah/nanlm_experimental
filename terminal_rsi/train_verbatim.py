@@ -160,6 +160,8 @@ def main(argv=None):
                    help="Start with 0 CPU parity; only then authorize training")
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--max-dev-positions", type=int, default=16)
+    p.add_argument("--upgrade-context", type=int, default=None,
+                   help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
                    help="Optional original C 256-probability oracle (matched SHA)")
     args = p.parse_args(argv)
@@ -170,6 +172,9 @@ def main(argv=None):
     if args.output.exists() and (args.resume is None or args.output.resolve() != args.resume.resolve()):
         p.error("Destination exists; use --resume of that exact unified candidate")
     device = device_for(args.mode)
+    upgrade_context = args.upgrade_context or PRESETS[args.mode].context
+    if not 32 <= upgrade_context <= PRESETS[args.mode].context:
+        p.error("Upgrade context must be >=32 and <= selected preset capacity")
     source = torch.load(args.legacy_checkpoint, map_location="cpu", weights_only=True)
     raw = args.train_stream.read_bytes()
     ranks = read_bpe_ranks(args.bpe_merges)
@@ -192,6 +197,7 @@ def main(argv=None):
     if len(train_data) != len(aux_data):
         raise AssertionError("Original feature-target offset mismatch")
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
+    raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
     optimizer = build_v103_optimizer(model)
     provenance = restore_v103_parent(args.legacy_checkpoint, model, optimizer)
@@ -206,13 +212,22 @@ def main(argv=None):
         dev_local = torch.from_numpy(local_np).to(device=device, dtype=torch.int32)
         if dev_local.shape != (*dev.shape[:2], 4):
             raise AssertionError("Causal local specialist misaligned with DEV targets")
-    # The old CPU↔GPU path must not implicitly replace the inherited model.
-    actual = train_data[:args.batch].to(device=device, dtype=torch.long)
+    # Select genuinely book-disjoint long windows; check the LAST 32 bytes
+    # against the original heldout 33-column rows position for position.
+    probes, probe_aux, probe_local, probe_digest = build_book_disjoint_probes(
+        args.dev_bin, args.max_dev_positions, upgrade_context,
+        dev, dev_aux, dev_local, device)
+    if probe_digest != dev_digest:
+        raise AssertionError("Original DEV identity changed during window expansion")
+    actual = build_causal_contexts(
+        raw_tensor, torch.arange(args.batch) + PARITY_CONTEXT,
+        upgrade_context).to(device)
     actual_aux = aux_data[:args.batch].to(device=device)
     proof = exact_parent_parity(model, actual[:, :-1], actual[:, -1], actual_aux)
     print("VERBATIM v103 original checkpoint, gate=0:", json.dumps(proof))
     provenance.update({"source_sha256": hashlib.sha256(raw).hexdigest(),
                        "feature_manifest": manifest, "dev_sha256": dev_digest,
+                       "upgrade_context": upgrade_context,
                        "original_two_adam_groups": [g["lr"] for g in optimizer.param_groups[:2]]})
     step = int(source["steps"])
     events = []
@@ -224,6 +239,8 @@ def main(argv=None):
         sampler = resumed["sampler"]
         events = resumed["events"]
         provenance = resumed["legacy_provenance"]
+        if provenance.get("upgrade_context") != upgrade_context:
+            raise ValueError("Changed causal upgrade context across RSI continuation")
         if len(train_data) != sampler["train_positions"]:
             raise ValueError("Changed coverage length in unified RSI resume")
         state = resumed["rng"]
@@ -239,9 +256,9 @@ def main(argv=None):
             torch.cuda.set_rng_state_all(source["cuda_rng"])
         if "python_rng" in source:
             random.setstate(source["python_rng"])
-    before = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
-                                  topk_n=args.max_dev_positions, auxiliary=dev_aux,
-                                  local=dev_local)
+    before = byte_metrics_wrapped(model, probes, n=None,
+                                  topk_n=len(probes), auxiliary=probe_aux,
+                                  local=probe_local)
     print("DEV before:", before)
     c256_before = (compare_c256_wrapped(
         model, dev, args.reference_full256, auxiliary=dev_aux,
@@ -254,7 +271,8 @@ def main(argv=None):
         indices = coverage_indices(sampler["cursor"], args.batch,
                                    len(train_data), sampler["stride"],
                                    torch.device("cpu"))
-        sample = train_data[indices].to(device=device, dtype=torch.long)
+        sample = build_causal_contexts(raw_tensor, indices + PARITY_CONTEXT,
+                                       upgrade_context).to(device)
         sample_aux = aux_data[indices].to(device=device)
         report = train_one_batch(model, optimizer, sample[:, :-1],
                                  sample[:, -1], sample_aux)
@@ -265,16 +283,17 @@ def main(argv=None):
     if args.seconds:
         # Preserve original Terminal-RSI's REAL verified actor-critic loop.
         events.extend(terminal_feedback(model.original, optimizer))
-    after = byte_metrics_wrapped(model, dev, n=args.max_dev_positions,
-                                 topk_n=args.max_dev_positions, auxiliary=dev_aux,
-                                 local=dev_local)
+    after = byte_metrics_wrapped(model, probes, n=None,
+                                 topk_n=len(probes), auxiliary=probe_aux,
+                                 local=probe_local)
     c256_after = (compare_c256_wrapped(
         model, dev, args.reference_full256, auxiliary=dev_aux,
         local=dev_local, probe_count=min(16, args.max_dev_positions))
         if args.reference_full256 else None)
     if c256_after is not None:
         print("Original C full256 numerical parity AFTER:", c256_after)
-    receipt = {"mode": args.mode, "legacy_step": provenance["legacy_step"],
+    receipt = {"mode": args.mode, "upgrade_context": upgrade_context,
+               "legacy_step": provenance["legacy_step"],
                "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"])),
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
