@@ -197,6 +197,7 @@ def main() -> int:
                 "subword_top1": final.get("subword_top1"),
                 "subword_top5": final.get("subword_top5"),
                 "object_pointer": train.get("object_pointer"),
+                "object_negative": train.get("object_negative"),
                 "object_triple_pointer": train.get("object_triple_pointer"),
                 "mtp_composition": train.get("mtp_composition"),
                 "mtp_object_pointer": train.get("mtp_object_pointer"),
