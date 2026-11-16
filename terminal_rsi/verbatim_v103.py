@@ -83,6 +83,26 @@ class VerbatimV103RSI(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
+def build_v103_optimizer(model: VerbatimV103RSI):
+    """Preserve the ORIGINAL two AdamW learning-rate groups, plus upgrades.
+
+    The historical v103 notebook used 2e-3 for inherited GPUFullSystem
+    parameters and 5e-4 for new v103 specialists. New upgrade tensors live
+    in a third group; they never alter the old group's optimizer histories.
+    """
+    parent = list(model.original.named_parameters())
+    base = [p for name, p in parent if not name.startswith("v103_")]
+    specialists = [p for name, p in parent if name.startswith("v103_")]
+    added = [model.residual_gate, *model.upgrades.parameters()]
+    if not base or not specialists or not added:
+        raise RuntimeError("Historical two-way v103 parameter partition unavailable")
+    return torch.optim.AdamW([
+        {"params": base, "lr": 2e-3, "name": "original_base"},
+        {"params": specialists, "lr": 5e-4, "name": "original_v103"},
+        {"params": added, "lr": model.cfg.lr, "name": "recursive_upgrades"},
+    ])
+
+
 def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
     """Strict full checkpoint migration; retain every inherited Adam state."""
     path = Path(original_path)
@@ -95,29 +115,63 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
     model.original.load_state_dict(source["model"], strict=True)
     model.original.causal_copy_enabled = bool(
         source.get("configuration", {}).get("causal_copy_enabled", False))
-    old_ids = source["optimizer"]["param_groups"][0]["params"]
+    old_groups = source["optimizer"]["param_groups"]
+    old_ids = [pid for group in old_groups for pid in group["params"]]
     old_names = [name for name, _ in model.original.named_parameters()]
-    if len(old_ids) != len(old_names):
-        raise ValueError("Original model/Adam parameter count mismatch")
+    if len(old_ids) != len(old_names) or len(set(old_ids)) != len(old_ids):
+        raise ValueError("Original v103 model and grouped Adam parameter order mismatch")
+    # The original checkpoint may have one group (v1) or the ACTUAL v103
+    # notebook's two groups. Never overwrite separate v103 learning rates.
     current = optimizer.state_dict()
-    new_ids = current["param_groups"][0]["params"]
+    new_ids = [pid for group in current["param_groups"] for pid in group["params"]]
     names = [name for name, _ in model.named_parameters()]
-    if len(new_ids) != len(names):
-        raise ValueError("Unified optimizer does not own every trainable tensor")
-    name_to_id = dict(zip(names, new_ids))
+    # model.named_parameters() puts residual_gate first; optimizer factory
+    # owns the tensors in semantic order, so derive IDs from optimizer itself.
+    live_to_name = {id(param): name for name, param in model.named_parameters()}
+    ordered_names = [live_to_name[id(param)] for group in optimizer.param_groups
+                     for param in group["params"]]
+    if len(new_ids) != len(ordered_names) or set(ordered_names) != set(names):
+        raise ValueError("Unified optimizer must own every tensor exactly once")
+    name_to_id = dict(zip(ordered_names, new_ids))
     original_adam = source["optimizer"]["state"]
-    # Named mapping is vital: top-level residual_gate precedes all submodules
-    # in torch.nn.Module.parameters(), despite being assigned afterward.
+    if set(original_adam) - set(old_ids):
+        raise ValueError("Optimizer has states for nonexistent historical parameters")
     current["state"] = {
         name_to_id["original." + name]: original_adam[old_id]
         for name, old_id in zip(old_names, old_ids)
         if old_id in original_adam
     }
     if len(current["state"]) != len(original_adam):
-        raise ValueError("Failed to map all original Adam moments by name")
-    for key, value in source["optimizer"]["param_groups"][0].items():
-        if key != "params":
-            current["param_groups"][0][key] = value
+        raise ValueError("Failed to map all original Adam moments by parameter name")
+    if len(old_groups) == 2:
+        if len(optimizer.param_groups) != 3:
+            raise ValueError("Historical v103 needs TWO original Adam groups + upgrade group; use build_v103_optimizer")
+        split = len(old_groups[0]["params"])
+        expected_first = [n for n in old_names if not n.startswith("v103_")]
+        expected_second = [n for n in old_names if n.startswith("v103_")]
+        if old_names[:split] != expected_first or old_names[split:] != expected_second:
+            raise ValueError("Original v103 group ordering differs from archived training source")
+        for idx, group in enumerate(old_groups):
+            target = current["param_groups"][idx]
+            for key, value in group.items():
+                if key != "params":
+                    target[key] = value
+    elif len(old_groups) == 1:
+        # This is permitted for synthetic v103 or early one-group checkpoint.
+        # Preserve its LR for both inherited groups when using the factory.
+        if len(optimizer.param_groups) == 3:
+            for idx in (0, 1):
+                for key, value in old_groups[0].items():
+                    if key != "params":
+                        current["param_groups"][idx][key] = value
+        elif len(optimizer.param_groups) == 1:
+            for key, value in old_groups[0].items():
+                if key != "params":
+                    current["param_groups"][0][key] = value
+        else:
+            raise ValueError("Unexpected synthetic optimizer grouping")
+    else:
+        raise ValueError("Unsupported historical group count; do not discard any Adam history")
     optimizer.load_state_dict(current)
     return {
         "legacy_schema": PARITY_SCHEMA,
@@ -168,7 +222,7 @@ def main():
     args = parser.parse_args()
     dev = device_for(args.mode)
     model = VerbatimV103RSI(args.mode).to(dev)
-    opt = torch.optim.AdamW(model.parameters(), lr=PRESETS[args.mode].lr)
+    opt = build_v103_optimizer(model)
     audit = restore_v103_parent(args.legacy_checkpoint, model, opt)
     # Real checkpoint state, deterministic observed byte context; no target-future input.
     g = torch.Generator().manual_seed(103)
