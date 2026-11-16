@@ -21,5 +21,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy
       - name: Causal, gradient, checkpoint and recursive-feedback acceptance
-        run: python terminal_rsi/test_unified.py
+        run: |
+          python terminal_rsi/test_unified.py
+          python -m unittest terminal_rsi.test_agent_unified -v
+      - name: Existing standalone Terminal-RSI regressions
+        run: python -m unittest discover -s terminal_rsi/tests -v
