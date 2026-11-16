@@ -65,6 +65,15 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
     return {"bpb": bpb, "bit_accuracy": accuracy}
 
 
+def finish_rsi_round(model: VerbatimV103RSI, optimizer):
+    """Replay the archived terminal self-modification after EVERY training round.
+
+    Two real commands and verifier-derived actor/critic Adam updates. This
+    happens with zero byte-training steps too, exactly as in original v103.
+    """
+    return terminal_feedback(model.original, optimizer)
+
+
 def build_causal_contexts(raw_bytes: torch.Tensor, target_positions: torch.Tensor,
                           history: int):
     """Longer CPU/T4/Blackwell context, WITHOUT changing the original 32 bytes.
@@ -283,7 +292,7 @@ def main(argv=None):
     # The archived v103 original ALWAYS performs both verified actor/critic
     # Adam updates, even when --seconds=0 (zero BYTE optimizer updates).
     # Keep that exact recursive learning behavior in all three presets.
-    events.extend(terminal_feedback(model.original, optimizer))
+    events.extend(finish_rsi_round(model, optimizer))
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=len(probes), auxiliary=probe_aux,
                                  local=probe_local)
