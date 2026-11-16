@@ -129,6 +129,18 @@ class OriginalCPUReplayEndToEnd(unittest.TestCase):
                 int(after["model"]["verified_events"]),
                 int(before["model"]["verified_events"]))
             self.assertGreater(len(after["events"]), len(before["events"]))
+            # Benchmark actual newly saved original-v103 tensors, on a
+            # completely separate book, with full normalized 256-way top-k.
+            from terminal_rsi.benchmark_original_cpu import benchmark
+            metrics = benchmark(checkpoint=continued, train_stream=corpus,
+                                dev_bin=dev, bpe_merges=bpe, topk_probes=3)
+            self.assertEqual(metrics["trained_steps"], after["steps"])
+            self.assertEqual(metrics["evaluated_bytes"], len(book) - 32)
+            self.assertGreater(metrics["bpb"], 0.0)
+            self.assertLess(metrics["maximum_log_probability_mass_error"], 2e-3)
+            for accuracy in ("top1_byte", "top5_byte", "bit_accuracy"):
+                self.assertGreaterEqual(metrics[accuracy], 0.0)
+                self.assertLessEqual(metrics[accuracy], 1.0)
 
 
 if __name__ == "__main__":
