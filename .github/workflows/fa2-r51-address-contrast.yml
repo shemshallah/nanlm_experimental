@@ -1,0 +1,34 @@
+name: FA2 R51 - Address Contrast Training
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/geometry_address_controls.py'
+      - 'poincare_mirror/scripts/audit_r51_lineage.py'
+      - 'poincare_mirror/scripts/probe_r50_geometry_addresses.py'
+      - 'poincare_mirror/tests/test_r51_address_contrast.py'
+      - '.github/workflows/fa2-r51-address-contrast.yml'
+  workflow_dispatch:
+
+jobs:
+  same-checkpoint-r51-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile all FA2 Python sources
+        run: python -m compileall -q poincare_mirror
+      - name: R51 gradient, restoration and predecessor tests
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r51_address_contrast.py' -v
+          python -m unittest discover -s tests -p 'test_r50_geometry_addresses.py' -v
+          python -m unittest discover -s tests -p 'test_r49_causal_history.py' -v
+          python -m unittest discover -s tests -p 'test_r47_selective_emission.py' -v

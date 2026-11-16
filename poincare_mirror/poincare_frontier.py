@@ -2062,6 +2062,25 @@ def freeze_inherited_backbone_for_geometry(model):
     return trainable, frozen
 
 
+def geometric_address_margin_loss(exact_logits, shuffled_logits, targets,
+                                  margin=0.005, temperature=0.01):
+    """R51: smooth TRAIN-only address-alignment ranking loss, no extra head.
+
+    Penalizes CE(exact) >= CE(shuffled)-margin on the same *causal* targets.
+    Both logits remain differentiable: the shuffled path supplies a real
+    counter-gradient, rather than merely upweighting ordinary language CE.
+    """
+    if margin < 0. or not math.isfinite(margin) or temperature <= 0. or not math.isfinite(temperature):
+        raise ValueError('R51 requires finite nonnegative margin and positive temperature')
+    if exact_logits.shape != shuffled_logits.shape or exact_logits.shape[:-1] != targets.shape:
+        raise ValueError('R51 exact/shuffled logits and targets must be aligned')
+    exact_ce = F.cross_entropy(exact_logits.flatten(0,1), targets.flatten())
+    scrambled_ce = F.cross_entropy(shuffled_logits.flatten(0,1), targets.flatten())
+    gap = scrambled_ce - exact_ce
+    loss = temperature * F.softplus((margin - gap) / temperature)
+    return loss, gap.detach()
+
+
 def train(args):
     if not math.isfinite(args.nonspace_loss_weight) or args.nonspace_loss_weight < 1.0:
         raise ValueError('--nonspace-loss-weight must be finite and >= 1')
@@ -2078,6 +2097,24 @@ def train(args):
         raise ValueError('--reciprocal-residual-logit-scale must be finite and positive')
     if residual_aux_weight and getattr(args, 'future_only', False):
         raise ValueError('Geometric residual supervision cannot combine with --future-only')
+    address_weight = getattr(args, 'address_contrast_weight', 0.0)
+    address_margin = getattr(args, 'address_contrast_margin', 0.005)
+    address_temperature = getattr(args, 'address_contrast_temperature', 0.01)
+    address_mode = getattr(args, 'address_contrast_mode', 'all_scrambled')
+    if not math.isfinite(address_weight) or not 0. <= address_weight <= .5:
+        raise ValueError('R51 address contrast weight must be finite in [0,0.5]')
+    if not math.isfinite(address_margin) or address_margin < 0. or not math.isfinite(address_temperature) or address_temperature <= 0.:
+        raise ValueError('R51 margin/temperature must be finite and nonnegative/positive')
+    if address_weight and (not getattr(args, 'geometry_only', False) or
+                           trust_aux_weight or residual_aux_weight or
+                           getattr(args, 'future_only', False)):
+        raise ValueError('R51 requires geometry-only with no other counterfactual training losses')
+    address_permutations = address_intervention = None
+    if address_weight:
+        from geometry_address_controls import address_ablation, fixed_permutations, MODES
+        if address_mode not in MODES[1:-1]:
+            raise ValueError('R51 needs a scrambled-address (not exact/off) contrast')
+        address_permutations, address_intervention = fixed_permutations, address_ablation
     inherited_scale = getattr(args, 'inherited_step_scale', 1.0)
     if not math.isfinite(inherited_scale) or not 0. <= inherited_scale <= 1.:
         raise ValueError('--inherited-step-scale must be finite and within [0, 1]')
@@ -2430,6 +2467,15 @@ def train(args):
                         'geometry_feature':'last_causal_ungated_reciprocal_emit',
                         'no_new_model_or_optimizer':True,
                         'evaluation_objective':'ordinary_unweighted_ce'})
+    if args.steps > 0 and address_weight:
+        history.append({'kind':'r51_train_only_address_specificity',
+                        'step':start, 'updates':args.steps, 'weight':address_weight,
+                        'margin_nats':address_margin, 'temperature_nats':address_temperature,
+                        'negative':address_mode, 'permutation':'new TRAIN-only bijection per microbatch',
+                        'both_paths_differentiable':True,
+                        'frozen_inherited_model_and_adam_moments':True,
+                        'no_added_model_or_optimizer':True,
+                        'evaluation_objective':'unweighted exact-address CE'})
     protected_params = []
     if inherited_scale != 1.:
         if model.reciprocal is None or model.hierarchy is None or not any(
@@ -2501,6 +2547,8 @@ def train(args):
         trust_aux_sum = 0.0
         trust_better_sum = 0.0
         residual_aux_sum = 0.0
+        address_aux_sum = 0.0
+        address_gap_sum = 0.0
         tokens_this_step = 0
         for _micro in range(args.grad_accum):
             selected_context = int(rng.choice(mix[0], p=mix[1])) if mix else active_context
@@ -2510,9 +2558,19 @@ def train(args):
                                 enabled=bool(args.bf16 and device.type == 'cuda')):
                 losses = model.loss_with_future(
                     batch, nonspace_weight=args.nonspace_loss_weight,
-                    return_next_logits=bool(trust_aux_weight))
+                    return_next_logits=bool(trust_aux_weight or address_weight))
                 trust_aux = None
                 residual_aux = None
+                address_aux = None
+                if address_weight:
+                    # A distinct TRAIN-only permutation at each step avoids
+                    # teaching the model to reject just one fixed donor map.
+                    permutations = address_permutations(args.seed + step*1009 + _micro)
+                    with address_intervention(model, address_mode, permutations):
+                        shuffled_logits, _, _ = model(batch[:, :-3])
+                    address_aux, address_gap = geometric_address_margin_loss(
+                        losses.pop('next_logits'), shuffled_logits, batch[:, 1:-2],
+                        address_margin, address_temperature)
                 if trust_aux_weight or residual_aux_weight:
                     # Same frozen-at-this-step model supplies its matched
                     # no-reciprocal counterfactual. Labels stay TRAIN-only.
@@ -2542,6 +2600,8 @@ def train(args):
                         total_loss = total_loss + trust_aux_weight * trust_aux
                     if residual_aux is not None:
                         total_loss = total_loss + residual_aux_weight * residual_aux
+                    if address_aux is not None:
+                        total_loss = total_loss + address_weight * address_aux
                     micro_loss = total_loss / args.grad_accum
             micro_loss.backward()
             train_ce_sum += losses['next_ce'].detach().item()
@@ -2550,6 +2610,9 @@ def train(args):
                 trust_better_sum += better_fraction.item()
             if residual_aux is not None:
                 residual_aux_sum += residual_aux.detach().item()
+            if address_aux is not None:
+                address_aux_sum += address_aux.detach().item()
+                address_gap_sum += address_gap.item()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         prior_inherited = ([p.detach().clone() for p in protected_params]
                            if protected_params else [])
@@ -2576,6 +2639,11 @@ def train(args):
             if residual_aux_weight:
                 report['train_geometry_residual_aux_ce'] = round(
                     residual_aux_sum / args.grad_accum, 6)
+            if address_weight:
+                report['train_address_aux_margin_loss'] = round(
+                    address_aux_sum / args.grad_accum, 6)
+                report['train_shuffled_minus_exact_ce_nats'] = round(
+                    address_gap_sum / args.grad_accum, 6)
             if getattr(args, 'report_byte_metrics', False):
                 report['byte_metrics'] = evaluate_byte_breakdown(model, val_batches)
             print(json.dumps(report))
@@ -3213,6 +3281,15 @@ def main():
                     help='R44: supervise an ungated causal geometric correction against same-model reciprocal-off predictions')
     tr.add_argument('--reciprocal-residual-logit-scale', type=float, default=8.0,
                     help='R44: scalar sensitivity of train-only geometric residual through inherited tied byte vocabulary')
+    tr.add_argument('--address-contrast-weight', type=float, default=0.0,
+                    help='R51: bounded TRAIN-only CE margin of exact over shuffled geometric addresses; requires geometry-only')
+    tr.add_argument('--address-contrast-margin', type=float, default=0.005,
+                    help='R51: desired advantage in nats per target over same-token shuffled-address control')
+    tr.add_argument('--address-contrast-temperature', type=float, default=0.01,
+                    help='R51: smooth ranking hinge temperature, in nats')
+    tr.add_argument('--address-contrast-mode', choices=('pair_address_scrambled',
+                    'triangle_address_scrambled','incidence_scrambled','all_scrambled'),
+                    default='all_scrambled', help='R51: TRAIN-only scrambled geometric negative')
     tr.add_argument('--report-byte-metrics', action='store_true',
                     help='log unweighted +1/+2/+3 top1/top5, CE, BPB for all/space/nonspace targets')
     tr.add_argument('--future-mode', choices=('offset', 'rollout', 'isolated'), default=None,
