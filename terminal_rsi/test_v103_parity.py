@@ -84,9 +84,15 @@ class VerbatimGPUParityCPUTests(unittest.TestCase):
             self.assertEqual(model.original.causal_copy_enabled, True)
             for pname, parent_param in prior.named_parameters():
                 child_param = dict(model.original.named_parameters())[pname]
-                a, b = opt.state[parent_param], combined.state[child_param]
+                # A zero-initialized v103_emit gate legitimately leaves
+                # some specialist parameters without Adam moments yet.
+                # Their ABSENCE must also round-trip verbatim.
+                a = opt.state.get(parent_param, {})
+                b = combined.state.get(child_param, {})
+                self.assertEqual(set(a), set(b), pname + " state keys")
                 for k in ("step", "exp_avg", "exp_avg_sq"):
-                    self.assertTrue(torch.equal(a[k], b[k]), pname + "." + k)
+                    if k in a:
+                        self.assertTrue(torch.equal(a[k], b[k]), pname + "." + k)
             self.assertNotIn(model.residual_gate, combined.state)
             self.assertTrue(exact_parent_parity(model, self.history,
                                                self.target)["exact_parity"])
