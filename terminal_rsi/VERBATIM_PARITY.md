@@ -133,3 +133,76 @@ The 96 GB is VRAM, not the 32 GB host budget. A multi-billion-parameter AdamW mo
 7. Per-mode matched book-disjoint DEV gate, unrelated/corrupted-history controls and sealed TEST. For C numerical parity provide the original full-256 oracle and call `--reference-full256`.
 
 **Promotion status:** the source-level CPU gates are automated; no original Drive checkpoint-backed CPU/real-book match, GPU parity, or 2.071214-BPB beating run is yet claimed.
+
+
+## Fresh English DEV (not the archived 16-book DEV)
+
+A **new DEV** is deliberately a different evaluation distribution and cannot be
+compared byte-for-byte to historical 16-book C/GPU BPB. The deterministic
+`build_fresh_dev.py` builds 64 books × 1,024 scored bytes = **65,536 positions**
+(versus the old 16 × 480 = 7,680), with 512 causal warm-up bytes per book.
+It uses only NaNROUTER short-story release books, currently batch 0004.
+Every UTF-8 book with any Cyrillic is rejected; Russian metadata, Russian
+title/filename, known Russian author transliterations, and insufficient English
+function-word evidence are rejected. It also excludes any long (64-byte)
+book passages detectable in the original 10M TRAIN stream.
+
+Fetch from NaNROUTER's verified public short-story release, then run on CPU:
+
+```bash
+mkdir -p /tmp/nanrouter_stories
+gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER \
+  -p 'short_stories-0004.tar.zst' -p 'short_stories-0004.SHA256SUMS' \
+  -D /tmp/nanrouter_stories
+cd /tmp/nanrouter_stories
+sha256sum -c short_stories-0004.SHA256SUMS
+tar --zstd -xf short_stories-0004.tar.zst
+cd -
+python -m terminal_rsi.build_fresh_dev \
+  --corpus-dir /tmp/nanrouter_stories \
+  --train-stream /path/to/train_10000000.bin \
+  --output-dir /path/to/Terminal_RSI/fresh_dev_64x1024 \
+  --books 64 --positions-per-book 1024 --skip 512
+```
+
+To **prove** original training-book ID separation and exclude the old sealed
+TEST identities, pass `--train-book-ids train_ids.json` and
+`--sealed-test-book-ids test_ids.json` (numeric Gutenberg IDs only; the
+TEST bytes are never opened). Without those provenance lists, we conservatively
+scan every selected book for shared 64-byte TRAIN substrings, but this **does not
+prove full book-ID disjointness**; the manifest clearly records this limitation.
+Do not promote a model on unverified split provenance.
+
+Read-only original v103 CPU benchmark with the newly-built DEV:
+
+```bash
+python -m terminal_rsi.benchmark_original_cpu \
+  --checkpoint /path/to/terminal_rsi_gpu_v103_full.pt \
+  --train-stream /path/to/train_10000000.bin \
+  --dev-bin /path/to/Terminal_RSI/fresh_dev_64x1024/win_dev.bin \
+  --dev-manifest /path/to/Terminal_RSI/fresh_dev_64x1024/win_dev.manifest.json \
+  --bpe-merges terminal_rsi/reference/nancm_v103_bpe.txt \
+  --topk-probes 512
+```
+
+Unified RSI CPU trial on the **same new DEV**, keeping old weights intact:
+
+```bash
+python -m terminal_rsi.train_verbatim \
+  --mode cpu --legacy-checkpoint /path/to/terminal_rsi_gpu_v103_full.pt \
+  --train-stream /path/to/train_10000000.bin \
+  --bpe-merges terminal_rsi/reference/nancm_v103_bpe.txt \
+  --dev-bin /path/to/Terminal_RSI/fresh_dev_64x1024/win_dev.bin \
+  --dev-manifest /path/to/Terminal_RSI/fresh_dev_64x1024/win_dev.manifest.json \
+  --output /path/to/Terminal_RSI/candidate_fresh_dev_cpu.pt \
+  --seconds 0 --max-dev-positions 64
+```
+
+`--seconds 0` retains the original TWO actor/critic RSI updates and saves a
+candidate. For absolutely read-only scoring, use `benchmark_original_cpu`.
+The frozen historical C oracle is aligned to the old DEV, **not** the fresh set:
+the new DEV protocol actively refuses those old C reference files. The old
+16-book DEV and sealed independent TEST are untouched.
+
+No original-checkpoint-backed fresh-DEV score is claimed until the actual
+10M TRAIN stream and protected v103 weights are run with this manifest.
