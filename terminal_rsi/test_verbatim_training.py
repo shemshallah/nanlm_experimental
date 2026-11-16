@@ -6,6 +6,7 @@ from unittest.mock import patch
 import torch
 from terminal_rsi.unified import PRESETS, Preset
 from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer
+from terminal_rsi.verbatim_metrics import byte_metrics_wrapped
 from terminal_rsi.train_verbatim import (
     score_byte_observations, train_one_batch, verify_parent_source,
 )
@@ -41,6 +42,32 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertNotEqual(self.model.residual_gate.item(), 0.0)
         self.assertGreater(len(self.optimizer.state), 0)
         self.assertEqual(len(self.optimizer.param_groups), 3)
+
+    def test_exact_256_way_dev_scorer_passes_aux_and_local_every_time(self):
+        class Spy:
+            def __init__(self):
+                self.calls = []
+            def eval(self):
+                pass
+            def __call__(self, history, target, aux, local):
+                assert aux is not None and local is not None
+                assert aux.shape == (len(target), 6)
+                assert local.shape == (len(target), 4)
+                self.calls.append(len(target))
+                bits = ((target[:, None] >> torch.arange(7, -1, -1)) & 1).float()
+                # Uniform normalized byte distribution yields BPB=8 exactly.
+                return torch.zeros_like(bits), bits
+
+        spy = Spy()
+        examples = torch.randint(0, 256, (2, 33))
+        aux = torch.randint(0, 255, (2, 6), dtype=torch.int32)
+        local = torch.randint(0, 5, (2, 4), dtype=torch.int32)
+        scored = byte_metrics_wrapped(spy, examples, n=2, topk_n=2,
+                                      auxiliary=aux, local=local)
+        self.assertEqual(spy.calls, [2, 512])
+        self.assertAlmostEqual(scored["bpb"], 8.0, places=5)
+        self.assertAlmostEqual(scored["maximum_log_probability_mass_error"],
+                               0.0, places=5)
 
     def test_no_train_on_fake_missing_causal_features(self):
         with self.assertRaisesRegex(ValueError, "six causal features"):
