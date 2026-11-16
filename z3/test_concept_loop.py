@@ -46,6 +46,11 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertGreater(int(sidecar.word_ids.max()), 0)
         self.assertGreater(int(sidecar.sentence_ids.max()), 0)
         self.assertGreater(int(sidecar.math_kind.max()), 0)
+        self.assertIsNotNone(sidecar.token_bytes)
+        self.assertEqual(sidecar.token_bytes.shape[0], n)
+        self.assertEqual(sidecar.token_bytes.shape[1], 48)
+        valid_bytes = sidecar.token_bytes[sidecar.token_bytes >= 0]
+        self.assertTrue((valid_bytes <= 255).all())
 
     def test_sidecar_from_token_ids(self):
         encoded = self.tokenizer.encode(TEXT, add_document_frame=False)
@@ -72,6 +77,11 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertEqual(
             batch.word_ids.shape[1],
             max(a.word_ids.numel(), b.word_ids.numel()),
+        )
+        self.assertIsNotNone(batch.token_bytes)
+        self.assertEqual(
+            batch.token_bytes.shape,
+            (2, batch.word_ids.shape[1], 48),
         )
 
     def test_concept_encoder_and_loop(self):

@@ -171,6 +171,7 @@ _RESUME_NEW_SUFFIXES = (
     ".object_id_embedding.weight",
     ".object_id_to_state.weight",
     ".object_id_gate",
+    ".byte_sequence_probe.weight",
 )
 
 
@@ -383,6 +384,18 @@ def load_text_ids(
     if ids.size == 0:
         raise SystemExit("corpus produced no tokens")
     return ids.astype(np.int32, copy=False)
+
+
+def _first_byte_map(
+    token_bytes: Any,
+    vocab_size: int,
+) -> torch.Tensor:
+    """Map token IDs to their first-byte class for distillation."""
+    table = torch.zeros(int(vocab_size), dtype=torch.long)
+    for index, raw in enumerate(list(token_bytes)[: int(vocab_size)]):
+        if raw:
+            table[index] = int(raw[0])
+    return table
 
 
 def _set_bytes_per_token(
@@ -864,6 +877,10 @@ def evaluate(
     byte_probe_tokens = 0
     byte_probe_correct = 0
     byte_probe_top5 = 0
+    byte_sequence_ce = 0.0
+    byte_sequence_tokens = 0
+    byte_sequence_correct = 0
+    byte_sequence_top5 = 0
     word_probe_ce = 0.0
     word_probe_tokens = 0
     word_probe_correct = 0
@@ -980,6 +997,35 @@ def evaluate(
                 byte_probe_top5 += int(
                     (byte_top == byte_targets.unsqueeze(-1)).any(-1).sum()
                 )
+                sequence_logits = aux.get("byte_sequence_logits")
+                if sequence_logits is not None and sidecar.token_bytes is not None:
+                    sequence_logits = sequence_logits[:, :-1]
+                    sequence_targets = sidecar.token_bytes[:, 1:].long()
+                    byte_mask = sequence_targets >= 0
+                    if byte_mask.any():
+                        seq_ce = F.cross_entropy(
+                            sequence_logits.reshape(-1, 256),
+                            sequence_targets.reshape(-1),
+                            reduction="none",
+                            ignore_index=-100,
+                        ).view(sequence_targets.shape)
+                        byte_sequence_ce += float(seq_ce[byte_mask].sum())
+                        byte_sequence_tokens += int(byte_mask.sum())
+                        byte_sequence_correct += int(
+                            (
+                                sequence_logits.argmax(-1)
+                                == sequence_targets
+                            )[byte_mask].sum()
+                        )
+                        seq_top = sequence_logits.topk(
+                            min(5, sequence_logits.size(-1)), dim=-1
+                        ).indices
+                        byte_sequence_top5 += int(
+                            (
+                                (seq_top == sequence_targets.unsqueeze(-1))
+                                .any(-1)
+                            )[byte_mask].sum()
+                        )
             if sidecar is not None and aux.get("word_probe_logits") is not None:
                 word_logits = aux["word_probe_logits"][:, :-1]
                 word_targets = sidecar.word_vocab_ids[:, 1:].long()
@@ -1295,6 +1341,18 @@ def evaluate(
             byte_probe_top5 / byte_probe_tokens
             if byte_probe_tokens else None
         ),
+        "byte_sequence_loss": (
+            byte_sequence_ce / byte_sequence_tokens
+            if byte_sequence_tokens else None
+        ),
+        "byte_sequence_accuracy": (
+            byte_sequence_correct / byte_sequence_tokens
+            if byte_sequence_tokens else None
+        ),
+        "byte_sequence_top5": (
+            byte_sequence_top5 / byte_sequence_tokens
+            if byte_sequence_tokens else None
+        ),
         "word_probe_loss": (
             word_probe_ce / word_probe_tokens
             if word_probe_tokens else None
@@ -1484,6 +1542,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--byte-probe", action=argparse.BooleanOptionalAction,
                        default=False,
                        help="auxiliary 256-way next-token first-byte probe")
+    model.add_argument("--byte-probe-full",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="also predict every byte of the next token")
     model.add_argument("--word-probe-size", type=int, default=0,
                        help="auxiliary word-vocabulary probe rows (0 disables)")
     model.add_argument("--probe-detach", action=argparse.BooleanOptionalAction,
@@ -1538,6 +1599,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
                        help="maximum RoPE position cache/context supported")
+    model.add_argument("--long-context",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="force 8k RoPE headroom; checkpoint ctx>=1024")
     model.add_argument("--rope-scaling", choices=("auto", "none", "ntk", "yarn"),
                        default="auto",
                        help="auto uses YaRN when --ctx exceeds --rope-original-ctx")
@@ -1592,6 +1656,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="auxiliary composition-event CE weight")
     train.add_argument("--byte-probe-weight", type=float, default=0.02,
                        help="auxiliary next-token first-byte probe weight")
+    train.add_argument("--byte-sequence-weight", type=float, default=0.02,
+                       help="auxiliary full next-token byte-sequence probe weight")
+    train.add_argument("--cross-resolution-weight", type=float, default=0.0,
+                       help="token-to-byte cross-resolution distillation weight")
+    train.add_argument("--cross-resolution-temperature", type=float, default=1.0,
+                       help="temperature for token/byte distribution consistency")
     train.add_argument("--word-probe-weight", type=float, default=0.02,
                        help="auxiliary next-token word-identity probe weight")
     train.add_argument("--mtp-composition-weight", type=float, default=0.02,
@@ -1842,6 +1912,11 @@ def validate_args(args: argparse.Namespace) -> None:
         and (args.task_vocab_size <= 0 or args.task_id >= args.task_vocab_size)
     ):
         raise SystemExit("--task-id must be in [0, --task-vocab-size)")
+    if args.long_context:
+        args.max_ctx = max(int(args.max_ctx), 8192)
+        args.rope_scaling = "auto"
+        if args.ctx >= 1024:
+            args.grad_checkpoint = True
     if args.max_ctx < args.ctx:
         raise SystemExit("--max-ctx must be >= --ctx")
     if args.rope_original_ctx < 2 or args.rope_factor < 1.0:
@@ -1915,6 +1990,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         object_id_dim=int(args.object_id_dim),
         composition_head=bool(args.composition_head),
         byte_probe=bool(args.byte_probe),
+        byte_probe_full=bool(args.byte_probe_full),
         word_probe_size=int(args.word_probe_size),
         probe_detach=bool(args.probe_detach),
         use_combinatorial_memory=bool(args.combinatorial_memory),
@@ -2070,6 +2146,7 @@ def main(argv: list[str] | None = None) -> int:
             args.max_seconds = float(saved_args["max_seconds"])
 
     # Data -----------------------------------------------------------------
+    first_byte_map_cpu: torch.Tensor | None = None
     if not args.random_smoke and args.tokenizer == "auto":
         paths = [Path(p).expanduser() for p in args.corpus]
         args.tokenizer = (
@@ -2130,6 +2207,9 @@ def main(argv: list[str] | None = None) -> int:
         from layered_tokenizer import load_artifact
         bin_tokenizer = load_artifact(Path(args.layered_model).expanduser())
         _set_bytes_per_token(source, bin_tokenizer.subword, source.ids)
+        first_byte_map_cpu = _first_byte_map(
+            bin_tokenizer.subword.token_bytes, vocab_size
+        )
         print(
             f"[data] tokenizer=bin vocab={vocab_size} "
             f"train={len(token_ids):,} val={len(val_ids):,} ctx={args.ctx}",
@@ -2137,6 +2217,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         tokenizer = build_tokenizer(args)
+        subword = getattr(tokenizer, "subword", None)
+        if subword is not None and hasattr(subword, "token_bytes"):
+            first_byte_map_cpu = _first_byte_map(
+                subword.token_bytes,
+                int(getattr(tokenizer, "vocab_size", args.vocab_size)),
+            )
         token_task_ids = None
         if args.domain_mixture:
             if len(args.corpus) < 1:
@@ -2297,6 +2383,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
     model = V3LM(cfg).to(device)
+    first_byte_map = (
+        first_byte_map_cpu.to(device)
+        if first_byte_map_cpu is not None else None
+    )
     parameter_count = model.parameter_count()
     print(
         f"[model] params={parameter_count:,} layers={cfg.n_layers} "
@@ -2747,6 +2837,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 loss = loss + args.composition_weight * composition_loss
             byte_probe_loss = None
+            byte_sequence_loss = None
+            cross_resolution_loss = None
             word_probe_loss = None
             if sidecar is not None:
                 byte_logits = aux.get("byte_probe_logits")
@@ -2759,6 +2851,75 @@ def main(argv: list[str] | None = None) -> int:
                         byte_targets.reshape(-1),
                     )
                     loss = loss + args.byte_probe_weight * byte_probe_loss
+                    if (
+                        args.cross_resolution_weight > 0
+                        and first_byte_map is not None
+                    ):
+                        temperature = max(
+                            1e-3, float(args.cross_resolution_temperature)
+                        )
+                        main_probs = F.softmax(
+                            logits[:, :-1].float() / temperature, dim=-1
+                        )
+                        # Sparse scatter to the 256 first-byte classes avoids
+                        # a 64,060 x 256 dense projection per token.
+                        index = first_byte_map.view(1, 1, -1).expand_as(
+                            main_probs
+                        )
+                        main_byte = torch.zeros(
+                            *main_probs.shape[:2], 256,
+                            device=main_probs.device,
+                            dtype=main_probs.dtype,
+                        ).scatter_add_(2, index, main_probs)
+                        main_byte = main_byte / main_byte.sum(
+                            dim=-1, keepdim=True
+                        ).clamp_min(1e-8)
+                        byte_probs = F.softmax(
+                            byte_logits[:, :-1].float() / temperature,
+                            dim=-1,
+                        )
+                        byte_log_probs = F.log_softmax(
+                            byte_logits[:, :-1].float() / temperature,
+                            dim=-1,
+                        )
+                        # Bidirectional consistency: the byte head learns the
+                        # token distribution's byte marginal, while the token
+                        # head learns the byte head's marginal.  Each side sees
+                        # the other as a detached teacher.
+                        result_shape = byte_log_probs.shape
+                        loss_byte = F.kl_div(
+                            byte_log_probs.reshape(-1, 256),
+                            main_byte.detach().reshape(-1, 256),
+                            reduction="batchmean",
+                        )
+                        main_byte_log_probs = torch.log(
+                            main_byte.clamp_min(1e-8)
+                        )
+                        loss_main = F.kl_div(
+                            main_byte_log_probs.reshape(-1, 256),
+                            byte_probs.detach().reshape(-1, 256),
+                            reduction="batchmean",
+                        )
+                        if result_shape != byte_log_probs.shape:
+                            raise RuntimeError("cross-resolution shape drift")
+                        cross_resolution_loss = 0.5 * (
+                            loss_byte + loss_main
+                        )
+                        loss = loss + (
+                            args.cross_resolution_weight
+                            * cross_resolution_loss
+                        )
+                sequence_logits = aux.get("byte_sequence_logits")
+                if sequence_logits is not None and sidecar.token_bytes is not None:
+                    sequence_targets = sidecar.token_bytes[:, 1:].long()
+                    byte_sequence_loss = F.cross_entropy(
+                        sequence_logits[:, :-1].reshape(-1, 256),
+                        sequence_targets.reshape(-1),
+                        ignore_index=-100,
+                    )
+                    loss = loss + (
+                        args.byte_sequence_weight * byte_sequence_loss
+                    )
                 word_logits = aux.get("word_probe_logits")
                 if word_logits is not None:
                     word_targets = sidecar.word_vocab_ids[:, 1:].long()
@@ -3034,6 +3195,14 @@ def main(argv: list[str] | None = None) -> int:
             "byte_probe": (
                 _finite(byte_probe_loss)
                 if byte_probe_loss is not None else None
+            ),
+            "byte_sequence": (
+                _finite(byte_sequence_loss)
+                if byte_sequence_loss is not None else None
+            ),
+            "cross_resolution": (
+                _finite(cross_resolution_loss)
+                if cross_resolution_loss is not None else None
             ),
             "word_probe": (
                 _finite(word_probe_loss)

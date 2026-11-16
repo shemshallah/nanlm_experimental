@@ -36,6 +36,7 @@ on:
         options:
           - concept_router_tokens
           - concept_frontier
+          - concept_frontier_all
           - concept_router_tokens_mix
           - concept_router_tokens_object_id
 

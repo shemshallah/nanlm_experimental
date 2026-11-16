@@ -51,6 +51,14 @@ ROWS = {
         "--object-id-embedding",
         "--object-negative-weight", "0.01",
     ],
+    "concept_frontier_all": [
+        "--learned-router-mix",
+        "--object-id-embedding",
+        "--object-negative-weight", "0.01",
+        "--byte-probe-full",
+        "--cross-resolution-weight", "0.01",
+        "--long-context",
+    ],
     "concept_router_tokens_only": ["--no-concept-router-global"],
 }
 
@@ -192,6 +200,9 @@ def main() -> int:
                 "word_probe": train.get("word_probe"),
                 "byte_top1": final.get("byte_probe_accuracy"),
                 "byte_top5": final.get("byte_probe_top5"),
+                "byte_sequence_top1": final.get("byte_sequence_accuracy"),
+                "byte_sequence_top5": final.get("byte_sequence_top5"),
+                "cross_resolution": train.get("cross_resolution"),
                 "word_top1": final.get("word_probe_accuracy"),
                 "word_top5": final.get("word_probe_top5"),
                 "subword_top1": final.get("subword_top1"),

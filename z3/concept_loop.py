@@ -41,6 +41,9 @@ EVENT_NAMES = (
 )
 EVENT_IDS = {name: i for i, name in enumerate(EVENT_NAMES)}
 MATH_KINDS = ("<none>", "<display>", "<inline>", "<command>", "<number>", "<operator>")
+# The v4 tokenizer's longest token is below this width.  Byte labels are
+# padded with -100 so the probe can ignore token padding exactly.
+MAX_TOKEN_BYTES = 48
 
 
 def byte_symbol_codebook(
@@ -80,6 +83,7 @@ class SpanSidecar:
     char_len: torch.Tensor
     first_byte: torch.Tensor
     event_multi: torch.Tensor
+    token_bytes: torch.Tensor | None = None
 
     def to(self, device: torch.device | str) -> "SpanSidecar":
         return SpanSidecar(
@@ -93,6 +97,10 @@ class SpanSidecar:
             char_len=self.char_len.to(device),
             first_byte=self.first_byte.to(device),
             event_multi=self.event_multi.to(device),
+            token_bytes=(
+                self.token_bytes.to(device)
+                if self.token_bytes is not None else None
+            ),
         )
 
     def slice(self, start: int, length: int) -> "SpanSidecar":
@@ -108,6 +116,10 @@ class SpanSidecar:
             char_len=self.char_len[start:end],
             first_byte=self.first_byte[start:end],
             event_multi=self.event_multi[start:end],
+            token_bytes=(
+                self.token_bytes[start:end]
+                if self.token_bytes is not None else None
+            ),
         )
 
     @classmethod
@@ -143,6 +155,15 @@ class SpanSidecar:
             [int(raw[0]) if raw else 0 for raw in token_bytes],
             dtype=torch.long,
         )
+        byte_matrix = torch.full(
+            (n, MAX_TOKEN_BYTES), -100, dtype=torch.long
+        )
+        for index, raw in enumerate(token_bytes[:n]):
+            values = list(raw[:MAX_TOKEN_BYTES])
+            if values:
+                byte_matrix[index, :len(values)] = torch.tensor(
+                    values, dtype=torch.long
+                )
 
         def mark(index: int, event: int) -> None:
             event_ids[index] = event
@@ -214,6 +235,7 @@ class SpanSidecar:
             char_len=char_len,
             first_byte=first_byte,
             event_multi=event_multi,
+            token_bytes=byte_matrix,
         )
 
     @classmethod
@@ -236,10 +258,16 @@ class SpanSidecar:
             "math_kind": [],
             "event_ids": [], "byte_start": [], "byte_len": [],
             "char_len": [], "first_byte": [], "event_multi": [],
+            "token_bytes": [],
         }
         for sidecar in sidecars:
             n = int(sidecar.word_ids.numel())
             pad = max_len - n
+            byte_matrix = sidecar.token_bytes
+            if byte_matrix is None:
+                byte_matrix = torch.full(
+                    (n, MAX_TOKEN_BYTES), -100, dtype=torch.long
+                )
             for name, value in (
                 ("word_ids", sidecar.word_ids),
                 ("word_vocab_ids", sidecar.word_vocab_ids),
@@ -251,12 +279,20 @@ class SpanSidecar:
                 ("char_len", sidecar.char_len),
                 ("first_byte", sidecar.first_byte),
                 ("event_multi", sidecar.event_multi),
+                ("token_bytes", byte_matrix),
             ):
                 value = value.to(device)
                 if pad:
                     pad_shape = (pad,) + tuple(value.shape[1:])
+                    fill = -100 if name == "token_bytes" else 0
                     value = torch.cat(
-                        [value, torch.zeros(pad_shape, dtype=value.dtype, device=device)]
+                        [
+                            value,
+                            torch.full(
+                                pad_shape, fill, dtype=value.dtype,
+                                device=device,
+                            ),
+                        ]
                     )
                 fields[name].append(value)
         return cls(**{name: torch.stack(values, dim=0) for name, values in fields.items()})

@@ -31,8 +31,9 @@ from torch.utils.checkpoint import checkpoint
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
     from .concept_loop import (
-        CompositionHead, CompositionState, CompositionTokenizer,
-        ConceptLoop, IncrementalCompositionDecoder, SpanSidecar,
+        MAX_TOKEN_BYTES, CompositionHead, CompositionState,
+        CompositionTokenizer, ConceptLoop, IncrementalCompositionDecoder,
+        SpanSidecar,
     )
     from .memory_attention import MemoryCrossAttention, V3MemoryPath
     from .moe_vectorized import VectorizedSparseMoE
@@ -40,8 +41,9 @@ try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
 except ImportError:  # pragma: no cover - script execution path
     from combinatorial_objects import CombinatorialMemory
     from concept_loop import (
-        CompositionHead, CompositionState, CompositionTokenizer,
-        ConceptLoop, IncrementalCompositionDecoder, SpanSidecar,
+        MAX_TOKEN_BYTES, CompositionHead, CompositionState,
+        CompositionTokenizer, ConceptLoop, IncrementalCompositionDecoder,
+        SpanSidecar,
     )
     from memory_attention import MemoryCrossAttention, V3MemoryPath
     from moe_vectorized import VectorizedSparseMoE
@@ -144,6 +146,7 @@ class V3Config:
     # Auxiliary multi-resolution probes.  They are trained on the shared
     # hidden state and do not feed generation.
     byte_probe: bool = False
+    byte_probe_full: bool = False
     word_probe_size: int = 0
     probe_detach: bool = True
     grad_checkpoint: bool = False
@@ -732,6 +735,12 @@ class V3LM(nn.Module):
         self.byte_probe = (
             nn.Linear(cfg.d_model, 256, bias=False)
             if cfg.byte_probe else None
+        )
+        self.byte_sequence_probe = (
+            nn.Linear(
+                cfg.d_model, MAX_TOKEN_BYTES * 256, bias=False
+            )
+            if cfg.byte_probe and cfg.byte_probe_full else None
         )
         self.word_probe = (
             nn.Linear(cfg.d_model, cfg.word_probe_size, bias=False)
@@ -1418,6 +1427,11 @@ class V3LM(nn.Module):
         probe_hidden = x.detach() if self.cfg.probe_detach else x
         if self.byte_probe is not None:
             aux["byte_probe_logits"] = self.byte_probe(probe_hidden)
+        if self.byte_sequence_probe is not None:
+            seq = self.byte_sequence_probe(probe_hidden)
+            aux["byte_sequence_logits"] = seq.view(
+                *probe_hidden.shape[:2], MAX_TOKEN_BYTES, 256
+            )
         if self.word_probe is not None:
             aux["word_probe_logits"] = self.word_probe(probe_hidden)
         if mtp_object_pointer_logits:
@@ -1463,8 +1477,17 @@ class V3LM(nn.Module):
         tokenizer: Any = None,
         task_id: int | None = None,
         composition_thresholds: Sequence[float] | None = None,
+        speculative: bool = False,
     ):
         """Autoregressive loop with model and tokenizer composition events."""
+        if speculative:
+            return self.generate_speculative(
+                tokens,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                seed=seed,
+                task_id=task_id,
+            )
         if seed is not None:
             torch.manual_seed(seed)
         ids = tokens
@@ -1646,6 +1669,88 @@ class V3LM(nn.Module):
                 "composition": composition,
             }
         return ids, events
+
+    @torch.no_grad()
+    def generate_speculative(
+        self,
+        tokens: torch.Tensor,
+        max_new_tokens: int = 16,
+        temperature: float = 1.0,
+        seed: int | None = None,
+        task_id: int | None = None,
+    ):
+        """Self-speculative generation using the first MTP head as a drafter.
+
+        The main head proposes token t+1 and the MTP head proposes t+2.  One
+        verification forward on context+draft1 checks the t+2 draft against
+        the main head.  Accepted drafts append two tokens; a mismatch falls
+        back to the verification head's token.  This is a correctness-preserving
+        decode path, not a throughput claim; no tokenizer sidecar is built here.
+        """
+        if tokens.ndim != 2 or tokens.size(0) != 1:
+            raise ValueError("speculative generation currently supports batch=1")
+        if max_new_tokens < 1:
+            return tokens, {"accepted": 0, "drafted": 0, "forwards": 0}
+        if seed is not None:
+            torch.manual_seed(seed)
+        ids = tokens
+        max_ctx = max(1, int(self.cfg.max_ctx))
+        accepted = 0
+        drafted = 0
+        forwards = 0
+
+        def choose(logits: torch.Tensor) -> torch.Tensor:
+            if temperature <= 0:
+                return logits.argmax(dim=-1)
+            probs = torch.softmax(
+                logits.float() / max(1e-3, float(temperature)), dim=-1
+            )
+            return torch.multinomial(probs, num_samples=1).squeeze(-1)
+
+        task_ids = (
+            torch.full(
+                (1,), int(task_id), device=ids.device, dtype=torch.long
+            )
+            if task_id is not None else None
+        )
+        while ids.size(1) - tokens.size(1) < max_new_tokens:
+            window = ids[:, -max_ctx:]
+            logits, mtp_logits, _aux = self(window, task_ids=task_ids)
+            forwards += 1
+            draft1 = choose(logits[:, -1])
+            remaining = max_new_tokens - (ids.size(1) - tokens.size(1))
+            if (
+                remaining >= 2
+                and isinstance(mtp_logits, (list, tuple))
+                and len(mtp_logits) > 0
+            ):
+                draft2 = choose(mtp_logits[0][:, -1])
+                drafted += 1
+                verify_window = torch.cat(
+                    [window, draft1[:, None]], dim=1
+                )[:, -max_ctx:]
+                verify_logits, _verify_mtp, _verify_aux = self(
+                    verify_window, task_ids=task_ids
+                )
+                forwards += 1
+                verified2 = choose(verify_logits[:, -1])
+                if int(verified2.item()) == int(draft2.item()):
+                    accepted += 1
+                    ids = torch.cat(
+                        [ids, draft1[:, None], draft2[:, None]], dim=1
+                    )
+                else:
+                    ids = torch.cat(
+                        [ids, draft1[:, None], verified2[:, None]], dim=1
+                    )
+            else:
+                ids = torch.cat([ids, draft1[:, None]], dim=1)
+        return ids, {
+            "accepted": accepted,
+            "drafted": drafted,
+            "forwards": forwards,
+            "acceptance": accepted / max(1, drafted),
+        }
 
     def grow_combinatorial_vertices(self, new_vertices: int) -> "V3LM":
         if self.comb_memory is not None:

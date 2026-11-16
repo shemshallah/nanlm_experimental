@@ -219,6 +219,65 @@ class V3IntegrationTest(unittest.TestCase):
             model.concept_loop.object_id_to_state.weight.grad
         )
 
+    def test_full_byte_probe_and_cross_resolution_shapes(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=8192, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=1, moe_layers=0, n_experts=4,
+            topk=2, shared_experts=0, expert_hidden=64,
+            dropout=0.0, use_memory=False, mtp=2, mtp_block=True,
+            mtp_block_experts=4, mtp_block_hidden=64,
+            mtp_aux_layers=(1,), byte_probe=True, byte_probe_full=True,
+            word_probe_size=16, probe_detach=True,
+        )
+        model = V3LM(cfg)
+        tokens = torch.randint(0, 64, (2, 16))
+        logits, _mtp, aux = model(tokens)
+        self.assertEqual(tuple(logits.shape), (2, 16, 64))
+        self.assertEqual(
+            tuple(aux["byte_sequence_logits"].shape),
+            (2, 16, 48, 256),
+        )
+        aux["byte_sequence_logits"].float().logsumexp(-1).mean().backward()
+        self.assertIsNotNone(model.byte_sequence_probe.weight.grad)
+        self.assertIsNone(model.tok.weight.grad)
+
+    def test_speculative_mtp_generation(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=64, d_model=32,
+            n_layers=2, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=2, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            dropout=0.0, use_memory=False, mtp=2, mtp_block=True,
+            mtp_block_experts=4, mtp_block_hidden=64,
+            mtp_aux_layers=(1,),
+        )
+        model = V3LM(cfg).eval()
+        tokens = torch.randint(0, 64, (1, 8))
+        ids, stats = model.generate_speculative(
+            tokens, max_new_tokens=5, temperature=0.0, seed=3
+        )
+        self.assertEqual(ids.size(1) - tokens.size(1), 5)
+        self.assertEqual(stats["drafted"], 2)
+        self.assertGreaterEqual(stats["forwards"], 3)
+        self.assertGreaterEqual(stats["acceptance"], 0.0)
+        self.assertLessEqual(stats["acceptance"], 1.0)
+
+    def test_long_context_forward_path(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=512, max_ctx=8192, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=256, global_every=2, moe_layers=0, n_experts=4,
+            topk=2, shared_experts=0, expert_hidden=64,
+            dropout=0.0, use_memory=False, mtp=1, use_concept_loop=False,
+        )
+        model = V3LM(cfg).eval()
+        tokens = torch.randint(0, 64, (1, 512))
+        with torch.no_grad():
+            logits, _mtp, _aux = model(tokens)
+        self.assertEqual(tuple(logits.shape), (1, 512, 64))
+        self.assertTrue(torch.isfinite(logits).all())
+
     def test_detached_probes_do_not_backprop_to_trunk(self):
         cfg = V3Config(
             vocab_size=64, ctx=16, max_ctx=16, d_model=32,
