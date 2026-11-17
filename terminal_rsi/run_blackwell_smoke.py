@@ -61,7 +61,10 @@ def main(argv=None) -> int:
                    help="Auxiliary causal subword/word/sentence boundary BCE")
     p.add_argument("--no-gradient-checkpointing", action="store_true",
                    help="Use VRAM for full activations instead of checkpoint recompute")
-    p.add_argument("--train-bytes", type=int, default=2_000_000)
+    p.add_argument("--train-bytes", type=int, default=0,
+                   help="TRAIN bytes for the pilot; 0 = 10M with a parent, else 2M")
+    p.add_argument("--legacy-checkpoint", type=Path,
+                   help="Warm-start the inherited v103 core from a verified parent")
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
     p.add_argument("--topk-probes", type=int, default=1)
@@ -111,9 +114,11 @@ def main(argv=None) -> int:
         p.error(f"Smoke receipt or console already exists under {output}; choose a NEW --output-dir")
 
     corpus = source_dir(output, args.corpus_dir)
+    train_bytes = args.train_bytes or (
+        10_000_000 if args.legacy_checkpoint else 2_000_000)
     corpus_report = build_cpu_pilot(
         corpus_dir=corpus, output_dir=output,
-        train_bytes=args.train_bytes, dev_books=args.dev_books,
+        train_bytes=train_bytes, dev_books=args.dev_books,
         dev_positions=1024, seed=103,
     )
     print("Fresh English-only TRAIN/DEV:", json.dumps(corpus_report, indent=2), flush=True)
@@ -130,7 +135,9 @@ def main(argv=None) -> int:
 
     command = [
         sys.executable, "-m", "terminal_rsi.train_verbatim",
-        "--mode", "blackwell", "--fresh-start",
+        "--mode", "blackwell",
+        *(["--legacy-checkpoint", str(args.legacy_checkpoint)]
+          if args.legacy_checkpoint else ["--fresh-start"]),
         "--seconds", str(args.seconds), "--batch", str(args.batch),
         "--microbatch", str(args.microbatch),
         "--upgrade-loss-weight", str(args.upgrade_loss_weight),
