@@ -343,7 +343,10 @@ def main(argv=None):
         if args.resume and resumed["rng"].get("rsi_self_builder"):
             rsi_builder.load_state_dict(resumed["rng"]["rsi_self_builder"])
         elif args.resume and resumed["rng"].get("rsi_self_builder") is None:
-            raise ValueError("Resuming pre-RSI checkpoint requires explicit --rsi-cycle-updates 0 or migration")
+            # Old checkpoints had no RSI topology builder. Preserve ALL
+            # inherited model/Adam/sampler state and begin a new builder
+            # ledger at update zero; this is an additive migration only.
+            print("Upgrading pre-builder checkpoint: existing model/Adam state preserved", flush=True)
         print("RSI self-construction CORE enabled:", rsi_builder.state_dict(), flush=True)
     elif args.resume and resumed["rng"].get("rsi_self_builder"):
         raise ValueError("Cannot disable inherited RSI core without explicit migration")
