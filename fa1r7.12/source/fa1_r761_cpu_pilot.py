@@ -72,6 +72,10 @@ def run(a):
     new={n:p for n,p in model.named_parameters() if n not in inherited}
     if len(new)!=4 or len(opt.param_groups)!=35:
         raise AssertionError('R7.61 must add 4 parameters, 1 optimizer group')
+    # The exact-parity migration starts at zero. Open a positive trainable
+    # pathway before the pilot so clamp_min cannot strand it at zero.
+    with torch.no_grad():
+        model.word_backoff.r759_prior.r761_strength.fill_(a.open_gain)
     train=dict(train,r757_leave_one_out=True,r758_leave_one_out=True,
                r759_leave_one_out=True)
     rng=np.random.default_rng(a.seed+303)
@@ -145,5 +149,6 @@ if __name__=='__main__':
     p.add_argument('--minibatch',type=int,default=16)
     p.add_argument('--eval-every',type=int,default=250)
     p.add_argument('--lr',type=float,default=.002)
+    p.add_argument('--open-gain',type=float,default=.5)
     p.add_argument('--seed',type=int,default=760)
     run(p.parse_args())
