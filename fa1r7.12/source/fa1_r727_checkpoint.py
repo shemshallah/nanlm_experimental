@@ -101,7 +101,8 @@ def load_unified(path, root, threads=2):
     # transition-router group. Reconstruct the inherited base first.
     recorded_architecture = (
         'FA1_R7_53_CAUSAL_SUCCESSOR_MIXTURE_V1'
-        if serialized_architecture == 'FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1'
+        if serialized_architecture in ('FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1',
+                                        'FA1_R7_58_CAUSAL_COMPOSITIONAL_MIRROR_V1')
         else serialized_architecture)
     # R7.44-50 are strictly additive extensions of R7.40. First rebuild the
     # original 24-group topology, then append the one backoff group. Do not
@@ -265,13 +266,21 @@ def load_unified(path, root, threads=2):
             if recorded_architecture == 'FA1_R7_53_CAUSAL_SUCCESSOR_MIXTURE_V1':
                 from fa1_r753_causal_successor import attach_causal_successors
                 attach_causal_successors(model, unified)
-                if serialized_architecture == 'FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1':
+                if serialized_architecture in ('FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1',
+                                               'FA1_R7_58_CAUSAL_COMPOSITIONAL_MIRROR_V1'):
                     from fa1_r757_geometric_transition_router import (
                         BANK_FIELDS, attach_transition_router)
                     banks = {field: obj['model'][
                         'word_backoff.r757_router.' + field]
                         for field in BANK_FIELDS}
                     attach_transition_router(model, unified, banks)
+                    if serialized_architecture == 'FA1_R7_58_CAUSAL_COMPOSITIONAL_MIRROR_V1':
+                        from fa1_r758_contextual_geometry import (
+                            BANK_FIELDS as CONTEXT_FIELDS, attach_contextual_geometry)
+                        context_banks = {field: obj['model'][
+                            'word_backoff.r758_context.' + field]
+                            for field in CONTEXT_FIELDS}
+                        attach_contextual_geometry(model, unified, context_banks)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)

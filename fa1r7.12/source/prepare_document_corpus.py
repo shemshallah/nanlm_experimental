@@ -36,8 +36,12 @@ def longctx(seq):
             out[:,band*8+j]=features
     return out
 
-def prepare(root,indir,outdir,limit=None,presplit=False):
+def prepare(root,indir,outdir,limit=None,presplit=False,splits=('train','dev','test')):
     root=pathlib.Path(root);indir=pathlib.Path(indir);outdir=pathlib.Path(outdir)
+    if (not splits or len(set(splits))!=len(splits) or
+        any(p not in ('train','dev','test') for p in splits) or
+        (not presplit and tuple(splits)!=('train','dev','test'))):
+        raise ValueError('subset requires a preassigned document split')
     outdir.mkdir(parents=True,exist_ok=True)
     vocab=json.loads((root/'corpus/vocab.json').read_text());lookup={w:i for i,w in enumerate(vocab)}
     files=sorted(p for p in indir.rglob('*.txt') if p.is_file())
@@ -58,7 +62,7 @@ def prepare(root,indir,outdir,limit=None,presplit=False):
     if presplit:
         # Preserve the published book-disjoint partition for this corpus.
         assigned={part:[x for x in unique if x[0].relative_to(indir).parts[0]==part]
-                  for part in ('train','dev','test')}
+                  for part in splits}
         if any(not rows for rows in assigned.values()) or sum(map(len,assigned.values()))!=len(unique):
             raise ValueError('preassigned train/dev/test book folders must be complete')
     else:
