@@ -93,5 +93,81 @@ class CheckpointGates(unittest.TestCase):
         self.assertGreater(select_score(good), select_score(bad))
 
 
+
+class RealSuccessorForward(unittest.TestCase):
+    """Exercise the actual inherited R7.49 module forward + new gradient path."""
+
+    def fixture(self):
+        from torch import nn
+        from test_fa1_r749_address_reliability import AddressReliabilityTests
+        from fa1_r753_causal_successor import CausalSuccessorBackoff
+        parent = AddressReliabilityTests()
+        parent.setUp()
+        parent.append()
+        module = parent.mod
+        module.__class__ = CausalSuccessorBackoff
+        module.r753_word_gain = nn.Parameter(torch.zeros(()))
+        module.r753_geometry_gain = nn.Parameter(torch.zeros(()))
+        module.r753_reliability = nn.Linear(35, 1)
+        nn.init.zeros_(module.r753_reliability.weight)
+        nn.init.zeros_(module.r753_reliability.bias)
+        with torch.no_grad():
+            # Independent nonlexical predecessors map to the same oriented
+            # C(256,2) address as lexical query ID 1.
+            module.word_head_lookup[6] = module.word_head_lookup[1].clone()
+            module.word_head_lookup[7] = module.word_head_lookup[1].clone()
+        history = torch.tensor([[1, 2, 6, 5, 7, 4, 1, 2,
+                                 6, 5, 7, 5, 1]] * 2)
+        data = dict(parent.data,
+                    r753_successor_history_ids=history,
+                    r753_successor_history_mask=torch.ones_like(
+                        history, dtype=torch.bool))
+        return parent, module, data
+
+    def test_closed_gain_is_exact_parent_and_open_gain_is_trainable(self):
+        parent, mod, data = self.fixture()
+        targets = torch.tensor([2, 5])
+        from fa1_r749_address_reliability import ReliableAddressedMirrorBackoff
+        old_a, old_q, _ = ReliableAddressedMirrorBackoff.forward(
+            mod, data, parent.trace, targets, parent.fixture.embeddings)
+        now_a, now_q, stats = mod(
+            data, parent.trace, targets, parent.fixture.embeddings)
+        self.assertTrue(torch.equal(old_a, now_a))
+        self.assertTrue(torch.equal(old_q, now_q))
+        self.assertTrue(bool(stats["r753_geometric_eligible"].all()))
+        with torch.no_grad():
+            mod.r753_word_gain.fill_(.25)
+            mod.r753_geometry_gain.fill_(.25)
+            mod.r753_reliability.weight[:, :32].fill_(.12)
+        a, q, stats = mod(data, parent.trace, targets,
+                          parent.fixture.embeddings)
+        self.assertGreater(float(stats["r753_geometric_weight"].min()), 0.)
+        self.assertGreater(float(stats["r753_word_weight"].min()), 0.)
+        loss = -((1 - a) * .03 + a * q).log().mean()
+        loss.backward()
+        self.assertGreater(float(mod.r753_word_gain.grad.abs()), 0.)
+        self.assertGreater(float(mod.r753_geometry_gain.grad.abs()), 0.)
+        self.assertGreater(float(mod.r753_reliability.weight.grad.abs().sum()), 0.)
+
+    def test_isolated_no_apex_keeps_successor_support(self):
+        from fa1_r753_causal_successor import successor_control
+        parent, mod, data = self.fixture()
+        with torch.no_grad():
+            mod.r753_word_gain.fill_(.25)
+            mod.r753_geometry_gain.fill_(.25)
+            mod.r753_reliability.weight[:, :32].fill_(.12)
+        holder = SimpleNamespace(word_backoff=mod)
+        _, _, full = mod(data, parent.trace, torch.tensor([2, 5]),
+                         parent.fixture.embeddings)
+        with successor_control(holder, "no_apex"):
+            _, _, ablate = mod(data, parent.trace, torch.tensor([2, 5]),
+                               parent.fixture.embeddings)
+        self.assertTrue(torch.equal(full["r753_word_support"],
+                                    ablate["r753_word_support"]))
+        self.assertTrue(torch.equal(full["r753_geometric_support"],
+                                    ablate["r753_geometric_support"]))
+        self.assertGreater(float((full["r753_reliability"] -
+                                  ablate["r753_reliability"]).abs().sum()), 0.)
+
 if __name__ == "__main__":
     unittest.main()
