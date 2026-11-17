@@ -175,7 +175,8 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
     # notebook's two groups. Never overwrite separate v103 learning rates.
     current = optimizer.state_dict()
     new_ids = [pid for group in current["param_groups"] for pid in group["params"]]
-    names = [name for name, _ in model.named_parameters()]
+    names = [name for name, param in model.named_parameters()
+             if param.requires_grad]
     # model.named_parameters() puts residual_gate first; optimizer factory
     # owns the tensors in semantic order, so derive IDs from optimizer itself.
     live_to_name = {id(param): name for name, param in model.named_parameters()}

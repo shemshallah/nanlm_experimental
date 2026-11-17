@@ -304,6 +304,8 @@ def main(argv=None):
     p.add_argument("--allow-parent-mismatch", action="store_true",
                    help="Experimental: load verified parent weights even when the "
                         "train/DEV stream digests differ from the parent provenance")
+    p.add_argument("--legacy-core-lr-scale", type=float, default=0.1,
+                   help="LR multiplier for the inherited v103 groups on warm start")
     p.add_argument("--fresh-start", action="store_true",
                    help="Explicit disposable CPU bootstrap from original v103 architecture, no inherited weights")
     p.add_argument("--seed", type=int, default=2026,
@@ -421,6 +423,8 @@ def main(argv=None):
     if (args.generation_steps < 0 or args.generation_temperature <= 0
             or args.generation_top_k < 0):
         p.error("Generation needs nonnegative steps/top-k and positive temperature")
+    if args.legacy_core_lr_scale <= 0:
+        p.error("Parent warm-start LR scale must be positive")
     if args.hierarchical_eval_books and not args.hierarchical_eval_corpus_dir:
         p.error("--hierarchical-eval-corpus-dir is required for hierarchical DEV evaluation")
     if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
@@ -523,6 +527,11 @@ def main(argv=None):
                   {"legacy_step": 0, "legacy_checkpoint_sha256": None,
                    "fresh_start_untrained_v103": True,
                    "original_optimizer_histories_inherited": False})
+    if source is not None:
+        # Parent warm start: fine-tune the inherited v103 core conservatively.
+        # The 100M upgrade branch keeps its full LR and learns the hierarchy.
+        for group in optimizer.param_groups[:2]:
+            group["lr"] = float(group["lr"]) * args.legacy_core_lr_scale
     dev_local = None
     if model.original.causal_copy_enabled:
         # The original read-only local-copy specialist must receive true

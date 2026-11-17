@@ -68,6 +68,8 @@ def main(argv=None) -> int:
     p.add_argument("--allow-parent-mismatch", action="store_true",
                    help="Experimental warm start when the pilot train/DEV digests "
                         "differ from the parent provenance")
+    p.add_argument("--legacy-core-lr-scale", type=float, default=0.1,
+                   help="LR multiplier for the inherited v103 groups on warm start")
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
     p.add_argument("--topk-probes", type=int, default=1)
@@ -143,6 +145,8 @@ def main(argv=None) -> int:
         *(["--legacy-checkpoint", str(args.legacy_checkpoint)]
           if args.legacy_checkpoint else ["--fresh-start"]),
         *(["--allow-parent-mismatch"] if args.allow_parent_mismatch else []),
+        *(["--legacy-core-lr-scale", str(args.legacy_core_lr_scale)]
+          if args.legacy_checkpoint else []),
         "--seconds", str(args.seconds), "--batch", str(args.batch),
         "--microbatch", str(args.microbatch),
         "--upgrade-loss-weight", str(args.upgrade_loss_weight),
