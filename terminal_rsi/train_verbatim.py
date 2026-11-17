@@ -31,6 +31,7 @@ from .legacy_v103_reference import (
 )
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
+from .champion_guard import consider_candidate
 from .verbatim_metrics import byte_metrics_wrapped
 from .legacy_v103_local_copy import book_local_features
 from .verbatim_c256 import compare_c256_wrapped
@@ -176,6 +177,8 @@ def main(argv=None):
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--metrics-output", type=Path,
                    help="Optional stable JSON receipt with matched DEV metrics and 1000-update timing")
+    p.add_argument("--champion-dir", type=Path,
+                   help="Protected best-checkpoint directory; compare only matching DEV, preserve all prior winners")
     p.add_argument("--seconds", type=float, default=0.0,
                    help="Optional wall-clock budget; cannot combine with --updates")
     p.add_argument("--updates", type=int,
@@ -464,6 +467,10 @@ def main(argv=None):
         for name, value in original_state.items():
             if not torch.equal(value.cpu(), saved["model"][name]):
                 raise AssertionError("Combined checkpoint changed tensor: " + name)
+    if args.champion_dir:
+        receipt["champion_guard"] = consider_candidate(
+            args.output, receipt, args.champion_dir)
+        print("RSI IMMUTABLE DEV CHAMPION:", receipt["champion_guard"], flush=True)
     if args.metrics_output:
         _write_if_unchanged_or_new(args.metrics_output,
             (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode())
