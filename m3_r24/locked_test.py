@@ -67,8 +67,13 @@ def score_locked_test(books: list[bytes], names: list[str], prior: np.ndarray,
                 candidate = model.readout(base,np.vstack((residual,zero)),theta)
                 wrong = model.readout(base,np.vstack((wrong_residual,zero)),theta)
                 if not np.any(residual):
-                    if not np.array_equal(base,candidate):
-                        raise AssertionError("missing suffix altered the frozen default")
+                    # R23 readout re-normalizes the already-normalized R21
+                    # logits even when its copied feature is zero. That is
+                    # mathematically the identity, but can move the final
+                    # floating-point bit by one ULP. Keep exact R23 execution
+                    # and check numerical parity instead of bitwise identity.
+                    if not np.allclose(base,candidate,atol=1e-12,rtol=0):
+                        raise AssertionError("missing suffix changed default beyond roundoff")
                 else:
                     copy_hits += 1
                 for arm,lp in (("r21_default",base),("copy_only",candidate),
