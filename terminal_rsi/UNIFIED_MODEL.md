@@ -8,21 +8,22 @@ This directory is deliberately isolated from them.
 The same `unified.py`, loss, causal three-horizon heads, RSI feedback loop
 and checkpoint format run on all compute targets. `--mode` selects the
 **device/execution profile**, not the model graph: every mode has exactly
-**6,495,162 parameters** (2,782,515 original v103 core + 3,712,646 additive
+**100,537,498 parameters** (2,782,515 original v103 core + 97,754,982 additive
 upgrades + 1 residual gate). Blackwell is an **option**, not a larger model.
 
 | Mode | Width | Layers | Heads | Context bytes | RSI passes | Execution |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| CPU | 256 | 3 | 8 | 256 | 2 | float32; reproducible acceptance gate |
-| Tesla T4 (16GB) | 256 | 3 | 8 | 256 | 2 | same graph on CUDA; FP32 v103 path |
-| 96GB Blackwell | 256 | 3 | 8 | 256 | 2 | same graph; BF16 upgrade-only autocast, native SDPA, GPU window cache, large batches |
+| CPU | 704 | 12 | 11 | 256 | 2 | float32; reproducible acceptance gate |
+| Tesla T4 (16GB) | 704 | 12 | 11 | 256 | 2 | same graph on CUDA; microbatch profile |
+| 96GB Blackwell | 704 | 12 | 11 | 256 | 2 | same graph; BF16 upgrade-only autocast, native SDPA, GPU window cache, effective batch 8192 |
 
-The Blackwell card is used through **batch and v4 branch search**, not by
-inflating the architecture. The v4 controller snapshots the same 6.5M model,
+The Blackwell card is used through **effective batch and v4 branch search**, not
+by inflating the architecture. The v4 controller snapshots the same 100M model,
 so multiple branch snapshots are cheap. Monitor reported peak VRAM, actual
-trials/s and bytes/s; the v103 byte path, not parameter count, is the limiter.
-32GB *system RAM* is different from 95GB *GPU VRAM*. First establish CPU and
-T4 parity, then run the Blackwell smoke and profile before a long run.
+trials/s and bytes/s; the v103 byte path, not parameter count, is the limiter
+at small batches. 32GB *system RAM* is different from 95GB *GPU VRAM*. First
+establish CPU and T4 parity, then run the Blackwell smoke and profile before a
+long run.
 
 ## RSI is the core, not an auxiliary afterthought
 
@@ -88,7 +89,7 @@ be exercised.
 ## Same source on T4 / Blackwell
 
 ```bash
-# T4 16GB, 10-minute experiment (same 6.5M graph)
+# T4 16GB, 10-minute experiment (same 100M graph)
 python terminal_rsi/train.py --mode t4 --corpus-dir /path/to/books \
   --checkpoint /path/to/drive/Terminal_RSI/unified_t4_candidate.pt \
   --minutes 10 --context-override 256

@@ -21,9 +21,9 @@ The inherited original is not a Mamba state-space model and is not a Transformer
 
 | Setting | Inherited RSI | Additive recursion | Parameter count | Status |
 | --- | --- | --- | --- | --- |
-| CPU | Exact original weights, online buffers, 2 AdamW groups | width 256, 3 layers, 8 heads, 256-byte capacity context | **6,495,162** | GitHub CPU unit tests |
-| Tesla T4 (16 GB) | Same exact parent and state | same width/layers/heads/context | **6,495,162** | Same graph on CUDA; FP32 v103 path |
-| Blackwell (96 GB GPU, 32 GB RAM) | Same exact parent and state | same width/layers/heads/context | **6,495,162** | Execution option: BF16 upgrade-only autocast, SDPA, GPU window cache, large batches, v4 branch search |
+| CPU | Exact original weights, online buffers, 2 AdamW groups | width 704, 12 layers, 11 heads, 256-byte capacity context | **100,537,498** | GitHub CPU unit tests |
+| Tesla T4 (16 GB) | Same exact parent and state | same width/layers/heads/context | **100,537,498** | Same graph on CUDA; microbatch profile |
+| Blackwell (96 GB GPU, 32 GB RAM) | Same exact parent and state | same width/layers/heads/context | **100,537,498** | Execution option: BF16 upgrade-only autocast, SDPA, GPU window cache, effective batch 8192, v4 branch search |
 
 IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The additive upgrade branch consumes 256 causally padded context bytes in every mode; the old last-32+target rows remain identical at gate 0. Blackwell uses BF16 autocast only for the upgrade branch. F32 CPU↔CUDA can differ numerically within tolerance; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
 
@@ -120,7 +120,7 @@ python -m terminal_rsi.migrate_verbatim \
 
 Then use `python -m terminal_rsi.train_verbatim --mode t4 --resume ...` with the **same legacy checkpoint/train-stream/BPE/DEV** flags; first `--seconds 0`, then a bounded pilot. For Blackwell, migrate `verbatim_t4_candidate.pt` with `--mode blackwell` to a new candidate and again run `--seconds 0` for DEV reacceptance first. The model graph and parameter count are identical across modes; the profile changes device, dtype and batch. Still re-run gate-0/DEV acceptance after a device move, because CUDA floating point is tolerance-equal, not promised bitwise.
 
-The 95 GB is VRAM, not the 32 GB host budget. The unified 6.5M model uses ~0.1 GB of FP32 AdamW state; the remaining headroom is for large batches, v4 model/optimizer snapshots, branch training and CUDA allocator reservations. Profile actual peak GPU, host RAM, time-to-checkpoint and bytes/sec before scaling batch or v4 candidates. BF16 is used only on the additive upgrade branch where numerically safe.
+The 95 GB is VRAM, not the 32 GB host budget. The unified 100M model uses ~0.1 GB of FP32 AdamW state; the remaining headroom is for large batches, v4 model/optimizer snapshots, branch training and CUDA allocator reservations. Profile actual peak GPU, host RAM, time-to-checkpoint and bytes/sec before scaling batch or v4 candidates. BF16 is used only on the additive upgrade branch where numerically safe.
 
 ## Acceptance gates that cannot be skipped
 
@@ -233,7 +233,7 @@ three layers. No tensors, state_dict keys, parameter counts, or checkpoint
 schemas are added or renamed across CPU/T4/Blackwell.
 
 ```bash
-# Works on CPU: analytical preflight for the same 6.5M graph.
+# Works on CPU: analytical preflight for the same 100M graph.
 python -m terminal_rsi.plan_blackwell --physical-gib 96
 
 # Run ONLY on the intended Blackwell container before training.

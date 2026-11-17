@@ -1,9 +1,9 @@
-"""10-minute Blackwell v4 smoke for the unified 6.5M Terminal-RSI model.
+"""10-minute Blackwell v4 smoke for the unified 100M Terminal-RSI model.
 
 Builds a fresh English-only, book-disjoint pilot corpus, probes the
 95 GiB Blackwell GPU, then runs real FP32 v103 + BF16 upgrade-branch
 forward/backward/AdamW steps through ``train_verbatim --smoke``.  CPU, T4
-and Blackwell use the exact same 6,495,162-parameter graph; Blackwell is
+and Blackwell use the exact same 100,537,498-parameter graph; Blackwell is
 an execution option, not a larger model.  The smoke reports peak VRAM,
 throughput and the v4 ledger, but deliberately does NOT save a checkpoint
 or a champion.
@@ -168,7 +168,7 @@ def main(argv=None) -> int:
         "receipt": receipt,
         "console": str(console),
         "note": (
-            "Smoke only: the 6.5M unified model is used; no tens-of-GiB "
+            "Smoke only: the 100M unified model is used; no tens-of-GiB "
             "optimizer checkpoint or champion is written. Peak VRAM and "
             "throughput are in receipt.gpu; v4 ledger is in receipt.rsi_v4."
         ),

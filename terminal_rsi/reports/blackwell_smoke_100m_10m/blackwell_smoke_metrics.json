@@ -1,0 +1,282 @@
+{
+  "actual_byte_updates_this_round": 23,
+  "after": {
+    "bit_accuracy": 0.8125,
+    "bpb": 4.279429510911293,
+    "evaluated_bytes": 8,
+    "maximum_log_probability_mass_error": 2.384185791015625e-07,
+    "top1_byte": 0.0,
+    "top5_byte": 0.0,
+    "topk_evaluated_bytes": 1
+  },
+  "before": {
+    "bit_accuracy": 0.359375,
+    "bpb": 8.188456547006338,
+    "evaluated_bytes": 8,
+    "maximum_log_probability_mass_error": 0.0,
+    "top1_byte": 0.0,
+    "top5_byte": 0.0,
+    "topk_evaluated_bytes": 1
+  },
+  "book_disjoint_dev_digest": "b540e7d06175402055eab8d4866a8fc9d4a6ec098743d379bacdad85b520b307",
+  "cpu_threads": null,
+  "dev_after_seconds": 0.21035441200001515,
+  "dev_probes": 8,
+  "feature_digest": "2e22a33fc4d4445df9fb60c517deff11b0172e530ccaec6cf664bfef0d7b8e42",
+  "final_step": 23,
+  "fresh_start_untrained_v103": true,
+  "gpu": {
+    "bf16_supported": true,
+    "cuda_version": "13.0",
+    "device_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "peak_allocated_gib": 33.46,
+    "peak_reserved_gib": 91.461,
+    "torch_version": "2.11.0+cu130",
+    "total_vram_gib": 94.972
+  },
+  "hierarchical": {
+    "books": [
+      "74145",
+      "74926",
+      "65198",
+      "68555"
+    ],
+    "byte": {
+      "bits_per_unit": 4.9355950355529785,
+      "bpb": 4.9355950355529785,
+      "bpc": 5.131014534422589,
+      "loss": 3.4210939407348633,
+      "loss_per_unit": 3.4210939407348633,
+      "top1": 0.24072265625,
+      "top5": 0.51318359375,
+      "units": 2048
+    },
+    "characters": 1970,
+    "context": 256,
+    "note": "v103 is byte-level; token and subword are the same BPE units. Unit top-1/top-5 require every byte in the unit to be correct.",
+    "positions": 2048,
+    "schema": "terminal-rsi-hierarchical-eval-v1",
+    "sentence": {
+      "bits_per_unit": 476.0912599109468,
+      "loss_per_unit": 330.0013180687314,
+      "top1": 0.0,
+      "top5": 0.0,
+      "units": 21
+    },
+    "subword": {
+      "bits_per_unit": 8.360710511530995,
+      "loss_per_unit": 5.795202930521827,
+      "top1": 0.05624483043837883,
+      "top5": 0.2969396195202647,
+      "units": 1209
+    },
+    "token": {
+      "bits_per_unit": 8.360710511530995,
+      "loss_per_unit": 5.795202930521827,
+      "top1": 0.05624483043837883,
+      "top5": 0.2969396195202647,
+      "units": 1209
+    },
+    "word": {
+      "bits_per_unit": 24.01841424169873,
+      "loss_per_unit": 16.648296165082794,
+      "top1": 0.0,
+      "top5": 0.10723860589812333,
+      "units": 373
+    }
+  },
+  "legacy_step": 0,
+  "legacy_terminal_demo_disabled": true,
+  "mode": "blackwell",
+  "new_dev_books": 64,
+  "new_dev_id_level_train_disjoint_proven": true,
+  "new_dev_scored_positions": 65536,
+  "old_v103_logits_identical_at_gate_zero": true,
+  "original_c256_parity_after": null,
+  "original_c256_parity_before": null,
+  "requested_updates": null,
+  "rsi_feedback_seconds": 1.9330000213813037e-06,
+  "rsi_mutations_accepted": 2,
+  "rsi_mutations_verified": 2,
+  "rsi_self_construction": null,
+  "rsi_v4": {
+    "accepted": 2,
+    "branch_updates": 4,
+    "config": {
+      "batch_size": 8192,
+      "candidates": 1,
+      "critic_lr": 0.0003,
+      "critic_steps": 2,
+      "cycle_updates": 8,
+      "entropy_coef": 0.01,
+      "eval_chunk": 8,
+      "fixed_batch": true,
+      "grad_clip": 1.0,
+      "horizon": 1,
+      "min_gain": 0.01,
+      "n_shards": 2,
+      "policy_lr": 0.0003,
+      "policy_steps": 1,
+      "positions_per_shard": 32,
+      "replay_capacity": 4096,
+      "seed": 2026,
+      "target_updates": 0,
+      "z_score": 2.0
+    },
+    "cycles": 2,
+    "events": [
+      {
+        "accepted": true,
+        "best_standard_error": 0.006187935778043662,
+        "best_utility": 0.05305991546154276,
+        "branch_updates": 2,
+        "candidates": [
+          {
+            "action": [
+              2,
+              1,
+              1,
+              1,
+              2,
+              2,
+              1,
+              1
+            ],
+            "bpb": 6.718779405997485,
+            "critic_mean": null,
+            "critic_std": null,
+            "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+            "predicted_bpb": null,
+            "rank_score": null,
+            "standard_error": 0.0,
+            "utility": 0.0
+          },
+          {
+            "action": [
+              3,
+              0,
+              0,
+              0,
+              3,
+              2,
+              0,
+              1
+            ],
+            "bpb": 6.665719490535942,
+            "critic_mean": null,
+            "critic_std": null,
+            "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+            "predicted_bpb": null,
+            "rank_score": null,
+            "standard_error": 0.006187935778043662,
+            "utility": 0.05305991546154276
+          }
+        ],
+        "chosen": [
+          3,
+          0,
+          0,
+          0,
+          3,
+          2,
+          0,
+          1
+        ],
+        "cycle": 1,
+        "ledger": {
+          "accepted": 1,
+          "proposals": 1,
+          "rejected": 0
+        },
+        "noop_bpb": 6.718779405997485,
+        "step": 8
+      },
+      {
+        "accepted": true,
+        "best_standard_error": 0.05181196635121931,
+        "best_utility": 0.1736790447352563,
+        "branch_updates": 2,
+        "candidates": [
+          {
+            "action": [
+              2,
+              1,
+              1,
+              1,
+              2,
+              2,
+              1,
+              1
+            ],
+            "bpb": 5.85144428338112,
+            "critic_mean": null,
+            "critic_std": null,
+            "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+            "predicted_bpb": null,
+            "rank_score": null,
+            "standard_error": 0.0,
+            "utility": 0.0
+          },
+          {
+            "action": [
+              3,
+              0,
+              0,
+              0,
+              3,
+              2,
+              0,
+              1
+            ],
+            "bpb": 5.677765238645863,
+            "critic_mean": null,
+            "critic_std": null,
+            "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+            "predicted_bpb": null,
+            "rank_score": null,
+            "standard_error": 0.05181196635121931,
+            "utility": 0.1736790447352563
+          }
+        ],
+        "chosen": [
+          3,
+          0,
+          0,
+          0,
+          3,
+          2,
+          0,
+          1
+        ],
+        "cycle": 2,
+        "ledger": {
+          "accepted": 2,
+          "proposals": 2,
+          "rejected": 0
+        },
+        "noop_bpb": 5.85144428338112,
+        "step": 16
+      }
+    ],
+    "proposals": 2,
+    "rejected": 0
+  },
+  "rsi_version": "v4",
+  "sampler": {
+    "cursor": 188416,
+    "schema": "full-cycle-affine-v1",
+    "stride": 1205633,
+    "train_positions": 1999968
+  },
+  "smoke": true,
+  "smoke_wall_seconds": 1001.1770254389994,
+  "terminal_events": [],
+  "terminal_reward_mode": "predictive_dual_train_bpb",
+  "test_untouched": true,
+  "topk_probes": 1,
+  "total_train_rsi_dev_seconds": 605.7491594250005,
+  "training_duration_seconds": 605.5273140230001,
+  "updates_per_second": 0.037983422823972525,
+  "updates_this_round": 23,
+  "upgrade_context": 256
+}

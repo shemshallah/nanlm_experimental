@@ -1,4 +1,4 @@
-"""CPU acceptance for Blackwell execution-profile planning (same 6.5M graph)."""
+"""CPU acceptance for Blackwell execution-profile planning (same 100M graph)."""
 from __future__ import annotations
 
 import unittest

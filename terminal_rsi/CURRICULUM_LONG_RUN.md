@@ -76,7 +76,7 @@ python -m terminal_rsi.run_long_molab \
   --save-every 500
 ```
 
-`--mode` selects `cpu`, `t4` or `blackwell` for the **same 6,495,162-parameter
+`--mode` selects `cpu`, `t4` or `blackwell` for the **same 100,537,498-parameter
 v4 graph**. The six-hour example above is the CPU profile. On the 95 GiB
 Blackwell card use `--mode blackwell --batch 8192`; the upgrade branch uses
 BF16 autocast, the v103 path stays FP32, and the GPU window cache avoids

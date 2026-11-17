@@ -63,7 +63,7 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
                           usable_fraction: float = 0.92) -> dict:
     """Preflight of the Blackwell execution profile for the unified v4 model.
 
-    The model is the same 6.5M-parameter v3 graph on CPU, T4 and Blackwell.
+    The model is the same 100M-parameter v3 graph on CPU, T4 and Blackwell.
     FP32 weights/grads/Adam moments occupy ~16 bytes/parameter.  BF16 autocast
     is used only for the additive upgrade branch; archived v103 logits, RSI
     actor/critic and inherited AdamW groups stay in their original FP32 path.
