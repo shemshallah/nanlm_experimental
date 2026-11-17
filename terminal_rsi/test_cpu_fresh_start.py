@@ -43,6 +43,7 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
                 "--dev-bin", str(dev / "win_dev.bin"),
                 "--dev-manifest", str(dev / "win_dev.manifest.json"),
                 "--output", str(output),
+                "--champion-dir", str(root / "protected_champion"),
                 "--updates", "1", "--batch", "2",
                 "--rsi-cycle-updates", "1", "--rsi-probe-positions", "2",
                 "--max-dev-positions", "2", "--topk-probes", "1",
@@ -64,6 +65,10 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
             self.assertEqual(report["rsi_mutations_verified"], 1)
             self.assertEqual(len(report["rsi_self_construction"]["events"]), 1)
             self.assertEqual(saved["training_state"]["rsi_self_builder"]["proposals"], 1)
+            self.assertEqual(report["champion_guard"]["status"], "initialized")
+            self.assertTrue(Path(report["champion_guard"]["champion_checkpoint"]).is_file())
+            self.assertEqual(report["rsi_self_construction"]["schema"],
+                             "terminal-rsi-self-builder-v2")
 
 
 if __name__ == "__main__":
