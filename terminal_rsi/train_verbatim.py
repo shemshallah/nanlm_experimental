@@ -188,6 +188,8 @@ def main(argv=None):
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
+    p.add_argument("--legacy-terminal-demo", action="store_true",
+                   help="Diagnostic ONLY: replay v103 fixed shell reward (+1/-1); never use to optimize low BPB")
     p.add_argument("--rsi-probe-positions", type=int, default=8,
                    help="Causal internal TRAIN probes for RSI verification; DEV/TEST never used")
     p.add_argument("--rsi-min-bpb-gain", type=float, default=0.002,
@@ -401,11 +403,15 @@ def main(argv=None):
     # Time ONLY the byte optimizer loop here. RSI feedback and held-out DEV
     # evaluation are reported separately; otherwise updates/s is misleading.
     training_duration_seconds = time.monotonic() - clock
-    # The archived v103 original ALWAYS performs both verified actor/critic
-    # Adam updates, even when --seconds=0 (zero BYTE optimizer updates).
-    # Keep that exact recursive learning behavior in all three presets.
+    # CRITICAL: v103's original terminal demo forcibly rewards a command
+    # returning 'ready' with +1 and 'broken' with -1, regardless of byte BPB.
+    # That reward is NOT aligned with low-BPB training and must never fire in
+    # the predictive default. Preserve the archived behavior behind explicit
+    # --legacy-terminal-demo for reproduction only; RSI builder supplies the
+    # real signed-BPB feedback during the training loop.
     rsi_clock = time.monotonic()
-    events.extend(finish_rsi_round(model, optimizer))
+    if args.legacy_terminal_demo:
+        events.extend(finish_rsi_round(model, optimizer))
     rsi_feedback_seconds = time.monotonic() - rsi_clock
     dev_after_clock = time.monotonic()
     after = byte_metrics_wrapped(model, probes, n=None,
@@ -436,6 +442,9 @@ def main(argv=None):
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
+               "terminal_reward_mode": ("legacy_fixed_command_demo" if args.legacy_terminal_demo
+                                        else "predictive_dual_train_bpb"),
+               "legacy_terminal_demo_disabled": not args.legacy_terminal_demo,
                "rsi_self_construction": (rsi_builder.state_dict() if rsi_builder else None),
                "rsi_mutations_verified": (rsi_builder.proposals if rsi_builder else 0),
                "rsi_mutations_accepted": (rsi_builder.accepted if rsi_builder else 0),
