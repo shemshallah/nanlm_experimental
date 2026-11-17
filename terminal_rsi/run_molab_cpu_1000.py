@@ -45,7 +45,8 @@ def verify_release(archive: Path, sums: Path):
               and parts[-1].lstrip("*") == archive.name]
     if len(target) != 1 or len(target[0]) != 64:
         raise ValueError("Unable to locate exactly one SHA-256 archive digest in NaNROUTER SUMS")
-    digest = hashlib.file_digest(archive.open("rb"), "sha256").hexdigest()
+    with archive.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
     if digest != target[0]:
         raise ValueError("NaNROUTER archive SHA-256 mismatch; refusing to extract")
     return digest
@@ -64,9 +65,28 @@ def source_dir(artifacts: Path, supplied: Path | None):
     print("Verified NaNROUTER archive SHA-256:", verify_release(archive, sums), flush=True)
     marker = local / "extracted.complete"
     if not marker.exists():
-        if shutil.which("tar") is None or shutil.which("zstd") is None:
-            raise RuntimeError("Requires GNU tar and zstd (e.g. apt-get install zstd)")
-        subprocess.run(["tar", "--zstd", "-xf", str(archive), "-C", str(local)], check=True)
+        if shutil.which("tar") and shutil.which("zstd"):
+            subprocess.run(["tar", "--zstd", "-xf", str(archive), "-C", str(local)], check=True)
+        else:
+            # Molab Python environments often have no sudo, GNU tar or zstd
+            # executable. Use the pip-installable zstandard module instead.
+            import tarfile
+            try:
+                import zstandard
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Run: python -m pip install zstandard (no sudo required)"
+                ) from exc
+            with archive.open("rb") as stream:
+                with zstandard.ZstdDecompressor().stream_reader(stream) as decoder:
+                    with tarfile.open(fileobj=decoder, mode="r|") as tar:
+                        root = local.resolve()
+                        for member in tar:
+                            target = (root / member.name).resolve()
+                            if (not target.is_relative_to(root) or
+                                    not (member.isfile() or member.isdir())):
+                                raise ValueError("Unsafe path or member in verified NaNROUTER archive")
+                            tar.extract(member, path=local, filter="data")
         marker.write_text("Archive verified against official SHA-256 list.\n")
     return local
 
