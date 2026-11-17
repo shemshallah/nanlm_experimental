@@ -3,7 +3,9 @@ import unittest
 
 import numpy as np
 
-from m3_default.predictor import M3DefaultPredictor, M3R21Predictor, DEFAULT_MODE, R24_COPY_GAIN
+from m3_default.predictor import (M3DefaultPredictor, M3R21Predictor,
+                                  DEFAULT_MODE, R24_COPY_GAIN, R26_THETA,
+                                  R26_TRAINING_CHECKPOINT_SHA256)
 from m3_r23.apex import M3R23Predictor
 from m3_r24.locked_test import load_locked_candidate
 from m3_r14.predictive_probe import train_unigram_prior
@@ -15,9 +17,9 @@ from m3_r20.successor_dev import combined_logp
 
 
 class M3StreamingParity(unittest.TestCase):
-    def test_default_is_r24_and_reset_is_reproducible(self):
+    def test_default_is_r26_and_reset_is_reproducible(self):
         p = M3DefaultPredictor(np.ones(256))
-        self.assertEqual(DEFAULT_MODE, "r24")
+        self.assertEqual(DEFAULT_MODE, "r26")
         with self.assertRaises(ValueError):
             p.predict_proba()
         p.observe(65)
@@ -96,13 +98,35 @@ class M3StreamingParity(unittest.TestCase):
             base,features = research.base_and_features()
             np.testing.assert_array_equal(base,original.predict_logp())
             expected = research.readout(base,features,theta)
-            np.testing.assert_array_equal(accepted.predict_logp(),expected)
+            np.testing.assert_array_equal(accepted.predict_logp("r24"),expected)
             np.testing.assert_array_equal(accepted.predict_all()["r24"],expected)
         for m in (original,research,accepted):
             m.reset()
             m.observe(65)
         np.testing.assert_array_equal(accepted.predict_logp("r20"),original.predict_logp())
-        np.testing.assert_array_equal(accepted.predict_logp(),research.predict_logp())
+        np.testing.assert_array_equal(accepted.predict_logp("r24"),research.predict_logp())
+
+    def test_promoted_r26_matches_frozen_research_model(self):
+        from m3_r26.hybrid import M3R26Predictor
+        from m3_r27.locked_test import LOCK
+        import json
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        np.testing.assert_array_equal(R26_THETA, np.asarray(lock["theta"],dtype=np.float64))
+        self.assertEqual(R26_TRAINING_CHECKPOINT_SHA256,lock["training_checkpoint_sha256"])
+        prior = np.arange(1,257,dtype=np.float64)
+        canonical = M3DefaultPredictor(prior)
+        frozen = M3R26Predictor(prior,R26_THETA)
+        for byte in b"a recursive memory is causal. a recursive memory is causal." * 2:
+            canonical.observe(byte)
+            frozen.observe(byte)
+            np.testing.assert_array_equal(canonical.predict_logp(),frozen.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r24"),
+                                          frozen.predict_logp("r24"))
+        canonical.reset()
+        frozen.reset()
+        canonical.observe(65)
+        frozen.observe(65)
+        np.testing.assert_array_equal(canonical.predict_logp(),frozen.predict_logp())
 
 
 if __name__ == "__main__":

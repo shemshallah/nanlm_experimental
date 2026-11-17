@@ -17,7 +17,7 @@ from m3_r26.train_dev import (ExpandedAdam, PARENT_M, PARENT_STEP,
 class R26Tests(unittest.TestCase):
     def test_migration_recovers_r25_bitwise_and_canonical_r24(self):
         prior = np.arange(1,257,dtype=float)
-        zero = M3DefaultPredictor(prior)
+        zero = M3DefaultPredictor(prior, mode="r24")
         r25 = M3R25Predictor(prior, weights=PARENT_THETA)
         theta = np.zeros(WEIGHTS)
         theta[:3] = PARENT_THETA

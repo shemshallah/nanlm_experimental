@@ -29,7 +29,7 @@ class TemporalMemoryTests(unittest.TestCase):
 
     def test_zero_feedback_is_bitwise_canonical_r24(self):
         prior = np.arange(1, 257, dtype=np.float64)
-        base = M3DefaultPredictor(prior)
+        base = M3DefaultPredictor(prior, mode="r24")
         candidate = M3R25Predictor(prior)
         for byte in b"the whale sees a wave. the whale sees a wave! " * 2:
             base.observe(byte)

@@ -1,9 +1,10 @@
-"""Canonical online M3 predictor: independently certified R24 causal copy.
+"""Canonical online M3 predictor: R26 with exact R24/R21 fallback.
 
 The original R21 signed pair/triangle model remains M3R21Predictor exactly.
-R24 adds only the frozen TRAIN/GATE-selected prefix-copy readout, verified on
-24 previously untouched books. The failed recurrent geometric apex is NOT
-enabled. Every state update occurs after the target byte is observed.
+R24 adds the previously accepted frozen prefix-copy readout. The R26 candidate
+adds one causal multiscale successor memory and one hierarchical byte-context
+tree to this SAME online state, with its exact independently tested readout.
+The rejected R23 toroidal apex is NOT enabled. All state updates are causal.
 """
 from __future__ import annotations
 
@@ -19,12 +20,20 @@ from m3_r20.successor_dev import (
     combined_logp, R19_SPACE_SCALE, R19_NONSPACE_SCALE, SHIFT,
 )
 
-DEFAULT_MODE = "r24"
+DEFAULT_MODE = "r26"
 R20_PAIR_SCALE = 0.5
 R20_TRIANGLE_SCALE = 0.5
 LEGACY_MODES = ("r20", "r19", "oscillator", "wrong_address", "wrong_context", "triangle_only")
-MODES = ("r24",) + LEGACY_MODES
+MODES = ("r26", "r24") + LEGACY_MODES
 R24_COPY_GAIN = 1.0962571833587516  # exact R23 frozen TRAIN-only scalar
+R26_THETA = np.array((
+    0.20522936927790486, 0.5247820788932681, 0.014546217566135089,
+    0.41110746025816125, 0.3068762355174945, 0.31118690110333225,
+    -0.012420522830071154, -0.5031923913862479, -0.17807131974908555,
+    -0.5457650152177792, -0.24970163692227434, -0.06057178164629776,
+    0.12880799567382484, 0.09004538510784975,
+), dtype=np.float64)
+R26_TRAINING_CHECKPOINT_SHA256 = "deb112d4d9b25cb57bd68f689660550a315032bea42c5e9376dbcdeb4a5c97a9"
 
 
 class M3R21Predictor:
@@ -120,15 +129,19 @@ class M3R21Predictor:
 
 
 class M3DefaultPredictor(M3R21Predictor):
-    """Accepted R24 default with inherited R21 available as exact ablation.
+    """One unified R26/R24/R21 streaming predictor with fallback modes.
 
-    The two paths use the same byte history, oscillator waves, pair memory and
-    triangle memory. R24 adds ONE suffix memory and ONE frozen scalar readout.
+    The frozen R24 parent is always present. New R26 context memories are
+    instantiated only for the promoted default mode, so R25/R26 research
+    subclasses requesting mode=r24 preserve their exact historical behavior.
     """
 
     def __init__(self, original_train_prior: np.ndarray, mode: str = DEFAULT_MODE):
         if mode not in MODES:
             raise ValueError("unrecognized M3 mode")
+        # M3R21Predictor.__init__ calls reset by dynamic dispatch. Set this
+        # flag first so both initialization and later resets agree.
+        self._r26_enabled = mode == "r26"
         super().__init__(original_train_prior,mode="r20")
         self.mode = mode
 
@@ -138,10 +151,18 @@ class M3DefaultPredictor(M3R21Predictor):
         # imports M3R21Predictor, independent of the promoted default.
         from m3_r23.apex import SuffixApexMemory
         self.prefix_copy = SuffixApexMemory()
+        if self._r26_enabled:
+            from m3_r25.temporal import TemporalSuccessors
+            from m3_r26.hybrid import ByteContextTree
+            self.r26_temporal = TemporalSuccessors()
+            self.r26_tree = ByteContextTree()
 
     def observe(self, observed_byte: int) -> None:
         super().observe(observed_byte)
         self.prefix_copy.observe(int(observed_byte))
+        if self._r26_enabled:
+            self.r26_temporal.observe(int(observed_byte))
+            self.r26_tree.observe(int(observed_byte))
 
     def predict_all(self) -> dict[str, np.ndarray]:
         predictions = super().predict_all()
@@ -150,10 +171,18 @@ class M3DefaultPredictor(M3R21Predictor):
         logits = base + R24_COPY_GAIN * copy
         logits -= float(logits.max())
         predictions["r24"] = logits - np.log(np.exp(logits).sum())
+        if self._r26_enabled:
+            from m3_r26.hybrid import hybrid_readout, pack_features
+            frozen_base = predictions["r24"]
+            features = pack_features(self.r26_temporal.features(frozen_base),
+                                     self.r26_tree.features(frozen_base))
+            predictions["r26"] = hybrid_readout(frozen_base, features, R26_THETA)
         return predictions
 
     def predict_logp(self, mode: str | None = None) -> np.ndarray:
         chosen = self.mode if mode is None else mode
         if chosen not in MODES:
             raise ValueError("invalid M3 prediction mode")
+        if chosen == "r26" and not self._r26_enabled:
+            raise ValueError("R26 mode requires an R26-enabled predictor")
         return self.predict_all()[chosen]
