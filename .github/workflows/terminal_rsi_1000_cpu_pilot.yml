@@ -1,0 +1,78 @@
+name: Terminal-RSI real NaNROUTER CPU 1000-update pilot
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/terminal_rsi_1000_cpu_pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-book-cpu-1000:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU PyTorch and zstd
+        run: |
+          python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+      - name: Fetch and SHA-verify only NaNROUTER short-story batch 0004
+        run: |
+          mkdir -p /tmp/terminal_rsi_nanrouter_0004
+          curl -fL --retry 3 --retry-delay 3 \
+            https://github.com/shemshallah/NaNROUTER/releases/download/corpora-short-stories-0004/short_stories-0004.tar.zst \
+            -o /tmp/terminal_rsi_nanrouter_0004/short_stories-0004.tar.zst
+          curl -fL --retry 3 --retry-delay 3 \
+            https://github.com/shemshallah/NaNROUTER/releases/download/corpora-short-stories-0004/short_stories-0004.SHA256SUMS \
+            -o /tmp/terminal_rsi_nanrouter_0004/short_stories-0004.SHA256SUMS
+          cd /tmp/terminal_rsi_nanrouter_0004
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Build NEW disjoint English-only TRAIN and 64-book DEV
+        run: |
+          mkdir -p cpu_pilot_artifacts
+          python -m terminal_rsi.prepare_cpu_pilot \
+            --corpus-dir /tmp/terminal_rsi_nanrouter_0004 \
+            --output-dir cpu_pilot_artifacts \
+            --train-bytes 2000000 --dev-books 64 --dev-positions 1024 --seed 103
+      - name: Verify original v103 feature source and CPU parity before learning
+        run: |
+          python -m unittest terminal_rsi.test_v103_parity -v
+          python -m unittest terminal_rsi.test_cpu_fresh_start -v
+      - name: Run exactly 1000 CPU optimizer updates with four threads and RSI actor feedback
+        run: |
+          python -m terminal_rsi.train_verbatim \
+            --fresh-start \
+            --mode cpu --cpu-threads 4 --updates 1000 --batch 4 \
+            --train-stream cpu_pilot_artifacts/train_cpu_pilot.bin \
+            --bpe-merges terminal_rsi/reference/nancm_v103_bpe.txt \
+            --dev-bin cpu_pilot_artifacts/win_dev.bin \
+            --dev-manifest cpu_pilot_artifacts/win_dev.manifest.json \
+            --output cpu_pilot_artifacts/terminal_rsi_cpu_1000_candidate.pt \
+            --metrics-output cpu_pilot_artifacts/terminal_rsi_cpu_1000_metrics.json \
+            --max-dev-positions 1024 --topk-probes 8 --upgrade-context 256
+      - name: Check full optimizer and published-metric receipts
+        run: |
+          python -c "import json, pathlib, torch; p=pathlib.Path('cpu_pilot_artifacts'); r=json.loads((p/'terminal_rsi_cpu_1000_metrics.json').read_text()); c=torch.load(p/'terminal_rsi_cpu_1000_candidate.pt',map_location='cpu',weights_only=True); assert r['actual_byte_updates_this_round']==1000 and c['steps']==1000; assert len(c['optimizer']['param_groups'])==3 and c['optimizer']['state']; assert len(r['terminal_events'])==2 and r['old_v103_logits_identical_at_gate_zero']; assert r['new_dev_books']==64 and r['new_dev_id_level_train_disjoint_proven']; print('REAL BOOK RSI CPU 1000 UPDATES ACCEPTED:',json.dumps({'before':r['before'],'after':r['after'],'threads':r['cpu_threads'],'seconds':r['training_duration_seconds'],'updates':r['actual_byte_updates_this_round']},sort_keys=True))"
+      - name: Preserve source manifest and complete unpromoted checkpoint
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: terminal-rsi-cpu-1000-new-nanrouter-dev
+          retention-days: 30
+          compression-level: 1
+          path: |
+            cpu_pilot_artifacts/terminal_rsi_cpu_1000_candidate.pt
+            cpu_pilot_artifacts/terminal_rsi_cpu_1000_metrics.json
+            cpu_pilot_artifacts/cpu_pilot.manifest.json
+            cpu_pilot_artifacts/win_dev.manifest.json
+            cpu_pilot_artifacts/train_book_ids.json
