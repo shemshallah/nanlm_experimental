@@ -9,6 +9,8 @@ This is the **Terminal-RSI v103 implementation** in `terminal_rsi/` (not FA1, FA
 Molab runs ordinary Python, not IPython shell magic. Paste this entire block into a **Python** cell (there is no `!` before commands):
 
 ```python
+import importlib.util
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,8 +25,18 @@ if not repo.exists():
 else:
     subprocess.run(["git", "-C", str(repo), "pull", "--ff-only", "origin", "master"], check=True)
 
-# Installs only real PyPI dependencies; does not overwrite the GPU torch build.
-subprocess.run([sys.executable, "-m", "pip", "install", "numpy", "zstandard"], check=True)
+# Molab uses a uv-managed Python 3.13 virtualenv: use uv when pip is absent.
+# Never install "terminal-rsi" from the package registry; it is in this repo.
+needed = [name for name in ("numpy", "zstandard")
+          if importlib.util.find_spec(name) is None]
+if needed:
+    installer = (["uv", "pip", "install", "--python", sys.executable, *needed]
+                 if shutil.which("uv")
+                 else [sys.executable, "-m", "pip", "install", *needed])
+    subprocess.run(installer, check=True)
+
+if importlib.util.find_spec("torch") is None:
+    raise RuntimeError("Add 'torch' to Molab's package list first; preserve its Blackwell CUDA build")
 subprocess.run([sys.executable, "-c", "import torch; print('PyTorch:', torch.__version__)"], check=True)
 
 subprocess.run(
