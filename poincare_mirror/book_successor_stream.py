@@ -113,6 +113,14 @@ class CausalBookSuccessor:
             self._install(at,old_pairs,old_byte,old_previous,observed_byte)
         earliest=max(0,t-self.horizon)
         self._expire(earliest)
+        result=self._read_current(observed_byte,pairs,earliest)
+        self.pending=(t,pairs[:],observed_byte,self.last_input)
+        self.last_input=observed_byte
+        self.position+=1
+        return result
+
+    def _read_current(self,observed_byte,pairs,earliest):
+        """Shared strictly causal query for +1, +2 and +3 histories."""
         query_byte=(self.query_byte_map[observed_byte]
                     if self.query_byte_map is not None else observed_byte)
         query_prev=self.last_input
@@ -152,9 +160,6 @@ class CausalBookSuccessor:
                     hist[value]+=amount
             hist/=hist.sum()
         hist=hist.to(torch.float32)
-        self.pending=(t,pairs[:],observed_byte,self.last_input)
-        self.last_input=observed_byte
-        self.position+=1
         return hist,coverage,float(len(positions))
 
     def read_chunk(self,book_id,observed,pairs):
@@ -208,3 +213,56 @@ class CausalBookSuccessor:
         self.position=state["position"]
         self.pending=state["pending"]
         self.last_input=state["last_input"]
+
+
+class CausalLagBookSuccessor(CausalBookSuccessor):
+    """Causal historical +2/+3 successors under the SAME geometric keys.
+
+    A source at s becomes readable only when the true x[s+lag] has appeared
+    in the past or current input, never from a future label.
+    """
+    def __init__(self, *, lag, **kwargs):
+        if lag not in (2,3):
+            raise ValueError('Lagged book recall supports +2 and +3 only')
+        super().__init__(**kwargs)
+        self.lag=lag
+        self.awaiting=deque()
+
+    def begin_book(self,book_id):
+        super().begin_book(book_id)
+        self.awaiting=deque()
+
+    def step(self,book_id,observed_byte,pair_ids):
+        if self.book_id is None or str(book_id)!=self.book_id:
+            raise ValueError('Begin requested book before lagged retrieval')
+        if not isinstance(observed_byte,int) or not 0<=observed_byte<self.vocab:
+            raise ValueError('Current observed byte outside vocabulary')
+        pairs=pair_ids.tolist() if torch.is_tensor(pair_ids) else list(pair_ids)
+        if not pairs or any(not isinstance(p,int) or not 0<=p<32640 for p in pairs):
+            raise ValueError('Need valid canonical pair addresses')
+        t=self.position
+        if len(self.awaiting)==self.lag:
+            at,old_pairs,old_byte,old_prev=self.awaiting.popleft()
+            if at!=t-self.lag:
+                raise AssertionError('Lagged episode matured at wrong timestep')
+            self._install(at,old_pairs,old_byte,old_prev,observed_byte)
+        earliest=max(0,t-self.horizon)
+        self._expire(earliest)
+        result=self._read_current(observed_byte,pairs,earliest)
+        self.awaiting.append((t,pairs[:],observed_byte,self.last_input))
+        self.last_input=observed_byte
+        self.position+=1
+        return result
+
+    def state_dict(self):
+        state=super().state_dict()
+        state.update(lag=self.lag,awaiting=list(self.awaiting))
+        return state
+
+    def load_state_dict(self,state):
+        if state.get('lag')!=self.lag:
+            raise ValueError('Lagged snapshot horizon mismatch')
+        super().load_state_dict(state)
+        self.awaiting=deque(state['awaiting'])
+        if len(self.awaiting)>self.lag:
+            raise ValueError('Too many pending lagged episodes')

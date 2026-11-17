@@ -207,6 +207,7 @@ class Config:
     pair_successor_joint: bool = False  # R59 causal compound (pair, observed-byte) content rail
     pair_successor_key_mode: str = "pair_byte"  # R60 exact-to-head backoff
     pair_successor_space_rank_guard: bool = False  # R67 conditional mass/rank safety
+    pair_successor_future: bool = False  # R69 delayed +2/+3 causal rail
     pair_successor_engine: str = "vectorized"  # R61 optional indexed causal CPU execution
 
     def check(self):
@@ -247,6 +248,7 @@ class Config:
         assert not self.pair_successor_copy or (self.symbiotic_rank and self.simplex_transfer)
         assert not self.pair_successor_conditional or self.pair_successor_copy
         assert not self.pair_successor_joint or self.pair_successor_conditional
+        assert not self.pair_successor_future or self.pair_successor_joint
         assert self.pair_successor_key_mode in ("pair_byte","pair_bigram",
                                                 "head_byte","hierarchical")
         assert self.pair_successor_engine in ("vectorized","indexed")
@@ -1309,7 +1311,8 @@ class MirrorLM(nn.Module):
         self.head.weight = self.embed.weight  # a single shared vocabulary head
         self.pair_successor = (PairSuccessorTrust(
             conditional_content=cfg.pair_successor_conditional,
-            joint_content=cfg.pair_successor_joint)
+            joint_content=cfg.pair_successor_joint,
+            future_content=cfg.pair_successor_future)
             if cfg.pair_successor_copy else None)
         if self.pair_successor is not None:
             self.pair_successor.joint_key_mode = cfg.pair_successor_key_mode
@@ -1392,6 +1395,20 @@ class MirrorLM(nn.Module):
             optimizer.param_groups[0]["params"].append(parameter)
         return parameter
 
+    def enable_future_pair_successor(self, optimizer=None):
+        """R69: append only eight future weights to the original FA2 AdamW."""
+        if self.pair_successor is None or not self.cfg.pair_successor_joint:
+            raise ValueError('R69 needs the unified R68 compound memory')
+        if self.cfg.pair_successor_future:
+            raise ValueError('Future successor already enabled')
+        if optimizer is not None and len(optimizer.param_groups)!=1:
+            raise ValueError('R69 requires one optimizer group')
+        parameter=self.pair_successor.enable_future_content()
+        self.cfg.pair_successor_future=True
+        if optimizer is not None:
+            optimizer.param_groups[0]['params'].append(parameter)
+        return parameter
+
     @staticmethod
     def _init(m):
         if isinstance(m, (nn.Linear, nn.Embedding)):
@@ -1472,7 +1489,8 @@ class MirrorLM(nn.Module):
                         self.cfg.holonomy_aux_weight*metrics['holonomy_aux_ce'])
         return logits, h, metrics
 
-    def future_logits(self, h, disable_temporal=False):
+    def future_logits(self, h, disable_temporal=False,
+                      future_memory_override=None):
         """Predict t+2 and t+3 from the SAME causal NOW representation.
 
         offset: original, constant horizon vectors (v24 compatibility).
@@ -1482,22 +1500,28 @@ class MirrorLM(nn.Module):
         than a proven long-range forecaster.
         """
         if disable_temporal:
-            return self.head(h), self.head(h)
-        if self.cfg.future_mode == 'isolated':
-            return self.future_adapter(h, self.embed.weight)
-        if self.cfg.future_mode == 'offset':
-            return (self.head(h + self.future_offsets[0]),
-                    self.head(h + self.future_offsets[1]))
-        block = self.blocks[self.cfg.future_block_index]
-        state = h
-        outputs = []
-        for _ in range(2):
-            update = block.ff(block.n2(state))
-            if block.use_moe:
-                update = update[0]
-            state = self.norm(state + update)
-            outputs.append(self.head(state))
-        return outputs[0], outputs[1]
+            pair=(self.head(h),self.head(h))
+        elif self.cfg.future_mode == 'isolated':
+            pair=self.future_adapter(h,self.embed.weight)
+        elif self.cfg.future_mode == 'offset':
+            pair=(self.head(h+self.future_offsets[0]),
+                  self.head(h+self.future_offsets[1]))
+        else:
+            block=self.blocks[self.cfg.future_block_index]
+            state=h
+            outputs=[]
+            for _ in range(2):
+                update=block.ff(block.n2(state))
+                if block.use_moe:
+                    update=update[0]
+                state=self.norm(state+update)
+                outputs.append(self.head(state))
+            pair=tuple(outputs)
+        if future_memory_override is not None:
+            if self.pair_successor is None or not self.cfg.pair_successor_future:
+                raise ValueError('Future memory provided before R69 migration')
+            return self.pair_successor.future_forward(pair,future_memory_override)
+        return pair
 
     def loss_with_future(self, ids, nonspace_weight=1.0, return_next_logits=False):
         # ids has shape [B, context+3]. No label bytes enter the model input.

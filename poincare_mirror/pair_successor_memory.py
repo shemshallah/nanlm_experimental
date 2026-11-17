@@ -141,7 +141,7 @@ class PairSuccessorTrust(nn.Module):
     general trust rail and its Adam moments remain unchanged.
     """
     def __init__(self, horizon=32, smoothing=0.10, conditional_content=False,
-                 joint_content=False):
+                 joint_content=False, future_content=False):
         super().__init__()
         if horizon < 1 or not 0.0 < smoothing < 1.0:
             raise ValueError("Invalid local memory settings")
@@ -152,6 +152,8 @@ class PairSuccessorTrust(nn.Module):
                                 nn.Parameter(torch.zeros(4)) if conditional_content else None)
         self.register_parameter('joint_weight',
                                 nn.Parameter(torch.zeros(4)) if joint_content else None)
+        self.register_parameter('future_weight',
+                                nn.Parameter(torch.zeros(2,4)) if future_content else None)
         self.horizon = horizon
         self.smoothing = smoothing
         self.query_map = None
@@ -180,6 +182,57 @@ class PairSuccessorTrust(nn.Module):
             raise ValueError("R59 joint rail already enabled")
         self.joint_weight = nn.Parameter(torch.zeros_like(self.weight.detach()))
         return self.joint_weight
+
+    def enable_future_content(self):
+        """R69: two zero-initialized temporal rails in this SAME module."""
+        if self.joint_weight is None or self.future_weight is not None:
+            raise ValueError('Future recall requires the original compound rail')
+        self.future_weight=nn.Parameter(torch.zeros(2,4,device=self.joint_weight.device,
+                                                    dtype=self.joint_weight.dtype))
+        return self.future_weight
+
+    def future_forward(self,future_logits,history):
+        """Causal +2/+3 conditional byte correction with protected mass.
+
+        history=(hist2,cov2,hits2,hist3,cov3,hits3); each histogram only
+        contains source episodes whose lagged target was already observed.
+        A zero future_weight reproduces inherited future logits exactly.
+        """
+        if self.future_weight is None:
+            raise ValueError('R69 future memory is not enabled')
+        if len(history)!=6 or len(future_logits)!=2:
+            raise ValueError('Require both future logits and two causal histories')
+        corrected=[]
+        for index,base in enumerate(future_logits):
+            hist,cov,hits=history[3*index:3*index+3]
+            if (hist.shape!=base.shape or cov.shape!=base.shape[:2] or
+                    hits.shape!=base.shape[:2] or base.shape[-1]!=257):
+                raise ValueError('Misaligned causal future history')
+            if (not torch.isfinite(hist).all() or not torch.isfinite(cov).all() or
+                    not torch.isfinite(hits).all() or torch.any(hist<0) or
+                    torch.any(hist.sum(-1)>1.00001) or torch.any(cov<0) or
+                    torch.any(cov>1) or torch.any(hits<0)):
+                raise ValueError('Invalid causal future memory distribution')
+            with torch.no_grad():
+                smooth=(hist*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
+                evidence=smooth.log()+math.log(257)
+                entropy=-(hist*hist.clamp_min(1e-12).log()).sum(-1)/math.log(257)
+                agreement=(hist*base.detach().float().softmax(-1)).sum(-1)
+                features=torch.stack((cov,torch.log1p(hits)/math.log1p(self.horizon),
+                                      1-entropy,agreement),-1)
+            strength=torch.tanh((features.to(self.future_weight.dtype)*
+                                 self.future_weight[index]).sum(-1))*cov
+            mask=torch.ones(257,device=base.device,dtype=torch.bool)
+            mask[32]=False
+            mask[256]=False
+            before=base[...,mask]
+            proposed=before+(strength[...,None]*evidence[...,mask]).to(base.dtype)
+            offset=(torch.logsumexp(proposed.float(),-1,keepdim=True)-
+                    torch.logsumexp(before.float(),-1,keepdim=True))
+            output=base.clone()
+            output[...,mask]=proposed-offset.to(base.dtype)
+            corrected.append(output)
+        return tuple(corrected)
 
     def _read_features(self, pairs, observed, vocab, query_map, value_control,
                        baseline, key_mode="pair", query_byte_map=None):
