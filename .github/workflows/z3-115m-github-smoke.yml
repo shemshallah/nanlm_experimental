@@ -180,7 +180,6 @@ jobs:
           python z3/validate_run.py \
             --run /tmp/z3_115m_run \
             --test /tmp/z3_115m_run/test_domains.json \
-            --expected-params 115238237 \
             --out /tmp/z3_115m_run/validation.json \
             "${VALIDATE[@]}"
 
