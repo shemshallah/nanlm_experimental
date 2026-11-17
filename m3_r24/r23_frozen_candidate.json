@@ -1,0 +1,24 @@
+{
+  "candidate": "M3 R23 copy_only",
+  "parent": "M3 R21 default, exact original R16/R19/R20 weights",
+  "training_workflow_run": 43992588664,
+  "training_commit": "48699faa85ae391e00cb7f831b2482dba18b1cd3",
+  "training_artifact_id": 14287819821,
+  "training_artifact_sha256": "460ec009ebec0cacd23318bbbd2a10d228e5d9a8c40b550c4cc00509c502d8e8",
+  "selection": "copy_only",
+  "selection_source": "R23 FIT 188..203, GATE 204..207; DEV 208..219 was confirmation only",
+  "readout_theta": [1.0962571833587516, 0.0, 0.0, 0.0, 0.0],
+  "trained_torus_theta": [1.0962571833587516, -0.20550408648222243, -0.24807901412144703, 0.46694438880946587, -0.039747235564626913],
+  "adam_step": 1024,
+  "adam_m": [-0.014524603300736034, 0.0010928605321790308, 0.004387979898815054, -0.006411350152671325, -0.0007114004845912046],
+  "adam_v": [0.006661949690699794, 0.00013258539038756085, 0.000517814504219089, 0.0006173662969558309, 0.000025678811721346518],
+  "locked_test_indices": [220, 244],
+  "locked_test_requirements": {
+    "gain_bpb_positive": true,
+    "nonspace_gain_nonnegative": true,
+    "whole_book_bootstrap_lower_positive": true,
+    "wrong_value_control_worse": true,
+    "minimum_books_improved": 18
+  },
+  "default_promotion": "forbidden until locked TEST passes"
+}
