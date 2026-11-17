@@ -20,11 +20,19 @@ from train_r66_causal_book import cache_causal_book,train_joint_only
 
 
 def restore_joint_optimizer(model,saved):
-    """R66 appended joint_weight *last*: preserve that exact optimizer order."""
+    """Restore R54 -> R58 -> R66 appended migration ordering exactly.
+
+    Natural model registration places successor parameters near the output
+    head, but the historical Adam group appended these AFTER every inherited
+    backbone parameter at their separate migration steps.
+    """
     joint=model.pair_successor.joint_weight
-    if joint is None:
-        raise ValueError('Missing R66 joint parameter')
-    ordered=[p for p in model.parameters() if p is not joint]+[joint]
+    module=model.pair_successor
+    if joint is None or module.weight is None or module.content_weight is None:
+        raise ValueError('Missing inherited R54/R58/R66 successor parameters')
+    ordered=[p for name,p in model.named_parameters()
+             if not name.startswith('pair_successor.')]
+    ordered.extend((module.weight,module.content_weight,joint))
     optimizer=torch.optim.AdamW(ordered,lr=.001)
     optimizer.load_state_dict(saved['optimizer'])
     if len(optimizer.param_groups)!=1:

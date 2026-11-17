@@ -20,10 +20,12 @@ class HistoricalAdamOrderTests(unittest.TestCase):
         cfg=Config(dim=16,layers=2,heads=2,pairs=4,topk_pairs=1,
                    expert_hidden=16,context=16,moe_every=2,symbiotic_rank=8,
                    micro_meta=True,simplex_transfer=True,dispatch_mode='gather',
-                   balance_weight=0.,pair_successor_copy=True,
-                   pair_successor_conditional=True)
+                   balance_weight=0.,pair_successor_copy=False,
+                   pair_successor_conditional=False)
         original=MirrorLM(cfg).eval()
         optim=torch.optim.AdamW(original.parameters(),lr=.001)
+        original.enable_pair_successor(optim)
+        original.enable_conditional_pair_successor(optim)
         original.enable_joint_pair_successor(optim,key_mode='hierarchical')
         tokens=torch.tensor(([65,32,66,67,68,32,65,66]*6)+[256],dtype=torch.long)
         records=cache_causal_book(original,tokens,'TRAIN:0',context=16,
