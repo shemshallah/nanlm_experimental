@@ -171,6 +171,23 @@ This is a wiring smoke, not a quality run. A GitHub-hosted CPU runner cannot
 train the 115M model to convergence; use a GPU/self-hosted runner for the real
 10k–20k step run.
 
+### 300-step CPU stability gate
+
+The same workflow accepts a longer run with an explicit feedback warmup:
+
+```sh
+gh workflow run z3-115m-github-smoke.yml \
+  -f steps=300 -f ctx=8 -f eval_every=50 -f best_every=50 \
+  -f feedback_warmup=50 -f require_feedback_open=true
+```
+
+`best_every=50` matches the evaluation cadence so `best.pt` is the best
+checkpoint, not the final step.  `--require-feedback-open` turns the
+`feedback_path_opened` warning into an error, so a run whose bus never opens
+fails the gate instead of passing silently.  The object gate is still reported
+separately; it is initialized at `sigmoid(-4) = 0.017986` and is not expected
+to reach the 0.05 promotion threshold in 300 steps.
+
 ## 8. One-command pipeline
 
 Once the corpora are downloaded:
