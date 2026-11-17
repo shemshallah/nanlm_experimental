@@ -27,7 +27,7 @@ from .build_fresh_dev import validate_fresh_dev
 from .legacy_v103_reference import (
     PARITY_CONTEXT, PARITY_SCHEMA, build_train_features, feature_manifest,
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
-    coverage_indices, terminal_feedback,
+    coverage_indices, co_prime_stride, terminal_feedback,
 )
 from .unified import PRESETS, device_for
 from .verbatim_metrics import byte_metrics_wrapped
@@ -160,7 +160,11 @@ def verify_parent_source(source: dict, raw: bytes, ranks_path: Path,
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mode", choices=PRESETS, default="cpu")
-    p.add_argument("--legacy-checkpoint", type=Path, required=True)
+    p.add_argument("--legacy-checkpoint", type=Path)
+    p.add_argument("--fresh-start", action="store_true",
+                   help="Explicit disposable CPU bootstrap from original v103 architecture, no inherited weights")
+    p.add_argument("--seed", type=int, default=2026,
+                   help="Deterministic from-scratch initialization; ignored by resumed checkpoints")
     p.add_argument("--resume", type=Path, help="Resume exact-mode unified candidate with all Adam/RSI state")
     p.add_argument("--train-stream", type=Path, required=True)
     p.add_argument("--bpe-merges", type=Path, required=True)
@@ -191,7 +195,9 @@ def main(argv=None):
         p.error("Choose --updates OR --seconds, not both")
     if args.mode == "cpu":
         torch.set_num_threads(args.cpu_threads)
-    if args.output.resolve() == args.legacy_checkpoint.resolve():
+    if args.fresh_start == (args.legacy_checkpoint is not None):
+        p.error("Choose exactly one: protected --legacy-checkpoint OR disposable --fresh-start")
+    if args.legacy_checkpoint and args.output.resolve() == args.legacy_checkpoint.resolve():
         p.error("Never overwrite the original trained v103 checkpoint")
     if args.output.exists() and (args.resume is None or args.output.resolve() != args.resume.resolve()):
         p.error("Destination exists; use --resume of that exact unified candidate")
@@ -199,7 +205,11 @@ def main(argv=None):
     upgrade_context = args.upgrade_context or PRESETS[args.mode].context
     if not 32 <= upgrade_context <= PRESETS[args.mode].context:
         p.error("Upgrade context must be >=32 and <= selected preset capacity")
-    source = torch.load(args.legacy_checkpoint, map_location="cpu", weights_only=True)
+    source = (torch.load(args.legacy_checkpoint, map_location="cpu", weights_only=True)
+              if args.legacy_checkpoint else None)
+    if args.fresh_start and not args.resume:
+        torch.manual_seed(args.seed)
+        random.seed(args.seed)
     raw = args.train_stream.read_bytes()
     ranks = read_bpe_ranks(args.bpe_merges)
     if not ranks:
@@ -213,7 +223,8 @@ def main(argv=None):
     if heldout is None:
         raise RuntimeError("Book-disjoint DEV cannot be omitted")
     dev, dev_digest = heldout
-    historical_dev_digest = (source.get("holdout_digests") or {}).get("dev")
+    historical_dev_digest = ((source.get("holdout_digests") or {}).get("dev")
+                             if source is not None else None)
     using_new_dev = historical_dev_digest != dev_digest
     fresh_dev_metadata = None
     if args.dev_manifest:
@@ -226,9 +237,13 @@ def main(argv=None):
         raise ValueError("Different DEV requires explicit --dev-manifest with verified contents")
     if using_new_dev and args.reference_full256:
         raise ValueError("Historic frozen C full256 positions cannot score a NEW DEV")
-    sampler = verify_parent_source(
+    sampler = (verify_parent_source(
         source, raw, args.bpe_merges, manifest, dev_digest,
         explicit_new_dev=fresh_dev_metadata is not None)
+        if source is not None else
+        {"schema": "full-cycle-affine-v1", "cursor": 0,
+         "stride": co_prime_stride(len(raw) - PARITY_CONTEXT, args.seed),
+         "train_positions": len(raw) - PARITY_CONTEXT})
     # CPU-resident features avoid filling 96GB GPU memory with 10M × 6 fields.
     train_data, _ = make_windows(raw, torch.device("cpu"), train_all=True,
                                  history=PARITY_CONTEXT)
@@ -239,7 +254,11 @@ def main(argv=None):
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
     optimizer = build_v103_optimizer(model)
-    provenance = restore_v103_parent(args.legacy_checkpoint, model, optimizer)
+    provenance = (restore_v103_parent(args.legacy_checkpoint, model, optimizer)
+                  if source is not None else
+                  {"legacy_step": 0, "legacy_checkpoint_sha256": None,
+                   "fresh_start_untrained_v103": True,
+                   "original_optimizer_histories_inherited": False})
     dev_local = None
     if model.original.causal_copy_enabled:
         # The original read-only local-copy specialist must receive true
@@ -270,7 +289,7 @@ def main(argv=None):
                        "original_two_adam_groups": [g["lr"] for g in optimizer.param_groups[:2]],
                        "fresh_dev_manifest_sha256": (hashlib.sha256(args.dev_manifest.read_bytes()).hexdigest()
                                                      if args.dev_manifest else None)})
-    step = int(source["steps"])
+    step = int(source["steps"]) if source is not None else 0
     events = []
     if args.resume:
         resumed = resume_combined(args.resume, model, optimizer,
@@ -290,7 +309,7 @@ def main(argv=None):
             torch.cuda.set_rng_state_all(state["cuda_rng"])
         random.setstate(state["python_rng"])
         print("Exact unified RSI checkpoint resumed at", step)
-    else:
+    elif source is not None:
         if "torch_rng" in source:
             torch.set_rng_state(source["torch_rng"])
         if device.type == "cuda" and source.get("cuda_rng"):
@@ -347,7 +366,8 @@ def main(argv=None):
                "dev_probes": len(probes),
                "topk_probes": min(args.topk_probes, len(probes)),
                "legacy_step": provenance["legacy_step"],
-               "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"])),
+               "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"]) if source else 0),
+               "fresh_start_untrained_v103": provenance.get("fresh_start_untrained_v103", False),
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
