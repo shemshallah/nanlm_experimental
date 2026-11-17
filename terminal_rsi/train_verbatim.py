@@ -12,6 +12,7 @@ independent-book NaNCM-format DEV. No synthetic fallback / unmatched DEV BPB.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -31,6 +32,10 @@ from .legacy_v103_reference import (
 )
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
+from .rsi_v4 import (
+    Action, BranchSnapshot, FastStateSnapshot, ProbeShards, RSIv4Config,
+    RSIv4Controller, probe_noise_audit,
+)
 from .champion_guard import consider_candidate
 from .verbatim_metrics import byte_metrics_wrapped
 from .legacy_v103_local_copy import book_local_features
@@ -52,20 +57,24 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
 
 
 def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
-                    target: torch.Tensor, aux: torch.Tensor):
+                    target: torch.Tensor, aux: torch.Tensor,
+                    grad_clip: float = 1.0):
     """One identical v103 observe AFTER optimizer step, RSI critic AFTER that."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
+    if not math.isfinite(grad_clip) or grad_clip <= 0:
+        raise ValueError("Gradient clip must be finite and positive")
     model.train()
     logits, bits = model(history, target, aux)
     loss, bpb, accuracy = score_byte_observations(logits, bits)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
-    nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
     model.original.observe_online_bits(history[:, -32:], target, aux)
     model.observe_verified_byte(bpb, accuracy)
-    return {"bpb": bpb, "bit_accuracy": accuracy}
+    return {"bpb": bpb, "bit_accuracy": accuracy,
+            "grad_norm": grad_norm, "grad_clip": grad_clip}
 
 
 def finish_rsi_round(model: VerbatimV103RSI, optimizer):
@@ -183,11 +192,40 @@ def main(argv=None):
                    help="Optional wall-clock budget; cannot combine with --updates")
     p.add_argument("--updates", type=int,
                    help="Exact number of optimizer updates, e.g. 1000 on CPU; independent of speed")
-    p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4), default=2,
-                   help="CPU worker math threads: 1, 2 or 4; for GitHub/Molab")
+    p.add_argument("--progress-every", type=int, default=10,
+                   help="Emit compact step + RSI self-modification stats every N updates")
+    p.add_argument("--save-every", type=int, default=0,
+                   help="Write a rolling recoverable checkpoint every N kept updates; 0=final only")
+    p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=2,
+                   help="CPU worker math threads: 1, 2, 4, 8 or 16; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
+    p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
+                   help="RSI controller: legacy v3 gate bandit, v4 counterfactual branch controller, or off")
+    p.add_argument("--rsi-v4-cycle-updates", type=int, default=200,
+                   help="Run a v4 counterfactual branching cycle every N kept updates")
+    p.add_argument("--rsi-v4-horizon", type=int, default=10,
+                   help="Real training updates per v4 branch")
+    p.add_argument("--rsi-v4-candidates", type=int, default=2,
+                   help="Number of proposed v4 branches per cycle (plus no-op)")
+    p.add_argument("--rsi-v4-shards", type=int, default=4,
+                   help="Disjoint internal TRAIN probe shards per v4 decision")
+    p.add_argument("--rsi-v4-shard-positions", type=int, default=256,
+                   help="Target bytes per v4 probe shard")
+    p.add_argument("--rsi-v4-eval-chunk", type=int, default=8,
+                   help="Mini-batch size for CPU probe evaluation; small is faster")
+    p.add_argument("--rsi-holdout-stream", type=Path,
+                   help="Book-disjoint raw bytes reserved only for RSI probes")
+    p.add_argument("--rsi-v4-min-gain", type=float, default=0.01,
+                   help="Minimum paired BPB gain for a v4 branch to be accepted")
+    p.add_argument("--rsi-v4-z", type=float, default=2.0,
+                   help="Paired standard-error multiplier for v4 acceptance")
+    p.add_argument("--rsi-v4-meta", type=Path,
+                   help="Optional v4 meta/replay JSON from a previous run")
+    p.add_argument("--rsi-v4-critic-steps", type=int, default=32)
+    p.add_argument("--rsi-v4-policy-steps", type=int, default=16)
+    p.add_argument("--rsi-v4-entropy", type=float, default=0.01)
     p.add_argument("--legacy-terminal-demo", action="store_true",
                    help="Diagnostic ONLY: replay v103 fixed shell reward (+1/-1); never use to optimize low BPB")
     p.add_argument("--rsi-probe-positions", type=int, default=8,
@@ -203,13 +241,32 @@ def main(argv=None):
                    help="Optional original C 256-probability oracle (matched SHA)")
     args = p.parse_args(argv)
     if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
-            or args.topk_probes < 1 or (args.updates is not None and args.updates < 0)):
-        p.error("Nonnegative seconds/updates and positive batch/dev/topk sample required")
+            or args.topk_probes < 1 or args.progress_every < 1
+            or args.save_every < 0
+            or (args.updates is not None and args.updates < 0)):
+        p.error("Nonnegative seconds/updates and positive batch/dev/topk/progress sample required")
     if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
             or not math.isfinite(args.rsi_min_bpb_gain) or args.rsi_min_bpb_gain <= 0):
         p.error("RSI cycle >=0, probe count positive, and minimum BPB gain finite and positive required")
     if args.updates is not None and args.seconds > 0:
         p.error("Choose --updates OR --seconds, not both")
+    if args.rsi_version == "v4":
+        if (args.rsi_v4_cycle_updates < 1 or args.rsi_v4_horizon < 1
+                or args.rsi_v4_candidates < 0 or args.rsi_v4_shards < 1
+                or args.rsi_v4_shard_positions < 1
+                or not math.isfinite(args.rsi_v4_min_gain)
+                or args.rsi_v4_min_gain < 0
+                or not math.isfinite(args.rsi_v4_z) or args.rsi_v4_z < 0
+                or args.rsi_v4_critic_steps < 0 or args.rsi_v4_policy_steps < 0
+                or not math.isfinite(args.rsi_v4_entropy) or args.rsi_v4_entropy < 0):
+            p.error("v4 needs positive cycle/horizon/shards/positions and finite nonnegative thresholds")
+        if args.rsi_v4_eval_chunk < 1:
+            p.error("v4 probe evaluation chunk must be positive")
+        if args.rsi_holdout_stream and not args.rsi_holdout_stream.is_file():
+            p.error("RSI holdout stream does not exist")
+    if args.rsi_version != "v3":
+        # v4 owns the loop directly; v3's fixed gate builder must not also run.
+        args.rsi_cycle_updates = 0
     if args.mode == "cpu":
         torch.set_num_threads(args.cpu_threads)
     if args.fresh_start == (args.legacy_checkpoint is not None):
@@ -370,6 +427,73 @@ def main(argv=None):
         print("RSI self-construction CORE enabled:", rsi_builder.state_dict(), flush=True)
     elif args.resume and resumed["rng"].get("rsi_self_builder"):
         raise ValueError("Cannot disable inherited RSI core without explicit migration")
+    v4_controller = None
+    if args.rsi_version == "v4":
+        probe_raw = raw_tensor
+        probe_aux = aux_data
+        probe_source = "full TRAIN stream"
+        if args.rsi_holdout_stream:
+            holdout_raw = args.rsi_holdout_stream.read_bytes()
+            if len(holdout_raw) < (args.rsi_v4_shards * args.rsi_v4_shard_positions
+                                   + upgrade_context + 2):
+                raise ValueError("RSI holdout stream is too short for the requested probes")
+            holdout_features, _ = build_train_features(holdout_raw, ranks)
+            probe_raw = torch.frombuffer(bytearray(holdout_raw), dtype=torch.uint8)
+            probe_aux = torch.from_numpy(
+                holdout_features[PARITY_CONTEXT:].copy()).to(dtype=torch.int32)
+            probe_source = str(args.rsi_holdout_stream)
+            print(
+                "RSI-v4 probe source: book-disjoint holdout",
+                probe_source,
+                "bytes", len(holdout_raw),
+                "sha256", hashlib.sha256(holdout_raw).hexdigest()[:16],
+                flush=True,
+            )
+        probe = ProbeShards.build(
+            probe_raw, probe_aux,
+            n_shards=args.rsi_v4_shards,
+            positions_per_shard=args.rsi_v4_shard_positions,
+            history=upgrade_context, seed=args.seed,
+        )
+        v4_config = RSIv4Config(
+            cycle_updates=args.rsi_v4_cycle_updates,
+            horizon=args.rsi_v4_horizon,
+            candidates=args.rsi_v4_candidates,
+            n_shards=args.rsi_v4_shards,
+            positions_per_shard=args.rsi_v4_shard_positions,
+            eval_chunk=args.rsi_v4_eval_chunk,
+            min_gain=args.rsi_v4_min_gain,
+            z_score=args.rsi_v4_z,
+            batch_size=args.batch,
+            grad_clip=1.0,
+            seed=args.seed,
+            critic_steps=args.rsi_v4_critic_steps,
+            policy_steps=args.rsi_v4_policy_steps,
+            entropy_coef=args.rsi_v4_entropy,
+            target_updates=args.updates or 0,
+        )
+        v4_controller = RSIv4Controller(
+            model, optimizer, probe, v4_config, device=device,
+            meta_path=args.rsi_v4_meta,
+        )
+        if args.resume and resumed["rng"].get("rsi_v4"):
+            v4_controller.load_state_dict(resumed["rng"]["rsi_v4"])
+            model.upgrades.router_temperature = float(
+                v4_controller.current_action.values()["router_temperature"])
+        print(
+            "RSI-v4 controller enabled:",
+            json.dumps({
+                "cycle_updates": v4_config.cycle_updates,
+                "horizon": v4_config.horizon,
+                "candidates": v4_config.candidates,
+                "shards": v4_config.n_shards,
+                "positions_per_shard": v4_config.positions_per_shard,
+                "min_gain": v4_config.min_gain,
+                "z_score": v4_config.z_score,
+                "meta_path": str(args.rsi_v4_meta) if args.rsi_v4_meta else None,
+            }, sort_keys=True),
+            flush=True,
+        )
     before = byte_metrics_wrapped(model, probes, n=None,
                                   topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                   local=probe_local)
@@ -380,29 +504,174 @@ def main(argv=None):
         if args.reference_full256 else None)
     if c256_before is not None:
         print("Original C full256 numerical parity BEFORE:", c256_before)
+
+    last_saved_update = 0
+
+    def save_rolling():
+        nonlocal last_saved_update
+        provenance["sampler"] = sampler
+        save_combined(
+            args.output, model, optimizer, step, provenance, events,
+            training_state={
+                "sampler": sampler,
+                "torch_rng": torch.get_rng_state(),
+                "cuda_rng": (torch.cuda.get_rng_state_all()
+                             if torch.cuda.is_available() else []),
+                "python_rng": random.getstate(),
+                "rsi_self_builder": (rsi_builder.state_dict()
+                                     if rsi_builder else None),
+                "rsi_v4": (v4_controller.state_dict()
+                           if v4_controller is not None else None),
+            })
+        last_saved_update = update_count
+        print("ROLLING CHECKPOINT", args.output, "step", step,
+              "update", update_count, flush=True)
     clock = time.monotonic()
     update_count = 0
+
+    def capture_v4_branch() -> BranchSnapshot:
+        action = (v4_controller.current_action.as_tuple()
+                  if v4_controller is not None else Action.neutral().as_tuple())
+        state = (v4_controller.capture_state()
+                 if v4_controller is not None else None)
+        return BranchSnapshot(
+            model=state,
+            optimizer=None,
+            sampler=dict(sampler),
+            torch_rng=torch.get_rng_state().clone(),
+            python_rng=random.getstate(),
+            cuda_rng=(torch.cuda.get_rng_state_all()
+                      if device.type == "cuda" else []),
+            step=step,
+            update_count=update_count,
+            training=model.training,
+            action=action,
+            batch_size=(v4_controller.batch_size
+                        if v4_controller is not None else args.batch),
+            grad_clip=(v4_controller.grad_clip
+                       if v4_controller is not None else 1.0),
+        )
+
+    def restore_v4_branch(snapshot: BranchSnapshot) -> None:
+        nonlocal step, update_count
+        if isinstance(snapshot.model, FastStateSnapshot):
+            v4_controller.restore_state(snapshot.model)
+        else:
+            model.load_state_dict(snapshot.model)
+            optimizer.load_state_dict(snapshot.optimizer)
+        sampler.clear()
+        sampler.update(snapshot.sampler)
+        torch.set_rng_state(snapshot.torch_rng)
+        random.setstate(snapshot.python_rng)
+        if device.type == "cuda" and snapshot.cuda_rng:
+            torch.cuda.set_rng_state_all(snapshot.cuda_rng)
+        step = snapshot.step
+        update_count = snapshot.update_count
+        model.train(snapshot.training)
+        if v4_controller is not None:
+            v4_controller.restore_action_state(
+                snapshot.action, snapshot.batch_size, snapshot.grad_clip)
+            model.upgrades.router_temperature = float(
+                v4_controller.current_action.values()["router_temperature"])
+
+    def train_updates(updates: int) -> list[dict]:
+        nonlocal step, update_count
+        reports = []
+        batch = v4_controller.batch_size if v4_controller is not None else args.batch
+        clip = v4_controller.grad_clip if v4_controller is not None else 1.0
+        for _ in range(updates):
+            indices = coverage_indices(
+                sampler["cursor"], batch, len(train_data),
+                sampler["stride"], torch.device("cpu"))
+            sample = build_causal_contexts(
+                raw_tensor, indices + PARITY_CONTEXT,
+                upgrade_context).to(device)
+            sample_aux = aux_data[indices].to(device=device)
+            if rsi_builder is not None:
+                report = rsi_builder.train_step(
+                    train_one_batch, sample[:, :-1], sample[:, -1], sample_aux)
+            else:
+                report = train_one_batch(
+                    model, optimizer, sample[:, :-1], sample[:, -1],
+                    sample_aux, grad_clip=clip)
+            sampler["cursor"] += batch
+            step += 1
+            update_count += 1
+            reports.append(report)
+        return reports
+
+    def evaluate_v4_branch() -> list[float]:
+        if v4_controller is None:
+            return []
+        return v4_controller.probe.evaluate(
+            model, chunk_size=v4_controller.config.eval_chunk)
+
     while ((update_count < args.updates) if args.updates is not None
            else (time.monotonic() - clock < args.seconds)):
-        indices = coverage_indices(sampler["cursor"], args.batch,
-                                   len(train_data), sampler["stride"],
-                                   torch.device("cpu"))
-        sample = build_causal_contexts(raw_tensor, indices + PARITY_CONTEXT,
-                                       upgrade_context).to(device)
-        sample_aux = aux_data[indices].to(device=device)
-        report = (rsi_builder.train_step(train_one_batch, sample[:, :-1],
-                                        sample[:, -1], sample_aux)
-                  if rsi_builder is not None else
-                  train_one_batch(model, optimizer, sample[:, :-1],
-                                  sample[:, -1], sample_aux))
-        sampler["cursor"] += args.batch
-        step += 1
-        update_count += 1
-        if step % 50 == 0:
-            print("RSI step", step, "train", report, flush=True)
+        if v4_controller is not None:
+            remaining = ((args.updates - update_count)
+                         if args.updates is not None else 10 ** 9)
+            if v4_controller.should_cycle(step, remaining):
+                v4_controller.run_cycle(
+                    capture=capture_v4_branch,
+                    restore=restore_v4_branch,
+                    train=train_updates,
+                    evaluate=evaluate_v4_branch,
+                    step=step,
+                )
+                continue
+        report = train_updates(1)[0]
+        if v4_controller is not None:
+            elapsed = time.monotonic() - clock
+            v4_controller.observe(
+                report, step=step,
+                updates_per_second=update_count / max(elapsed, 1e-9))
+        if args.save_every and update_count - last_saved_update >= args.save_every:
+            save_rolling()
+        if update_count % args.progress_every == 0 or (
+                args.updates is not None and update_count == args.updates):
+            elapsed = time.monotonic() - clock
+            rate = update_count / max(elapsed, 1e-9)
+            eta_rate = rate
+            if v4_controller is not None:
+                compute_done = update_count + v4_controller.branch_updates
+                eta_rate = compute_done / max(elapsed, 1e-9)
+            if args.updates:
+                percent = 100.0 * update_count / args.updates
+                eta_seconds = max(0.0, (args.updates - update_count) / max(eta_rate, 1e-9))
+                progress = (f"round={update_count}/{args.updates} ({percent:.1f}%) "
+                            f"eta={eta_seconds:.0f}s")
+            else:
+                progress = (f"round={update_count} elapsed={elapsed:.0f}s/"
+                            f"{args.seconds:.0f}s")
+            if v4_controller is not None:
+                rsi_text = (
+                    f"RSI-v4 cycles={v4_controller.cycles} "
+                    f"proposals={v4_controller.proposals} "
+                    f"accepted={v4_controller.accepted} "
+                    f"rejected={v4_controller.rejected} "
+                    f"branch_updates={v4_controller.branch_updates} "
+                    f"compute={update_count + v4_controller.branch_updates} "
+                    f"action=[{v4_controller.current_action.label()}]")
+            elif rsi_builder is not None:
+                rsi_text = rsi_builder.progress_line()
+            else:
+                rsi_text = "RSI disabled"
+            print(
+                f"PROGRESS step={step} {progress} elapsed={elapsed:.1f}s "
+                f"rate={rate:.2f} upd/s train_bpb={report['bpb']:.6f} "
+                f"bit_acc={report['bit_accuracy']:.4f} | {rsi_text}",
+                flush=True,
+            )
     # Time ONLY the byte optimizer loop here. RSI feedback and held-out DEV
     # evaluation are reported separately; otherwise updates/s is misleading.
     training_duration_seconds = time.monotonic() - clock
+    if v4_controller is not None:
+        meta_file = args.output.parent / "rsi_v4_replay.json"
+        meta_pt = args.output.parent / "rsi_v4_meta.pt"
+        v4_controller.save_meta(meta_file)
+        v4_controller.save_meta(meta_pt)
+        print("RSI-v4 replay/meta saved:", meta_file, meta_pt, flush=True)
     # CRITICAL: v103's original terminal demo forcibly rewards a command
     # returning 'ready' with +1 and 'broken' with -1, regardless of byte BPB.
     # That reward is NOT aligned with low-BPB training and must never fire in
@@ -446,8 +715,21 @@ def main(argv=None):
                                         else "predictive_dual_train_bpb"),
                "legacy_terminal_demo_disabled": not args.legacy_terminal_demo,
                "rsi_self_construction": (rsi_builder.state_dict() if rsi_builder else None),
-               "rsi_mutations_verified": (rsi_builder.proposals if rsi_builder else 0),
-               "rsi_mutations_accepted": (rsi_builder.accepted if rsi_builder else 0),
+               "rsi_mutations_verified": ((rsi_builder.proposals if rsi_builder
+                                           else v4_controller.proposals
+                                           if v4_controller else 0)),
+               "rsi_mutations_accepted": ((rsi_builder.accepted if rsi_builder
+                                           else v4_controller.accepted
+                                           if v4_controller else 0)),
+               "rsi_version": args.rsi_version,
+               "rsi_v4": ({"cycles": v4_controller.cycles,
+                           "proposals": v4_controller.proposals,
+                           "accepted": v4_controller.accepted,
+                           "rejected": v4_controller.rejected,
+                           "branch_updates": v4_controller.branch_updates,
+                           "events": v4_controller.events,
+                           "config": v4_controller._config_state()}
+                          if v4_controller is not None else None),
                "book_disjoint_dev_digest": dev_digest,
                "new_dev_books": fresh_dev_metadata["books"] if fresh_dev_metadata else None,
                "new_dev_scored_positions": fresh_dev_metadata["scored_positions"] if fresh_dev_metadata else None,
@@ -464,7 +746,9 @@ def main(argv=None):
                                   "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
                                   "python_rng": random.getstate(),
                                   "rsi_self_builder": (rsi_builder.state_dict()
-                                                       if rsi_builder else None)})
+                                                       if rsi_builder else None),
+                                  "rsi_v4": (v4_controller.state_dict()
+                                             if v4_controller is not None else None)})
     # Exact reload guard on CPU or GPU: no numerical reinterpretation on save.
     saved = torch.load(args.output, map_location="cpu", weights_only=True)
     if saved["schema"] != COMBINED_SCHEMA or saved["steps"] != step:

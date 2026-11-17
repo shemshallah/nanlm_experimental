@@ -173,6 +173,9 @@ class TerminalRSI(nn.Module):
         self.critic = nn.Sequential(RMSNorm(d), nn.Linear(d, d // 4), nn.SiLU(), nn.Linear(d // 4, 1))
         self.feedback = nn.Linear(2, d, bias=False)
         self.refine_scale = nn.Parameter(torch.tensor(-3.0))
+        # RSI-v4 intervention target.  This is deliberately a plain Python
+        # attribute, not a buffer, so old v103 checkpoints load unchanged.
+        self.router_temperature = 1.0
         with torch.no_grad():
             self.router.bias.copy_(torch.tensor([2.0, 0.0, 0.0, 0.0]))
             self.feedback.weight.zero_()
@@ -193,7 +196,9 @@ class TerminalRSI(nn.Module):
         route_entropies = []
         for r in range(rounds):
             basis = self.norm(h)
-            choice = F.softmax(self.router(basis).float(), dim=-1).to(h.dtype)
+            temperature = float(getattr(self, "router_temperature", 1.0))
+            choice = F.softmax(self.router(basis) / max(temperature, 1e-3),
+                               dim=-1).to(h.dtype)
             route_entropies.append(-(choice.float() * choice.float().clamp_min(1e-9).log()).sum(-1).mean())
             branches = [basis] + [expert(basis) for expert in self.specialists]
             mixed = sum(choice[..., j:j+1] * branches[j] for j in range(4))

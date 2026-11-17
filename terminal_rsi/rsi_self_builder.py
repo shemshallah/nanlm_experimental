@@ -158,6 +158,68 @@ class RSISelfBuilder:
         finally:
             self.model.train(was_training)
 
+    def stats(self) -> dict:
+        """Compact cumulative self-modification ledger for live logs."""
+        recent = self.events[-5:]
+        verified = [event for event in self.events if event["verified"]]
+        return {
+            "proposals": self.proposals,
+            "accepted": self.accepted,
+            "rejected": self.rejected,
+            "acceptance_rate": (self.accepted / self.proposals) if self.proposals else 0.0,
+            "verified_bpb_gain_total": sum(
+                event["verified_bpb_gain"] for event in verified),
+            "verified_audit_gain_total": sum(
+                event["audit_bpb_gain"] for event in verified),
+            "mean_reward": (
+                sum(event["reward"] for event in self.events) / len(self.events)
+                if self.events else 0.0),
+            "arms_used": sum(1 for count in self.arm_counts if count),
+            "arm_counts": list(self.arm_counts),
+            "arm_rewards": list(self.arm_rewards),
+            "last": ({
+                "proposal": recent[-1]["proposal"],
+                "update": recent[-1]["update"],
+                "modification": recent[-1]["modification"],
+                "delta": recent[-1]["delta"],
+                "verified": recent[-1]["verified"],
+                "verified_bpb_gain": recent[-1]["verified_bpb_gain"],
+                "audit_bpb_gain": recent[-1]["audit_bpb_gain"],
+                "mean_bpb_gain": recent[-1]["mean_bpb_gain"],
+                "reward": recent[-1]["reward"],
+            } if recent else None),
+            "recent": [
+                {key: event[key] for key in (
+                    "proposal", "update", "modification", "delta", "verified",
+                    "verified_bpb_gain", "audit_bpb_gain", "mean_bpb_gain",
+                    "reward")}
+                for event in recent
+            ],
+        }
+
+    def progress_line(self) -> str:
+        """One-line RSI self-modification summary for frequent progress logs."""
+        stats = self.stats()
+        last = stats["last"]
+        if last is None:
+            last_text = "last=none"
+        else:
+            last_text = (
+                f"last=#{last['proposal']}@{last['update']}:"
+                f"{last['modification']}{last['delta']:+.2f}:"
+                f"{'ACCEPT' if last['verified'] else 'reject'}:"
+                f"verif_gain={last['verified_bpb_gain']:+.6f}:"
+                f"audit_gain={last['audit_bpb_gain']:+.6f}")
+        return (
+            f"RSI proposals={stats['proposals']} "
+            f"accepted={stats['accepted']} rejected={stats['rejected']} "
+            f"accept_rate={100 * stats['acceptance_rate']:.1f}% "
+            f"verified_gain_sum={stats['verified_bpb_gain_total']:+.6f} "
+            f"audit_gain_sum={stats['verified_audit_gain_total']:+.6f} "
+            f"mean_reward={stats['mean_reward']:+.4f} "
+            f"arms={stats['arms_used']}/{len(ACTION_TABLE)} {last_text}"
+        )
+
     def select_arm(self, family: int) -> int:
         """Reward-adaptive sign/target choice with checkpointable exploration."""
         options = range(6) if family == 0 else range(6, len(ACTION_TABLE))
@@ -256,5 +318,15 @@ class RSISelfBuilder:
         self.total_updates += 1
         if self.total_updates % self.interval == 0:
             mutation = self.propose_and_verify()
-            print("RSI SELF-BUILD", mutation, flush=True)
+            print(
+                f"RSI SELF-BUILD #{self.proposals} at update {self.total_updates}: "
+                f"{mutation['modification']} {mutation['delta']:+.2f} "
+                f"{'ACCEPTED' if mutation['verified'] else 'REJECTED'} "
+                f"verif_gain={mutation['verified_bpb_gain']:+.6f} "
+                f"audit_gain={mutation['audit_bpb_gain']:+.6f} "
+                f"mean_gain={mutation['mean_bpb_gain']:+.6f} "
+                f"reward={mutation['reward']:+.4f} "
+                f"ledger={self.accepted}/{self.proposals} accepted",
+                flush=True,
+            )
         return report

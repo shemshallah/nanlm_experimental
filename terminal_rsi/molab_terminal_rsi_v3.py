@@ -26,13 +26,26 @@ def _():
 @app.cell
 def _(mo):
     mo.md(
-        """# Terminal-RSI v3 — 1,000 CPU updates
+        """# Terminal-RSI v4 — 1,000 CPU updates
 
         This is a **new** English-only, book-disjoint NaNROUTER experiment.
         It does not recover or overwrite the historical 1.33-BPB weights.
 
-        The RSI reward uses signed BPB improvement, two independent causal
-        TRAIN verification partitions and learned mutation directions.
+        Choose the controller:
+
+        - **v4** (recommended): telemetry-conditioned counterfactual branches.
+          Every N updates it snapshots the model, runs 2-3 real short branches
+          plus a no-op branch on the same data, scores 4 disjoint internal TRAIN
+          shards, and keeps the best branch only when the paired BPB gain beats
+          both a minimum and a paired standard-error threshold.  The v4 action
+          space includes LR multipliers, gradient clipping, weight decay,
+          residual/refinement gates, router temperature and batch size.
+        - **v3**: the previous fixed ±0.08 gate bandit, retained as a baseline.
+        - **off**: pure training, no RSI controller.
+
+        Live output prints a compact **PROGRESS** line every 10 byte updates
+        (step, percent, ETA, BPB, bit accuracy) plus the active RSI ledger.
+        v4 also prints one **RSI-V4 CYCLE/BRANCH/CHOSEN** line per decision.
 
         Press **Run** once. Training output is saved even if the notebook
         cannot select or copy its printed output.
@@ -46,11 +59,14 @@ def _(mo):
     cpu_cores = mo.ui.dropdown(
         options=["1", "2", "4"], value="4", label="CPU math threads"
     )
+    rsi_mode = mo.ui.dropdown(
+        options=["v4", "v3", "off"], value="v4", label="RSI controller"
+    )
     launch = mo.ui.run_button(
         label="Run 1,000 CPU updates and save downloads", kind="success"
     )
-    mo.vstack([cpu_cores, launch])
-    return (cpu_cores, launch)
+    mo.vstack([cpu_cores, rsi_mode, launch])
+    return (cpu_cores, rsi_mode, launch)
 
 
 @app.cell
@@ -60,7 +76,7 @@ def _(mo):
 
 
 @app.cell
-def _(cpu_cores, launch, mo, set_run_result):
+def _(cpu_cores, launch, mo, rsi_mode, set_run_result):
     mo.stop(not launch.value)
 
     def run_training():
@@ -79,7 +95,8 @@ def _(cpu_cores, launch, mo, set_run_result):
         else:
             repo = Path.cwd() / "nanlm_experimental"
 
-        run_name = datetime.now(timezone.utc).strftime("cpu_v3_%Y%m%dT%H%M%S_%fZ")
+        run_name = datetime.now(timezone.utc).strftime(
+            "rsi_" + str(rsi_mode.value) + "_%Y%m%dT%H%M%S_%fZ")
         # Reserve output independently from the repo so an early bootstrap
         # failure still leaves a downloadable diagnostic log.
         output = Path.cwd() / "terminal_rsi_molab_runs" / run_name
@@ -138,6 +155,15 @@ def _(cpu_cores, launch, mo, set_run_result):
                 sys.executable, "-m", "terminal_rsi.run_molab_cpu_1000",
                 "--cpu-threads", str(cpu_cores.value), "--updates", "1000",
                 "--output-dir", str(output), "--topk-probes", "32",
+                "--progress-every", "10",
+                "--rsi-version", str(rsi_mode.value),
+                "--rsi-v4-cycle-updates", "100",
+                "--rsi-v4-horizon", "5",
+                "--rsi-v4-candidates", "2",
+                "--rsi-v4-shards", "4",
+                "--rsi-v4-shard-positions", "128",
+                "--rsi-v4-min-gain", "0.005",
+                "--rsi-v4-z", "2.0",
             ], cwd=str(repo))
             return {"path": str(output), "status": "completed"}
         except Exception as error:

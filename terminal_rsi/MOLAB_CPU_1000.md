@@ -2,6 +2,10 @@
 
 This is the **Terminal-RSI v103 implementation** in `terminal_rsi/` (not FA1, FA2, M3 or Poincare). The `--fresh-start` pilot uses the original v103 feature extraction, v103 Terminal-RSI feedback and unified additive path, but **does not inherit trained weights**. It produces a disposable checkpoint, not a promoted master model.
 
+**New:** `terminal_rsi/rsi_v4.py` is a counterfactual, cost-aware self-modification controller. It evaluates real short training branches against a no-op branch on disjoint internal TRAIN shards and accepts only statistically meaningful improvements. See [RSI_V4.md](RSI_V4.md). The Molab notebook now lets you choose `v4`, `v3`, or `off`; v3 remains the launcher default for compatibility.
+
+For long runs, see [CURRICULUM_LONG_RUN.md](CURRICULUM_LONG_RUN.md): a diverse difficulty-ordered curriculum, a book-disjoint RSI holdout, chunked CPU probe evaluation, rolling checkpoints, and a supervised 6-hour run.
+
 ## Molab Python 3.13 cells (recommended)
 
 **Do not add `terminal-rsi` to Molab's package/requirements list.** It is not a PyPI package. The program is in the GitHub repository. Remove `terminal-rsi` from that list first; list only installable packages such as `torch`, `numpy`, and `zstandard`.

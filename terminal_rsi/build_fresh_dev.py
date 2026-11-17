@@ -147,6 +147,7 @@ def build(*, corpus_dir: Path, train_stream: Path, output_dir: Path,
           skip: int = 512, seed: int = 103,
           train_book_ids: Path | None = None,
           sealed_test_book_ids: Path | None = None,
+          extra_excluded_book_ids: set[str] | None = None,
           source_release: str = "corpora-short-stories-0004") -> dict:
     if book_count < 1 or positions_per_book < 1 or skip < 32:
         raise ValueError("Positive book/position counts and >=32 warm-up required")
@@ -160,7 +161,7 @@ def build(*, corpus_dir: Path, train_stream: Path, output_dir: Path,
     train_digest = sha256(train)
     old_train_ids = read_ids(train_book_ids)
     old_test_ids = read_ids(sealed_test_book_ids)
-    excluded = old_train_ids | old_test_ids
+    excluded = old_train_ids | old_test_ids | set(extra_excluded_book_ids or ())
     sources = metadata(corpus_dir)
     by_id: dict[str, Path] = {}
     for path in sorted(corpus_dir.rglob("*.txt")):

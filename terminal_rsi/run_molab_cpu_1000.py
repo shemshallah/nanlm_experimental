@@ -94,8 +94,24 @@ def source_dir(artifacts: Path, supplied: Path | None):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4), default=4)
+    p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=4)
     p.add_argument("--updates", type=int, default=1000)
+    p.add_argument("--progress-every", type=int, default=10,
+                   help="Live step + RSI self-modification report interval")
+    p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
+                   help="RSI controller: v3 gate bandit, v4 counterfactual branching, or off")
+    p.add_argument("--rsi-v4-cycle-updates", type=int, default=200)
+    p.add_argument("--rsi-v4-horizon", type=int, default=10)
+    p.add_argument("--rsi-v4-candidates", type=int, default=2)
+    p.add_argument("--rsi-v4-shards", type=int, default=4)
+    p.add_argument("--rsi-v4-shard-positions", type=int, default=256)
+    p.add_argument("--rsi-v4-min-gain", type=float, default=0.01)
+    p.add_argument("--rsi-v4-z", type=float, default=2.0)
+    p.add_argument("--rsi-v4-meta", type=Path)
+    p.add_argument("--rsi-v4-eval-chunk", type=int, default=8)
+    p.add_argument("--rsi-holdout-books", type=int, default=4,
+                   help="Book-disjoint TRAIN books reserved for RSI probes")
+    p.add_argument("--rsi-holdout-chunk-bytes", type=int, default=65_536)
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--output-dir", type=Path, default=Path("terminal_rsi_cpu_1000_out"))
     p.add_argument("--corpus-dir", type=Path, help="Previously extracted official NaNROUTER batch 0004")
@@ -111,7 +127,9 @@ def main(argv=None):
     corpus = source_dir(output, args.corpus_dir)
     report = build_cpu_pilot(corpus_dir=corpus, output_dir=output,
                              train_bytes=args.train_bytes,
-                             dev_books=args.dev_books, dev_positions=1024, seed=103)
+                             dev_books=args.dev_books, dev_positions=1024, seed=103,
+                             rsi_holdout_books=args.rsi_holdout_books,
+                             rsi_holdout_chunk_bytes=args.rsi_holdout_chunk_bytes)
     print("Fresh English-only TRAIN/DEV:", json.dumps(report, indent=2), flush=True)
     candidate = output / "terminal_rsi_cpu_1000_candidate.pt"
     metrics = output / "terminal_rsi_cpu_1000_metrics.json"
@@ -128,7 +146,21 @@ def main(argv=None):
            "--max-dev-positions", str(args.max_dev_positions),
            "--topk-probes", str(args.topk_probes), "--upgrade-context", "256",
            "--rsi-probe-positions", "16",
+           "--progress-every", str(args.progress_every),
+           "--rsi-version", args.rsi_version,
+           "--rsi-v4-cycle-updates", str(args.rsi_v4_cycle_updates),
+           "--rsi-v4-horizon", str(args.rsi_v4_horizon),
+           "--rsi-v4-candidates", str(args.rsi_v4_candidates),
+           "--rsi-v4-shards", str(args.rsi_v4_shards),
+           "--rsi-v4-shard-positions", str(args.rsi_v4_shard_positions),
+           "--rsi-v4-min-gain", str(args.rsi_v4_min_gain),
+           "--rsi-v4-z", str(args.rsi_v4_z),
+           "--rsi-v4-eval-chunk", str(args.rsi_v4_eval_chunk),
+           *(["--rsi-v4-meta", str(args.rsi_v4_meta)] if args.rsi_v4_meta else []),
            "--champion-dir", str(output / "champions")]
+    holdout = output / "rsi_holdout.bin"
+    if args.rsi_holdout_books > 0 and holdout.is_file():
+        cmd += ["--rsi-holdout-stream", str(holdout)]
     print("Executing verified-BPB Terminal-RSI CPU run:", " ".join(cmd), flush=True)
     console = output / "terminal_rsi_cpu_1000_console.log"
     if console.exists():
@@ -156,6 +188,12 @@ def main(argv=None):
     print("RSI REWARD MODE:", receipt["terminal_reward_mode"], flush=True)
     print("RSI VERIFIED MUTATIONS:", receipt["rsi_mutations_verified"], flush=True)
     print("RSI ACCEPTED MUTATIONS:", receipt["rsi_mutations_accepted"], flush=True)
+    if receipt.get("rsi_v4"):
+        v4 = receipt["rsi_v4"]
+        print("RSI V4 CYCLES:", v4.get("cycles", 0), flush=True)
+        print("RSI V4 PROPOSALS:", v4.get("proposals", 0), flush=True)
+        print("RSI V4 ACCEPTED:", v4.get("accepted", 0), flush=True)
+        print("RSI V4 BRANCH UPDATES:", v4.get("branch_updates", 0), flush=True)
     print("Unpromoted candidate checkpoint:", candidate, flush=True)
     print("Benchmark receipt:", metrics, flush=True)
     bundle = create_download_bundle(output, receipt)
@@ -180,6 +218,8 @@ def create_download_bundle(output: Path, receipt: dict) -> Path:
         "champions/best.json",
     )
     sources = [output / name for name in names] + [checkpoint]
+    optional = [output / "rsi_v4_replay.json", output / "rsi_v4_meta.pt"]
+    sources += [path for path in optional if path.is_file()]
     for f in sources:
         if not f.is_file():
             raise ValueError(f"Missing recoverability input: {f}")
