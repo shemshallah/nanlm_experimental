@@ -82,8 +82,21 @@ were worse.  The higher LR is the clear winner: **-0.0425 test BPB and
 +0.93 top-1 points** versus the 2e-4 reference at essentially the same token
 budget.  The object gate remained closed (0.01993).
 
-The current recommended preset is therefore `kaggle10m_lr3e4`.  The next
-checks are a 600-step WSD decay at 3e-4 and a 4e-4 arm.
+The current recommended preset is therefore `kaggle10m_lr3e4`.
+
+### Second LR round
+
+Run: <https://www.kaggle.com/code/shem42/z4-115m-lr-final>  
+Same WikiText-2 bins, batch 4, 600-second cap.
+
+| Arm | LR / horizon | Steps | Best val BPB | Test BPB | Test top-1 |
+|---|---|---:|---:|---:|---:|
+| **`kaggle10m_lr3e4`** | **3e-4 / 1,000** | **592** | **1.7835** | **1.7489** | **26.86%** |
+| `kaggle10m_lr3e4_decay` | 3e-4 / 600, 20% decay | 594 | 1.7956 | 1.7631 | 26.33% |
+| `kaggle10m_lr4e4` | 4e-4 / 1,000 | 586 | 1.7860 | 1.7564 | 26.29% |
+
+Early decay and 4e-4 did **not** beat the plain 3e-4 / 1,000-step horizon.
+The 4e-4 arm was close but 0.0075 test BPB worse.  Keep `kaggle10m_lr3e4`.
 
 ## Next-move arms
 

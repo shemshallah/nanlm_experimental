@@ -5,7 +5,7 @@ short-run changes used by the `kaggle10m` preset.  The T4 measurements are in
 [`KAGGLE_10M_RESULTS.md`](KAGGLE_10M_RESULTS.md).  The current best short-run
 profile is `kaggle10m_lr3e4`: 115,238,237 parameters, 592 steps, **1.7489
 WikiText-2 BPB** at a 600-second cap.  The original 2e-4 profile is the
-1.7914 reference.
+1.7914 reference; a 600-step decay and a 4e-4 arm were both worse.
 
 The profile was produced by:
 
