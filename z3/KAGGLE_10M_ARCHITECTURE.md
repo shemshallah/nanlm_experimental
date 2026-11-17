@@ -181,6 +181,11 @@ and tokens processed at the same 600-second wall cap, not step counts alone.
 A 10-minute T4 run is an early-training comparison.  It cannot establish a
 frontier BPB or long-context quality.
 
+The 64 MiB FineWeb token build is a one-time cost.  For repeat 10-minute
+experiments, upload `data/fineweb_bins` as a private Kaggle dataset and attach
+it to the kernel; the 600-second cap applies to `train_v3.py`, not to data
+preparation.
+
 ## Next ablations, in profile order
 
 1. **One MTP head instead of two.**  The second MTP head plus its branch block
