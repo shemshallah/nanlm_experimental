@@ -206,3 +206,45 @@ the new DEV protocol actively refuses those old C reference files. The old
 
 No original-checkpoint-backed fresh-DEV score is claimed until the actual
 10M TRAIN stream and protected v103 weights are run with this manifest.
+
+
+## CPU step-cost benchmark and Blackwell specialization
+
+The self-contained GitHub CPU acceptance now times full
+`VerbatimV103RSI.forward` + original eight-bit BCE +
+`loss.backward` + 3-group AdamW + verified byte feedback at 32
+and 256 observed bytes. The printed
+`TERMINAL_RSI_CPU_STEP_BENCHMARK` JSON gives measured median
+seconds per update with batch=2, two CPU threads, and explicitly labels
+the run as **synthetic, not trained-checkpoint DEV BPB**:
+
+```bash
+python -m terminal_rsi.benchmark_cpu_steps --history 32 --batch 2 --steps 3
+python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --steps 3
+```
+
+The Blackwell execution route retains **exactly the same model and
+three-group inherited optimizer** as CPU and T4. The old native v103
+network, persistent terminal RSI state, actor/critic and both historical
+AdamW groups stay on the original FP32 math path. The *additive 32-layer
+2560D specialist only* uses BF16 CUDA autocast, PyTorch causal
+scaled-dot-product attention, and per-layer activation checkpointing
+through its three recursive passes. No tensors, state_dict keys, or
+checkpoint schemas are added or renamed.
+
+```bash
+# Works on CPU: analytical preflight, never allocates 3B weights.
+python -m terminal_rsi.plan_blackwell --physical-gib 96
+
+# Run ONLY on the intended Blackwell container before training.
+python -m terminal_rsi.plan_blackwell --probe-gpu
+```
+
+The preflight computes exact additive parameter counts and estimates
+FP32 weights, gradients and Adam moments at 16 bytes/parameter; its
+BF16 checkpoint-activation estimate is a **lower bound**, not a safe
+peak-VRAM prediction. BF16 optimizes just the neural upgrade and can
+produce different numerical logits from FP32 once the residual gate is
+trained. Before launching a large GPU training round, measure
+`torch.cuda.max_memory_allocated()` and compare CPU/CUDA logits with
+explicit tolerances; **bitwise cross-device parity is not claimed**.
