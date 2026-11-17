@@ -1,0 +1,49 @@
+name: M3 R23 recurrent triangle apex TRAIN and new-book DEV
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r23/**'
+      - '.github/workflows/m3-r23-recurrent-apex-dev.yml'
+  workflow_dispatch:
+
+jobs:
+  m3-r23-train-and-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Frozen default plus geometric readout regression suite
+        run: |
+          python -m unittest discover -s m3_r20 -p 'test_*.py' -v
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r21 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r22 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r23 -p 'test_*.py' -v
+      - name: Recover exact SHA-256-verified NaNROUTER books
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r23_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r23_corpus
+          cd /tmp/m3_r23_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Train 5-scalar recurrent apex and evaluate fresh book-disjoint DEV
+        run: |
+          python -m m3_r23.train_dev \
+            --corpus-root /tmp/m3_r23_corpus \
+            --output m3_r23/results/R23_NaNROUTER_DEV.json \
+            --checkpoint m3_r23/results/R23_apex_adam_recoverable.npz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r23-trained-apex-readout-dev-and-optimizer
+          path: m3_r23/results/
+          if-no-files-found: warn
