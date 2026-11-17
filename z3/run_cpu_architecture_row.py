@@ -44,6 +44,32 @@ ROWS = {
         "--no-concept-router-tokens",
     ],
     "concept_router_tokens": [],
+    # Z4 coherent feedback bus.  The flags are explicit so the row keeps its
+    # identity even if the trainer defaults change.  ``warmup 0`` means the
+    # five learned gates start at tanh(0)=0 and receive gradient from step 1.
+    "concept_feedback_bus": [
+        "--feedback-token-residual",
+        "--feedback-route-concept",
+        "--feedback-object-carry",
+        "--feedback-memory-mtp",
+        "--feedback-mtp-carry",
+        "--feedback-gate-warmup-steps", "0",
+    ],
+    "concept_feedback_warmup": [
+        "--feedback-token-residual",
+        "--feedback-route-concept",
+        "--feedback-object-carry",
+        "--feedback-memory-mtp",
+        "--feedback-mtp-carry",
+        "--feedback-gate-warmup-steps", "200",
+    ],
+    "concept_no_feedback": [
+        "--no-feedback-token-residual",
+        "--no-feedback-route-concept",
+        "--no-feedback-object-carry",
+        "--no-feedback-memory-mtp",
+        "--no-feedback-mtp-carry",
+    ],
     "concept_router_tokens_mix": ["--learned-router-mix"],
     "concept_router_tokens_object_id": ["--object-id-embedding"],
     "concept_frontier": [
@@ -173,6 +199,10 @@ def main() -> int:
         result = json.loads(result_path.read_text(encoding="utf-8"))
         final = result.get("final") or {}
         train = result.get("last_train") or {}
+        feedback = final.get("feedback") or train.get("feedback") or {}
+        object_memory = (
+            final.get("object_memory") or train.get("object_memory") or {}
+        )
         row.update(
             {
                 "ok": bool(
@@ -213,6 +243,20 @@ def main() -> int:
                 "mtp_composition": train.get("mtp_composition"),
                 "mtp_object_pointer": train.get("mtp_object_pointer"),
                 "mtp_object_triple_pointer": train.get("mtp_object_triple_pointer"),
+                "feedback": feedback,
+                "feedback_progress": feedback.get("progress"),
+                "feedback_gate_max_abs": max(
+                    (
+                        abs(float(value))
+                        for key, value in feedback.items()
+                        if key.endswith("gate")
+                    ),
+                    default=0.0,
+                ),
+                "feedback_gate_warmup_steps": result.get(
+                    "feedback_gate_warmup_steps"
+                ),
+                "object_gate": object_memory.get("object_gate"),
                 "data": result.get("data"),
             }
         )

@@ -145,6 +145,9 @@ jobs:
                   'bpb=', row.get('final_bits_per_byte'),
                   'steps=', row.get('steps_completed'),
                   'nonfinite=', row.get('nonfinite_skips'),
+                  'feedback_progress=', row.get('feedback_progress'),
+                  'feedback_gate_max_abs=', row.get('feedback_gate_max_abs'),
+                  'object_gate=', row.get('object_gate'),
               )
           if not rows or any(not row.get('ok') for row in rows):
               sys.exit(1)
