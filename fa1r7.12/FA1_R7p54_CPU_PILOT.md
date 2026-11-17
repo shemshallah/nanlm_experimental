@@ -43,8 +43,8 @@ Geometric attribution additionally requires positive 95% lower whole-book limits
 - Full candidate versus R7.49.
 - Full candidate versus word-only.
 - Correct geometric addresses versus wrong addresses.
-- Correct successor values versus scrambled values.
-- Correct book history versus unrelated-book history.
+- Correct **geometric** successor values versus scrambled geometric values, with the lexical distribution unchanged.
+- The geometric increment from correct-book history versus unrelated-book history, with the word-only increment subtracted.
 - Conditioned apex trust versus the isolated no-apex successor gate.
 
 The independent 2,048-word check must avoid NLL regression and retain a positive correct-book advantage. These are deliberately difficult criteria: mere activation of the geometric head or an improvement against an arbitrary baseline is insufficient.
