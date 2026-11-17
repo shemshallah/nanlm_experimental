@@ -70,7 +70,7 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
             self.assertEqual(report["champion_guard"]["status"], "initialized")
             self.assertTrue(Path(report["champion_guard"]["champion_checkpoint"]).is_file())
             self.assertEqual(report["rsi_self_construction"]["schema"],
-                             "terminal-rsi-self-builder-v2")
+                             "terminal-rsi-self-builder-v3")
 
 
 if __name__ == "__main__":
