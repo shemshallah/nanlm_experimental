@@ -35,6 +35,32 @@ frontier claim.
 The validation BPB uses the exact target-byte denominator from the aligned
 sidecar.  The test set is the builder's held-out WikiText-2 split.
 
+## Equal-wall stock 115M baseline
+
+The stock `115m` preset was run on the same WikiText-2 bins, same T4, same
+600-second cap, with `--batch-size 4`.  It **OOM'd at batch 4** and the
+notebook retried at batch 2.  The optimized profile fit batch 4 because it
+skips the aux heads, the full-byte sequence probe, and the unused EMA copy.
+
+| Run | Batch | Steps | Tokens | Best val BPB | Test BPB | Test top-1 |
+|---|---:|---:|---:|---:|---:|---:|
+| **`kaggle10m`** | **4** | 599 | **1,226,752** | **1.8254** | **1.7914** | **25.93%** |
+| stock `115m` | 2 (4 OOM) | 682 | 698,368 | 1.9567 | 1.9206 | 21.50% |
+
+The optimized profile processed **1.76x more tokens** in the same wall time
+and is **0.129 BPB better** on the held-out test.  This is the combined effect
+of batch 4 fitting (no wasted EMA/aux memory), the 30-step warmup, and the
+reduced auxiliary loss weight; it is not a single-variable ablation.
+
+### Baseline gates
+
+The stock baseline used `feedback_gate_warmup_steps=500`, so its gates were
+still ramping at the end: token **-0.02169**, route-concept **-0.01535**,
+route-hidden **-0.00155**, memory **+0.01074**, MTP-carry **+0.00012**,
+object-depth **-0.00021**, object gate **0.01918**.  The optimized run's
+30-step warmup opened the token gate further (**-0.03750**) and kept the
+object gate closed (**0.01943**).
+
 ## Feedback and object gates
 
 At the end of the run:
@@ -50,7 +76,10 @@ At the end of the run:
 | Object gate | **0.01943** |
 | Feedback progress | 1.0 |
 
-The token and route feedback paths opened.  The object gate is still
+The token and route feedback paths opened.  The token gate is the only strongly
+open gate and it is **inhibitory** (-0.0375); the route gates are also
+negative.  The memory gate is weakly positive.  This shows the bus is active
+and trainable, not that it helped the loss.  The object gate is still
 **0.01943 < 0.05**, so the object memory is effectively closed after 599
 steps; that remains the main short-run dead path.
 
@@ -64,8 +93,9 @@ steps; that remains the main short-run dead path.
   (20.5% of estimated FLOPs) and the full-byte sequence probe (4.9%), lowers
   the MTP weight to 0.1, uses a 30-step warmup, and disables EMA.  The result
   is the combined profile, not an isolated ablation of any one change.
-- A stock `115m` same-hardware baseline is the next control.  Only an
-  equal-wall comparison can attribute the gain.
+- The stock `115m` same-hardware baseline is above.  It OOM'd at batch 4 and
+  ran at batch 2, so the comparison is the practical profile difference, not a
+  clean single-variable ablation.
 
 ## First attempt
 
