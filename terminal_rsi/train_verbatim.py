@@ -196,6 +196,8 @@ def main(argv=None):
                    help="Emit compact step + RSI self-modification stats every N updates")
     p.add_argument("--save-every", type=int, default=0,
                    help="Write a rolling recoverable checkpoint every N kept updates; 0=final only")
+    p.add_argument("--smoke", action="store_true",
+                   help="Blackwell memory/throughput smoke: skip full checkpoint/champion writes")
     p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=2,
                    help="CPU worker math threads: 1, 2, 4, 8 or 16; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
@@ -240,6 +242,9 @@ def main(argv=None):
     p.add_argument("--reference-full256", type=Path,
                    help="Optional original C 256-probability oracle (matched SHA)")
     args = p.parse_args(argv)
+    started = time.monotonic()
+    if args.smoke:
+        args.save_every = 0
     if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
             or args.topk_probes < 1 or args.progress_every < 1
             or args.save_every < 0
@@ -509,6 +514,8 @@ def main(argv=None):
 
     def save_rolling():
         nonlocal last_saved_update
+        if args.smoke:
+            return
         provenance["sampler"] = sampler
         save_combined(
             args.output, model, optimizer, step, provenance, events,
@@ -526,6 +533,8 @@ def main(argv=None):
         last_saved_update = update_count
         print("ROLLING CHECKPOINT", args.output, "step", step,
               "update", update_count, flush=True)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
     clock = time.monotonic()
     update_count = 0
 
@@ -740,30 +749,50 @@ def main(argv=None):
                "test_untouched": True,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
     provenance["sampler"] = sampler
-    save_combined(args.output, model, optimizer, step, provenance, events,
-                  training_state={"sampler": sampler,
-                                  "torch_rng": torch.get_rng_state(),
-                                  "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
-                                  "python_rng": random.getstate(),
-                                  "rsi_self_builder": (rsi_builder.state_dict()
-                                                       if rsi_builder else None),
-                                  "rsi_v4": (v4_controller.state_dict()
-                                             if v4_controller is not None else None)})
-    # Exact reload guard on CPU or GPU: no numerical reinterpretation on save.
-    saved = torch.load(args.output, map_location="cpu", weights_only=True)
-    if saved["schema"] != COMBINED_SCHEMA or saved["steps"] != step:
-        raise AssertionError("Terminal-RSI combined checkpoint reload failed")
-    if saved["legacy_provenance"]["feature_manifest"] != manifest:
-        raise AssertionError("Frozen v103 feature digest lost in combined checkpoint")
-    with torch.no_grad():
-        original_state = model.state_dict()
-        for name, value in original_state.items():
-            if not torch.equal(value.cpu(), saved["model"][name]):
-                raise AssertionError("Combined checkpoint changed tensor: " + name)
-    if args.champion_dir:
-        receipt["champion_guard"] = consider_candidate(
-            args.output, receipt, args.champion_dir)
-        print("RSI IMMUTABLE DEV CHAMPION:", receipt["champion_guard"], flush=True)
+    if args.smoke:
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+            receipt["gpu"] = {
+                "device_name": torch.cuda.get_device_name(device),
+                "total_vram_gib": round(
+                    torch.cuda.get_device_properties(device).total_memory / 2**30, 3),
+                "peak_allocated_gib": round(
+                    torch.cuda.max_memory_allocated(device) / 2**30, 3),
+                "peak_reserved_gib": round(
+                    torch.cuda.max_memory_reserved(device) / 2**30, 3),
+                "torch_version": torch.__version__,
+                "cuda_version": torch.version.cuda,
+                "bf16_supported": torch.cuda.is_bf16_supported(),
+            }
+        receipt["smoke"] = True
+        receipt["smoke_wall_seconds"] = time.monotonic() - started
+        print("SMOKE COMPLETE:", json.dumps(receipt.get("gpu"), sort_keys=True),
+              flush=True)
+    else:
+        save_combined(args.output, model, optimizer, step, provenance, events,
+                      training_state={"sampler": sampler,
+                                      "torch_rng": torch.get_rng_state(),
+                                      "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+                                      "python_rng": random.getstate(),
+                                      "rsi_self_builder": (rsi_builder.state_dict()
+                                                           if rsi_builder else None),
+                                      "rsi_v4": (v4_controller.state_dict()
+                                                 if v4_controller is not None else None)})
+        # Exact reload guard on CPU or GPU: no numerical reinterpretation on save.
+        saved = torch.load(args.output, map_location="cpu", weights_only=True)
+        if saved["schema"] != COMBINED_SCHEMA or saved["steps"] != step:
+            raise AssertionError("Terminal-RSI combined checkpoint reload failed")
+        if saved["legacy_provenance"]["feature_manifest"] != manifest:
+            raise AssertionError("Frozen v103 feature digest lost in combined checkpoint")
+        with torch.no_grad():
+            original_state = model.state_dict()
+            for name, value in original_state.items():
+                if not torch.equal(value.cpu(), saved["model"][name]):
+                    raise AssertionError("Combined checkpoint changed tensor: " + name)
+        if args.champion_dir:
+            receipt["champion_guard"] = consider_candidate(
+                args.output, receipt, args.champion_dir)
+            print("RSI IMMUTABLE DEV CHAMPION:", receipt["champion_guard"], flush=True)
     if args.metrics_output:
         _write_if_unchanged_or_new(args.metrics_output,
             (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode())
