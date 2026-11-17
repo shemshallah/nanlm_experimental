@@ -345,10 +345,16 @@ def main(argv=None):
         update_count += 1
         if step % 50 == 0:
             print("RSI step", step, "train", report, flush=True)
+    # Time ONLY the byte optimizer loop here. RSI feedback and held-out DEV
+    # evaluation are reported separately; otherwise updates/s is misleading.
+    training_duration_seconds = time.monotonic() - clock
     # The archived v103 original ALWAYS performs both verified actor/critic
     # Adam updates, even when --seconds=0 (zero BYTE optimizer updates).
     # Keep that exact recursive learning behavior in all three presets.
+    rsi_clock = time.monotonic()
     events.extend(finish_rsi_round(model, optimizer))
+    rsi_feedback_seconds = time.monotonic() - rsi_clock
+    dev_after_clock = time.monotonic()
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                  local=probe_local)
@@ -358,12 +364,16 @@ def main(argv=None):
         if args.reference_full256 else None)
     if c256_after is not None:
         print("Original C full256 numerical parity AFTER:", c256_after)
-    training_duration_seconds = time.monotonic() - clock
+    dev_after_seconds = time.monotonic() - dev_after_clock
+    total_train_rsi_dev_seconds = time.monotonic() - clock
     receipt = {"mode": args.mode, "upgrade_context": upgrade_context,
                "cpu_threads": args.cpu_threads if args.mode == "cpu" else None,
                "requested_updates": args.updates,
                "actual_byte_updates_this_round": update_count,
                "training_duration_seconds": training_duration_seconds,
+               "rsi_feedback_seconds": rsi_feedback_seconds,
+               "dev_after_seconds": dev_after_seconds,
+               "total_train_rsi_dev_seconds": total_train_rsi_dev_seconds,
                "updates_per_second": update_count / max(training_duration_seconds, 1e-9),
                "dev_probes": len(probes),
                "topk_probes": min(args.topk_probes, len(probes)),
