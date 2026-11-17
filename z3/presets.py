@@ -256,6 +256,33 @@ for _name in (
 ):
     PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
 
+# Active-compute ablations at the same 115M parameter count.  The skipped
+# modules stay in the model so the comparison is compute, not capacity.
+PRESETS["kaggle10m_nomtp"] = {
+    **PRESETS["kaggle10m_lr3e4"],
+    "mtp_weight": 0.0,
+    "compute_mtp": False,
+    "out": "runs/z3_115m_kaggle10m_nomtp",
+}
+PRESETS["kaggle10m_noconcept"] = {
+    **PRESETS["kaggle10m_lr3e4"],
+    "compute_concept": False,
+    "mtp_object_pointer_weight": 0.0,
+    "mtp_object_triple_pointer_weight": 0.0,
+    "out": "runs/z3_115m_kaggle10m_noconcept",
+}
+PRESETS["kaggle10m_trunk"] = {
+    **PRESETS["kaggle10m_lr3e4"],
+    "compute_concept": False,
+    "mtp_weight": 0.0,
+    "compute_mtp": False,
+    "mtp_object_pointer_weight": 0.0,
+    "mtp_object_triple_pointer_weight": 0.0,
+    "out": "runs/z3_115m_kaggle10m_trunk",
+}
+for _name in ("kaggle10m_nomtp", "kaggle10m_noconcept", "kaggle10m_trunk"):
+    PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
+
 
 def get_preset(name: str) -> dict[str, Any]:
     key = str(name).strip().lower()

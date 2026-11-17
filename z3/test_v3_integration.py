@@ -406,6 +406,16 @@ class V3IntegrationTest(unittest.TestCase):
             self.assertIn("mtp_aux_logits", aux_on)
             self.assertIn("byte_probe_logits", aux_on)
             self.assertIn("byte_sequence_logits", aux_on)
+            _, mtp_off, aux_no_concept = model(
+                tokens, compute_concept=False, compute_mtp=False
+            )
+            self.assertEqual(mtp_off, [])
+            self.assertNotIn("object_memory", aux_no_concept)
+            _, mtp_on, aux_concept = model(
+                tokens, compute_concept=True, compute_mtp=True
+            )
+            self.assertGreater(len(mtp_on), 0)
+            self.assertIn("object_memory", aux_concept)
 
     def test_gate_route_attention_is_zero_at_step_zero(self):
         base = dict(

@@ -129,6 +129,7 @@ class V3Config:
     # hypervectors are stored; pair objects are bound on demand.
     use_combinatorial_memory: bool = False
     use_concept_loop: bool = True
+    compute_concept: bool = True
     task_vocab_size: int = 16
     # Scale of the concept/object residual injected into attention and MoE
     # routers.  1.0 preserves the original full-strength loop; a small value
@@ -191,6 +192,7 @@ class V3Config:
     # Frontier MTP defaults.  The branch is a real, separately parameterised
     # block per lag, not one shared branch reused for every horizon.
     mtp: int = 3
+    compute_mtp: bool = True
     mtp_adapter_rank: int = 32
     # Low-rank MTP output width.  0 reuses the token embedding rank.
     mtp_output_rank: int = 0
@@ -1276,7 +1278,13 @@ class V3LM(nn.Module):
                 task_ids: torch.Tensor | None = None,
                 compute_mtp_aux: bool = True,
                 compute_byte_probe: bool = True,
-                compute_byte_sequence: bool = True):
+                compute_byte_sequence: bool = True,
+                compute_concept: bool | None = None,
+                compute_mtp: bool | None = None):
+        if compute_concept is None:
+            compute_concept = bool(self.cfg.compute_concept)
+        if compute_mtp is None:
+            compute_mtp = bool(self.cfg.compute_mtp)
         x = self.embed(tokens)
         feedback_scale = self.feedback_gate_scale(dtype=x.dtype)
         lbs, zs = [], []
@@ -1311,7 +1319,7 @@ class V3LM(nn.Module):
             )
             loop_ctx = None
             token_ctx = None
-            if self.concept_loop is not None:
+            if self.concept_loop is not None and compute_concept:
                 concept, object_ctx, loop_ctx = self.concept_loop(
                     x,
                     sidecar,
@@ -1416,7 +1424,7 @@ class V3LM(nn.Module):
         # through the same small MTP head.  The residual stream is causal, so
         # no future token can leak into an earlier position.
         mtp_aux_logits: list[torch.Tensor] = []
-        if self.mtp_aux_norms and compute_mtp_aux:
+        if self.mtp_aux_norms and compute_mtp_aux and compute_mtp:
             aux_head = self.mtp_heads[0] if self.mtp_heads else None
             for layer, norm in zip(self.mtp_aux_layers, self.mtp_aux_norms):
                 hidden = aux_hidden.get(layer)
@@ -1431,7 +1439,11 @@ class V3LM(nn.Module):
         mtp_composition_logits: list[torch.Tensor] = []
         mtp_object_pointer_logits: list[torch.Tensor] = []
         mtp_object_triple_pointer_logits: list[torch.Tensor] = []
-        if self.mtp_blocks:
+        gate_loss = None
+        mtp: list[torch.Tensor] = []
+        if not compute_mtp:
+            pass
+        elif self.mtp_blocks:
             # Predicted t+1 distribution.  This is a distribution in both
             # train and eval; ground truth is only ever a soft teacher term.
             temperature = max(1e-3, float(self.cfg.mtp_softmax_temperature))
@@ -1714,7 +1726,7 @@ class V3LM(nn.Module):
             aux["mtp_aux_logits"] = mtp_aux_logits
             aux["mtp_aux_layers"] = self.mtp_aux_layers
             aux["mtp_aux_layer_weights"] = self.mtp_aux_layer_weights
-        if self.mtp_blocks and gate_loss is not None:
+        if compute_mtp and self.mtp_blocks and gate_loss is not None:
             aux["mtp_gate_loss"] = gate_loss
         if mtp_block_lb:
             aux["mtp_load_balance"] = torch.stack(mtp_block_lb).mean()

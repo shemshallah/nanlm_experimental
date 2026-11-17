@@ -130,6 +130,27 @@ class PresetTests(unittest.TestCase):
             self.assertEqual(args.batch_size, 4)
             self.assertEqual(args.warmup_steps, 30)
 
+    def test_active_compute_ablation_presets(self):
+        parser = build_parser()
+        for name in ("kaggle10m_nomtp", "kaggle10m_noconcept", "kaggle10m_trunk"):
+            argv = ["--preset", name, "--corpus", "x"]
+            args = parser.parse_args(argv)
+            apply_preset(args, argv)
+            expected_mtp = 0.1 if name == "kaggle10m_noconcept" else 0.0
+            self.assertEqual(args.mtp_weight, expected_mtp)
+        argv = ["--preset", "kaggle10m_nomtp", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertFalse(args.compute_mtp)
+        self.assertTrue(args.compute_concept)
+        argv = ["--preset", "kaggle10m_noconcept", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertFalse(args.compute_concept)
+        self.assertTrue(args.compute_mtp)
+        argv = ["--preset", "kaggle10m_trunk", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertFalse(args.compute_concept)
+        self.assertFalse(args.compute_mtp)
+
     def test_explicit_flag_beats_preset(self):
         parser = build_parser()
         argv = [

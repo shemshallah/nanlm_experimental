@@ -96,6 +96,7 @@ def validate_payload(
     if target is None and preset in (
         "115m", "kaggle10m", "kaggle10m_obj", "kaggle10m_route",
         "kaggle10m_lr3e4", "kaggle10m_lr3e4_decay", "kaggle10m_lr4e4",
+        "kaggle10m_nomtp", "kaggle10m_noconcept", "kaggle10m_trunk",
     ):
         target = EXPECTED_115M
     elif target is None and preset == "kaggle10m_mtp64":

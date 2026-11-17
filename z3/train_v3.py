@@ -1710,6 +1710,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-loop", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="multi-resolution concept/object feedback through all blocks")
+    model.add_argument("--compute-concept",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="run the concept loop; off keeps its parameters but skips compute")
     model.add_argument("--concept-loop-scale", type=float, default=1.0,
                        help="scale of concept/object residual injection")
     model.add_argument("--concept-loop-attention",
@@ -1779,6 +1782,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--comb-top-triples", type=int, default=8)
     model.add_argument("--mtp", type=int, default=3,
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
+    model.add_argument("--compute-mtp",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="run the MTP branch/heads; off keeps their parameters but skips compute")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
                        help="low-rank MTP adapter width; 0 disables")
     model.add_argument("--mtp-output-rank", type=int, default=0,
@@ -2234,6 +2240,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_memory_dim=int(args.moe_memory_dim),
         grad_checkpoint=bool(args.grad_checkpoint),
         use_concept_loop=bool(args.concept_loop),
+        compute_concept=bool(args.compute_concept),
         task_vocab_size=int(args.task_vocab_size),
         concept_loop_scale=float(args.concept_loop_scale),
         concept_loop_attention=bool(args.concept_loop_attention),
@@ -2267,6 +2274,9 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         comb_top_pairs=int(args.comb_top_pairs),
         comb_top_triples=int(args.comb_top_triples),
         mtp=int(args.mtp),
+        compute_mtp=(
+            bool(args.compute_mtp) and float(args.mtp_weight) > 0.0
+        ),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
         mtp_output_rank=int(args.mtp_output_rank),
         mtp_block=bool(args.mtp_block),
