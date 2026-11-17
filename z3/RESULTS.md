@@ -168,6 +168,44 @@ wall          1.97 s
 Again, this only verifies the real-corpus/data/trainer path. It is not a
 learning result.
 
+## GitHub 115M CPU wiring smoke (2026-11-17)
+
+Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/44019140042>
+Commit: `f309e6a`
+
+This is a one-step wiring smoke, not a quality run.  It builds a tiny
+document-disjoint corpus, constructs the fixed `115m` preset, runs one CPU
+optimizer step at `ctx=8`, evaluates the three held-out synthetic domains, and
+validates the artifacts.
+
+| Metric | Value |
+|---|---:|
+| Parameters | 115,238,237 |
+| Steps | 1 |
+| Context / batch | 8 / 1 |
+| Non-finite skips | 0 |
+| Macro BPB | 4.0381 |
+| Macro BPB 95% interval | 3.9725–4.1248 |
+| MoE layout | 4 branches × 3 experts, top-2, no dead branch |
+| Validation | `ok=true`, 0 errors, 2 warnings |
+
+The two warnings are expected at initialization and are not failures:
+
+- `feedback_path_opened`: every learned feedback gate is
+  `tanh(0) * progress = 0`; the preset ramps `progress` over 500 steps, so a
+  one-step run cannot open the bus.
+- `object_gate_open`: the object gate starts at `sigmoid(-4) = 0.017986`,
+  below the 0.05 promotion threshold.
+
+The earlier failed dispatch (`44018696524`, commit `8d19da5`) was an import
+path issue fixed by adding `z3` to `PYTHONPATH` in `f309e6a`.  A companion
+38M CPU 6 GB run (`44018683034`) completed 5 steps at **3.787 GB peak RSS**
+with **40,918,706 parameters** and zero non-finite skips.
+
+Do not read the 4.04 BPB as a model result: the test set is three short
+synthetic documents and the model has seen one optimizer step.  Use a GPU or
+self-hosted runner for the 10k–20k-step run in `TRAIN_TEST_115M.md`.
+
 ## Not yet measured
 
 - No 30-minute T4/Colab v3 run has been completed for this integration.
