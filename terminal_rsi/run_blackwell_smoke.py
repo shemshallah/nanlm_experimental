@@ -79,6 +79,7 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
     p.add_argument("--rsi-v4-branch-batch", type=int, default=64)
     p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=16)
+    p.add_argument("--rsi-v4-parallel-replicas", type=int, default=2)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
@@ -154,6 +155,7 @@ def main(argv=None) -> int:
             "--rsi-v4-policy-steps", str(args.rsi_v4_policy_steps),
             "--rsi-v4-branch-batch", str(args.rsi_v4_branch_batch),
             "--rsi-v4-cycles-per-tick", str(args.rsi_v4_cycles_per_tick),
+            "--rsi-v4-parallel-replicas", str(args.rsi_v4_parallel_replicas),
         ]
     if args.no_gradient_checkpointing:
         command.append("--no-gradient-checkpointing")

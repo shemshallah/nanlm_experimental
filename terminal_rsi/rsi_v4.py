@@ -887,6 +887,7 @@ class RSIv4Controller:
         train: Callable[[int], list[dict]],
         evaluate: Callable[[], list[float]],
         step: int,
+        branch_runner: Callable[[Any, BranchSnapshot, list, int], list] | None = None,
     ) -> BranchResult:
         self._snapshot_index = 0
         cycle_start = time.monotonic()
@@ -929,33 +930,37 @@ class RSIv4Controller:
         candidates = [Action.neutral()] + selected
         propose_seconds = time.monotonic() - cycle_start - base_seconds
 
-        results: list[BranchResult] = []
-        restore_seconds = 0.0
-        train_seconds = 0.0
-        evaluate_seconds = 0.0
-        capture_seconds = 0.0
-        for action in candidates:
-            branch_start = time.monotonic()
-            restore(base)
-            restore_seconds += time.monotonic() - branch_start
-            self.apply(action)
-            train_start = time.monotonic()
-            self._active_branch_batch = int(self.config.branch_batch_size)
-            try:
-                reports = train(self.config.horizon)
-            finally:
-                self._active_branch_batch = None
-            train_seconds += time.monotonic() - train_start
-            eval_start = time.monotonic()
-            shard_bpbs = evaluate()
-            evaluate_seconds += time.monotonic() - eval_start
-            capture_start = time.monotonic()
-            snapshot = capture()
-            capture_seconds += time.monotonic() - capture_start
-            mean_bpb = statistics.mean(shard_bpbs) if shard_bpbs else float("inf")
-            results.append(BranchResult(
-                action=action, shard_bpbs=shard_bpbs, mean_bpb=mean_bpb,
-                reports=reports, snapshot=snapshot))
+        if branch_runner is not None:
+            results = branch_runner(self, base, candidates, step)
+            restore_seconds = train_seconds = evaluate_seconds = capture_seconds = 0.0
+        else:
+            results: list[BranchResult] = []
+            restore_seconds = 0.0
+            train_seconds = 0.0
+            evaluate_seconds = 0.0
+            capture_seconds = 0.0
+            for action in candidates:
+                branch_start = time.monotonic()
+                restore(base)
+                restore_seconds += time.monotonic() - branch_start
+                self.apply(action)
+                train_start = time.monotonic()
+                self._active_branch_batch = int(self.config.branch_batch_size)
+                try:
+                    reports = train(self.config.horizon)
+                finally:
+                    self._active_branch_batch = None
+                train_seconds += time.monotonic() - train_start
+                eval_start = time.monotonic()
+                shard_bpbs = evaluate()
+                evaluate_seconds += time.monotonic() - eval_start
+                capture_start = time.monotonic()
+                snapshot = capture()
+                capture_seconds += time.monotonic() - capture_start
+                mean_bpb = statistics.mean(shard_bpbs) if shard_bpbs else float("inf")
+                results.append(BranchResult(
+                    action=action, shard_bpbs=shard_bpbs, mean_bpb=mean_bpb,
+                    reports=reports, snapshot=snapshot))
 
         noop = results[0]
         best: BranchResult | None = None

@@ -17,8 +17,11 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import copy
 import random
+import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import torch
 from torch.nn import functional as F
@@ -33,8 +36,8 @@ from .legacy_v103_reference import (
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
 from .rsi_v4 import (
-    Action, BranchSnapshot, FastStateSnapshot, ProbeShards, RSIv4Config,
-    RSIv4Controller, probe_noise_audit,
+    Action, BranchResult, BranchSnapshot, FastStateSnapshot, ProbeShards,
+    RSIv4Config, RSIv4Controller, apply_action, probe_noise_audit,
 )
 from .champion_guard import consider_candidate
 from .verbatim_metrics import byte_metrics_wrapped
@@ -326,6 +329,8 @@ def main(argv=None):
                    help="Small fast batch for branch train/eval; main batch remains --batch")
     p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=16,
                    help="Mutations evaluated in one RSI tick")
+    p.add_argument("--rsi-v4-parallel-replicas", type=int, default=0,
+                   help="Run candidate branches on K cloned models in parallel CUDA streams")
     p.add_argument("--rsi-v4-entropy", type=float, default=0.01)
     p.add_argument("--legacy-terminal-demo", action="store_true",
                    help="Diagnostic ONLY: replay v103 fixed shell reward (+1/-1); never use to optimize low BPB")
@@ -381,6 +386,7 @@ def main(argv=None):
                 or args.rsi_v4_critic_steps < 0 or args.rsi_v4_policy_steps < 0
                 or args.rsi_v4_branch_batch < 1
                 or args.rsi_v4_cycles_per_tick < 1
+                or args.rsi_v4_parallel_replicas < 0
                 or not math.isfinite(args.rsi_v4_entropy) or args.rsi_v4_entropy < 0):
             p.error("v4 needs positive cycle/horizon/shards/positions and finite nonnegative thresholds")
         if args.rsi_v4_eval_chunk < 1:
@@ -766,6 +772,96 @@ def main(argv=None):
         return v4_controller.probe.evaluate(
             model, chunk_size=v4_controller.config.eval_chunk)
 
+    def parallel_branch_runner(controller, base, candidates, cycle_step):
+        """Run neutral + candidate branches on cloned models in CUDA streams."""
+        limit = max(1, int(args.rsi_v4_parallel_replicas))
+        candidate_actions = candidates[:limit]
+        branch_batch = int(args.rsi_v4_branch_batch)
+        local_cursor = int(sampler["cursor"])
+        branch_data = []
+        for _ in range(int(args.rsi_v4_horizon)):
+            indices = coverage_indices(
+                local_cursor, branch_batch, len(train_data),
+                sampler["stride"], torch.device("cpu"))
+            if window_cache is not None:
+                gpu_indices = indices.to(device, non_blocking=True)
+                positions = gpu_indices + PARITY_CONTEXT
+                cache_windows, cache_targets, cache_aux = window_cache
+                sample = torch.cat(
+                    (cache_windows[positions], cache_targets[positions, None]),
+                    dim=1).long()
+                sample_aux = cache_aux[gpu_indices]
+            else:
+                sample = build_causal_contexts(
+                    raw_tensor, indices + PARITY_CONTEXT,
+                    upgrade_context).to(device)
+                sample_aux = aux_data[indices].to(device=device)
+            branch_data.append((sample, sample_aux))
+            local_cursor += branch_batch
+        torch.cuda.synchronize(device)
+
+        base_model = {name: tensor.detach().clone()
+                      for name, tensor in model.state_dict().items()}
+        base_optimizer = copy.deepcopy(optimizer.state_dict())
+        base_lrs = list(controller.base_lrs)
+        base_training = model.training
+        clones = []
+        for action in candidate_actions:
+            clone_model = copy.deepcopy(model)
+            clone_optimizer = build_v103_optimizer(
+                clone_model, freeze_residual_gate=True)
+            clone_model.load_state_dict(base_model)
+            clone_optimizer.load_state_dict(base_optimizer)
+            clone_model.upgrades.gradient_checkpointing = (
+                model.upgrades.gradient_checkpointing)
+            clones.append((clone_model, clone_optimizer, action))
+        streams = [torch.cuda.Stream(device=device) for _ in clones]
+
+        def run_one(index):
+            clone_model, clone_optimizer, action = clones[index]
+            with torch.cuda.stream(streams[index]):
+                apply_action(clone_model, clone_optimizer, base_lrs, action)
+                values = action.values()
+                clone_model.upgrades.router_temperature = float(
+                    values["router_temperature"])
+                clip = float(values["grad_clip"])
+                clone_model.train()
+                reports = []
+                for sample, sample_aux in branch_data:
+                    reports.append(train_one_batch(
+                        clone_model, clone_optimizer,
+                        sample[:, :-1], sample[:, -1], sample_aux,
+                        grad_clip=clip, microbatch=args.microbatch,
+                        upgrade_loss_weight=args.upgrade_loss_weight))
+                shard_bpbs = controller.probe.evaluate(
+                    clone_model, chunk_size=controller.config.eval_chunk)
+                clone_model.train()
+                snapshot = BranchSnapshot(
+                    model={name: tensor.detach().clone()
+                           for name, tensor in clone_model.state_dict().items()},
+                    optimizer=copy.deepcopy(clone_optimizer.state_dict()),
+                    sampler=dict(base.sampler),
+                    torch_rng=base.torch_rng,
+                    python_rng=base.python_rng,
+                    cuda_rng=base.cuda_rng,
+                    step=base.step,
+                    update_count=base.update_count,
+                    training=base_training,
+                    action=action.as_tuple(),
+                    batch_size=branch_batch,
+                    grad_clip=clip,
+                )
+                mean_bpb = (statistics.mean(shard_bpbs)
+                            if shard_bpbs else float("inf"))
+                return BranchResult(
+                    action=action, shard_bpbs=shard_bpbs,
+                    mean_bpb=mean_bpb, reports=reports, snapshot=snapshot)
+
+        with ThreadPoolExecutor(max_workers=len(clones)) as pool:
+            results = list(pool.map(run_one, range(len(clones))))
+        torch.cuda.synchronize(device)
+        return results
+
     while ((update_count < args.updates) if args.updates is not None
            else (time.monotonic() - clock < args.seconds)):
         if v4_controller is not None:
@@ -782,6 +878,9 @@ def main(argv=None):
                         train=train_updates,
                         evaluate=evaluate_v4_branch,
                         step=step,
+                        branch_runner=(parallel_branch_runner
+                                       if args.rsi_v4_parallel_replicas > 0
+                                       else None),
                     )
                 # RSI branch training must not consume the main sampler or
                 # count as kept byte updates. Keep the chosen model/optimizer
