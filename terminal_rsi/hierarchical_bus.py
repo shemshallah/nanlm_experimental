@@ -23,7 +23,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .unified import RMSNorm
+from .norm import RMSNorm
 
 
 def hierarchy_bus_width(width: int) -> int:

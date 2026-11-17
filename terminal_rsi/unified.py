@@ -14,6 +14,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .hierarchical_bus import CausalHierarchy, hierarchy_parameter_count
+from .norm import RMSNorm
 
 
 @dataclass(frozen=True)
@@ -144,15 +145,6 @@ class CausalConv(nn.Module):
     def forward(self, h: torch.Tensor) -> torch.Tensor:
         x = F.pad(h.transpose(1, 2), (self.kernel - 1, 0))
         return self.pointwise(self.depthwise(x).transpose(1, 2))
-
-
-class RMSNorm(nn.Module):
-    def __init__(self, width: int):
-        super().__init__()
-        self.scale = nn.Parameter(torch.ones(width))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.rms_norm(x, (x.shape[-1],), self.scale)
 
 
 class CausalBlock(nn.Module):
