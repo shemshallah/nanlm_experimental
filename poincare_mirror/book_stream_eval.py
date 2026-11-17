@@ -127,6 +127,14 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                     hist[0,t-left]=evidence
                     coverage[0,t-left]=cov
                     hits[0,t-left]=pos
+            if (torch.any(hist.sum(-1)>1.00001) or torch.any(coverage>1) or
+                    torch.any(coverage<0) or torch.any(hits<0)):
+                raise AssertionError(
+                    f"Invalid causal arm={arm}, start={start}: "
+                    f"hist_max={hist.sum(-1).max().item()}, "
+                    f"coverage_max={coverage.max().item()}, "
+                    f"coverage_min={coverage.min().item()}, "
+                    f"hits_min={hits.min().item()}")
             # Preserve inherited R55/R58 rails exactly in each matched arm.
             corrected,_=model.pair_successor(
                 raw_logits,pairs,ids,
