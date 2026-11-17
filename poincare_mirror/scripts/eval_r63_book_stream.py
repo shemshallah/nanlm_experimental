@@ -41,6 +41,8 @@ def main():
                    choices=("pair_byte","pair_bigram","head_byte","hierarchical"))
     p.add_argument("--zero-init-joint",action="store_true",
                    help="R58 source-only parity diagnostic; not a trained R62 candidate")
+    p.add_argument("--space-rank-guard",action="store_true",
+                   help="R67: preserve inherited space/EOS top-1 at maximum safe memory strength")
     args=p.parse_args()
     if (min(args.dev_books,args.max_book_positions,args.context,args.chunk,
             args.history,args.bootstrap,args.threads)<1 or
@@ -81,7 +83,8 @@ def main():
             model,bytes_tensor,identifier,context=args.context,chunk=args.chunk,
             history=args.history,key_mode=args.key_mode,
             score_start=args.warmup_positions,
-            score_positions=args.max_book_positions)
+            score_positions=args.max_book_positions,
+            space_rank_guard=args.space_rank_guard)
         per_book[identifier]=rows
         for arm in ARMS:
             all_rows[arm].append({metric:rows[arm][metric] for metric in METRICS})
@@ -113,6 +116,10 @@ def main():
         "parent_sha256":current_sha,
         "parent_config":asdict(model.cfg),
         "zero_initialized_joint_diagnostic":args.zero_init_joint,
+        "space_rank_guard":bool(args.space_rank_guard or model.pair_successor.space_rank_guard),
+        "space_rank_guard_source":("checkpoint" if model.pair_successor.space_rank_guard
+                                   else "evaluation_ablation" if args.space_rank_guard
+                                   else "disabled"),
         "dev_books_scored":n,
         "requested_positions_per_book":args.max_book_positions,
         "warmup_positions_per_book":args.warmup_positions,

@@ -11,6 +11,7 @@ import torch
 from torch.nn import functional as F
 
 from book_successor_stream import CausalBookSuccessor
+from rank_safe_fusion import protect_parent_space_rank
 
 
 ARMS=("neutral","exact","wrong_address","wrong_byte","wrong_successor")
@@ -40,7 +41,8 @@ def _append_stats(sums,counts,predictions,targets,horizon):
 @torch.no_grad()
 def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                          history=32768,key_mode="hierarchical",
-                         score_start=0,score_positions=None):
+                         score_start=0,score_positions=None,
+                         space_rank_guard=False):
     """Matched causal result per arm on one independent book's input prefix.
 
     Args:
@@ -140,6 +142,11 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                 raw_logits,pairs,ids,
                 joint_memory_override=(hist,coverage,hits))
             arm_values[arm]=corrected[0,lo:hi].detach()
+        if space_rank_guard:
+            for arm in ARMS:
+                if arm!="neutral":
+                    arm_values[arm]=protect_parent_space_rank(
+                        arm_values["neutral"],arm_values[arm])
         for arm,logits in arm_values.items():
             for future,prediction in enumerate((
                     logits,plus2[0,lo:hi],

@@ -1,0 +1,43 @@
+name: FA2 R67 - Unified Causal Memory Guard
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'poincare_mirror/rank_safe_fusion.py'
+      - 'poincare_mirror/pair_successor_memory.py'
+      - 'poincare_mirror/poincare_frontier.py'
+      - 'poincare_mirror/book_stream_eval.py'
+      - 'poincare_mirror/scripts/train_r66_causal_book.py'
+      - 'poincare_mirror/scripts/enable_r67_space_guard.py'
+      - 'poincare_mirror/scripts/eval_r63_book_stream.py'
+      - 'poincare_mirror/tests/test_r66_causal_book_train.py'
+      - 'poincare_mirror/tests/test_r67_space_rank_guard.py'
+      - '.github/workflows/fa2-r67-unified-memory.yml'
+  workflow_dispatch:
+
+jobs:
+  uniform-architecture-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU model dependencies
+        run: python -m pip install --disable-pip-version-check numpy torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Source compile
+        run: python -m compileall -q poincare_mirror
+      - name: R66 causal trainer matches real evaluator
+        run: cd poincare_mirror && python -m unittest discover -s tests -p 'test_r66_causal_book_train.py' -v
+      - name: R67 unified rank-safe guard
+        run: cd poincare_mirror && python -m unittest discover -s tests -p 'test_r67_space_rank_guard.py' -v
+      - name: Inherited sequential memory regressions
+        run: |
+          cd poincare_mirror
+          python -m unittest discover -s tests -p 'test_r63_book_stream_eval.py' -v
+          python -m unittest discover -s tests -p 'test_r62_book_successor_stream.py' -v
+
+# Checkpoint-backed DEV results are external and must be SHA-matched. This
+# workflow certifies source parity only; it never opens independent TEST.

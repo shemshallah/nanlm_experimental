@@ -6,6 +6,7 @@ input byte at u+1<=t. No target label or future token enters the memory.
 import math
 
 import torch
+from rank_safe_fusion import protect_parent_space_rank
 from torch import nn
 
 
@@ -161,6 +162,7 @@ class PairSuccessorTrust(nn.Module):
         self.joint_value_control = 'exact'
         self.joint_query_byte_map = None
         self.joint_key_mode = 'pair_byte'
+        self.space_rank_guard = False
         self.read_engine = "vectorized"
 
     def enable_conditional_content(self):
@@ -238,6 +240,7 @@ class PairSuccessorTrust(nn.Module):
         if self.joint_weight is not None:
             if self.content_weight is None or vocab != 257:
                 raise ValueError("R59 needs R58 content and byte/EOS vocabulary")
+            parent_joint = corrected
             if joint_memory_override is None:
                 joint_log,joint_cov,joint_positions,joint_features = self._read_features(
                     pairs,observed,vocab,self.joint_query_map,self.joint_value_control,
@@ -287,6 +290,8 @@ class PairSuccessorTrust(nn.Module):
                       -torch.logsumexp(before.float(),dim=-1,keepdim=True))
             corrected = corrected.clone()
             corrected[...,mask] = proposed-offset.to(logits.dtype)
+            if self.space_rank_guard:
+                corrected = protect_parent_space_rank(parent_joint,corrected)
             stats["joint_trust"] = joint_strength.detach()
             stats["joint_coverage"] = joint_cov.detach()
             stats["joint_matched_positions"] = joint_positions.detach()
