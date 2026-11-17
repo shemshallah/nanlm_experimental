@@ -30,6 +30,7 @@ from .legacy_v103_reference import (
     coverage_indices, co_prime_stride, terminal_feedback,
 )
 from .unified import PRESETS, device_for
+from .rsi_self_builder import RSISelfBuilder
 from .verbatim_metrics import byte_metrics_wrapped
 from .legacy_v103_local_copy import book_local_features
 from .verbatim_c256 import compare_c256_wrapped
@@ -182,6 +183,10 @@ def main(argv=None):
     p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4), default=2,
                    help="CPU worker math threads: 1, 2 or 4; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
+    p.add_argument("--rsi-cycle-updates", type=int, default=50,
+                   help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
+    p.add_argument("--rsi-probe-positions", type=int, default=8,
+                   help="Causal internal TRAIN probes for RSI verification; DEV/TEST never used")
     p.add_argument("--max-dev-positions", type=int, default=16)
     p.add_argument("--topk-probes", type=int, default=8,
                    help="Bound exact 256-way byte top1/top5 probes to avoid 256x CPU evaluations")
@@ -193,6 +198,8 @@ def main(argv=None):
     if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
             or args.topk_probes < 1 or (args.updates is not None and args.updates < 0)):
         p.error("Nonnegative seconds/updates and positive batch/dev/topk sample required")
+    if args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1:
+        p.error("RSI cycle must be >=0 and internal probe count positive")
     if args.updates is not None and args.seconds > 0:
         p.error("Choose --updates OR --seconds, not both")
     if args.mode == "cpu":
@@ -318,6 +325,28 @@ def main(argv=None):
             torch.cuda.set_rng_state_all(source["cuda_rng"])
         if "python_rng" in source:
             random.setstate(source["python_rng"])
+    # RSI owns the training loop. Its action policy proposes real changes to
+    # the specialist router, feedback gain and additive-capacity gate; only
+    # verified internal TRAIN-probe improvements survive a mutation cycle.
+    # Public book-disjoint DEV is never consulted for self-construction.
+    rsi_builder = None
+    if args.rsi_cycle_updates:
+        meta_count = min(args.rsi_probe_positions, len(train_data),
+                         2 if device.type == "cuda" else args.rsi_probe_positions)
+        meta_indices = torch.linspace(0, len(train_data) - 1, meta_count).long()
+        meta_window = build_causal_contexts(
+            raw_tensor, meta_indices + PARITY_CONTEXT, upgrade_context).to(device)
+        meta_aux = aux_data[meta_indices].to(device)
+        rsi_builder = RSISelfBuilder(
+            model, optimizer, meta_window[:, :-1], meta_window[:, -1],
+            meta_aux, interval=args.rsi_cycle_updates)
+        if args.resume and resumed["rng"].get("rsi_self_builder"):
+            rsi_builder.load_state_dict(resumed["rng"]["rsi_self_builder"])
+        elif args.resume and resumed["rng"].get("rsi_self_builder") is None:
+            raise ValueError("Resuming pre-RSI checkpoint requires explicit --rsi-cycle-updates 0 or migration")
+        print("RSI self-construction CORE enabled:", rsi_builder.state_dict(), flush=True)
+    elif args.resume and resumed["rng"].get("rsi_self_builder"):
+        raise ValueError("Cannot disable inherited RSI core without explicit migration")
     before = byte_metrics_wrapped(model, probes, n=None,
                                   topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                   local=probe_local)
@@ -338,8 +367,11 @@ def main(argv=None):
         sample = build_causal_contexts(raw_tensor, indices + PARITY_CONTEXT,
                                        upgrade_context).to(device)
         sample_aux = aux_data[indices].to(device=device)
-        report = train_one_batch(model, optimizer, sample[:, :-1],
-                                 sample[:, -1], sample_aux)
+        report = (rsi_builder.train_step(train_one_batch, sample[:, :-1],
+                                        sample[:, -1], sample_aux)
+                  if rsi_builder is not None else
+                  train_one_batch(model, optimizer, sample[:, :-1],
+                                  sample[:, -1], sample_aux))
         sampler["cursor"] += args.batch
         step += 1
         update_count += 1
@@ -383,6 +415,9 @@ def main(argv=None):
                "before": before, "after": after,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
+               "rsi_self_construction": (rsi_builder.state_dict() if rsi_builder else None),
+               "rsi_mutations_verified": (rsi_builder.proposals if rsi_builder else 0),
+               "rsi_mutations_accepted": (rsi_builder.accepted if rsi_builder else 0),
                "book_disjoint_dev_digest": dev_digest,
                "new_dev_books": fresh_dev_metadata["books"] if fresh_dev_metadata else None,
                "new_dev_scored_positions": fresh_dev_metadata["scored_positions"] if fresh_dev_metadata else None,
@@ -397,7 +432,9 @@ def main(argv=None):
                   training_state={"sampler": sampler,
                                   "torch_rng": torch.get_rng_state(),
                                   "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
-                                  "python_rng": random.getstate()})
+                                  "python_rng": random.getstate(),
+                                  "rsi_self_builder": (rsi_builder.state_dict()
+                                                       if rsi_builder else None)})
     # Exact reload guard on CPU or GPU: no numerical reinterpretation on save.
     saved = torch.load(args.output, map_location="cpu", weights_only=True)
     if saved["schema"] != COMBINED_SCHEMA or saved["steps"] != step:
