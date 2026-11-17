@@ -40,19 +40,9 @@ To select 1 or 2 threads, replace `"4"` with `"1"` or `"2"`. The runner automati
 
 **If Molab requires installation of all listed dependencies before running any cell:** remove the invalid `terminal-rsi` entry in its environment/package editor first. Keep the repository program as a Python module, launched with `-m`, not as a pip requirement.
 
-## Molab: one CPU training command
+## Molab CPU settings and outputs
 
-In a Molab Python notebook with 32 GB RAM, select **CPU** and paste these commands into shell-enabled cells (prefix with `!` if the notebook requires IPython shell escapes):
-
-```bash
-git clone --branch master --single-branch https://github.com/shemshallah/nanlm_experimental.git
-cd nanlm_experimental
-python -m pip install numpy
-python -c 'import torch; print("Torch", torch.__version__, "CPU supported", True)'
-sudo apt-get update -qq
-sudo apt-get install -y -qq zstd
-python -m terminal_rsi.run_molab_cpu_1000 --cpu-threads 4 --updates 1000 --output-dir terminal_rsi_cpu_1000_out
-```
+Run the Python cell above. There is no need for a shell cell, `!`, `sudo`, `apt`, or a `pip install terminal-rsi` command.
 
 Use `--cpu-threads 1`, `2` or `4` without changing model architecture, training corpus, optimizer semantics or RSI feedback. The `--updates` setting counts **exact byte optimizer updates** independently of wall-clock time. Default `--batch 4`, 256 causal bytes, 1,000 updates, 64 new DEV books × 1,024 positions. No old BPB reference or C oracle.
 
@@ -60,9 +50,9 @@ If PyTorch is not installed in the notebook, install a compatible CPU or CUDA Py
 
 The launcher downloads and SHA-256 checks *only* the public NaNROUTER short-story batch 0004, extracts it, builds a 2-million-byte training stream from English-eligible books, excludes Russian/Cyrillic sources and authors, builds a **new** 64-book English-only DEV with disjoint Gutenberg IDs, and saves:
 
-- `terminal_rsi_cpu_1000_out/terminal_rsi_cpu_1000_metrics.json` — new matched DEV before/after BPB, bit accuracy, byte top-1/top-5, thread count, actual update count, update-loop seconds, separate verified RSI feedback seconds.
-- `terminal_rsi_cpu_1000_out/terminal_rsi_cpu_1000_candidate.pt` — unpromoted recoverable model plus **all three optimizer parameter groups and RSI state**.
-- `terminal_rsi_cpu_1000_out/cpu_pilot.manifest.json`, `win_dev.manifest.json`, `train_book_ids.json` — source hashes, exclusions, book identities and split checks.
+- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_metrics.json` — new matched DEV before/after BPB, bit accuracy, byte top-1/top-5, thread count, actual update count, update-loop seconds, separate verified RSI feedback seconds.
+- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_candidate.pt` — unpromoted recoverable model plus **all three optimizer parameter groups and RSI state**.
+- `terminal_rsi_cpu_molab_1000/cpu_pilot.manifest.json`, `win_dev.manifest.json`, `train_book_ids.json` — source hashes, exclusions, book identities and split checks.
 
 Choose a new `--output-dir` for distinct experiments. The launcher intentionally refuses to overwrite a checkpoint or metric receipt. Save these output files to Molab persistent storage before ending a temporary notebook session.
 
