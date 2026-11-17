@@ -8,6 +8,7 @@ from book_successor_stream import CausalBookSuccessor,CausalLagBookSuccessor
 import torch
 from pair_successor_memory import PairSuccessorTrust
 from poincare_frontier import Config,MirrorLM
+from book_stream_eval import evaluate_causal_book
 
 
 class FutureMemoryTests(unittest.TestCase):
@@ -91,6 +92,25 @@ class FutureMemoryTests(unittest.TestCase):
             mask[[32,256]]=False
             self.assertTrue(torch.allclose(torch.logsumexp(after[...,mask],-1),
                                            torch.logsumexp(prior[...,mask],-1),atol=1e-5))
+
+    def test_real_book_scorer_routes_future_memory_into_horizons(self):
+        torch.set_num_threads(1)
+        torch.manual_seed(31)
+        cfg=Config(dim=16,layers=2,heads=2,pairs=4,topk_pairs=1,
+                   expert_hidden=16,context=16,moe_every=2,symbiotic_rank=8,
+                   micro_meta=True,simplex_transfer=True,dispatch_mode='gather',
+                   balance_weight=0.,pair_successor_copy=True,
+                   pair_successor_conditional=True,pair_successor_joint=True,
+                   pair_successor_future=True)
+        model=MirrorLM(cfg).eval()
+        with torch.no_grad(): model.pair_successor.future_weight[:,0]=2.
+        book=torch.tensor(([65,32,66,67]*26)+[256],dtype=torch.long)
+        result=evaluate_causal_book(model,book,'R69_BOOK',context=16,
+                                    chunk=4,history=80,key_mode='pair_byte',
+                                    score_start=8,score_positions=64)
+        self.assertNotEqual(result['exact']['ce_2'],result['neutral']['ce_2'])
+        self.assertNotEqual(result['exact']['ce_3'],result['neutral']['ce_3'])
+        self.assertEqual(result['exact']['positions_scored'],64)
 
 
 if __name__=='__main__':

@@ -118,6 +118,15 @@ def main():
               parent["acc_1"]["mean_gain"]>=0 and
               parent["top5_1"]["mean_gain"]>=0 and
               all(parent[k]["mean_gain"]>=0 for k in ("ce_2","ce_3")))
+    future_gates={}
+    if model.cfg.pair_successor_future:
+        for index in (2,3):
+            future_gates['plus'+str(index)]={
+                'corrected_all_four_controls_pass':all(
+                    item['ce_'+str(index)]['ci95_bonferroni'][0]>0
+                    for item in comparisons.values()),
+                'top1_nonregression':parent['acc_'+str(index)]['mean_gain']>=0,
+                'top5_nonregression':parent['top5_'+str(index)]['mean_gain']>=0}
     report={
         "round":"FA2_R63_BOOK_STREAM_SEQUENTIAL_DEV",
         "status":"DEV_screen_only_no_promotion",
@@ -129,6 +138,8 @@ def main():
         "space_rank_guard_source":("checkpoint" if model.pair_successor.space_rank_guard
                                    else "evaluation_ablation" if args.space_rank_guard
                                    else "disabled"),
+        "future_geometric_memory_enabled":bool(model.cfg.pair_successor_future),
+        "future_horizon_gates":future_gates,
         "dev_books_scored":n,
         "requested_positions_per_book":args.max_book_positions,
         "warmup_positions_per_book":args.warmup_positions,

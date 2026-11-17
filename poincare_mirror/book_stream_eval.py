@@ -10,7 +10,7 @@ from time import perf_counter
 import torch
 from torch.nn import functional as F
 
-from book_successor_stream import CausalBookSuccessor
+from book_successor_stream import CausalBookSuccessor,CausalLagBookSuccessor
 from rank_safe_fusion import protect_parent_space_rank
 
 
@@ -79,6 +79,8 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
     wrong_pair=torch.arange(32640,dtype=torch.long).roll(137)
     wrong_byte=torch.arange(257,dtype=torch.long).roll(1)
     streams={}
+    future_streams={}
+    active_future=bool(model.cfg.pair_successor_future)
     for arm in ARMS:
         kw=dict(horizon=history,key_mode=key_mode)
         if arm=="wrong_address":
@@ -90,6 +92,12 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
         stream=CausalBookSuccessor(**kw)
         stream.begin_book(book_id)
         streams[arm]=stream
+        if active_future:
+            future_streams[arm]=[]
+            for lag in (2,3):
+                future=CausalLagBookSuccessor(lag=lag,**kw)
+                future.begin_book(book_id)
+                future_streams[arm].append(future)
 
     sums={arm:[0.0]*len(METRICS) for arm in ARMS}
     counts={arm:[0]*len(METRICS) for arm in ARMS}
@@ -108,9 +116,13 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
         # Warm-up is causal: input bytes and pair IDs update all histories,
         # but warm-up positions never contribute evaluation metrics.
         if stop<=score_start:
-            for stream in streams.values():
+            for arm,stream in streams.items():
                 for t in range(start,stop):
                     stream.step(book_id,int(book_tokens[t]),pairs[0,t-left].tolist())
+                    if active_future:
+                        for future in future_streams[arm]:
+                            future.step(book_id,int(book_tokens[t]),
+                                        pairs[0,t-left].tolist())
             continue
         raw_logits=model.head(hidden).detach()
         plus2,plus3=model.future_logits(hidden)
@@ -118,6 +130,7 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
         lo=query_start-left
         hi=stop-left
         arm_values={}
+        future_values={}
         for arm,stream in streams.items():
             hist=torch.zeros_like(raw_logits)
             coverage=torch.zeros_like(ids,dtype=torch.float32)
@@ -142,15 +155,36 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                 raw_logits,pairs,ids,
                 joint_memory_override=(hist,coverage,hits))
             arm_values[arm]=corrected[0,lo:hi].detach()
+            if active_future:
+                evidence=[]
+                for future in future_streams[arm]:
+                    f_hist=torch.zeros_like(raw_logits)
+                    f_cov=torch.zeros_like(ids,dtype=torch.float32)
+                    f_hits=torch.zeros_like(ids,dtype=torch.float32)
+                    for t in range(start,stop):
+                        dist,cov,count=future.step(book_id,int(book_tokens[t]),
+                                                   pairs[0,t-left].tolist())
+                        if arm!='neutral':
+                            f_hist[0,t-left]=dist
+                            f_cov[0,t-left]=cov
+                            f_hits[0,t-left]=count
+                    evidence.extend((f_hist,f_cov,f_hits))
+                future_values[arm]=model.pair_successor.future_forward(
+                    (plus2,plus3),tuple(evidence))
         if space_rank_guard:
             for arm in ARMS:
                 if arm!="neutral":
                     arm_values[arm]=protect_parent_space_rank(
                         arm_values["neutral"],arm_values[arm])
+                if active_future:
+                    future_values[arm]=tuple(protect_parent_space_rank(
+                        old,new) for old,new in zip(future_values['neutral'],
+                                                     future_values[arm]))
         for arm,logits in arm_values.items():
+            pair=future_values[arm] if active_future else (plus2,plus3)
             for future,prediction in enumerate((
-                    logits,plus2[0,lo:hi],
-                    plus3[0,lo:hi])):
+                    logits,pair[0][0,lo:hi],
+                    pair[1][0,lo:hi])):
                 horizon=future+1
                 valid=min(stop-query_start,max(0,len(book_tokens)-query_start-horizon))
                 if valid==0:
