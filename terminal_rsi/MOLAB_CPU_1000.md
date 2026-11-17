@@ -6,46 +6,49 @@ This is the **Terminal-RSI v103 implementation** in `terminal_rsi/` (not FA1, FA
 
 **Do not add `terminal-rsi` to Molab's package/requirements list.** It is not a PyPI package. The program is in the GitHub repository. Remove `terminal-rsi` from that list first; list only installable packages such as `torch`, `numpy`, and `zstandard`.
 
-Molab runs ordinary Python, not IPython shell magic. Paste this entire block into a **Python** cell (there is no `!` before commands):
+Molab uses a reactive notebook in which multiple cells cannot define the same global names. This snippet confines imports and variables to a single function; paste it into **one Python cell** (no `!` syntax). If this function name was already defined in a different cell, delete the old cell before using it:
 
 ```python
-import importlib.util
-import shutil
-import subprocess
-import sys
-from pathlib import Path
-
-repo = Path.cwd() / "nanlm_experimental"
-if not repo.exists():
+def launch_terminal_rsi_molab_20261117():
+    import importlib.util
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    repo = Path.cwd() / "nanlm_experimental"
+    if not repo.exists():
+        subprocess.run(
+            ["git", "clone", "--branch", "master", "--single-branch",
+             "https://github.com/shemshallah/nanlm_experimental.git", str(repo)],
+            check=True,
+        )
+    else:
+        subprocess.run(["git", "-C", str(repo), "pull", "--ff-only", "origin", "master"], check=True)
+    
+    # Molab uses a uv-managed Python 3.13 virtualenv: use uv when pip is absent.
+    # Never install "terminal-rsi" from the package registry; it is in this repo.
+    needed = [name for name in ("numpy", "zstandard")
+              if importlib.util.find_spec(name) is None]
+    if needed:
+        installer = (["uv", "pip", "install", "--python", sys.executable, *needed]
+                     if shutil.which("uv")
+                     else [sys.executable, "-m", "pip", "install", *needed])
+        subprocess.run(installer, check=True)
+    
+    if importlib.util.find_spec("torch") is None:
+        raise RuntimeError("Add 'torch' to Molab's package list first; preserve its Blackwell CUDA build")
+    subprocess.run([sys.executable, "-c", "import torch; print('PyTorch:', torch.__version__)"], check=True)
+    
     subprocess.run(
-        ["git", "clone", "--branch", "master", "--single-branch",
-         "https://github.com/shemshallah/nanlm_experimental.git", str(repo)],
+        [sys.executable, "-m", "terminal_rsi.run_molab_cpu_1000",
+         "--cpu-threads", "4", "--updates", "1000",
+         "--output-dir", "terminal_rsi_cpu_molab_1000"],
+        cwd=str(repo),
         check=True,
     )
-else:
-    subprocess.run(["git", "-C", str(repo), "pull", "--ff-only", "origin", "master"], check=True)
 
-# Molab uses a uv-managed Python 3.13 virtualenv: use uv when pip is absent.
-# Never install "terminal-rsi" from the package registry; it is in this repo.
-needed = [name for name in ("numpy", "zstandard")
-          if importlib.util.find_spec(name) is None]
-if needed:
-    installer = (["uv", "pip", "install", "--python", sys.executable, *needed]
-                 if shutil.which("uv")
-                 else [sys.executable, "-m", "pip", "install", *needed])
-    subprocess.run(installer, check=True)
-
-if importlib.util.find_spec("torch") is None:
-    raise RuntimeError("Add 'torch' to Molab's package list first; preserve its Blackwell CUDA build")
-subprocess.run([sys.executable, "-c", "import torch; print('PyTorch:', torch.__version__)"], check=True)
-
-subprocess.run(
-    [sys.executable, "-m", "terminal_rsi.run_molab_cpu_1000",
-     "--cpu-threads", "4", "--updates", "1000",
-     "--output-dir", "terminal_rsi_cpu_molab_1000"],
-    cwd=str(repo),
-    check=True,
-)
+launch_terminal_rsi_molab_20261117()
 ```
 
 To select 1 or 2 threads, replace `"4"` with `"1"` or `"2"`. The runner automatically decompresses with the Python `zstandard` package when no system `zstd` binary is installed. No `sudo` or `apt` is needed.
