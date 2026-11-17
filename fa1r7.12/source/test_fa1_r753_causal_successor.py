@@ -64,6 +64,14 @@ class SuccessorContracts(unittest.TestCase):
         self.assertEqual(int(correct[3][0]), int(wrong[3][0]))
         self.assertNotEqual(float(correct[1][0]), float(wrong[1][0]))
 
+    def test_wrong_geometry_values_preserves_lexical_successors(self):
+        normal = self.evidence(8)
+        wrong = self.evidence(8, "wrong_geometry_values")
+        self.assertTrue(torch.equal(normal[0], wrong[0]))
+        self.assertNotEqual(float(normal[1][0]), float(wrong[1][0]))
+        for k in (2, 3, 4, 5):
+            self.assertTrue(torch.equal(normal[k], wrong[k]))
+
     def test_masked_cross_book_tokens_ignored(self):
         h = torch.cat((torch.tensor([[11, 2, 7]]), self.history), dim=1)
         m = torch.cat((torch.zeros((1, 3), dtype=torch.bool), self.mask), dim=1)
