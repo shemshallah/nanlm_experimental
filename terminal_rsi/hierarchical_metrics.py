@@ -287,6 +287,8 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
     sentence_metrics = dict(sentence_mean)
     if sentence_metrics.get("units"):
         sentence_metrics.update({
+            "top1": sentence_mean.get("byte_top1", 0.0),
+            "top5": sentence_mean.get("byte_top5", 0.0),
             "beam_top1": sentence_beam.get("top1", 0.0),
             "beam_top5": sentence_beam.get("top5", 0.0),
             "exact_top1": sentence_mean.get("top1", 0.0),
