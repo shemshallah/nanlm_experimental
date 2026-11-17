@@ -44,6 +44,7 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
                 "--dev-manifest", str(dev / "win_dev.manifest.json"),
                 "--output", str(output),
                 "--updates", "1", "--batch", "2",
+                "--rsi-cycle-updates", "1", "--rsi-probe-positions", "2",
                 "--max-dev-positions", "2", "--topk-probes", "1",
                 "--upgrade-context", "32",
             ]
@@ -60,6 +61,9 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
             self.assertEqual(len(report["terminal_events"]), 2)
             self.assertTrue(report["old_v103_logits_identical_at_gate_zero"])
             self.assertEqual(report["new_dev_books"], 2)
+            self.assertEqual(report["rsi_mutations_verified"], 1)
+            self.assertEqual(len(report["rsi_self_construction"]["events"]), 1)
+            self.assertEqual(saved["training_state"]["rsi_self_builder"]["proposals"], 1)
 
 
 if __name__ == "__main__":
