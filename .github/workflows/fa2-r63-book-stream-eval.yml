@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - 'poincare_mirror/book_stream_eval.py'
+      - 'poincare_mirror/book_successor_stream.py'
+      - 'poincare_mirror/tests/test_r62_book_successor_stream.py'
       - 'poincare_mirror/scripts/eval_r63_book_stream.py'
       - 'poincare_mirror/tests/test_r63_book_stream_eval.py'
       - '.github/workflows/fa2-r63-book-stream-eval.yml'
