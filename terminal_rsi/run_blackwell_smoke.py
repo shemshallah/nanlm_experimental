@@ -52,7 +52,9 @@ def main(argv=None) -> int:
     p.add_argument("--context", type=int, default=256,
                    help="Observed causal bytes; the unified model caps at 256")
     p.add_argument("--batch", type=int, default=8192,
-                   help="Use the Blackwell card: large batches are cheap for the 6.5M model")
+                   help="Effective Blackwell batch; activation memory is split by --microbatch")
+    p.add_argument("--microbatch", type=int, default=4096,
+                   help="Microbatch for gradient accumulation; effective batch remains --batch")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
@@ -76,8 +78,9 @@ def main(argv=None) -> int:
                    help="Positions per book for hierarchical eval")
     p.add_argument("--hierarchical-eval-batch", type=int, default=8)
     args = p.parse_args(argv)
-    if args.seconds <= 0 or args.batch < 1 or not 32 <= args.context <= 256:
-        p.error("Positive seconds/batch and context in [32, 256] are required")
+    if (args.seconds <= 0 or args.batch < 1 or args.microbatch < 0
+            or not 32 <= args.context <= 256):
+        p.error("Positive seconds/batch and nonnegative microbatch; context in [32, 256]")
     if (args.hierarchical_eval_books < 0
             or args.hierarchical_eval_max_positions < 0
             or args.hierarchical_eval_batch < 1):
@@ -113,6 +116,7 @@ def main(argv=None) -> int:
         sys.executable, "-m", "terminal_rsi.train_verbatim",
         "--mode", "blackwell", "--fresh-start",
         "--seconds", str(args.seconds), "--batch", str(args.batch),
+        "--microbatch", str(args.microbatch),
         "--upgrade-context", str(args.context),
         "--train-stream", str(output / "train_cpu_pilot.bin"),
         "--bpe-merges", "terminal_rsi/reference/nancm_v103_bpe.txt",

@@ -58,13 +58,40 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
 
 def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     target: torch.Tensor, aux: torch.Tensor,
-                    grad_clip: float = 1.0):
+                    grad_clip: float = 1.0, microbatch: int = 0):
     """One identical v103 observe AFTER optimizer step, RSI critic AFTER that."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
     if not math.isfinite(grad_clip) or grad_clip <= 0:
         raise ValueError("Gradient clip must be finite and positive")
     model.train()
+    n = len(target)
+    if microbatch and microbatch < n:
+        # Effective batch stays n; split only the activation working set.
+        # Sum-of-loss/N over microbatches is the exact mean gradient.
+        optimizer.zero_grad(set_to_none=True)
+        total_loss = None
+        total_hits = 0
+        for start in range(0, n, microbatch):
+            end = min(start + microbatch, n)
+            logits, bits = model(history[start:end], target[start:end],
+                                 aux[start:end])
+            loss_sum = F.binary_cross_entropy_with_logits(
+                logits, bits, reduction="sum")
+            (loss_sum / n).backward()
+            total_loss = (loss_sum.detach() if total_loss is None
+                          else total_loss + loss_sum.detach())
+            total_hits += int(((logits.detach() > 0) == (bits > 0.5)).sum())
+        grad_norm = float(nn.utils.clip_grad_norm_(
+            model.parameters(), grad_clip))
+        optimizer.step()
+        loss = float(total_loss) / n
+        bpb = float(8 * loss / math.log(2))
+        accuracy = total_hits / (n * 8)
+        model.original.observe_online_bits(history[:, -32:], target, aux)
+        model.observe_verified_byte(bpb, accuracy)
+        return {"bpb": bpb, "bit_accuracy": accuracy,
+                "grad_norm": grad_norm, "grad_clip": grad_clip}
     logits, bits = model(history, target, aux)
     loss, bpb, accuracy = score_byte_observations(logits, bits)
     optimizer.zero_grad(set_to_none=True)
@@ -221,6 +248,8 @@ def main(argv=None):
     p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=2,
                    help="CPU worker math threads: 1, 2, 4, 8 or 16; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
+    p.add_argument("--microbatch", type=int, default=0,
+                   help="Split the effective batch for activation memory; 0=full batch")
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
@@ -273,11 +302,12 @@ def main(argv=None):
     started = time.monotonic()
     if args.smoke:
         args.save_every = 0
-    if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
+    if (args.seconds < 0 or args.batch < 1 or args.microbatch < 0
+            or args.max_dev_positions < 1
             or args.topk_probes < 1 or args.progress_every < 1
             or args.save_every < 0
             or (args.updates is not None and args.updates < 0)):
-        p.error("Nonnegative seconds/updates and positive batch/dev/topk/progress sample required")
+        p.error("Nonnegative seconds/updates/microbatch and positive batch/dev/topk/progress sample required")
     if (args.hierarchical_eval_books < 0
             or args.hierarchical_eval_batch < 1
             or args.hierarchical_eval_max_positions < 0):
@@ -661,7 +691,7 @@ def main(argv=None):
             else:
                 report = train_one_batch(
                     model, optimizer, sample[:, :-1], sample[:, -1],
-                    sample_aux, grad_clip=clip)
+                    sample_aux, grad_clip=clip, microbatch=args.microbatch)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
