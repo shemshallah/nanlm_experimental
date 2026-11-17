@@ -1,11 +1,6 @@
 name: M3 R24 independent frozen causal-copy TEST
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'm3_r24/**'
-      - '.github/workflows/m3-r24-frozen-copy-test.yml'
-  workflow_dispatch:
+  workflow_dispatch: # Independent TEST already passed; no automatic repeated scoring.
 
 jobs:
   m3-r24-locked-test:

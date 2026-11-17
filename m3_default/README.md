@@ -1,48 +1,63 @@
-# Canonical M3 online predictor — signed successor memory default
+# Canonical M3 online predictor — R24 accepted causal-prefix default
 
-M3's default is now the R20 **head → signed mirror-pair → ordered-triangle
-successor** path, connected to the inherited R19 spatial-wave probability.
-It is not an FA1, FA2, NaNLMind VM, or Terminal-RSI modification.
+M3's accepted default is the R21 signed mirror-pair/ordered-triangle successor
+backbone **plus** the TRAIN/GATE-selected R24 4/8/16-byte exact causal
+prefix-copy specialist. The latter passed a fresh 24-book independent TEST.
+This remains separate from FA1, FA2, NaNLMind and Terminal-RSI.
 
-The public Python API is M3DefaultPredictor. It accepts the exact original
-R16 TRAIN-derived 256-entry prior and exposes observe(byte),
-predict_proba(), predict_logp() and reset(). No target byte may be observed
-until after its probability is read.
+```python
+from m3_default import M3DefaultPredictor, M3R21Predictor
+default = M3DefaultPredictor(original_r16_train_prior)  # "r24"
+legacy = M3R21Predictor(original_r16_train_prior)    # exact "r20"
+for byte in document_prefix:
+    default.observe(int(byte))
+    legacy.observe(int(byte))
+new_probs = default.predict_proba()
+old_probs = default.predict_proba("r20")
+```
 
-Default mode is "r20" with frozen, TRAIN-selected:
-- R19 space/non-space scales: 0.25 and 1.0.
-- R20 directed-pair/ordered-triangle scales: 0.5 and 0.5.
-- R16 frozen oscillator and spatial coefficients.
-- 256 heads, 32,640 signed pairs, sparse 8,192-transition triangle history.
+Both classes expose `predict_proba`, `predict_logp`, `observe`, `reset`, and
+the original R19/oscillator, triangle-only and wrong-address ablations.
+Predictions are pure reads; targets enter causal memory only **after** being
+scored. Reset clears document state without altering learned parameters.
 
-R19/oscillator, wrong-address, wrong-context, and triangle-only modes remain
-accessible with the **same state** for causal ablations, not independent models.
-A zero R20 residual recovers R19 exactly; reset starts a new book.
+Frozen inherited parameters:
 
-## Acceptance gates
+- R16 original oscillator/spatial readout coefficients.
+- R19 space/nonspace scales `0.25` and `1.0`.
+- R20 directed pair/ordered triangle scales `0.5` and `0.5`.
+- 256 heads, 32,640 signed pair addresses, 8,192-transition triangle history.
+- R24 4/8/16-byte suffix memory, 8,192-transition causal horizon.
+- R24 learned copy readout gain **`1.0962571833587516`**.
 
-R20 DEV on 12 books reduced 3.769696 → 3.461079 BPB, with non-space and
-top-1/top-5 improvements. This was a **development** result, not a checkpoint
-promotion. The R21 workflow performs a predeclared frozen TEST on 24 further
-untouched books at seeded indices 132–155.
+The exact copy gain and entire five-scalar Adam optimizer moment history
+are frozen in `m3_r24/r23_frozen_candidate.json`; the original R23 fitted
+checkpoint remains recoverable from GitHub Actions.
 
-Unit tests enforce online-vs-batch R15/R20 numerical parity, read-only
-prediction, exact distribution normalization, topology invariants and a
-conventional n-gram equivalence audit.
+## Independently verified TEST
 
-Important: signed pair/ordered triangle counts are an address-isomorphic
-encoding of ordinary bigram/trigram counts. This default is an engineering
-integration of a useful causal memory mechanism, not yet proof that geometric
-computation beats an equally provisioned conventional n-gram or recurrent
-model. Independent TEST success and capacity-matched baselines are distinct.
+FIT 188–203; GATE 204–207; DEV 208–219. The readout was frozen **before**
+scoring 24 new books, indices 220–243 (73,726 scored bytes):
 
-Usage:
+| Measure | R21 | Accepted R24 |
+| --- | ---: | ---: |
+| Bits/byte ↓ | 3.43649 | **3.34084** |
+| Top-1 ↑ | 35.50% | **39.33%** |
+| Top-5 ↑ | 70.47% | **71.51%** |
+| Nonspace bits/byte ↓ | 4.04009 | **3.95073** |
 
-    import numpy as np
-    from m3_default import M3DefaultPredictor
-    predictor = M3DefaultPredictor(original_train_prior)  # shape (256,)
-    for byte in document_prefix:
-        predictor.observe(byte)
-    next_byte_distribution = predictor.predict_proba()
+All 24 TEST books improved; gain +0.09565093 bits/byte. Descriptive
+whole-book bootstrap 95% interval +0.08268 to +0.10677 bits/byte.
+The wrong-successor-value control worsened to 3.90343 bits/byte.
 
-No original checkpoint or optimizer state is overwritten. 
+- [Independent R24 TEST passed](https://github.com/shemshallah/nanlm_experimental/actions/runs/44001403746)
+- [R23 TRAIN/DEV and recoverable Adam history](https://github.com/shemshallah/nanlm_experimental/actions/runs/43992588664)
+
+## Limits and preservation
+
+R23's 256-head toroidal recurrent wave did **not** beat shuffled geometry.
+It is not included in the accepted R24 readout. Signed pair/triangle counts
+are address-isomorphic to ordinary bigram/trigram counts. This is a proven
+causal-prefix retrieval improvement, not a demonstrated geometric-computation
+advantage over matched conventional models. The complete R21 predictor
+and its outputs remain available as the frozen legacy class.

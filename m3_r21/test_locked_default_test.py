@@ -4,7 +4,7 @@ from unittest.mock import patch
 import numpy as np
 
 from m3_r21 import locked_default_test as m
-from m3_default.predictor import M3DefaultPredictor
+from m3_default.predictor import M3R21Predictor as M3DefaultPredictor
 from m3_r20.signed_mirror_memory import SignedMirrorSuccessorMemory
 
 

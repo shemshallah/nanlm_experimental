@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from m3_default.predictor import M3DefaultPredictor
+from m3_default.predictor import M3R21Predictor as M3DefaultPredictor
 from m3_r14.predictive_probe import resolve_books, train_unigram_prior
 from m3_r16.counterfactual_wave_gate import whole_book_deltas
 from m3_r17.locked_test import SEED, BYTES_PER_BOOK, WARMUP, TRAIN_BOOKS

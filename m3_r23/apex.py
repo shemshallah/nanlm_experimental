@@ -12,7 +12,7 @@ from collections import deque
 
 import numpy as np
 
-from m3_default.predictor import M3DefaultPredictor
+from m3_default.predictor import M3R21Predictor
 
 SIDE = 16
 HEADS = 256
@@ -129,7 +129,7 @@ class RecurrentTriangleApex:
         return np.stack((amplitude, velocity, contrast, curvature))
 
 
-class M3R23Predictor(M3DefaultPredictor):
+class M3R23Predictor(M3R21Predictor):
     """Single R21 state plus trainable 5-scalar apex/copy residual."""
 
     def __init__(self, prior: np.ndarray, geometry: str = "torus",

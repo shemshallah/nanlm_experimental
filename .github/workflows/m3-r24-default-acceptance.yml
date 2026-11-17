@@ -1,0 +1,33 @@
+name: M3 R24 accepted default parity and frozen-source verification
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_default/**'
+      - 'm3_r21/**'
+      - 'm3_r23/apex.py'
+      - 'm3_r24/**'
+      - '.github/workflows/m3-r24-default-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  accepted-r24-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Check exact R21 legacy, R23 frozen copy, R24 accepted default and negative controls
+        run: |
+          python -m compileall -q m3_default m3_r21 m3_r23 m3_r24
+          python -m unittest discover -s m3_r20 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r21 -p 'test_*.py' -v
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r22 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r23 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r24 -p 'test_*.py' -v

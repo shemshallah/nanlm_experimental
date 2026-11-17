@@ -3,7 +3,9 @@ import unittest
 
 import numpy as np
 
-from m3_default.predictor import M3DefaultPredictor, DEFAULT_MODE
+from m3_default.predictor import M3DefaultPredictor, M3R21Predictor, DEFAULT_MODE, R24_COPY_GAIN
+from m3_r23.apex import M3R23Predictor
+from m3_r24.locked_test import load_locked_candidate
 from m3_r14.predictive_probe import train_unigram_prior
 from m3_r15.learned_wave_readout import collect
 from m3_r17.locked_test import frozen_predictions
@@ -13,9 +15,9 @@ from m3_r20.successor_dev import combined_logp
 
 
 class M3StreamingParity(unittest.TestCase):
-    def test_default_is_r20_and_reset_is_reproducible(self):
+    def test_default_is_r24_and_reset_is_reproducible(self):
         p = M3DefaultPredictor(np.ones(256))
-        self.assertEqual(DEFAULT_MODE, "r20")
+        self.assertEqual(DEFAULT_MODE, "r24")
         with self.assertRaises(ValueError):
             p.predict_proba()
         p.observe(65)
@@ -51,7 +53,7 @@ class M3StreamingParity(unittest.TestCase):
         r19 = scaled_predictions(carrier, residual_scores(batch), .25, 1.0)
         pair, tri, inv = causal_successor_deltas(book, prior, batch["base_logp"], warmup)
         expected = combined_logp(r19, pair, tri, .5, .5)
-        streaming = M3DefaultPredictor(prior)
+        streaming = M3R21Predictor(prior)
         streaming.observe(book[0])
         actual = []
         for pos in range(1, len(book)):
@@ -71,6 +73,36 @@ class M3StreamingParity(unittest.TestCase):
         self.assertIsInstance(p.predict_logp(), np.ndarray)
         np.testing.assert_array_equal(p.predict_logp("r19"), p.predict_all()["r19"])
         self.assertEqual(before, p.signed.invariants())
+
+    def test_locked_readout_matches_recoverable_training_history(self):
+        theta,locked = load_locked_candidate()
+        self.assertEqual(locked["selection"],"copy_only")
+        self.assertEqual(R24_COPY_GAIN,theta[0])
+        self.assertEqual(locked["adam_step"],1024)
+
+    def test_r24_default_exactly_matches_frozen_r23_copy_and_legacy_r21(self):
+        prior = np.arange(1,257,dtype=np.float64)
+        theta,_ = load_locked_candidate()
+        original = M3R21Predictor(prior)
+        research = M3R23Predictor(prior,theta=theta)
+        accepted = M3DefaultPredictor(prior)
+        seq = b"an apple in the orchard, an apple in the orchard. "*3
+        for byte in seq:
+            original.observe(byte)
+            research.observe(byte)
+            accepted.observe(byte)
+            np.testing.assert_array_equal(accepted.predict_logp("r20"),
+                                          original.predict_logp())
+            base,features = research.base_and_features()
+            np.testing.assert_array_equal(base,original.predict_logp())
+            expected = research.readout(base,features,theta)
+            np.testing.assert_array_equal(accepted.predict_logp(),expected)
+            np.testing.assert_array_equal(accepted.predict_all()["r24"],expected)
+        for m in (original,research,accepted):
+            m.reset()
+            m.observe(65)
+        np.testing.assert_array_equal(accepted.predict_logp("r20"),original.predict_logp())
+        np.testing.assert_array_equal(accepted.predict_logp(),research.predict_logp())
 
 
 if __name__ == "__main__":
