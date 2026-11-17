@@ -59,6 +59,19 @@ class PersistentBookMemoryTests(unittest.TestCase):
                 for x,y in zip(actual,expected):
                     torch.testing.assert_close(x,y[0],rtol=0,atol=1e-6)
 
+    def test_repeated_geometric_hits_preserve_unit_histogram_mass(self):
+        # A real step-3185 R58 stream exceeded the external joint mass guard
+        # under the rotated-successor control before float64 accumulation.
+        stream=CausalBookSuccessor(horizon=128,key_mode="hierarchical",
+                                   value_control="rotated")
+        stream.begin_book("rounding-stress")
+        for t in range(96):
+            hist,coverage,_=stream.step("rounding-stress",65,[254]*8)
+            if t:
+                self.assertAlmostEqual(hist.sum().item(),1.0,places=6)
+                self.assertLessEqual(hist.sum().item(),1.00001)
+                self.assertGreater(coverage,0)
+
     def test_snapshot_replay_and_book_barrier(self):
         seen,pairs=self.sample()
         stream=CausalBookSuccessor(horizon=64,key_mode="hierarchical")
