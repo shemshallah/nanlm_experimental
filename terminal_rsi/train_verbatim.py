@@ -23,7 +23,7 @@ import torch
 from torch.nn import functional as F
 from torch import nn
 
-from .build_fresh_dev import validate_fresh_dev
+from .build_fresh_dev import validate_fresh_dev, _write_if_unchanged_or_new
 from .legacy_v103_reference import (
     PARITY_CONTEXT, PARITY_SCHEMA, build_train_features, feature_manifest,
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
@@ -173,6 +173,8 @@ def main(argv=None):
     p.add_argument("--dev-manifest", type=Path,
                    help="Required for NEW DEV; checks book list and TRAIN/DEV SHA without opening TEST")
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--metrics-output", type=Path,
+                   help="Optional stable JSON receipt with matched DEV metrics and 1000-update timing")
     p.add_argument("--seconds", type=float, default=0.0,
                    help="Optional wall-clock budget; cannot combine with --updates")
     p.add_argument("--updates", type=int,
@@ -397,6 +399,9 @@ def main(argv=None):
         for name, value in original_state.items():
             if not torch.equal(value.cpu(), saved["model"][name]):
                 raise AssertionError("Combined checkpoint changed tensor: " + name)
+    if args.metrics_output:
+        _write_if_unchanged_or_new(args.metrics_output,
+            (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode())
     print("Unified RSI CPU/T4/Blackwell training receipt:", json.dumps(receipt, indent=2))
     return receipt
 
