@@ -27,6 +27,11 @@ class R26Tests(unittest.TestCase):
                 p.observe(byte)
             np.testing.assert_array_equal(r26.predict_logp("r24"), zero.predict_logp())
             np.testing.assert_array_equal(r26.predict_logp(), r25.predict_logp())
+            base, f = r26.base_and_hybrid_features()
+            np.testing.assert_array_equal(f, r26.hybrid_features_from_base(base))
+            np.testing.assert_array_equal(
+                r26.base_and_hybrid_features(wrong_values=True)[1],
+                r26.hybrid_features_from_base(base, wrong_values=True))
         r26.theta[:] = 0
         np.testing.assert_array_equal(r26.predict_logp(), zero.predict_logp())
 

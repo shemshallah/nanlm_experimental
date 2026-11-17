@@ -1,0 +1,42 @@
+{
+  "candidate": "M3 R26 frozen hierarchical context-tree feedback",
+  "parent": "M3 R24 accepted default + R25 inherited Adam optimizer",
+  "trained_commit": "7870f549c9d35d708d3d3615bc5504408da8e348",
+  "training_run": 44157452299,
+  "training_artifact_id": 14362905744,
+  "training_checkpoint_sha256": "deb112d4d9b25cb57bd68f689660550a315032bea42c5e9376dbcdeb4a5c97a9",
+  "training_dev_report_sha256": "0c65d3b3a8adcb96d2b129076f74eaefc49ee69b61e629be168e5c36d7e20100",
+  "training_indices": [244, 260],
+  "gate_indices": [260, 264],
+  "dev_indices": [264, 276],
+  "sealed_test_indices": [276, 300],
+  "theta": [
+    0.20522936927790486,
+    0.5247820788932681,
+    0.014546217566135089,
+    0.41110746025816125,
+    0.3068762355174945,
+    0.31118690110333225,
+    -0.012420522830071154,
+    -0.5031923913862479,
+    -0.17807131974908555,
+    -0.5457650152177792,
+    -0.24970163692227434,
+    -0.06057178164629776,
+    0.12880799567382484,
+    0.09004538510784975
+  ],
+  "optimizer_steps": [1536, 1536, 1536, 768, 768, 768, 768, 768, 768, 768, 768, 768, 768, 768],
+  "selection": "GATE 4/4 and DEV 12/12 improved; nonspace, top1 and top5 improved; correct history beat both nulls",
+  "test_requirements": {
+    "gain_bpb_positive": true,
+    "nonspace_gain_bpb_nonnegative": true,
+    "book_bootstrap_lower_positive": true,
+    "minimum_improved_books": 18,
+    "wrong_successor_must_be_worse": true,
+    "unrelated_history_must_be_worse": true,
+    "top1_no_regression": true,
+    "top5_no_regression": true
+  },
+  "cannot_modify_after_test": ["theta", "optimizer_steps", "test_requirements", "sealed_test_indices"]
+}

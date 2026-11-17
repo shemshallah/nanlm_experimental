@@ -128,9 +128,14 @@ class M3R26Predictor(M3R25Predictor):
         super().observe(byte)
         self.tree.observe(int(byte))
 
+    def hybrid_features_from_base(self, base: np.ndarray, wrong_values: bool = False) -> np.ndarray:
+        """Read causal memory with a fixed base; avoids duplicated frozen model forwards."""
+        return pack_features(self.temporal.features(base, wrong_values=wrong_values),
+                             self.tree.features(base, wrong_values=wrong_values))
+
     def base_and_hybrid_features(self, wrong_values: bool = False) -> tuple[np.ndarray, np.ndarray]:
-        base, r25 = super().base_and_features(wrong_values=wrong_values)
-        return base, pack_features(r25, self.tree.features(base, wrong_values=wrong_values))
+        base = super().predict_logp("r24")
+        return base, self.hybrid_features_from_base(base, wrong_values=wrong_values)
 
     def predict_logp(self, mode: str | None = None) -> np.ndarray:
         if mode in ("r24", "r25"):

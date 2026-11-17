@@ -143,9 +143,7 @@ def evaluate(books: list[bytes], names: list[str], prior: np.ndarray,
         for pos, target in enumerate(book):
             if pos >= start:
                 base, features = model.base_and_hybrid_features()
-                wrong_base, wrong = model.base_and_hybrid_features(wrong_values=True)
-                if not np.array_equal(base, wrong_base):
-                    raise AssertionError("counterfactual modified the base predictor")
+                wrong = model.hybrid_features_from_base(base, wrong_values=True)
                 cross = pack_features(cross_r25.features(base), cross_tree.features(base))
                 # R25 comparison is the unchanged 768-step recovered parent,
                 # not R26's first three weights after additional training.
