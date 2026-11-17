@@ -128,13 +128,15 @@ class CausalSuccessorBackoff(ReliableAddressedMirrorBackoff):
         summary = trace["descended_point_summary"].detach()
         if summary.shape != (history.size(0), 32):
             raise ValueError("successor reliability requires 32D apex descent")
+        # Isolate the new successor gate's apex input; keep observed
+        # support counts and inherited R7.49 forward unchanged.
+        if mode == "no_apex":
+            summary = torch.zeros_like(summary)
         features = torch.cat((
             summary, wc.float().log1p()[:, None],
             gc.float().log1p()[:, None],
             distinct.float().log1p()[:, None]), dim=1)
         trust = torch.sigmoid(self.r753_reliability(features).squeeze(-1))
-        if mode == "no_apex":
-            trust = trust * 0. + .5
         geo_gain = (.125 * torch.tanh(self.r753_geometry_gain).clamp_min(0.)
                     * trust * eligible.float())
         if mode in ("disabled",):
