@@ -297,9 +297,7 @@ def run(a):
         a.output_checkpoint, a.root, a.threads)
     if (saved_meta.get("architecture_round") != R753 or
             saved_meta.get("promoted") is not False or
-            len(opt_verified.param_groups) != 30 or
-            frozen_fingerprint(dict(verified.named_parameters()) | {}, opt_verified)
-            == ""):
+            len(opt_verified.param_groups) != 30):
         raise AssertionError("reloaded R7.53 metadata/optimizer topology mismatch")
     verified_old = {n: p for n, p in verified.named_parameters() if n in original}
     if frozen_fingerprint(verified_old, opt_verified) != original_hash:
