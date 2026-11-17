@@ -72,7 +72,7 @@ def main(argv=None):
     p.add_argument("--batch", type=int, default=2)
     p.add_argument("--steps", type=int, default=3)
     p.add_argument("--warmup", type=int, default=1)
-    p.add_argument("--threads", type=int, default=2)
+    p.add_argument("--threads", type=int, choices=(1, 2, 4), default=2)
     args = p.parse_args(argv)
     print("TERMINAL_RSI_CPU_STEP_BENCHMARK", json.dumps(
         measure(args.history, batch=args.batch, steps=args.steps,
