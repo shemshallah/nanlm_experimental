@@ -129,6 +129,38 @@ Explicit CLI flags still override the preset.
 
 ## Kaggle 10-minute recipe
 
+### Fast gate: WikiText-2
+
+The first 10-minute gate uses WikiText-2 raw train+valid (~11 MB), not a
+64 MB FineWeb slice.  It downloads in seconds and builds bins in about a
+minute, so the 600-second **training** cap is not dominated by data prep.  The
+notebook [`kaggle_10m_115m.ipynb`](kaggle_10m_115m.ipynb) runs this path.
+
+```sh
+mkdir -p data
+for split in train valid; do
+  curl -L --fail -o "data/wikitext_${split}.txt" \
+    "https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/${split}.txt"
+done
+cat data/wikitext_train.txt data/wikitext_valid.txt > data/wikitext_corpus.txt
+python z3/build_domain_bins.py \
+  --corpus wikitext=data/wikitext_corpus.txt \
+  --out data/wikitext_bins \
+  --max-bytes-per-domain 12000000 \
+  --train-fraction 0.98 --valid-fraction 0.01
+python z3/train_v3.py --preset kaggle10m \
+  --corpus data/wikitext_bins/train.bin \
+  --val-corpus data/wikitext_bins/valid.bin \
+  --data-manifest data/wikitext_bins/manifest.json \
+  --out /kaggle/working/runs/z3_115m_kaggle10m
+```
+
+The result is comparable to the existing Z4 WikiText-2 CPU rows (31M,
+1,000 steps, 2.053 BPB); the 115M T4 run has a different model and step budget,
+so compare at equal wall time.
+
+### Full-data gate: FineWeb-Edu
+
 Use a 64 MiB FineWeb-Edu slice and the bundled layered tokenizer:
 
 ```sh
@@ -154,6 +186,13 @@ python z3/train_v3.py --preset kaggle10m \
 
 If the T4 OOMs at batch 4, pass `--batch-size 2`.  If it is comfortably fast,
 try `--batch-size 8`; the preset's `--grad-checkpoint` and AMP stay on.
+
+The public Kaggle range URL used by the GitHub FineWeb workflow can return
+**404 inside a Kaggle kernel**.  The HF parquet fallback is ~2 GB and converts
+to ~3.5 GB of text; do **not** feed that whole file to
+`build_domain_bins.py` in a 10-minute session.  Convert or slice it first, then
+build from at most 8–64 MiB of text.  The WikiText-2 gate above avoids this
+entirely.
 
 For an equal-wall baseline, run the same data with the stock preset and the
 same warmup:
