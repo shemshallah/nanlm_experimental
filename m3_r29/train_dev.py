@@ -229,7 +229,7 @@ def main() -> None:
         raise ValueError("NaNROUTER ancestry, book uniqueness or split changed")
     prior = train_unigram_prior(books[:TRAIN_BOOKS])
     np.testing.assert_array_equal(prior, optimizer.prior)
-    canonical = M3DefaultPredictor(prior)
+    canonical = M3DefaultPredictor(prior, mode="r26")
     new = M3R29Predictor(prior)
     for byte in books[FIT[0]][:32]:
         canonical.observe(int(byte))

@@ -5,6 +5,7 @@ import numpy as np
 
 from m3_default.predictor import (M3DefaultPredictor, M3R21Predictor,
                                   DEFAULT_MODE, R24_COPY_GAIN, R26_THETA,
+                                  R29_THETA, R29_TRAINING_CHECKPOINT_SHA256,
                                   R26_TRAINING_CHECKPOINT_SHA256)
 from m3_r23.apex import M3R23Predictor
 from m3_r24.locked_test import load_locked_candidate
@@ -17,9 +18,9 @@ from m3_r20.successor_dev import combined_logp
 
 
 class M3StreamingParity(unittest.TestCase):
-    def test_default_is_r26_and_reset_is_reproducible(self):
+    def test_default_is_r29_and_reset_is_reproducible(self):
         p = M3DefaultPredictor(np.ones(256))
-        self.assertEqual(DEFAULT_MODE, "r26")
+        self.assertEqual(DEFAULT_MODE, "r29")
         with self.assertRaises(ValueError):
             p.predict_proba()
         p.observe(65)
@@ -119,14 +120,42 @@ class M3StreamingParity(unittest.TestCase):
         for byte in b"a recursive memory is causal. a recursive memory is causal." * 2:
             canonical.observe(byte)
             frozen.observe(byte)
-            np.testing.assert_array_equal(canonical.predict_logp(),frozen.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r26"),frozen.predict_logp())
             np.testing.assert_array_equal(canonical.predict_logp("r24"),
                                           frozen.predict_logp("r24"))
         canonical.reset()
         frozen.reset()
         canonical.observe(65)
         frozen.observe(65)
-        np.testing.assert_array_equal(canonical.predict_logp(),frozen.predict_logp())
+        np.testing.assert_array_equal(canonical.predict_logp("r26"),frozen.predict_logp())
+
+    def test_directed_r29_promoted_path_matches_frozen_research_coefficients(self):
+        from m3_r29.lexical import M3R29Predictor
+        self.assertEqual(R29_TRAINING_CHECKPOINT_SHA256,
+                         "02c340e82ec77ae2c6e1d20ddd808ca4f63e3c242fe6fc94ff8f2235d8ab9386")
+        self.assertEqual(R29_THETA.shape, (8,))
+        prior = np.arange(1, 257, dtype=np.float64)
+        canonical = M3DefaultPredictor(prior)
+        frozen = M3R29Predictor(prior, R29_THETA)
+        original_r26 = M3DefaultPredictor(prior, mode="r26")
+        seq = b"the red fox ran to the red house. " * 3
+        for byte in seq:
+            for p in (canonical, frozen, original_r26):
+                p.observe(byte)
+            np.testing.assert_array_equal(canonical.predict_logp(), frozen.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r26"),
+                                          original_r26.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r24"),
+                                          original_r26.predict_logp("r24"))
+        old = original_r26.predict_logp().copy()
+        canonical.reset()
+        frozen.reset()
+        original_r26.reset()
+        canonical.observe(65)
+        frozen.observe(65)
+        original_r26.observe(65)
+        np.testing.assert_array_equal(canonical.predict_logp(), frozen.predict_logp())
+        self.assertFalse(np.array_equal(old, original_r26.predict_logp()))
 
 
 if __name__ == "__main__":

@@ -1,14 +1,17 @@
-# Canonical M3 online predictor — R26 accepted multiscale default
+# Canonical M3 online predictor — R29 directed default with certified R26 fallback
 
-M3's accepted default is the R21 signed mirror-pair/ordered-triangle successor
-backbone, R24's exact causal prefix-copy specialist, and R26's trained
-near/lifetime successor memories and hierarchical context tree. R26 passed
-its own prespecified 24-book independent TEST.
+M3 now defaults to the combined R21/R24/R26/R29 architecture: signed mirror
+pair/triangle successors, causal prefix copy, R26's near/lifetime context
+tree, and R29's trained word-conditioned lexical successor feedback. **R26 is
+the latest independently TEST-certified checkpoint.** R29 was made the default
+at the user's explicit direction despite its unrelated-history control
+outperforming it on GATE/DEV. Do not call this an R29 TEST certification.
 This remains separate from FA1, FA2, NaNLMind and Terminal-RSI.
 
 ```python
 from m3_default import M3DefaultPredictor, M3R21Predictor
-default = M3DefaultPredictor(original_r16_train_prior)  # "r26", independently TEST-certified
+default = M3DefaultPredictor(original_r16_train_prior)  # "r29", user-directed default
+certified = M3DefaultPredictor(original_r16_train_prior, mode="r26")
 legacy = M3R21Predictor(original_r16_train_prior)    # exact "r20"
 for byte in document_prefix:
     default.observe(int(byte))
@@ -32,14 +35,32 @@ Frozen inherited parameters:
 - R24 learned copy readout gain **`1.0962571833587516`**.
 - R26 fourteen-scalar class-conditioned causal readout, frozen exactly from
   the independently tested recovery checkpoint.
+- R29 eight-scalar lexical feedback readout, embedded exactly from the
+  768-update R29 checkpoint; all 22 Adam groups remain recoverable.
 
 The exact copy gain and entire five-scalar Adam optimizer moment history
 are frozen in `m3_r24/r23_frozen_candidate.json`; the original R23 fitted
 checkpoint remains recoverable from GitHub Actions. The newer R26 checkpoint
 preserves all 14 Adam group moments and steps.
 
-Use `default.predict_proba("r24")` for the exact inherited R24 distribution;
-use `M3DefaultPredictor(prior, mode="r24")` to construct an R24-only instance.
+Use `default.predict_proba("r26")` or `"r24"` for exact inherited predictions;
+construct `M3DefaultPredictor(prior, mode="r26")` or `mode="r24"` to omit the
+newer auxiliary memory when not needed.
+
+## R29 user-directed default and scientific limit
+
+Trained eight new weights on 16 fresh NaNROUTER books (49,152 scored bytes,
+768 Adam updates), then compared on four GATE and 12 DEV books, without
+loading the sealed 24-book R29 TEST (332–355). R29 outperformed R26 on
+DEV: 3.470453 → 3.458221 BPB, nonspace 4.155572 → 4.139543 BPB,
+top-1 39.625% → 39.945%, top-5 69.964% → 70.195%, 10/12 books improved.
+But unrelated-history BPB was **3.453804**, better than R29's 3.458221.
+Thus R29's prespecified GATE/DEV acceptance criteria **failed**, and no
+independent TEST has been opened. The exact predictor is now usable as the
+requested default, but certified R26 remains accessible without modification.
+
+- [R29 training and GATE/DEV](https://github.com/shemshallah/nanlm_experimental/actions/runs/44184424516)
+- [R29 directed promotion and checks](R29_DIRECTED_PROMOTION.md)
 
 ## R26 independent TEST and promotion
 

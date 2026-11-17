@@ -13,7 +13,7 @@ from m3_r29.train_dev import FrozenParentAdam, gate_pass
 class LexicalTests(unittest.TestCase):
     def test_exact_zero_init_parity_at_each_byte_and_after_reset(self):
         prior = np.arange(1, 257, dtype=np.float64)
-        canonical = M3DefaultPredictor(prior)
+        canonical = M3DefaultPredictor(prior, mode="r26")
         candidate = M3R29Predictor(prior)
         self.assertEqual(TOTAL_WEIGHTS, 14 + NEW_WEIGHTS)
         self.assertEqual(len(R26_THETA), 14)
