@@ -2,6 +2,44 @@
 
 This is the **Terminal-RSI v103 implementation** in `terminal_rsi/` (not FA1, FA2, M3 or Poincare). The `--fresh-start` pilot uses the original v103 feature extraction, v103 Terminal-RSI feedback and unified additive path, but **does not inherit trained weights**. It produces a disposable checkpoint, not a promoted master model.
 
+## Molab Python 3.13 cells (recommended)
+
+**Do not add `terminal-rsi` to Molab's package/requirements list.** It is not a PyPI package. The program is in the GitHub repository. Remove `terminal-rsi` from that list first; list only installable packages such as `torch`, `numpy`, and `zstandard`.
+
+Molab runs ordinary Python, not IPython shell magic. Paste this entire block into a **Python** cell (there is no `!` before commands):
+
+```python
+import subprocess
+import sys
+from pathlib import Path
+
+repo = Path.cwd() / "nanlm_experimental"
+if not repo.exists():
+    subprocess.run(
+        ["git", "clone", "--branch", "master", "--single-branch",
+         "https://github.com/shemshallah/nanlm_experimental.git", str(repo)],
+        check=True,
+    )
+else:
+    subprocess.run(["git", "-C", str(repo), "pull", "--ff-only", "origin", "master"], check=True)
+
+# Installs only real PyPI dependencies; does not overwrite the GPU torch build.
+subprocess.run([sys.executable, "-m", "pip", "install", "numpy", "zstandard"], check=True)
+subprocess.run([sys.executable, "-c", "import torch; print('PyTorch:', torch.__version__)"], check=True)
+
+subprocess.run(
+    [sys.executable, "-m", "terminal_rsi.run_molab_cpu_1000",
+     "--cpu-threads", "4", "--updates", "1000",
+     "--output-dir", "terminal_rsi_cpu_molab_1000"],
+    cwd=str(repo),
+    check=True,
+)
+```
+
+To select 1 or 2 threads, replace `"4"` with `"1"` or `"2"`. The runner automatically decompresses with the Python `zstandard` package when no system `zstd` binary is installed. No `sudo` or `apt` is needed.
+
+**If Molab requires installation of all listed dependencies before running any cell:** remove the invalid `terminal-rsi` entry in its environment/package editor first. Keep the repository program as a Python module, launched with `-m`, not as a pip requirement.
+
 ## Molab: one CPU training command
 
 In a Molab Python notebook with 32 GB RAM, select **CPU** and paste these commands into shell-enabled cells (prefix with `!` if the notebook requires IPython shell escapes):
