@@ -74,11 +74,13 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
     params = static_upgrade_parameter_count(cfg)
     total_params = params + ORIGINAL_V103_PARAMETER_COUNT + 1  # + residual gate
     state_gib = total_params * 16 / (1024 ** 3)
-    # One BF16 checkpoint tensor per layer per recursive pass; underestimate,
-    # because attention kernels, router branches, and temporary buffers add.
+    # Whole-stack checkpointing stores one input per recursive pass; the
+    # backward recomputes all layers and needs the 8x GLU/attention workspace.
     checkpoint_activation_floor = (
-        cfg.microbatch * cfg.context * cfg.width *
-        cfg.layers * cfg.recursive_passes * 2 / (1024 ** 3))
+        cfg.recursive_passes * cfg.microbatch * cfg.context * cfg.width *
+        2 / (1024 ** 3))
+    estimated_recompute_peak = (
+        cfg.microbatch * cfg.context * cfg.width * 10 * 2 / (1024 ** 3))
     budget = physical_vram_gib * usable_fraction
     return {
         "preset": "blackwell",
@@ -94,7 +96,9 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
         "usable_vram_budget_gib": budget,
         "fp32_weights_grad_adam_gib_approx": state_gib,
         "bf16_checkpoint_activation_floor_gib": checkpoint_activation_floor,
-        "provisional_headroom_gib": budget - state_gib - checkpoint_activation_floor,
+        "estimated_recompute_peak_gib": estimated_recompute_peak,
+        "provisional_headroom_gib": (
+            budget - state_gib - checkpoint_activation_floor - estimated_recompute_peak),
         "bf16_cuda_upgrade_only": True,
         "archived_v103_fp32_unchanged": True,
         "same_three_optimizer_groups": True,
@@ -154,7 +158,11 @@ class CausalBlock(nn.Module):
         self.qkv = nn.Linear(width, 3 * width, bias=False)
         self.project = nn.Linear(width, width, bias=False)
         self.norm_ff = RMSNorm(width)
-        self.up = nn.Linear(width, 8 * width, bias=False)
+        # Split the 8x GLU into two 4x projections.  The concatenated 8x
+        # intermediate is 22 GiB at Blackwell batch 8192; two 4x tensors plus
+        # an in-place product cut the peak without changing the math.
+        self.gate = nn.Linear(width, 4 * width, bias=False)
+        self.value = nn.Linear(width, 4 * width, bias=False)
         self.down = nn.Linear(4 * width, width, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -163,8 +171,10 @@ class CausalBlock(nn.Module):
         q, k, v = (z.transpose(1, 2) for z in (q, k, v))
         a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.project(a.transpose(1, 2).contiguous().reshape(b, t, d))
-        g, u = self.up(self.norm_ff(x)).chunk(2, dim=-1)
-        return x + self.down(F.silu(g) * u)
+        normed = self.norm_ff(x)
+        gate = self.gate(normed)
+        value = self.value(normed)
+        return x + self.down(F.silu(gate, inplace=True).mul_(value))
 
 
 class TerminalRSI(nn.Module):
@@ -199,6 +209,11 @@ class TerminalRSI(nn.Module):
             self.router.bias.copy_(torch.tensor([2.0, 0.0, 0.0, 0.0]))
             self.feedback.weight.zero_()
 
+    def _backbone_forward(self, h: torch.Tensor) -> torch.Tensor:
+        for layer in self.backbone:
+            h = layer(h)
+        return h
+
     def forward(self, x: torch.Tensor, passes: Optional[int] = None) -> Dict[str, torch.Tensor]:
         if x.dtype != torch.long or x.ndim != 2:
             raise ValueError("x must be [batch,time] torch.long byte indices")
@@ -222,12 +237,11 @@ class TerminalRSI(nn.Module):
             branches = [basis] + [expert(basis) for expert in self.specialists]
             mixed = sum(choice[..., j:j+1] * branches[j] for j in range(4))
             h = h + 0.25 * (mixed - basis)
-            for layer in self.backbone:
-                if self.training and self.gradient_checkpointing:
-                    from torch.utils.checkpoint import checkpoint
-                    h = checkpoint(layer, h, use_reentrant=False)
-                else:
-                    h = layer(h)
+            if self.training and self.gradient_checkpointing:
+                from torch.utils.checkpoint import checkpoint
+                h = checkpoint(self._backbone_forward, h, use_reentrant=False)
+            else:
+                h = self._backbone_forward(h)
             state = self.norm(h)
             raw_next = self.output[0](state)
             predicted_surprise = F.softplus(self.critic(state).squeeze(-1))
