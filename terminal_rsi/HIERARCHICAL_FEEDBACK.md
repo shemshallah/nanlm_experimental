@@ -1,24 +1,60 @@
 # Hierarchical feedback audit: Terminal-RSI vs Diamond
 
-## Current Terminal-RSI loops (what actually exists)
+## Implemented hierarchy in the 100M upgrade branch
 
-Today there is **no word→byte or subword→word generation loop**. The existing
-loops are:
+The unified 100M model now contains `CausalHierarchy` in
+`terminal_rsi/hierarchical_bus.py`:
 
-1. **Byte→byte recursive passes** in `TerminalRSI.forward`: two passes over the
-   12-layer upgrade backbone, with previous-byte surprise and a learned critic
-   feeding the next pass.
-2. **v103 online feedback** in `V103ParityGPUFullSystem`: online bit counts,
-   slot state, feedback state, verified byte/terminal outcomes.
-3. **v4 controller loop**: branch proposal → train one step → probe shards →
-   accept/reject → critic/world-model/policy update. This is a *training-policy*
-   loop, not a language-level hierarchy.
-4. **Hierarchical metrics**: byte/subword/token/word/sentence evaluation only.
-   These are not wired back into generation.
+1. **Bottom-up sweep** `byte -> subword -> word -> sentence` via causal
+   windows `(4, 16, 64)` bytes, vectorized with `cumsum`.
+2. **Top-down sweep** `sentence -> word -> subword -> byte`, each edge a
+   separate zero-initialized gated residual.
+3. **Lateral priors** `subword -> byte logits` and `word -> byte logits`,
+   independent zero-gated paths.
+4. **Boundary heads** for subword/word/sentence boundaries, trained from
+   observed bytes only (`. ! ?`, whitespace/punctuation, case/digit changes).
+5. **Byte-driven generation** in `terminal_rsi/hierarchical_generate.py`:
+   sample one byte, append it to the causal context, re-run the bus.  Words,
+   sentences and paragraphs are latent synthesized states, never sampled
+   tokens.
 
-So the requested sequence `word→byte→subword→word→subword→byte` is **not**
-implemented. It is also a directed cycle; it must be built as a causal DAG per
-timestep, not one circular chain.
+The gates start at zero but the lateral/read projections start small and
+nonzero, so the first auxiliary byte-CE step gives the gates a gradient.  In
+the 60 s Blackwell probe the gates moved to bottom-up `0.0042`, top-down
+`-0.0047`, lateral `±0.005` while the byte BPB fell from 8.188 to 5.37.
+
+The old cycles (`byte->byte` recursive passes, v103 online feedback, v4
+controller) remain.  The requested `word->byte->subword->word...` chain is a
+directed cycle; the implementation is its causal DAG equivalent above.
+
+## 32³ pair/palindrome geometry — the count closes
+
+The apparent mismatch was treating the diagonal as 256 points in *one* lattice.
+The object is the full ordered 256×256 pair matrix:
+
+```text
+C(256,2) = 32,640 unordered mirror pairs
+2 * C(256,2) + 256 = 65,536 = 256² = 2 * 32,768 = 2 * 32³
+```
+
+So the intended **32³ + 32³ paired point cloud** is exact:
+
+- **bottom 32³ lattice**: 32,640 mirror pairs + 128 palindromic points
+- **top 32³ lattice**: the 32,640 mirrored pairs + the other 128 palindromic points
+- total: 65,536 concepts = the full ordered pair matrix
+
+The 128 "missing" points are the per-lattice half of the 256-point diagonal.
+The 256 bottom specialists write concepts into the bottom lattice; the 256 top
+specialists read the mirrored concepts from the top lattice and project them
+back into the word/sentence states. The 256 extension heads are the top-2 MoE
+experts over those concept slots.
+
+This is deliberately **not** implemented yet. The next geometry step is a
+65,536-entry, low-dimensional pair-concept bank with a top-2 router, not a
+dense 256-expert MoE at width 704. The bank is cheap (~1M parameters at
+concept_dim=16); the router and zero-gated read/write path are the only new
+graph edges.
+
 
 ## What Diamond actually implements
 
@@ -67,10 +103,11 @@ branch:
    cannot leak future bytes.
 4. **Lateral priors**: word→byte and subword→byte as independent gated priors
    into byte logits, not part of a cycle.
-5. **Pair-concept memory**: use a 32,640-entry pair bank with a small concept
-   dimension (as Diamond does) as a sparse lookup over hierarchical feature
-   slots. Full 256-expert dense MoEs at width 704 are too large; use low-rank
-   expert factors or a small top-k pair router.
+5. **Pair-concept memory**: use the two 32³ lattices as a 65,536-entry paired
+   concept bank with a small concept dimension. The 256 bottom specialists
+   write concepts into the bottom lattice; the 256 top specialists read the
+   mirrored concepts from the top lattice. Full 256-expert dense MoEs at width
+   704 are too large; use a low-rank, top-k pair router instead.
 6. **Temporal meta slots**: +0/+1/+2/+3 for training heads; at generation only
    +0 conditions the next byte, so the output remains byte-driven.
 7. **Generation**: sample/argmax a byte; update boundary states; use the
@@ -90,24 +127,23 @@ that class; a from-scratch 100M model needs many more optimizer steps, not just
 more loops. Hierarchical loops can improve calibration and context, but they
 are not a substitute for the training budget.
 
-## Parallel candidate replicas
+## Parallel candidate replicas — implemented
 
-The current v4 candidate loop is sequential. The card at the 2048/microbatch
-1024 profile uses ~63 GiB allocated / 66 GiB reserved, leaving room for branch
-replicas because main training and RSI evaluation do not overlap.
+`terminal_rsi/train_verbatim.py` now runs the neutral branch and each
+candidate on cloned model/optimizer pairs:
 
-Proposed implementation:
+- clone the current model and optimizer state;
+- apply one candidate action per clone;
+- train the same precomputed branch batches in separate CUDA streams;
+- evaluate probe shards on all clones concurrently;
+- restore the winning clone into the main model;
+- update the critic/policy/replay from every branch outcome;
+- reset the main sampler/counters to the pre-tick values.
 
-- At each RSI tick, snapshot the base model+optimizer.
-- Create K branch replicas (model + optimizer) and load the base state.
-- Apply one candidate action per replica.
-- Train `horizon` branch steps on the same precomputed branch batches, each
-  replica on its own CUDA stream.
-- Evaluate each replica's probe shards in parallel.
-- Select the best branch; copy that replica's model/optimizer state back into
-  the main model; update critic/policy/replay with all branch outcomes.
-- Keep the main sampler/counters reset to the pre-tick values.
+A 45 s probe with **3 clones / 2 candidates** used 65.8 GiB allocated and
+94.1 GiB reserved, with no OOM.  A 60 s probe with 2 clones / 1 candidate
+moved the hierarchy gates and ran 16 RSI cycles (32 branch updates, 13
+accepted) alongside 5 main updates.  The memory limit is dominated by the
+reserved allocator cache, not the clones; `PYTORCH_CUDA_ALLOC_CONF=
+expandable_segments:True` is set by the smoke runner.
 
-This is not implemented yet. It requires a clone-local trainer because the
-current `train_updates` closure is bound to the main model/optimizer. It is the
-next code change for both throughput and RSI quality.
