@@ -11,7 +11,8 @@ python z3/profile_115m.py --preset 115m --ctx 512
 
 ## Parameter allocation
 
-Total: **115,238,237** parameters.
+Total: **115,238,237** parameters.  The table groups the main modules;
+scalar gates and norms make up the rounding remainder.
 
 | Group | Parameters | Share |
 |---|---:|---:|
@@ -25,8 +26,8 @@ Total: **115,238,237** parameters.
 | Concept loop | 3,490,820 | 3.0% |
 | MTP position embedding | 2,621,440 | 2.3% |
 | Memory cross-attention | 491,841 | 0.4% |
-| MTP adapters/gates/heads/cond | 744,000 | 0.6% |
-| Byte probe, composition, task | 89,280 | 0.1% |
+| MTP adapters/gates/heads/cond | 904,324 | 0.8% |
+| Byte probe, composition, task | 92,160 | 0.1% |
 
 The parameter budget is MoE-heavy, but the active compute is not.  The 3 MoE
 layers hold 47.7% of the parameters while activating only 2 routed + 2 shared
