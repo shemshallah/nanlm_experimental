@@ -21,8 +21,19 @@ from typing import Callable
 import torch
 from torch.nn import functional as F
 
-SCHEMA = "terminal-rsi-self-builder-v2"
-LEGACY_SCHEMA = "terminal-rsi-self-builder-v1"
+SCHEMA = "terminal-rsi-self-builder-v3"
+LEGACY_SCHEMAS = ("terminal-rsi-self-builder-v1", "terminal-rsi-self-builder-v2")
+# Each mutation direction/target has separately learned predictive-BPB credit.
+# The original v103 actor still chooses the high-level two-action family.
+ACTION_TABLE = (
+    ("specialist_route_1", 1, +0.08), ("specialist_route_1", 1, -0.08),
+    ("specialist_route_2", 2, +0.08), ("specialist_route_2", 2, -0.08),
+    ("specialist_route_3", 3, +0.08), ("specialist_route_3", 3, -0.08),
+    ("additive_capacity_gate", None, +0.08),
+    ("additive_capacity_gate", None, -0.08),
+    ("recurrent_refinement_depth", None, +0.08),
+    ("recurrent_refinement_depth", None, -0.08),
+)
 
 
 class RSISelfBuilder:
@@ -63,6 +74,9 @@ class RSISelfBuilder:
         self.accepted = 0
         self.rejected = 0
         self.events: list[dict] = []
+        self.bandit_epoch_proposals = 0
+        self.arm_counts = [0] * len(ACTION_TABLE)
+        self.arm_rewards = [0.0] * len(ACTION_TABLE)
 
     def state_dict(self) -> dict:
         return {
@@ -72,10 +86,13 @@ class RSISelfBuilder:
             "total_updates": self.total_updates,
             "proposals": self.proposals, "accepted": self.accepted,
             "rejected": self.rejected, "events": list(self.events),
+            "bandit_epoch_proposals": self.bandit_epoch_proposals,
+            "arm_counts": list(self.arm_counts),
+            "arm_rewards": list(self.arm_rewards),
         }
 
     def load_state_dict(self, state: dict) -> None:
-        if state.get("schema") not in (SCHEMA, LEGACY_SCHEMA):
+        if state.get("schema") not in (SCHEMA, *LEGACY_SCHEMAS):
             raise ValueError("Wrong RSI self-construction checkpoint schema")
         if state.get("interval") != self.interval or state.get("tolerance") != self.tolerance:
             raise ValueError("Cannot change RSI construction policy across checkpoint resume")
@@ -98,6 +115,26 @@ class RSISelfBuilder:
         self.accepted = state["accepted"]
         self.rejected = state["rejected"]
         self.events = list(events)
+        if state["schema"] == SCHEMA:
+            counts, rewards = state.get("arm_counts"), state.get("arm_rewards")
+            epoch = state.get("bandit_epoch_proposals")
+            if (not isinstance(epoch, int) or not 0 <= epoch <= self.proposals
+                    or not isinstance(counts, list) or len(counts) != len(ACTION_TABLE)
+                    or any(not isinstance(x, int) or x < 0 for x in counts)
+                    or sum(counts) != self.proposals - epoch
+                    or not isinstance(rewards, list) or len(rewards) != len(ACTION_TABLE)
+                    or any(not isinstance(x, (int, float)) or not math.isfinite(x)
+                           for x in rewards)):
+                raise ValueError("Malformed RSI bandit actions/credit in checkpoint")
+            self.bandit_epoch_proposals = epoch
+            self.arm_counts = list(counts)
+            self.arm_rewards = [float(x) for x in rewards]
+        else:
+            # Older fixed alternating actions had no honest per-arm credit.
+            # Preserve events and original optimizer moments and re-explore.
+            self.bandit_epoch_proposals = self.proposals
+            self.arm_counts = [0] * len(ACTION_TABLE)
+            self.arm_rewards = [0.0] * len(ACTION_TABLE)
 
     @torch.no_grad()
     def probe_bpb(self, split: str = "verification") -> float:
@@ -121,25 +158,33 @@ class RSISelfBuilder:
         finally:
             self.model.train(was_training)
 
+    def select_arm(self, family: int) -> int:
+        """Reward-adaptive sign/target choice with checkpointable exploration."""
+        options = range(6) if family == 0 else range(6, len(ACTION_TABLE))
+        untried = [i for i in options if self.arm_counts[i] == 0]
+        if untried:
+            return untried[0]
+        q = torch.tensor(
+            [self.arm_rewards[i] * 8.0
+             + 0.25 * math.sqrt(math.log1p(sum(self.arm_counts))
+                                / self.arm_counts[i])
+             for i in options], device=self.model.original.actor_logits.device)
+        return list(options)[int(torch.distributions.Categorical(logits=q).sample().item())]
+
     def propose_and_verify(self) -> dict:
         """Commit mutations only when TWO disjoint causal TRAIN probes improve."""
         prior = self.model.original.feedback_state.detach().clone()
         actor_logits = self.model.original.actor_logits + self.model.original.actor_feedback(prior)
         distribution = torch.distributions.Categorical(logits=actor_logits)
         action = int(distribution.sample().item())
-        if action == 0:
-            idx = 1 + (self.proposals % 3)
+        arm = self.select_arm(action)
+        label, idx, delta = ACTION_TABLE[arm]
+        if label.startswith("specialist_route"):
             tensor = self.model.upgrades.router.bias
-            label = f"specialist_route_{idx}"
-        elif self.proposals % 2 == 0:
-            idx = None
+        elif label == "additive_capacity_gate":
             tensor = self.model.residual_gate
-            label = "additive_capacity_gate"
         else:
-            idx = None
             tensor = self.model.upgrades.refine_scale
-            label = "recurrent_refinement_depth"
-        delta = (0.08 if self.proposals % 2 == 0 else -0.08)
         original = tensor.detach().clone()
         before = self.probe_bpb()
         audit_before = self.probe_bpb("audit")
@@ -179,11 +224,17 @@ class RSISelfBuilder:
         self.optimizer.step()
         self.model.original.observe_terminal(accepted)
         self.proposals += 1
+        self.arm_counts[arm] += 1
+        self.arm_rewards[arm] += (
+            reward_value - self.arm_rewards[arm]) / self.arm_counts[arm]
         self.accepted += int(accepted)
         self.rejected += int(not accepted)
         event = {
             "proposal": self.proposals, "update": self.total_updates,
-            "action": action, "modification": label, "delta": delta,
+            "action": action, "policy_arm": arm,
+            "policy_arm_observations": self.arm_counts[arm],
+            "policy_arm_mean_reward": self.arm_rewards[arm],
+            "modification": label, "delta": delta,
             "verified": accepted, "internal_bpb_before": before,
             "internal_bpb_candidate": after_candidate,
             "internal_audit_bpb_before": audit_before,
