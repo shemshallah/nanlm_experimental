@@ -21,24 +21,41 @@ from typing import Callable
 import torch
 from torch.nn import functional as F
 
-SCHEMA = "terminal-rsi-self-builder-v1"
+SCHEMA = "terminal-rsi-self-builder-v2"
+LEGACY_SCHEMA = "terminal-rsi-self-builder-v1"
 
 
 class RSISelfBuilder:
     def __init__(self, model, optimizer, history: torch.Tensor,
                  targets: torch.Tensor, auxiliary: torch.Tensor, *,
-                 interval: int = 50, tolerance: float = 1e-6):
+                 interval: int = 50, tolerance: float = 1e-6,
+                 audit_history: torch.Tensor | None = None,
+                 audit_targets: torch.Tensor | None = None,
+                 audit_auxiliary: torch.Tensor | None = None,
+                 min_gain_bpb: float = 0.002):
         if interval < 1 or not math.isfinite(tolerance) or tolerance < 0:
             raise ValueError("RSI cycle interval must be positive, tolerance finite and nonnegative")
-        if history.ndim != 2 or targets.ndim != 1 or auxiliary.ndim != 2:
-            raise ValueError("RSI probes must have [batch,context], [batch] and [batch,6] shapes")
-        if len(history) == 0 or len(history) != len(targets) or auxiliary.shape != (len(targets), 6):
-            raise ValueError("Non-empty causal RSI probes and six inherited features are required")
+        if not math.isfinite(min_gain_bpb) or min_gain_bpb <= 0:
+            raise ValueError("RSI minimum construction gain must be finite and positive")
+        if audit_history is None or audit_targets is None or audit_auxiliary is None:
+            raise ValueError("Separate internal TRAIN verification/audit probes are mandatory")
+        for h, t, a in ((history, targets, auxiliary),
+                        (audit_history, audit_targets, audit_auxiliary)):
+            if h.ndim != 2 or t.ndim != 1 or a.ndim != 2:
+                raise ValueError("RSI probes must have [batch,context], [batch] and [batch,6] shapes")
+            if len(h) == 0 or len(h) != len(t) or a.shape != (len(t), 6):
+                raise ValueError("Non-empty causal RSI probes and six inherited features are required")
+        if history.shape[1] != audit_history.shape[1]:
+            raise ValueError("RSI verification and audit must use identical causal context length")
         self.model = model
         self.optimizer = optimizer
         self.history = history
         self.targets = targets
         self.auxiliary = auxiliary
+        self.audit_history = audit_history
+        self.audit_targets = audit_targets
+        self.audit_auxiliary = audit_auxiliary
+        self.min_gain_bpb = min_gain_bpb
         self.interval = interval
         self.tolerance = tolerance
         self.total_updates = 0
@@ -50,16 +67,24 @@ class RSISelfBuilder:
     def state_dict(self) -> dict:
         return {
             "schema": SCHEMA, "interval": self.interval,
-            "tolerance": self.tolerance, "total_updates": self.total_updates,
+            "tolerance": self.tolerance, "min_gain_bpb": self.min_gain_bpb,
+            "verification_count": len(self.targets), "audit_count": len(self.audit_targets),
+            "total_updates": self.total_updates,
             "proposals": self.proposals, "accepted": self.accepted,
             "rejected": self.rejected, "events": list(self.events),
         }
 
     def load_state_dict(self, state: dict) -> None:
-        if state.get("schema") != SCHEMA:
+        if state.get("schema") not in (SCHEMA, LEGACY_SCHEMA):
             raise ValueError("Wrong RSI self-construction checkpoint schema")
         if state.get("interval") != self.interval or state.get("tolerance") != self.tolerance:
             raise ValueError("Cannot change RSI construction policy across checkpoint resume")
+        if state["schema"] == SCHEMA and (
+            state.get("min_gain_bpb") != self.min_gain_bpb
+            or state.get("verification_count") != len(self.targets)
+            or state.get("audit_count") != len(self.audit_targets)
+        ):
+            raise ValueError("Cannot change RSI verifier policy across checkpoint resume")
         if any(not isinstance(state.get(k), int) or state[k] < 0
                for k in ("total_updates", "proposals", "accepted", "rejected")):
             raise ValueError("Malformed RSI self-construction counters")
@@ -75,11 +100,19 @@ class RSISelfBuilder:
         self.events = list(events)
 
     @torch.no_grad()
-    def probe_bpb(self) -> float:
+    def probe_bpb(self, split: str = "verification") -> float:
+        """Score all eight target bits on one causal INTERNAL TRAIN partition."""
+        if split == "verification":
+            history, targets, auxiliary = self.history, self.targets, self.auxiliary
+        elif split == "audit":
+            history, targets, auxiliary = (
+                self.audit_history, self.audit_targets, self.audit_auxiliary)
+        else:
+            raise ValueError("RSI internal probe must be verification or audit")
         was_training = self.model.training
         self.model.eval()
         try:
-            logits, bits = self.model(self.history, self.targets, self.auxiliary)
+            logits, bits = self.model(history, targets, auxiliary)
             loss = F.binary_cross_entropy_with_logits(logits.float(), bits.float())
             bpb = float(8 * loss.item() / math.log(2))
             if not math.isfinite(bpb):
@@ -89,14 +122,11 @@ class RSISelfBuilder:
             self.model.train(was_training)
 
     def propose_and_verify(self) -> dict:
-        """One actual tensor mutation, independent causal check, and RSI update."""
+        """Commit mutations only when TWO disjoint causal TRAIN probes improve."""
         prior = self.model.original.feedback_state.detach().clone()
         actor_logits = self.model.original.actor_logits + self.model.original.actor_feedback(prior)
         distribution = torch.distributions.Categorical(logits=actor_logits)
         action = int(distribution.sample().item())
-        # The original actor has exactly two choices. Route choice explores
-        # the 3 existing learned specialists; refinement explores the feedback
-        # loop and entry gate. No tensor shape/Adam state is discarded.
         if action == 0:
             idx = 1 + (self.proposals % 3)
             tensor = self.model.upgrades.router.bias
@@ -112,6 +142,7 @@ class RSISelfBuilder:
         delta = (0.08 if self.proposals % 2 == 0 else -0.08)
         original = tensor.detach().clone()
         before = self.probe_bpb()
+        audit_before = self.probe_bpb("audit")
         with torch.no_grad():
             if idx is None:
                 tensor.add_(delta)
@@ -119,18 +150,25 @@ class RSISelfBuilder:
                 tensor[idx].add_(delta)
         try:
             after_candidate = self.probe_bpb()
+            audit_candidate = self.probe_bpb("audit")
         except Exception:
             with torch.no_grad():
                 tensor.copy_(original)
             raise
-        accepted = after_candidate < before - self.tolerance
+        gain = before - after_candidate
+        audit_gain = audit_before - audit_candidate
+        mean_gain = 0.5 * (gain + audit_gain)
+        # Never accept a tiny apparent gain in one tiny sample if the other
+        # internal TRAIN audit regresses. DEV/TEST is excluded from both.
+        accepted = (gain > self.tolerance and audit_gain > self.tolerance
+                    and mean_gain >= self.min_gain_bpb)
         if not accepted:
             with torch.no_grad():
                 tensor.copy_(original)
-        # Reward reflects the verified prediction effect, NOT the proposed
-        # action or actor's own confidence. A failed trial is not promoted.
-        reward_value = (float(math.tanh((before - after_candidate) * 8))
-                        if accepted else -0.25)
+        # CONTINUOUS, correctly signed measured BPB reward: failed trials are
+        # penalized according to actual damage, not by arbitrary fixed -0.25.
+        # A tiny change cannot produce an outsized critic/actor reward.
+        reward_value = float(math.tanh(8 * mean_gain)) if accepted else float(min(0.0, math.tanh(8 * mean_gain)))
         reward = torch.tensor(reward_value, device=prior.device)
         critic = self.model.original.reward_critic(prior).squeeze()
         advantage = (reward - critic).detach()
@@ -141,16 +179,20 @@ class RSISelfBuilder:
         self.optimizer.step()
         self.model.original.observe_terminal(accepted)
         self.proposals += 1
-        if accepted:
-            self.accepted += 1
-        else:
-            self.rejected += 1
+        self.accepted += int(accepted)
+        self.rejected += int(not accepted)
         event = {
             "proposal": self.proposals, "update": self.total_updates,
             "action": action, "modification": label, "delta": delta,
             "verified": accepted, "internal_bpb_before": before,
             "internal_bpb_candidate": after_candidate,
-            "reward": reward_value, "rsi_actor_critic_updated": True,
+            "internal_audit_bpb_before": audit_before,
+            "internal_audit_bpb_candidate": audit_candidate,
+            "verified_bpb_gain": gain, "audit_bpb_gain": audit_gain,
+            "mean_bpb_gain": mean_gain,
+            "minimum_required_bpb_gain": self.min_gain_bpb,
+            "reward": reward_value, "reward_definition": "accepted:tanh(8*mean_gain), rejected:min(0,tanh(8*mean_gain))",
+            "rsi_actor_critic_updated": True,
             "restored_rejected_tensor_exactly": not accepted,
         }
         self.events.append(event)
