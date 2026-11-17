@@ -19,7 +19,7 @@ class FreshRealPilotCorpusTests(unittest.TestCase):
             corpus.mkdir()
             for bid in range(2000, 2030):
                 (corpus / f"{bid}--unknown--english.txt").write_bytes(english_book(bid))
-            (corpus / "2200--unknown--russian.txt").write_bytes(
+            (corpus / "2200--unknown--foreign.txt").write_bytes(
                 english_book(2200) + "запрещённый русский текст".encode())
             output = root / "prepared"
             receipt = build_cpu_pilot(
