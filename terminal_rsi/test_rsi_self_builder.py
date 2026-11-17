@@ -126,7 +126,7 @@ class BuilderContracts(unittest.TestCase):
         _, successor = self._setup(interval=5)
         successor.load_state_dict(snapshot)
         self.assertEqual(successor.state_dict()["schema"],
-                         "terminal-rsi-self-builder-v2")
+                         "terminal-rsi-self-builder-v3")
         self.assertEqual(successor.proposals, core.proposals)
 
     def test_audit_required_to_prevent_single_probe_reward_hacking(self):
@@ -134,6 +134,41 @@ class BuilderContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Separate internal TRAIN"):
             RSISelfBuilder(model, core.optimizer, core.history,
                            core.targets, core.auxiliary)
+
+    def test_rsi_learns_actual_target_and_mutation_direction_not_fixed_parity(self):
+        model, core = self._setup()
+        first = core.propose_and_verify()
+        second = core.propose_and_verify()
+        self.assertEqual((first["policy_arm"], second["policy_arm"]), (0, 1))
+        self.assertEqual((first["delta"], second["delta"]), (+0.08, -0.08))
+        self.assertGreater(core.arm_rewards[0], core.arm_rewards[1])
+        self.assertEqual(core.arm_counts[:2], [1, 1])
+        snapshot = core.state_dict()
+        _, recovered = self._setup()
+        recovered.load_state_dict(snapshot)
+        self.assertEqual(recovered.arm_counts, core.arm_counts)
+        self.assertEqual(recovered.arm_rewards, core.arm_rewards)
+
+    def test_v2_fixed_direction_history_migrates_to_new_policy(self):
+        model, core = self._setup()
+        core.propose_and_verify()
+        earlier = core.state_dict()
+        earlier["schema"] = "terminal-rsi-self-builder-v2"
+        for key in ("arm_counts", "arm_rewards", "bandit_epoch_proposals"):
+            earlier.pop(key)
+        _, successor = self._setup()
+        successor.load_state_dict(earlier)
+        self.assertEqual(successor.proposals, 1)
+        self.assertEqual(successor.bandit_epoch_proposals, 1)
+        self.assertEqual(sum(successor.arm_counts), 0)
+        self.assertEqual(successor.state_dict()["schema"], "terminal-rsi-self-builder-v3")
+
+    def test_malformed_bandit_credit_refused_on_resume(self):
+        _, core = self._setup()
+        bad = core.state_dict()
+        bad["arm_rewards"][0] = float("nan")
+        with self.assertRaisesRegex(ValueError, "Malformed RSI bandit"):
+            core.load_state_dict(bad)
 
     def test_invalid_internal_probe_and_ledger_refused(self):
         model, core = self._setup()
