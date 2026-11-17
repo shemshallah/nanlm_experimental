@@ -110,6 +110,8 @@ def evaluate(model, dev, seed):
         wrong_addresses, _ = forward(model, dev)
     with successor_control(model, "wrong_successors"):
         wrong_values, _ = forward(model, dev)
+    with successor_control(model, "wrong_geometry_values"):
+        wrong_geo_values, _ = forward(model, dev)
     with successor_control(model, "no_apex"):
         no_apex, _ = forward(model, dev)
     foreign, _ = forward(model, foreign_successor_history(dev, seed + 1))
@@ -120,14 +122,16 @@ def evaluate(model, dev, seed):
         "geometry_over_word_only": word - full,
         "correct_vs_wrong_addresses": wrong_addresses - full,
         "correct_vs_wrong_successors": wrong_values - full,
+        "geometry_value_specificity": wrong_geo_values - full,
         "correct_vs_foreign_book": foreign - full,
+        "geometry_correct_vs_foreign": (foreign - full) - (word_foreign - word),
         "successor_apex_necessity": no_apex - full,
     }
     books = dev["book_ids"]
     word_keys = ("word_gain_over_r749", "word_correct_vs_foreign")
     full_keys = ("gain_over_r749", "geometry_over_word_only",
-                 "correct_vs_wrong_addresses", "correct_vs_wrong_successors",
-                 "correct_vs_foreign_book", "successor_apex_necessity")
+                 "correct_vs_wrong_addresses", "geometry_value_specificity",
+                 "geometry_correct_vs_foreign", "successor_apex_necessity")
     word_ok, word_boot = book_gate(measurements, word_keys, books, seed + 10)
     geo_ok, geo_boot = book_gate(measurements, full_keys, books, seed + 50)
     measures = {
