@@ -152,6 +152,13 @@ jobs:
           if not rows or any(not row.get('ok') for row in rows):
               sys.exit(1)
           PY
+          {
+            echo '## Z4 WikiText CPU rows'
+            echo ''
+            echo '```json'
+            cat z3_wikitext_summary.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
