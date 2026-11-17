@@ -68,6 +68,17 @@ class BlackwellPreflightTests(unittest.TestCase):
         self.assertLess(float((old_cpu - old_cuda.cpu()).abs().max()), 2e-3)
         self.assertLess(float((full_cpu - full_cuda.cpu()).abs().max()), 2e-3)
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_cuda_windows_accept_cpu_auxiliary(self):
+        from terminal_rsi.verbatim_metrics import byte_metrics_wrapped
+        model = VerbatimV103RSI("blackwell").to("cuda").eval()
+        windows = torch.randint(0, 256, (2, 33), device="cuda")
+        auxiliary = torch.randint(0, 256, (2, 6), dtype=torch.int32)  # CPU by design
+        result = byte_metrics_wrapped(
+            model, windows, n=2, topk_n=1, auxiliary=auxiliary)
+        self.assertIn("bpb", result)
+        self.assertEqual(result["evaluated_bytes"], 2)
+
     def test_all_3_modes_preserve_exact_original_logits_with_zero_gate(self):
         small = {
             mode: Preset(mode, 32, 1, 4, 64, 1, 2, 3e-4, 1)

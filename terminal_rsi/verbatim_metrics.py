@@ -28,6 +28,13 @@ def byte_metrics_wrapped(model, windows, n=256, *, topk_n=64, auxiliary=None,
                 auxiliary = auxiliary.reshape(books * per, 6)
             if local is not None:
                 local = local.reshape(books * per, 4)
+        # Probes may be assembled on CPU while windows live on CUDA. Indexing a
+        # CPU tensor with a CUDA index tensor fails; align auxiliary tensors
+        # with the window device before applying the shared index.
+        if auxiliary is not None:
+            auxiliary = auxiliary.to(windows.device)
+        if local is not None:
+            local = local.to(windows.device)
         if n is None:
             n = windows.size(0)
         ix = torch.linspace(0, windows.size(0) - 1,
