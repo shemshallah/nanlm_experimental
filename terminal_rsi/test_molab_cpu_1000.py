@@ -51,7 +51,7 @@ class MolabCPU1000Tests(unittest.TestCase):
             compressed = zstandard.ZstdCompressor().compress(buffer.getvalue())
             (cache / ARCHIVE).write_bytes(compressed)
             (cache / CHECKSUMS).write_text(
-                f"{hashlib.sha256(compressed).hexdigest()}  {ARCHIVE}\\n"
+                f"{hashlib.sha256(compressed).hexdigest()}  {ARCHIVE}\n"
             )
             with patch("terminal_rsi.run_molab_cpu_1000.shutil.which", return_value=None):
                 extracted = source_dir(root, None)
