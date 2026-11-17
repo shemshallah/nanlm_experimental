@@ -1,0 +1,40 @@
+name: FA1 R7.59 word-conditioned geometric prior CPU
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r759-prior.yml'
+      - 'fa1r7.12/source/fa1_r759_*.py'
+      - 'fa1r7.12/source/test_fa1_r759_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/FA1_R7p59_CONDITIONED_GEOMETRIC_PRIOR.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile new adapter and checkpoint loader
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r759_*.py
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
+      - name: Run geometric prior and inherited controls
+        run: |
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r759_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r758_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r757_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r754_*.py' -v
