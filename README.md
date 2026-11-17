@@ -14,7 +14,7 @@ See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md),
 Kaggle/CPU parameter ladder and the C(256,2+3) object-growth path.  The 115M
 parameter/compute audit and the `kaggle10m` short-run profile are in
 [`z3/KAGGLE_10M_ARCHITECTURE.md`](z3/KAGGLE_10M_ARCHITECTURE.md); the first
-T4 result (WikiText-2 1.7914 BPB after 599 steps) is in
+T4 result (WikiText-2 **1.7489 BPB** after 592 steps with the 3e-4 profile) is in
 [`z3/KAGGLE_10M_RESULTS.md`](z3/KAGGLE_10M_RESULTS.md).  The Kaggle notebook is
 [`z3/kaggle_10m_115m.ipynb`](z3/kaggle_10m_115m.ipynb).
 

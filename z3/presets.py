@@ -232,6 +232,30 @@ for _name in ("kaggle10m_obj", "kaggle10m_route"):
     PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
 PRESET_PARAM_COUNTS["kaggle10m_mtp64"] = 111_097_437
 
+# LR sweep winners from the 600-second Kaggle round.  lr3e4 is the new
+# recommended short-run profile; it keeps the same 115M geometry.
+PRESETS["kaggle10m_lr3e4"] = {
+    **PRESETS["kaggle10m"],
+    "lr": 3e-4,
+    "out": "runs/z3_115m_kaggle10m_lr3e4",
+}
+PRESETS["kaggle10m_lr3e4_decay"] = {
+    **PRESETS["kaggle10m_lr3e4"],
+    "steps": 600,
+    "lr_total_steps": 600,
+    "decay_frac": 0.2,
+    "out": "runs/z3_115m_kaggle10m_lr3e4_decay",
+}
+PRESETS["kaggle10m_lr4e4"] = {
+    **PRESETS["kaggle10m"],
+    "lr": 4e-4,
+    "out": "runs/z3_115m_kaggle10m_lr4e4",
+}
+for _name in (
+    "kaggle10m_lr3e4", "kaggle10m_lr3e4_decay", "kaggle10m_lr4e4",
+):
+    PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
+
 
 def get_preset(name: str) -> dict[str, Any]:
     key = str(name).strip().lower()

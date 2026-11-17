@@ -115,6 +115,21 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(model.mtp_output.shape[-1], 64)
         self.assertEqual(model.mtp_heads[0].out_features, 64)
 
+    def test_lr_sweep_presets(self):
+        parser = build_parser()
+        for name, lr, steps in (
+            ("kaggle10m_lr3e4", 3e-4, 1000),
+            ("kaggle10m_lr3e4_decay", 3e-4, 600),
+            ("kaggle10m_lr4e4", 4e-4, 1000),
+        ):
+            argv = ["--preset", name, "--corpus", "x"]
+            args = parser.parse_args(argv)
+            apply_preset(args, argv)
+            self.assertAlmostEqual(args.lr, lr)
+            self.assertEqual(args.steps, steps)
+            self.assertEqual(args.batch_size, 4)
+            self.assertEqual(args.warmup_steps, 30)
+
     def test_explicit_flag_beats_preset(self):
         parser = build_parser()
         argv = [

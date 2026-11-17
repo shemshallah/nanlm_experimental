@@ -4,6 +4,10 @@ This is the first real 10-minute 115M run on a Kaggle T4 using the
 `kaggle10m` short-run profile.  It is an early-training comparison, not a
 frontier claim.
 
+**Current best short-run profile: `kaggle10m_lr3e4`, 1.7489 test BPB /
+1.7835 validation BPB after 592 steps.**  The original 2e-4 result below is
+kept as the historical reference.
+
 ## Run
 
 - Kaggle kernel: <https://www.kaggle.com/code/shem42/z4-115m-kaggle-10m>
@@ -60,6 +64,26 @@ route-hidden **-0.00155**, memory **+0.01074**, MTP-carry **+0.00012**,
 object-depth **-0.00021**, object gate **0.01918**.  The optimized run's
 30-step warmup opened the token gate further (**-0.03750**) and kept the
 object gate closed (**0.01943**).
+
+## LR and batch sweep
+
+Run: <https://www.kaggle.com/code/shem42/z4-115m-batch-lr-sweep>  
+Same WikiText-2 bins, same 600-second cap.  `batch8` OOM'd and fell back to 6.
+
+| Arm | Actual batch | LR | Steps | Tokens | Best val BPB | Test BPB | Test top-1 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `kaggle10m` reference | 4 | 2e-4 | 599 | 1,226,752 | 1.8254 | 1.7914 | 25.93% |
+| batch8 → 6 | 6 | 2e-4 | 442 | 1,357,824 | 1.8890 | 1.8200 | 24.84% |
+| batch6 | 6 | 2e-4 | 444 | 1,363,968 | 1.8907 | 1.8181 | 24.94% |
+| **`lr3e4`** | **4** | **3e-4** | **592** | **1,212,416** | **1.7835** | **1.7489** | **26.86%** |
+
+The larger batches processed more tokens but took fewer optimizer steps and
+were worse.  The higher LR is the clear winner: **-0.0425 test BPB and
++0.93 top-1 points** versus the 2e-4 reference at essentially the same token
+budget.  The object gate remained closed (0.01993).
+
+The current recommended preset is therefore `kaggle10m_lr3e4`.  The next
+checks are a 600-step WSD decay at 3e-4 and a 4e-4 arm.
 
 ## Next-move arms
 
