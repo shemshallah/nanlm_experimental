@@ -1,0 +1,47 @@
+name: M3 R25 temporal memory CPU TRAIN GATE DEV
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r25/**'
+      - '.github/workflows/m3-r25-temporal-train-dev.yml'
+  workflow_dispatch:
+
+jobs:
+  m3-r25-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Verify accepted R24 parity, causal histories, and new R25 tests
+        run: |
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r24 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r25 -p 'test_*.py' -v
+      - name: Download and SHA-256 verify NaNROUTER source books
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r25_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r25_corpus
+          cd /tmp/m3_r25_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Train temporal feedback and score disjoint GATE and DEV
+        run: |
+          python -m m3_r25.train_dev \
+            --corpus-root /tmp/m3_r25_corpus \
+            --output m3_r25/results/R25_DEV.json \
+            --checkpoint m3_r25/results/R25_Adam_checkpoint.npz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r25-trained-temporal-feedback-dev-optimizer
+          path: m3_r25/results/
+          if-no-files-found: warn
