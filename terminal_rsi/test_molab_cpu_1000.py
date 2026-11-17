@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import tarfile
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from terminal_rsi.run_molab_cpu_1000 import verify_release
+from terminal_rsi.run_molab_cpu_1000 import ARCHIVE, CHECKSUMS, source_dir, verify_release
 
 
 class MolabCPU1000Tests(unittest.TestCase):
@@ -32,6 +35,28 @@ class MolabCPU1000Tests(unittest.TestCase):
             path.write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "mismatch"):
                 verify_release(path, sums)
+
+    def test_pure_python_zstandard_extraction_without_system_tools(self):
+        import zstandard
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache = root / "nanrouter_batch0004"
+            cache.mkdir(parents=True)
+            data = b"English story book source"
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as tar:
+                info = tarfile.TarInfo(name="books/123--english.txt")
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+            compressed = zstandard.ZstdCompressor().compress(buffer.getvalue())
+            (cache / ARCHIVE).write_bytes(compressed)
+            (cache / CHECKSUMS).write_text(
+                f"{hashlib.sha256(compressed).hexdigest()}  {ARCHIVE}\\n"
+            )
+            with patch("terminal_rsi.run_molab_cpu_1000.shutil.which", return_value=None):
+                extracted = source_dir(root, None)
+            self.assertEqual((extracted / "books" / "123--english.txt").read_bytes(), data)
+            self.assertTrue((extracted / "extracted.complete").exists())
 
     def test_missing_archive_entry_rejected(self):
         with TemporaryDirectory() as tmp:
