@@ -136,7 +136,9 @@ class CausalBookSuccessor:
             if hits:
                 matched.append((hits,confidence))
                 positions.update(rec["u"] for rec in hits)
-        # Thousands of geometric hits can accumulate on one byte. Compute\n        # unit mass in float64 before converting for the trained joint rail.\n        hist=torch.zeros(self.vocab,dtype=torch.float64)
+        # Thousands of geometric hits can accumulate on one byte. Compute
+        # unit mass in float64 before converting for the trained joint rail.
+        hist=torch.zeros(self.vocab,dtype=torch.float64)
         coverage=0.0
         if matched:
             coverage=sum(confidence for _,confidence in matched)/len(pairs)
