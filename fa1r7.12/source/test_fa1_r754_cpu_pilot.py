@@ -134,7 +134,12 @@ class RealSuccessorForward(unittest.TestCase):
             data, parent.trace, targets, parent.fixture.embeddings)
         self.assertTrue(torch.equal(old_a, now_a))
         self.assertTrue(torch.equal(old_q, now_q))
-        self.assertTrue(bool(stats["r753_geometric_eligible"].all()))
+        self.assertTrue(
+            bool(stats["r753_geometric_eligible"].all()),
+            "geo=%s distinct=%s lookup=%s" % (
+                stats["r753_geometric_support"].tolist(),
+                stats["r753_distinct_predecessors"].tolist(),
+                mod.word_head_lookup[[1, 6, 7]].tolist()))
         with torch.no_grad():
             mod.r753_word_gain.fill_(.25)
             mod.r753_geometry_gain.fill_(.25)
