@@ -74,13 +74,15 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
     params = static_upgrade_parameter_count(cfg)
     total_params = params + ORIGINAL_V103_PARAMETER_COUNT + 1  # + residual gate
     state_gib = total_params * 16 / (1024 ** 3)
-    # Whole-stack checkpointing stores one input per recursive pass; the
-    # backward recomputes all layers and needs the 8x GLU/attention workspace.
+    # Two-layer checkpoint segments: 12 stored inputs for 2 passes, while only
+    # two layers are recomputed at a time.  (Per-layer storage OOMs at 8192;
+    # whole-stack recompute OOMs on the 12-layer activation peak.)
+    segments = math.ceil(cfg.layers / 2)
     checkpoint_activation_floor = (
-        cfg.recursive_passes * cfg.microbatch * cfg.context * cfg.width *
-        2 / (1024 ** 3))
+        cfg.recursive_passes * segments * cfg.microbatch * cfg.context *
+        cfg.width * 2 / (1024 ** 3))
     estimated_recompute_peak = (
-        cfg.microbatch * cfg.context * cfg.width * 10 * 2 / (1024 ** 3))
+        2 * cfg.microbatch * cfg.context * cfg.width * 4 * 2 / (1024 ** 3))
     budget = physical_vram_gib * usable_fraction
     return {
         "preset": "blackwell",
@@ -214,6 +216,11 @@ class TerminalRSI(nn.Module):
             h = layer(h)
         return h
 
+    def _segment_forward(self, h: torch.Tensor, start: int, end: int) -> torch.Tensor:
+        for layer in self.backbone[start:end]:
+            h = layer(h)
+        return h
+
     def forward(self, x: torch.Tensor, passes: Optional[int] = None) -> Dict[str, torch.Tensor]:
         if x.dtype != torch.long or x.ndim != 2:
             raise ValueError("x must be [batch,time] torch.long byte indices")
@@ -239,7 +246,11 @@ class TerminalRSI(nn.Module):
             h = h + 0.25 * (mixed - basis)
             if self.training and self.gradient_checkpointing:
                 from torch.utils.checkpoint import checkpoint
-                h = checkpoint(self._backbone_forward, h, use_reentrant=False)
+                for start in range(0, len(self.backbone), 2):
+                    h = checkpoint(
+                        self._segment_forward, h, start,
+                        min(start + 2, len(self.backbone)),
+                        use_reentrant=False)
             else:
                 h = self._backbone_forward(h)
             state = self.norm(h)
