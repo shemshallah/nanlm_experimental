@@ -210,6 +210,11 @@ class TerminalRSI(nn.Module):
         with torch.no_grad():
             self.router.bias.copy_(torch.tensor([2.0, 0.0, 0.0, 0.0]))
             self.feedback.weight.zero_()
+            # Start the upgrade branch uniform (8 bits/byte), not with large
+            # random logits.  Gate 0 still returns exact v103; direct aux CE
+            # now starts at 8 instead of ~65 and trains immediately.
+            for head in self.output:
+                head.weight.zero_()
 
     def _backbone_forward(self, h: torch.Tensor) -> torch.Tensor:
         for layer in self.backbone:

@@ -1,6 +1,7 @@
 """CPU acceptance for Blackwell execution-profile planning (same 100M graph)."""
 from __future__ import annotations
 
+import math
 import unittest
 from unittest.mock import patch
 
@@ -115,6 +116,7 @@ class BlackwellPreflightTests(unittest.TestCase):
                 history, target, aux, return_aux=True)
             self.assertEqual(model.residual_gate.item(), 0.0)
             loss = F.cross_entropy(current, target)
+            self.assertLess(abs(float(loss) - math.log(256)), 1e-4)
             loss.backward()
             grads = [parameter.grad for parameter in
                      model.upgrades.output[0].parameters()]
