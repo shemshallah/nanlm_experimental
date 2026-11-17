@@ -1,0 +1,50 @@
+name: M3 R22 confidence-gated independent pair triangle and conventional controls
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r22/**'
+      - '.github/workflows/m3-r22-independent-feedback-dev.yml'
+  workflow_dispatch:
+
+jobs:
+  m3-r22-fresh-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Verify R17 through R22 ancestry and geometric/count parity
+        run: |
+          python -m unittest discover -s m3_r17 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r18 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r19 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r20 -p 'test_*.py' -v
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r21 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r22 -p 'test_*.py' -v
+      - name: Recover exact SHA-256-verified NaNROUTER corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r22_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER --dir /tmp/m3_r22_corpus
+          cd /tmp/m3_r22_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: TRAIN-only calibration and fresh R22 DEV against n-gram controls
+        run: |
+          python -m m3_r22.evaluate \
+            --corpus-root /tmp/m3_r22_corpus \
+            --output m3_r22/results/R22_NaNROUTER_DEV.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r22-independent-feedback-and-conventional-controls
+          path: m3_r22/results/R22_NaNROUTER_DEV.json
+          if-no-files-found: warn
