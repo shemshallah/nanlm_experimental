@@ -19,12 +19,15 @@ from book_stream_eval import ARMS,METRICS,evaluate_causal_book
 from poincare_frontier import Config,MirrorLM,load_v25_compatible,file_hash
 from train_r55_pair_successor import checked_corpus
 from probe_r47_selective_emission import book_comparison
+from fa2_active import resolve_active_checkpoint, ACTIVE_MANIFEST
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--checkpoint",type=Path,required=True)
-    p.add_argument("--expected-parent-sha256",required=True)
+    p.add_argument("--checkpoint",type=Path,default=None,
+                   help="Defaults to the hash-verified unified FA2_ACTIVE checkpoint")
+    p.add_argument("--expected-parent-sha256",default=None)
+    p.add_argument("--active-manifest",type=Path,default=ACTIVE_MANIFEST)
     p.add_argument("--data-dir",type=Path,required=True)
     p.add_argument("--output-report",type=Path,required=True)
     p.add_argument("--dev-books",type=int,default=12)
@@ -50,6 +53,12 @@ def main():
         p.error("Invalid workload quantities")
     if args.output_report.exists():
         p.error("Refuse to overwrite an existing report")
+    if args.checkpoint is None:
+        args.checkpoint,active=resolve_active_checkpoint(manifest_path=args.active_manifest)
+        if args.expected_parent_sha256 is None:
+            args.expected_parent_sha256=active['checkpoint_sha256']
+    elif args.expected_parent_sha256 is None:
+        p.error('Explicit --checkpoint requires --expected-parent-sha256')
     current_sha=file_hash(args.checkpoint)
     if current_sha!=args.expected_parent_sha256:
         raise ValueError("Requested FA2 checkpoint SHA-256 does not match")

@@ -1,0 +1,48 @@
+{
+  "architecture": "FA2_UNIFIED",
+  "active_round": "R68",
+  "active_step": 4209,
+  "checkpoint_filename": "FA2_ACTIVE.pt",
+  "checkpoint_sha256": "c377659754cb0d7e2a4583c04d816571ba60547f4e0939124613e7bbb6dd1580",
+  "promotion": "explicit_user_override",
+  "strict_three_depth_gate_pass": false,
+  "test_opened": false,
+  "source_lineage": "R58 -> R66 -> R67 -> R68",
+  "single_model": true,
+  "single_optimizer": true,
+  "inherited_adam_states": 196,
+  "promoted_dev_metrics": {
+    "0": {
+      "strict_dev_gate_pass": false,
+      "neutral_next_bpb": 4.976113974859637,
+      "active_next_bpb": 4.846222258541522,
+      "neutral_top1": 0.2470703125,
+      "active_top1": 0.24641927083333334,
+      "neutral_top5": 0.498046875,
+      "active_top5": 0.5149739583333334
+    },
+    "128": {
+      "strict_dev_gate_pass": true,
+      "neutral_next_bpb": 5.279317300353898,
+      "active_next_bpb": 4.9458130431176945,
+      "neutral_top1": 0.23014322916666666,
+      "active_top1": 0.240234375,
+      "neutral_top5": 0.451171875,
+      "active_top5": 0.4840494791666667
+    },
+    "512": {
+      "strict_dev_gate_pass": false,
+      "neutral_next_bpb": 4.248797407764512,
+      "active_next_bpb": 4.037237401648205,
+      "neutral_top1": 0.3108723958333333,
+      "active_top1": 0.3102213541666667,
+      "neutral_top5": 0.5852864583333334,
+      "active_top5": 0.6018880208333334
+    }
+  },
+  "limitations": [
+    "warmup0 and warmup512 strict gates fail",
+    "small warmup0 and warmup512 top1 regressions",
+    "+2/+3 heads unaffected by the joint-memory specialist"
+  ]
+}
