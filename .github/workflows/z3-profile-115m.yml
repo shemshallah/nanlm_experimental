@@ -1,0 +1,40 @@
+name: Z4 115M static profile
+
+on:
+  workflow_dispatch:
+    inputs:
+      ctx:
+        description: "Context length for the MAC estimate"
+        required: true
+        default: "512"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - name: Profile parameters and per-token MACs
+        run: |
+          mkdir -p artifacts
+          python z3/profile_115m.py \
+            --preset 115m --ctx "${{ inputs.ctx || '512' }}" \
+            --json artifacts/profile_115m.json | tee artifacts/profile_115m.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z3-115m-profile
+          path: artifacts/
+          if-no-files-found: warn
