@@ -29,6 +29,8 @@ def main():
     p.add_argument("--output-report",type=Path,required=True)
     p.add_argument("--dev-books",type=int,default=12)
     p.add_argument("--max-book-positions",type=int,default=512)
+    p.add_argument("--warmup-positions",type=int,default=0,
+                   help="Observe this many causal bytes per DEV book before scoring")
     p.add_argument("--context",type=int,default=64)
     p.add_argument("--chunk",type=int,default=16)
     p.add_argument("--history",type=int,default=32768)
@@ -42,7 +44,7 @@ def main():
     args=p.parse_args()
     if (min(args.dev_books,args.max_book_positions,args.context,args.chunk,
             args.history,args.bootstrap,args.threads)<1 or
-            args.chunk>args.context):
+            args.chunk>args.context or args.warmup_positions<0):
         p.error("Invalid workload quantities")
     if args.output_report.exists():
         p.error("Refuse to overwrite an existing report")
@@ -67,15 +69,19 @@ def main():
     for book_idx,length in enumerate(meta["valid_doc_lengths"]):
         if book_idx>=n:
             break
-        scored=min(args.max_book_positions+1,int(length))
-        if scored<4:
-            raise ValueError("Book too short for sequential evaluation")
+        # Keep two extra true targets for +2/+3 without scoring them as
+        # additional query positions. The causal warm-up only updates memory.
+        scored=min(args.warmup_positions+args.max_book_positions+3,int(length))
+        if scored<=args.warmup_positions+3:
+            raise ValueError("Book too short for requested warm-up and multi-horizon scoring")
         book=np.asarray(arrays["valid"][offset:offset+scored],dtype=np.int64)
         bytes_tensor=torch.from_numpy(book.copy())
         identifier="DEV:"+str(book_idx)
         rows=evaluate_causal_book(
             model,bytes_tensor,identifier,context=args.context,chunk=args.chunk,
-            history=args.history,key_mode=args.key_mode)
+            history=args.history,key_mode=args.key_mode,
+            score_start=args.warmup_positions,
+            score_positions=args.max_book_positions)
         per_book[identifier]=rows
         for arm in ARMS:
             all_rows[arm].append({metric:rows[arm][metric] for metric in METRICS})
@@ -108,7 +114,11 @@ def main():
         "parent_config":asdict(model.cfg),
         "zero_initialized_joint_diagnostic":args.zero_init_joint,
         "dev_books_scored":n,
-        "book_prefix_scored_positions":args.max_book_positions,
+        "requested_positions_per_book":args.max_book_positions,
+        "warmup_positions_per_book":args.warmup_positions,
+        "actual_scored_positions_per_book":{
+            book_id:rows["exact"]["positions_scored"]
+            for book_id,rows in per_book.items()},
         "context":args.context,"chunk":args.chunk,"history":args.history,
         "key_mode":args.key_mode,
         "test_opened":False,"checkpoint_modified":False,
