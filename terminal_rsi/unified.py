@@ -77,12 +77,12 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
     # Two-layer checkpoint segments: 12 stored inputs for 2 passes, while only
     # two layers are recomputed at a time.  (Per-layer storage OOMs at 8192;
     # whole-stack recompute OOMs on the 12-layer activation peak.)
-    segments = math.ceil(cfg.layers / 2)
+    segments = math.ceil(cfg.layers / 4)
     checkpoint_activation_floor = (
         cfg.recursive_passes * segments * cfg.microbatch * cfg.context *
         cfg.width * 2 / (1024 ** 3))
     estimated_recompute_peak = (
-        2 * cfg.microbatch * cfg.context * cfg.width * 4 * 2 / (1024 ** 3))
+        4 * cfg.microbatch * cfg.context * cfg.width * 4 * 2 / (1024 ** 3))
     budget = physical_vram_gib * usable_fraction
     return {
         "preset": "blackwell",
@@ -246,11 +246,11 @@ class TerminalRSI(nn.Module):
             h = h + 0.25 * (mixed - basis)
             if self.training and self.gradient_checkpointing:
                 from torch.utils.checkpoint import checkpoint
-                for start in range(0, len(self.backbone), 2):
+                for start in range(0, len(self.backbone), 4):
                     h = checkpoint(
                         self._segment_forward, h, start,
-                        min(start + 2, len(self.backbone)),
-                        use_reentrant=False)
+                        min(start + 4, len(self.backbone)),
+                        use_reentrant=True)
             else:
                 h = self._backbone_forward(h)
             state = self.norm(h)
