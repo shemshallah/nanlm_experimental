@@ -64,7 +64,8 @@ def main(argv=None) -> int:
     p.add_argument("--progress-every", type=int, default=1)
     p.add_argument("--rsi-version", choices=("off", "v3", "v4"), default="v4",
                    help="v4 is the unified path; v3/off are parity baselines")
-    p.add_argument("--rsi-v4-cycle-updates", type=int, default=500)
+    p.add_argument("--rsi-v4-cycle-updates", type=int, default=1,
+                   help="One RSI tick per kept update by default")
     p.add_argument("--rsi-v4-horizon", type=int, default=5)
     p.add_argument("--rsi-v4-candidates", type=int, default=2)
     p.add_argument("--rsi-v4-shards", type=int, default=4)
@@ -74,6 +75,8 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-z", type=float, default=2.0)
     p.add_argument("--rsi-v4-critic-steps", type=int, default=16)
     p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
+    p.add_argument("--rsi-v4-branch-batch", type=int, default=64)
+    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=4)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
@@ -147,6 +150,8 @@ def main(argv=None) -> int:
             "--rsi-v4-z", str(args.rsi_v4_z),
             "--rsi-v4-critic-steps", str(args.rsi_v4_critic_steps),
             "--rsi-v4-policy-steps", str(args.rsi_v4_policy_steps),
+            "--rsi-v4-branch-batch", str(args.rsi_v4_branch_batch),
+            "--rsi-v4-cycles-per-tick", str(args.rsi_v4_cycles_per_tick),
         ]
     if args.hierarchical_eval_books:
         command += [

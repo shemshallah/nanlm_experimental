@@ -703,6 +703,7 @@ class RSIv4Config:
     z_score: float = 2.0
     batch_size: int = 4
     fixed_batch: bool = False
+    branch_batch_size: int = 64
     grad_clip: float = 1.0
     seed: int = 2026
     critic_steps: int = 32
@@ -742,6 +743,7 @@ class RSIv4Controller:
         self.current_action = Action.neutral()
         self.batch_size = int(config.batch_size)
         self.fixed_batch = bool(config.fixed_batch)
+        self._active_branch_batch: int | None = None
         self.grad_clip = float(config.grad_clip)
         self.policy = ProposalPolicy(STATE_DIM).to(self.device)
         self.critic = EnsembleCritic(STATE_DIM, ACTION_DIM).to(self.device)
@@ -821,6 +823,10 @@ class RSIv4Controller:
         self.grad_clip = float(grad_clip)
 
     # -- fast CPU branch snapshots -----------------------------------------
+    @property
+    def active_branch_batch(self) -> int | None:
+        return self._active_branch_batch
+
     def capture_state(self) -> FastStateSnapshot:
         if self._state_snapshots is None:
             count = max(3, self.config.candidates + 2)
@@ -934,7 +940,11 @@ class RSIv4Controller:
             restore_seconds += time.monotonic() - branch_start
             self.apply(action)
             train_start = time.monotonic()
-            reports = train(self.config.horizon)
+            self._active_branch_batch = int(self.config.branch_batch_size)
+            try:
+                reports = train(self.config.horizon)
+            finally:
+                self._active_branch_batch = None
             train_seconds += time.monotonic() - train_start
             eval_start = time.monotonic()
             shard_bpbs = evaluate()

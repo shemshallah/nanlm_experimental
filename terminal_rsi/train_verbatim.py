@@ -320,6 +320,10 @@ def main(argv=None):
                    help="Optional v4 meta/replay JSON from a previous run")
     p.add_argument("--rsi-v4-critic-steps", type=int, default=32)
     p.add_argument("--rsi-v4-policy-steps", type=int, default=16)
+    p.add_argument("--rsi-v4-branch-batch", type=int, default=64,
+                   help="Small fast batch for branch train/eval; main batch remains --batch")
+    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=4,
+                   help="Mutations evaluated in one RSI tick")
     p.add_argument("--rsi-v4-entropy", type=float, default=0.01)
     p.add_argument("--legacy-terminal-demo", action="store_true",
                    help="Diagnostic ONLY: replay v103 fixed shell reward (+1/-1); never use to optimize low BPB")
@@ -373,6 +377,8 @@ def main(argv=None):
                 or args.rsi_v4_min_gain < 0
                 or not math.isfinite(args.rsi_v4_z) or args.rsi_v4_z < 0
                 or args.rsi_v4_critic_steps < 0 or args.rsi_v4_policy_steps < 0
+                or args.rsi_v4_branch_batch < 1
+                or args.rsi_v4_cycles_per_tick < 1
                 or not math.isfinite(args.rsi_v4_entropy) or args.rsi_v4_entropy < 0):
             p.error("v4 needs positive cycle/horizon/shards/positions and finite nonnegative thresholds")
         if args.rsi_v4_eval_chunk < 1:
@@ -582,6 +588,7 @@ def main(argv=None):
             z_score=args.rsi_v4_z,
             batch_size=args.batch,
             fixed_batch=args.mode in ("t4", "blackwell"),
+            branch_batch_size=args.rsi_v4_branch_batch,
             grad_clip=1.0,
             seed=args.seed,
             critic_steps=args.rsi_v4_critic_steps,
@@ -713,7 +720,10 @@ def main(argv=None):
     def train_updates(updates: int) -> list[dict]:
         nonlocal step, update_count
         reports = []
-        batch = v4_controller.batch_size if v4_controller is not None else args.batch
+        branch_batch = (getattr(v4_controller, "active_branch_batch", None)
+                        if v4_controller is not None else None)
+        batch = branch_batch or (v4_controller.batch_size
+                                 if v4_controller is not None else args.batch)
         clip = v4_controller.grad_clip if v4_controller is not None else 1.0
         for _ in range(updates):
             indices = coverage_indices(
@@ -758,13 +768,14 @@ def main(argv=None):
             remaining = ((args.updates - update_count)
                          if args.updates is not None else 10 ** 9)
             if v4_controller.should_cycle(step, remaining):
-                v4_controller.run_cycle(
-                    capture=capture_v4_branch,
-                    restore=restore_v4_branch,
-                    train=train_updates,
-                    evaluate=evaluate_v4_branch,
-                    step=step,
-                )
+                for _ in range(args.rsi_v4_cycles_per_tick):
+                    v4_controller.run_cycle(
+                        capture=capture_v4_branch,
+                        restore=restore_v4_branch,
+                        train=train_updates,
+                        evaluate=evaluate_v4_branch,
+                        step=step,
+                    )
                 continue
         report = train_updates(1)[0]
         if v4_controller is not None:
