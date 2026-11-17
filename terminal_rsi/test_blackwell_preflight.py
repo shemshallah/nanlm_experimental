@@ -79,6 +79,19 @@ class BlackwellPreflightTests(unittest.TestCase):
         self.assertIn("bpb", result)
         self.assertEqual(result["evaluated_bytes"], 2)
 
+    def test_gpu_window_cache_matches_causal_contexts(self):
+        from terminal_rsi.train_verbatim import (
+            build_causal_contexts, build_window_cache,
+        )
+        raw = torch.randint(0, 256, (4096,), dtype=torch.uint8)
+        history = 256
+        windows, targets = build_window_cache(raw, history, torch.device("cpu"))
+        positions = torch.randint(history, len(raw), (32,))
+        expected = build_causal_contexts(raw, positions, history)
+        actual = torch.cat((windows[positions], targets[positions, None]),
+                           dim=1).long()
+        self.assertTrue(torch.equal(expected, actual))
+
     def test_all_3_modes_preserve_exact_original_logits_with_zero_gate(self):
         small = {
             mode: Preset(mode, 32, 1, 4, 64, 1, 2, 3e-4, 1)

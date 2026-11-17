@@ -107,6 +107,24 @@ def build_causal_contexts(raw_bytes: torch.Tensor, target_positions: torch.Tenso
     return torch.cat((past, target[:, None]), dim=-1)
 
 
+def build_window_cache(raw_bytes: torch.Tensor, history: int,
+                       device: torch.device):
+    """Zero-padded sliding context view for GPU-side batch assembly.
+
+    Returns ``(windows, targets)`` where ``windows[p]`` is exactly the
+    ``history`` observed bytes before target position ``p`` and ``targets[p]``
+    is byte ``p``.  The view aliases a single padded copy of the stream; a
+    batch gather allocates only the batch, not the full N x history matrix.
+    """
+    if raw_bytes.ndim != 1 or raw_bytes.dtype != torch.uint8:
+        raise ValueError("Window cache requires a 1-D uint8 byte stream")
+    raw = raw_bytes.to(device)
+    padded = torch.cat((
+        torch.zeros(history, dtype=torch.uint8, device=device), raw))
+    windows = padded.unfold(0, history, 1)[:raw.numel()]
+    return windows, raw
+
+
 def build_book_disjoint_probes(book_path: Path, n: int, history: int,
                               full_dev: torch.Tensor,
                               full_aux: torch.Tensor,
@@ -198,6 +216,8 @@ def main(argv=None):
                    help="Write a rolling recoverable checkpoint every N kept updates; 0=final only")
     p.add_argument("--smoke", action="store_true",
                    help="Blackwell memory/throughput smoke: skip full checkpoint/champion writes")
+    p.add_argument("--no-gpu-window-cache", action="store_true",
+                   help="Disable the Blackwell GPU sliding-window cache (CPU/T4 unaffected)")
     p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=2,
                    help="CPU worker math threads: 1, 2, 4, 8 or 16; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
@@ -510,6 +530,21 @@ def main(argv=None):
     if c256_before is not None:
         print("Original C full256 numerical parity BEFORE:", c256_before)
 
+    window_cache = None
+    if (device.type == "cuda" and args.mode == "blackwell"
+            and not args.no_gpu_window_cache):
+        cache_windows, cache_targets = build_window_cache(
+            raw_tensor, upgrade_context, device)
+        cache_aux = aux_data.to(device=device)
+        window_cache = (cache_windows, cache_targets, cache_aux)
+        print(
+            "GPU window cache enabled:",
+            f"raw_bytes={raw_tensor.numel()}",
+            f"context={upgrade_context}",
+            f"aux_mib={cache_aux.numel() * cache_aux.element_size() / 2**20:.1f}",
+            flush=True,
+        )
+
     last_saved_update = 0
 
     def save_rolling():
@@ -592,10 +627,19 @@ def main(argv=None):
             indices = coverage_indices(
                 sampler["cursor"], batch, len(train_data),
                 sampler["stride"], torch.device("cpu"))
-            sample = build_causal_contexts(
-                raw_tensor, indices + PARITY_CONTEXT,
-                upgrade_context).to(device)
-            sample_aux = aux_data[indices].to(device=device)
+            if window_cache is not None:
+                gpu_indices = indices.to(device, non_blocking=True)
+                positions = gpu_indices + PARITY_CONTEXT
+                cache_windows, cache_targets, cache_aux = window_cache
+                sample = torch.cat(
+                    (cache_windows[positions], cache_targets[positions, None]),
+                    dim=1).long()
+                sample_aux = cache_aux[gpu_indices]
+            else:
+                sample = build_causal_contexts(
+                    raw_tensor, indices + PARITY_CONTEXT,
+                    upgrade_context).to(device)
+                sample_aux = aux_data[indices].to(device=device)
             if rsi_builder is not None:
                 report = rsi_builder.train_step(
                     train_one_batch, sample[:, :-1], sample[:, -1], sample_aux)
