@@ -25,7 +25,7 @@ class FreshRealPilotCorpusTests(unittest.TestCase):
             receipt = build_cpu_pilot(
                 corpus_dir=root, output_dir=output,
                 train_bytes=8192, train_chunk_bytes=4096,
-                dev_books=18, dev_positions=80, seed=103)
+                dev_books=18, dev_positions=80, seed=103, min_remaining_books=18)
             self.assertEqual(receipt["train_bytes"], 8192)
             self.assertEqual(receipt["dev_books"], 18)
             self.assertEqual(receipt["dev_scored_bytes"], 1440)
@@ -40,7 +40,7 @@ class FreshRealPilotCorpusTests(unittest.TestCase):
             self.assertEqual(build_cpu_pilot(
                 corpus_dir=root, output_dir=output,
                 train_bytes=8192, train_chunk_bytes=4096,
-                dev_books=18, dev_positions=80, seed=103)["dev_sha256"],
+                dev_books=18, dev_positions=80, seed=103, min_remaining_books=18)["dev_sha256"],
                 receipt["dev_sha256"])
 
 
