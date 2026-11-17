@@ -52,8 +52,10 @@ class BuilderContracts(unittest.TestCase):
         contexts = torch.zeros(4, 32, dtype=torch.long)
         targets = torch.zeros(4, dtype=torch.long)
         features = torch.zeros(4, 6, dtype=torch.int32)
-        return model, RSISelfBuilder(model, optimizer, contexts, targets, features,
-                                     interval=interval)
+        return model, RSISelfBuilder(
+            model, optimizer, contexts, targets, features,
+            interval=interval, audit_history=contexts.clone(),
+            audit_targets=targets.clone(), audit_auxiliary=features.clone())
 
     def test_real_verified_growth_and_exact_rejected_rollback(self):
         torch.manual_seed(123)
@@ -90,11 +92,56 @@ class BuilderContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "policy"):
             wrong.load_state_dict(snapshot)
 
+    def test_rejects_probe_overfit_even_when_first_partition_improves(self):
+        class ConflictingModel(TinyModel):
+            def forward(self, previous, target, aux):
+                direction = torch.where(aux[:, 0].float() > 0, -1.0, 1.0)
+                logits = (direction * self.upgrades.router.bias[1])[:, None].expand(-1, 8)
+                return logits, torch.ones_like(logits)
+
+        model = ConflictingModel()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        contexts = torch.zeros(4, 32, dtype=torch.long)
+        targets = torch.zeros(4, dtype=torch.long)
+        verify = torch.zeros(4, 6, dtype=torch.int32)
+        audit = torch.ones(4, 6, dtype=torch.int32)
+        core = RSISelfBuilder(model, optimizer, contexts, targets, verify,
+                              audit_history=contexts.clone(), audit_targets=targets.clone(),
+                              audit_auxiliary=audit, interval=1)
+        original = model.upgrades.router.bias.detach().clone()
+        event = core.propose_and_verify()
+        self.assertGreater(event["verified_bpb_gain"], 0)
+        self.assertLess(event["audit_bpb_gain"], 0)
+        self.assertFalse(event["verified"])
+        self.assertTrue(torch.equal(original, model.upgrades.router.bias))
+        self.assertLessEqual(event["reward"], 0)
+        self.assertNotEqual(event["reward"], -0.25)
+
+    def test_v1_checkpoint_ledger_migrates_without_optimizer_reset(self):
+        model, core = self._setup(interval=5)
+        snapshot = core.state_dict()
+        snapshot["schema"] = "terminal-rsi-self-builder-v1"
+        for key in ("min_gain_bpb", "verification_count", "audit_count"):
+            snapshot.pop(key)
+        _, successor = self._setup(interval=5)
+        successor.load_state_dict(snapshot)
+        self.assertEqual(successor.state_dict()["schema"],
+                         "terminal-rsi-self-builder-v2")
+        self.assertEqual(successor.proposals, core.proposals)
+
+    def test_audit_required_to_prevent_single_probe_reward_hacking(self):
+        model, core = self._setup()
+        with self.assertRaisesRegex(ValueError, "Separate internal TRAIN"):
+            RSISelfBuilder(model, core.optimizer, core.history,
+                           core.targets, core.auxiliary)
+
     def test_invalid_internal_probe_and_ledger_refused(self):
         model, core = self._setup()
         with self.assertRaisesRegex(ValueError, "Non-empty"):
             RSISelfBuilder(model, core.optimizer,
-                           torch.empty(0, 32), torch.empty(0), torch.empty(0, 6))
+                           torch.empty(0, 32), torch.empty(0), torch.empty(0, 6),
+                           audit_history=core.audit_history, audit_targets=core.audit_targets,
+                           audit_auxiliary=core.audit_auxiliary)
         bad = core.state_dict()
         bad["proposals"] = 1
         with self.assertRaisesRegex(ValueError, "inconsistent"):
