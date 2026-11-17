@@ -17,6 +17,7 @@ from concept_loop import (
     ConceptLoop,
     IncrementalCompositionDecoder,
     SpanSidecar,
+    _segment_pool,
 )
 from layered_tokenizer import LayeredTokenizer
 from v3_model import V3Config, V3LM
@@ -161,6 +162,61 @@ class ConceptLoopTests(unittest.TestCase):
         self.assertTrue(
             all(0 <= object_id < 2763520 for object_id in payload["objects"][0]["triples"])
         )
+
+    def test_segment_pool_matches_reference(self):
+        x = torch.randn(3, 9, 5)
+        ids = torch.tensor(
+            [
+                [0, 1, 1, 2, 2, 2, 0, 0, 0],
+                [1, 1, 1, 2, 2, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            ]
+        )
+        gathered, counts = _segment_pool(x, ids)
+        valid = ids > 0
+        unique, inverse = torch.unique(ids[valid], return_inverse=True)
+        compact = torch.zeros_like(ids)
+        compact[valid] = inverse + 1
+        buckets = int(unique.numel()) + 1
+        expected = torch.zeros(3, buckets, 5)
+        expected_counts = torch.zeros(3, buckets)
+        for row in range(3):
+            for column in range(9):
+                segment = int(compact[row, column])
+                if segment > 0:
+                    expected[row, segment] += x[row, column]
+                    expected_counts[row, segment] += 1
+        expected_gathered = expected.gather(
+            1, compact.unsqueeze(-1).expand(-1, -1, 5)
+        )
+        expected_gathered = expected_gathered / expected_counts.unsqueeze(
+            -1
+        ).gather(1, compact.unsqueeze(-1)).clamp_min(1.0)
+        torch.testing.assert_close(gathered, expected_gathered)
+        torch.testing.assert_close(counts, expected_counts)
+
+    def test_object_diagnostics_are_present(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=16, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=1, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64, mtp=1,
+            use_memory=False, use_concept_loop=True,
+            concept_loop_vertices=16, concept_loop_dim=16,
+            concept_top_vertices=4, concept_top_pairs=2,
+            concept_top_triples=1, force_manual_attention=True,
+        )
+        model = V3LM(cfg)
+        _logits, _mtp, aux = model(torch.randint(0, 64, (2, 16)))
+        memory = aux.get("object_memory")
+        self.assertIsInstance(memory, dict)
+        for key in (
+            "pair_entropy", "triple_entropy", "object_gate",
+            "object_balance", "pointer_entropy",
+        ):
+            self.assertIn(key, memory)
+            self.assertTrue(torch.isfinite(memory[key]))
+        self.assertGreaterEqual(float(memory["object_balance"]), 1.0)
 
     def test_incremental_composition(self):
         encoded = self.tokenizer.encode(TEXT, add_document_frame=False)

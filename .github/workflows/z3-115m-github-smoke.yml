@@ -1,0 +1,144 @@
+name: Z3 115M GitHub CPU smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner label (ubuntu-latest or a self-hosted GPU label)"
+        required: true
+        default: ubuntu-latest
+        type: string
+      steps:
+        description: "Optimizer steps for the 115M smoke"
+        required: true
+        default: "1"
+        type: string
+      run_tests:
+        description: "Run the full z3 unit suite first"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: z3-115m-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  z3-115m-cpu-smoke:
+    name: Z3 115M wiring smoke (CPU)
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CPU PyTorch and data dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install numpy tokenizers
+
+      - name: Run z3 unit suite
+        if: ${{ inputs.run_tests }}
+        run: |
+          python -m unittest discover -s z3 -p 'test_*.py' -v
+
+      - name: Build a tiny document-disjoint corpus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root = Path('/tmp/z3_115m_ci')
+          root.mkdir(parents=True, exist_ok=True)
+          for name in ('alpha', 'beta', 'gamma'):
+              docs = [
+                  f'{name} document {i}. This is a short held-out-safe paragraph '
+                  f'with a few words, a number {i}, and a closing sentence.'
+                  for i in range(24)
+              ]
+              (root / f'{name}.txt').write_text('\n\n'.join(docs) + '\n', encoding='utf-8')
+          PY
+          python z3/build_domain_bins.py \
+            --corpus alpha=/tmp/z3_115m_ci/alpha.txt \
+            --corpus beta=/tmp/z3_115m_ci/beta.txt \
+            --corpus gamma=/tmp/z3_115m_ci/gamma.txt \
+            --out /tmp/z3_115m_bins \
+            --train-fraction 0.70 --valid-fraction 0.15 \
+            --min-doc-bytes 1
+
+      - name: Verify 115M preset and full feedback forward
+        run: |
+          python - <<'PY'
+          import torch
+          from train_v3 import build_parser, apply_preset, make_config
+          from v3_model import V3LM
+          argv = ['--preset', '115m', '--corpus', 'unused']
+          parser = build_parser()
+          args = parser.parse_args(argv)
+          apply_preset(args, argv)
+          cfg = make_config(args, 64060)
+          model = V3LM(cfg).eval()
+          assert model.parameter_count() == 115_238_237, model.parameter_count()
+          model.set_feedback_progress(1.0)
+          with torch.no_grad():
+              logits, mtp, aux = model(torch.randint(0, 64060, (1, 8)))
+          assert tuple(logits.shape) == (1, 8, 64060), logits.shape
+          assert len(mtp) == 2, len(mtp)
+          assert aux.get('feedback', {}).get('progress') is not None
+          print({'params': model.parameter_count(), 'logits': tuple(logits.shape),
+                 'mtp_heads': len(mtp), 'feedback': {k: float(v) for k, v in aux['feedback'].items()}})
+          PY
+
+      - name: One-step 115M train -> per-domain test -> validate
+        run: |
+          python z3/train_v3.py --preset 115m \
+            --corpus /tmp/z3_115m_bins/train.bin \
+            --val-corpus /tmp/z3_115m_bins/valid.bin \
+            --data-manifest /tmp/z3_115m_bins/manifest.json \
+            --tokenizer bin --ctx 8 --batch-size 1 \
+            --steps "${{ inputs.steps || '1' }}" \
+            --eval-every 1 --eval-batches 1 --log-every 1 \
+            --no-ema --no-grad-checkpoint \
+            --device cpu --threads 2 \
+            --out /tmp/z3_115m_run
+
+          python z3/eval_domains.py \
+            --checkpoint /tmp/z3_115m_run/best.pt \
+            --test-dir /tmp/z3_115m_bins/test \
+            --data-manifest /tmp/z3_115m_bins/manifest.json \
+            --tokenizer layered --document-framing --sidecar --require-sidecar \
+            --ctx 8 --batch-size 1 --device cpu \
+            --out /tmp/z3_115m_run/test_domains.json
+
+          python z3/validate_run.py \
+            --run /tmp/z3_115m_run \
+            --test /tmp/z3_115m_run/test_domains.json \
+            --expected-params 115238237 \
+            --out /tmp/z3_115m_run/validation.json
+
+      - name: Collect smoke artifacts
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp /tmp/z3_115m_run/config.json artifacts/ || true
+          cp /tmp/z3_115m_run/result.json artifacts/ || true
+          cp /tmp/z3_115m_run/history.json artifacts/ || true
+          cp /tmp/z3_115m_run/test_domains.json artifacts/ || true
+          cp /tmp/z3_115m_run/validation.json artifacts/ || true
+          cp /tmp/z3_115m_bins/manifest.json artifacts/ || true
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z3-115m-github-smoke
+          path: artifacts/
+          if-no-files-found: warn

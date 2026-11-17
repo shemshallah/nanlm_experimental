@@ -5,6 +5,12 @@ The harness evaluates a checkpoint (or a tiny random model) on fixed validation
 positions and reports bits/token, top-1, top-5, MTP top-1 per future offset,
 and router utilization when the model contains sparse MoE layers.
 
+For concept-trained checkpoints use ``--tokenizer layered --sidecar
+--document-framing --full``.  The sidecar is what feeds word/sentence/math
+structure into the concept encoder; without it the encoder returns a neutral
+per-token concept.  ``--full`` scores every target token with exact UTF-8 byte
+denominators instead of sampling positions.
+
 Checkpoint formats accepted:
 
   * ``{"model": state_dict, "config": {...}}``
@@ -47,15 +53,17 @@ import sys
 import time
 from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
 
 try:  # imported as ``z3.eval_v3``
     from .v3_model import V3Config, V3LM
+    from .text_documents import iter_documents
 except ImportError:  # run as a script or with z3/ on sys.path
     from v3_model import V3Config, V3LM
+    from text_documents import iter_documents
 
 
 VERSION = 1
@@ -314,8 +322,20 @@ def load_checkpoint(
     allowed_missing = {
         "concept_loop.carry_gate",
         "concept_loop.object_triple_pointer.weight",
+        "feedback_progress",
     }
-    bad_missing = sorted(set(missing) - allowed_missing)
+    feedback_suffixes = (
+        "token_feedback_gate",
+        "route_hidden_gate",
+        "route_concept_gate",
+        "depth_carry_gate",
+        "memory_feedback_gate",
+        "mtp_carry_gate",
+    )
+    bad_missing = sorted(
+        key for key in set(missing) - allowed_missing
+        if not key.endswith(feedback_suffixes)
+    )
     if bad_missing or unexpected:
         details = []
         if bad_missing:
@@ -533,6 +553,10 @@ class LayeredTokenizerAdapter:
         encoded = self._layered.encode(text, add_document_frame=False)
         return list(encoded.subword.ids)
 
+    def encode_document(self, text: str) -> list[int]:
+        encoded = self._layered.encode(text, add_document_frame=True)
+        return list(encoded.token_ids)
+
 
 def load_tokenizer(
     kind: str | None,
@@ -565,17 +589,56 @@ def load_tokenizer(
     )
 
 
+def _make_sidecar_builder(
+    layered_model: str | Path,
+) -> Callable[[Sequence[int]], Any] | None:
+    """Return a token-ID -> SpanSidecar builder, or None with a warning."""
+    try:
+        try:
+            from .concept_loop import SpanSidecar
+            from .layered_tokenizer import load_artifact
+        except ImportError:  # script execution from z3/
+            from concept_loop import SpanSidecar
+            from layered_tokenizer import load_artifact
+        tokenizer = load_artifact(Path(layered_model).expanduser())
+        return lambda ids: SpanSidecar.from_token_ids(ids, tokenizer)
+    except Exception as exc:  # pragma: no cover - depends on artifact
+        print(
+            f"[warn] sidecar disabled ({type(exc).__name__}: {exc})",
+            flush=True,
+        )
+        return None
+
+
 def encode_file(
     path: str | Path,
     tokenizer: BytesTokenizer | BPETokenizer,
     max_bytes: int = 0,
+    *,
+    document_framing: bool = False,
 ) -> list[int]:
-    """Encode a text file in bounded chunks, preserving UTF-8 boundaries."""
+    """Encode a text file in bounded chunks, preserving UTF-8 boundaries.
+
+    ``document_framing`` uses blank lines as document separators and calls
+    ``encode_document`` when the tokenizer provides it.  That matches the
+    ``<doc>``/``<eos>`` stream produced by ``build_domain_bins.py`` and keeps
+    held-out evaluation aligned with training.
+    """
 
     p = Path(path).expanduser()
     if not p.is_file():
         raise FileNotFoundError(f"corpus not found: {p}")
-    ids: list[int] = []
+    if document_framing:
+        ids: list[int] = []
+        encode_document = getattr(tokenizer, "encode_document", None)
+        for document, _raw in iter_documents(p, max_bytes=max_bytes):
+            if encode_document is not None:
+                ids.extend(encode_document(document))
+            else:
+                ids.extend(tokenizer.encode(document))
+        return ids
+
+    ids = []
     decoder = codecs.getincrementaldecoder("utf-8")("ignore")
     total = 0
     with p.open("rb") as handle:
@@ -818,6 +881,66 @@ def _ids_list(ids: Iterable[int] | torch.Tensor) -> list[int]:
     return [int(x) for x in ids]
 
 
+def _accumulate_feedback(
+    aux: Any,
+    sums: dict[str, float],
+) -> None:
+    if not isinstance(aux, dict):
+        return
+    feedback = aux.get("feedback")
+    if not feedback:
+        return
+    for key, value in feedback.items():
+        if torch.is_tensor(value):
+            sums[key] = sums.get(key, 0.0) + float(value.detach().cpu())
+
+
+def _accumulate_object_memory(
+    aux: Any,
+    sums: dict[str, float],
+) -> None:
+    if not isinstance(aux, dict):
+        return
+    memory = aux.get("object_memory")
+    if not memory:
+        return
+    for key, value in memory.items():
+        if torch.is_tensor(value):
+            sums[key] = sums.get(key, 0.0) + float(value.detach().cpu())
+
+
+def _finalize_object_memory(
+    sums: dict[str, float],
+    batches: int,
+) -> dict[str, float] | None:
+    if not sums or batches <= 0:
+        return None
+    return {key: value / batches for key, value in sums.items()}
+
+
+def _build_sidecar_batch(
+    sidecar_builder: Callable[[Sequence[int]], Any] | None,
+    xb: torch.Tensor,
+) -> Any | None:
+    """Build and collate aligned sidecars for a batch of token windows.
+
+    The concept loop is not optional decoration for a concept-trained model:
+    without a sidecar the encoder returns a neutral per-token concept.  The
+    evaluator must therefore feed the same structural view the trainer uses.
+    """
+    if sidecar_builder is None:
+        return None
+    try:
+        from .concept_loop import SpanSidecar
+    except ImportError:  # script execution from z3/
+        from concept_loop import SpanSidecar
+    rows = [
+        sidecar_builder(row.detach().cpu().tolist())
+        for row in xb
+    ]
+    return SpanSidecar.collate(rows, device=xb.device)
+
+
 def _token_byte_lengths(
     tokenizer: Any, ids: Sequence[int]
 ) -> list[int] | None:
@@ -854,6 +977,7 @@ def evaluate_ids(
     name: str = "corpus",
     router_accumulator: RouterAccumulator | None = None,
     token_byte_lengths: Sequence[int] | None = None,
+    sidecar_builder: Callable[[Sequence[int]], Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate a model on fixed positions drawn from ``token_ids``."""
 
@@ -877,6 +1001,10 @@ def evaluate_ids(
     aux_lb_tokens = 0
     aux_z_sum = 0.0
     aux_z_tokens = 0
+    object_sums: dict[str, float] = {}
+    object_batches = 0
+    feedback_sums: dict[str, float] = {}
+    feedback_batches = 0
 
     tracker = RouterTracker(model)
     started = time.time()
@@ -897,7 +1025,8 @@ def evaluate_ids(
                     device=torch_device,
                 )
 
-                logits, mtp_logits, aux = model(xb)
+                sidecar = _build_sidecar_batch(sidecar_builder, xb)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
                 logits = logits[:, -1, :]
                 loss = F.cross_entropy(logits, yb, reduction="sum")
                 loss_sum += float(loss.detach().cpu())
@@ -947,6 +1076,10 @@ def evaluate_ids(
                     if router_z is not None:
                         aux_z_sum += float(router_z.detach().cpu()) * b
                         aux_z_tokens += b
+                    _accumulate_object_memory(aux, object_sums)
+                    object_batches += 1
+                    _accumulate_feedback(aux, feedback_sums)
+                    feedback_batches += 1
     finally:
         router_summary = tracker.summary()
         if router_accumulator is not None:
@@ -991,6 +1124,12 @@ def evaluate_ids(
         "router_utilization": router_summary,
         "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
         "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
+        "object_memory": _finalize_object_memory(
+            object_sums, object_batches
+        ),
+        "feedback": _finalize_object_memory(
+            feedback_sums, feedback_batches
+        ),
         "val_positions": position_meta,
         "eval_seconds": round(time.time() - started, 4),
     }
@@ -1009,6 +1148,7 @@ def evaluate_ids_full(
     name: str = "corpus",
     router_accumulator: RouterAccumulator | None = None,
     token_byte_lengths: Sequence[int] | None = None,
+    sidecar_builder: Callable[[Sequence[int]], Any] | None = None,
 ) -> dict[str, Any]:
     """Teacher-forced full evaluation over every target token.
 
@@ -1034,6 +1174,7 @@ def evaluate_ids_full(
             name=name,
             router_accumulator=router_accumulator,
             token_byte_lengths=token_byte_lengths,
+            sidecar_builder=sidecar_builder,
         )
     ctx = int(ctx)
     if ctx < 1:
@@ -1052,6 +1193,10 @@ def evaluate_ids_full(
     aux_lb_tokens = 0
     aux_z_sum = 0.0
     aux_z_tokens = 0
+    object_sums: dict[str, float] = {}
+    object_batches = 0
+    feedback_sums: dict[str, float] = {}
+    feedback_batches = 0
     window_bpb: list[float] = []
     windows = 0
     model.eval()
@@ -1065,7 +1210,8 @@ def evaluate_ids_full(
                 xb = torch.tensor(
                     [window_ids], dtype=torch.long, device=torch_device
                 )
-                logits, mtp_logits, aux = model(xb)
+                sidecar = _build_sidecar_batch(sidecar_builder, xb)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
                 predictions = logits[:, :-1].float()
                 targets = xb[:, 1:]
                 rows = predictions.reshape(-1, predictions.size(-1))
@@ -1131,6 +1277,10 @@ def evaluate_ids_full(
                     if router_z is not None:
                         aux_z_sum += float(router_z.detach().cpu()) * weight
                         aux_z_tokens += weight
+                    _accumulate_object_memory(aux, object_sums)
+                    object_batches += 1
+                    _accumulate_feedback(aux, feedback_sums)
+                    feedback_batches += 1
     finally:
         router_summary = tracker.summary()
         if router_accumulator is not None:
@@ -1181,6 +1331,12 @@ def evaluate_ids_full(
         "router_utilization": router_summary,
         "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
         "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
+        "object_memory": _finalize_object_memory(
+            object_sums, object_batches
+        ),
+        "feedback": _finalize_object_memory(
+            feedback_sums, feedback_batches
+        ),
         "val_positions": {
             "mode": "full",
             "windows": windows,
@@ -1208,6 +1364,7 @@ def _evaluate_ids_full_batched(
     name: str = "corpus",
     router_accumulator: RouterAccumulator | None = None,
     token_byte_lengths: Sequence[int] | None = None,
+    sidecar_builder: Callable[[Sequence[int]], Any] | None = None,
 ) -> dict[str, Any]:
     """Batched teacher-forced full evaluation."""
     ctx = int(ctx)
@@ -1227,6 +1384,10 @@ def _evaluate_ids_full_batched(
     aux_lb_tokens = 0
     aux_z_sum = 0.0
     aux_z_tokens = 0
+    object_sums: dict[str, float] = {}
+    object_batches = 0
+    feedback_sums: dict[str, float] = {}
+    feedback_batches = 0
     window_bpb: list[float] = []
     windows_count = 0
 
@@ -1265,7 +1426,8 @@ def _evaluate_ids_full_batched(
                 )
                 starts = [start for start, _end in group]
                 b, length = xb.shape
-                logits, mtp_logits, aux = model(xb)
+                sidecar = _build_sidecar_batch(sidecar_builder, xb)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
                 predictions = logits[:, :-1].float()
                 targets = xb[:, 1:]
                 loss_matrix = F.cross_entropy(
@@ -1335,6 +1497,10 @@ def _evaluate_ids_full_batched(
                     if router_z is not None:
                         aux_z_sum += float(router_z.detach().cpu()) * weight
                         aux_z_tokens += weight
+                    _accumulate_object_memory(aux, object_sums)
+                    object_batches += 1
+                    _accumulate_feedback(aux, feedback_sums)
+                    feedback_batches += 1
     finally:
         router_summary = tracker.summary()
         if router_accumulator is not None:
@@ -1385,6 +1551,12 @@ def _evaluate_ids_full_batched(
         "router_utilization": router_summary,
         "aux_load_balance": aux_lb_sum / aux_lb_tokens if aux_lb_tokens else None,
         "aux_router_z": aux_z_sum / aux_z_tokens if aux_z_tokens else None,
+        "object_memory": _finalize_object_memory(
+            object_sums, object_batches
+        ),
+        "feedback": _finalize_object_memory(
+            feedback_sums, feedback_batches
+        ),
         "val_positions": {
             "mode": "full",
             "windows": windows_count,
@@ -1420,6 +1592,30 @@ def aggregate_metrics(
     aggregate: dict[str, Any] = {"tokens": total}
     for key in ("loss", "bits_per_token", "top1", "top5", "aux_load_balance", "aux_router_z"):
         aggregate[key] = _weighted(entries, key)
+    object_entries = [
+        metrics["object_memory"]
+        for metrics in entries
+        if metrics.get("object_memory")
+    ]
+    if object_entries:
+        keys = sorted({key for item in object_entries for key in item})
+        aggregate["object_memory"] = {
+            key: sum(float(item[key]) for item in object_entries if key in item)
+            / max(1, sum(1 for item in object_entries if key in item))
+            for key in keys
+        }
+    feedback_entries = [
+        metrics["feedback"]
+        for metrics in entries
+        if metrics.get("feedback")
+    ]
+    if feedback_entries:
+        keys = sorted({key for item in feedback_entries for key in item})
+        aggregate["feedback"] = {
+            key: sum(float(item[key]) for item in feedback_entries if key in item)
+            / max(1, sum(1 for item in feedback_entries if key in item))
+            for key in keys
+        }
 
     offsets = sorted({item["offset"] for m in entries for item in m.get("mtp", [])})
     mtp_items = []
@@ -1548,6 +1744,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(LAYERED_TOKENIZER_PATH),
         help="tuned layered tokenizer artifact",
     )
+    parser.add_argument(
+        "--sidecar",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="feed aligned word/sentence/math sidecars to the concept loop",
+    )
+    parser.add_argument(
+        "--require-sidecar",
+        action="store_true",
+        help="fail instead of warning when a concept model has no sidecar",
+    )
+    parser.add_argument(
+        "--document-framing",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="encode blank-line-separated documents with <doc>/<eos> frames",
+    )
     parser.add_argument("--ctx", type=int, default=0, help="context length; 0 uses the model config")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--batches", type=int, default=16)
@@ -1668,6 +1881,7 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         raise ValueError("--max-bytes must be >= 0")
     device = _resolve_device(args.device)
     started = time.time()
+    sidecar_builder: Callable[[Sequence[int]], Any] | None = None
 
     if args.random_smoke:
         cfg = _smoke_config(args.ctx)
@@ -1720,6 +1934,10 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             args.checkpoint, config_json=args.config or None
         )
         model = model.to(device)
+        if hasattr(model, "set_feedback_progress"):
+            # Deployment/eval always uses the full learned feedback strength,
+            # independent of the training warmup checkpoint value.
+            model.set_feedback_progress(1.0)
         ctx = args.ctx if args.ctx > 0 else cfg.ctx
         tokenizer_kind = args.tokenizer or ("bpe" if args.bpe_model else "bytes")
         tokenizer = load_tokenizer(
@@ -1727,12 +1945,38 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             args.bpe_model or None,
             args.layered_model or None,
         )
+        sidecar_builder = (
+            _make_sidecar_builder(args.layered_model)
+            if (
+                args.sidecar
+                and getattr(cfg, "use_concept_loop", False)
+                and getattr(tokenizer, "kind", None) == "layered"
+            )
+            else None
+        )
+        if (
+            args.sidecar
+            and getattr(cfg, "use_concept_loop", False)
+            and sidecar_builder is None
+        ):
+            message = (
+                "concept model evaluation has no usable sidecar; the concept "
+                "encoder will return a neutral concept"
+            )
+            if args.require_sidecar:
+                raise ValueError(message + " (--require-sidecar)")
+            print(f"[warn] {message}", flush=True)
         specs = _parse_corpus_specs(args.corpus)
 
         router_accumulator = RouterAccumulator()
         corpora = {}
         for name, path in specs:
-            ids = encode_file(path, tokenizer, args.max_bytes)
+            ids = encode_file(
+                path,
+                tokenizer,
+                args.max_bytes,
+                document_framing=bool(args.document_framing),
+            )
             if not ids:
                 raise ValueError(f"corpus {name!r} ({path}) produced no tokens")
             largest = max(ids)
@@ -1754,6 +1998,7 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                     name=name,
                     router_accumulator=router_accumulator,
                     token_byte_lengths=byte_lengths,
+                    sidecar_builder=sidecar_builder,
                 )
             else:
                 metrics = evaluate_ids(
@@ -1768,6 +2013,7 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                     name=name,
                     router_accumulator=router_accumulator,
                     token_byte_lengths=byte_lengths,
+                    sidecar_builder=sidecar_builder,
                 )
             metrics["path"] = str(path)
             metrics["tokenizer"] = tokenizer.kind
@@ -1807,6 +2053,12 @@ def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             corpora=corpora,
             router_accumulator=router_accumulator,
             wall_seconds=time.time() - started,
+        )
+        result["sidecar"] = sidecar_builder is not None
+        result["document_framing"] = bool(args.document_framing)
+        result["feedback_progress"] = (
+            float(model.feedback_progress.detach().cpu())
+            if hasattr(model, "feedback_progress") else None
         )
 
     out_path = Path(args.out).expanduser()

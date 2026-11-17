@@ -13,6 +13,20 @@ See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md),
 [`z3/FRONTIER_SCALING_PLAN.md`](z3/FRONTIER_SCALING_PLAN.md) for the measured
 Kaggle/CPU parameter ladder and the C(256,2+3) object-growth path.
 
+**Z3 115M preset (fixed across hardware):** `z3/train_v3.py --preset 115m`
+constructs **115,238,237 parameters** on T4, A100, or Blackwell.  It uses
+document-framed NaNROUTER domain bins, a sidecar-aware full evaluator, a real
+top-2-of-4/3 hierarchical MoE layout, and a coherent feedback bus (token
+residual, route/concept, object carry, memory→MTP, MTP→MTP) with closed-at-init
+gates.  See
+[`z3/PRESET_115M.md`](z3/PRESET_115M.md),
+[`z3/TRAIN_TEST_115M.md`](z3/TRAIN_TEST_115M.md),
+[`z3/build_domain_bins.py`](z3/build_domain_bins.py), and
+[`z3/eval_domains.py`](z3/eval_domains.py), plus
+[`z3/run_115m_pipeline.py`](z3/run_115m_pipeline.py) for the staged
+build/train/test/validate pipeline and
+[`z3/validate_run.py`](z3/validate_run.py) for the promotion gates.
+
 **Previous experiment (2026-11-12):** R32 multidomain. A 151M-parameter hybrid
 using ~21M active MAC/token ties the 21M dense baseline on 16 domain releases
 (`2.9186` vs `2.9180` BPB, 1.8M positions), and routing becomes strongly

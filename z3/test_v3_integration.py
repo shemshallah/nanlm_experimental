@@ -368,6 +368,71 @@ class V3IntegrationTest(unittest.TestCase):
             y_manual, _, _ = manual(x)
         torch.testing.assert_close(y_manual, y_sdpa, atol=1e-5, rtol=1e-5)
 
+    def test_feedback_bus_starts_closed_and_carries_gradient(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=32, d_model=32,
+            n_layers=2, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=2, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            moe_hierarchical=True, moe_branches=2,
+            moe_context_router=True, moe_route_feedback=True,
+            mtp=3, mtp_block=True, mtp_block_experts=4,
+            mtp_block_hidden=64, mtp_aux_layers=(0,),
+            concept_loop_vertices=8, concept_loop_dim=8,
+            concept_top_vertices=4, concept_top_pairs=2,
+            concept_top_triples=1, use_memory=True,
+            memory_slots=8, memory_heads=2,
+            force_manual_attention=True, dropout=0.0,
+        )
+        model = V3LM(cfg)
+        tokens = torch.randint(0, 64, (2, 16))
+        logits_a, mtp_a, aux = model(tokens)
+        feedback = aux.get("feedback")
+        self.assertIsInstance(feedback, dict)
+        for key in (
+            "feedback_token_gate",
+            "feedback_route_hidden_gate",
+            "feedback_route_concept_gate",
+            "memory_feedback_gate",
+            "mtp_carry_gate",
+            "object_depth_carry_gate",
+        ):
+            self.assertIn(key, feedback)
+            self.assertAlmostEqual(float(feedback[key]), 0.0, places=6)
+        self.assertGreater(float(feedback["route_state_norm"]), 0.0)
+        self.assertAlmostEqual(float(feedback["progress"]), 0.0, places=6)
+
+        model.set_feedback_progress(1.0)
+        opened = []
+        for name, parameter in model.named_parameters():
+            if name.endswith(
+                (
+                    "token_feedback_gate",
+                    "route_hidden_gate",
+                    "route_concept_gate",
+                    "memory_feedback_gate",
+                    "mtp_carry_gate",
+                    "depth_carry_gate",
+                )
+            ):
+                parameter.data.fill_(1.0)
+                opened.append(name)
+        self.assertGreaterEqual(len(opened), 6)
+        logits_b, mtp_b, aux_b = model(tokens)
+        self.assertGreater(float((logits_a - logits_b).abs().max()), 0.0)
+        self.assertGreater(
+            float(aux_b["feedback"]["feedback_token_gate"]), 0.5
+        )
+
+        loss = logits_b.float().logsumexp(dim=-1).mean()
+        for head in mtp_b:
+            loss = loss + head.float().logsumexp(dim=-1).mean()
+        loss.backward()
+        for name, parameter in model.named_parameters():
+            if name in opened:
+                self.assertIsNotNone(parameter.grad, name)
+                self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+
     def test_memory_path_gradients(self):
         cfg = V3Config(
             vocab_size=32, ctx=32, max_ctx=32, d_model=32,

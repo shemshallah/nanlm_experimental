@@ -16,6 +16,7 @@ C(256,2) object memory.  The route context carries the result into every block.
 from __future__ import annotations
 
 import bisect
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
@@ -385,47 +386,62 @@ def _segment_pool(
     x: torch.Tensor,  # (B,T,D)
     ids: torch.Tensor,  # (B,T), 0 = none, positive segment ids
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return gathered segment summaries and segment count per batch row."""
-    b, t, d = x.shape
+    """Return gathered segment summaries and segment count per batch row.
+
+    The original implementation looped over the batch in Python.  A random
+    training window has many distinct word/sentence ids, so that loop was a
+    measurable CPU bottleneck for the active concept path.  Flattening the
+    (batch, segment) table into one ``index_add_`` keeps the same semantics
+    while issuing a single scatter per call.
+    """
+    b, _t, d = x.shape
+    device = x.device
     if ids.numel():
         valid_ids = ids > 0
-        if valid_ids.any():
+        if bool(valid_ids.any()):
             # Byte-aligned sidecars carry global word/sentence IDs.  Remap
             # them to compact per-batch IDs before allocating the segment
             # table; otherwise max(id) can create tens of gigabytes of zeros.
-            _unique, _inverse = torch.unique(
+            unique, inverse = torch.unique(
                 ids[valid_ids], return_inverse=True
             )
             compact = torch.zeros_like(ids)
-            compact[valid_ids] = _inverse + 1
-            ids = compact
-            max_segments = max(1, int(_unique.numel()))
+            compact[valid_ids] = inverse + 1
+            max_segments = max(1, int(unique.numel()))
         else:
+            compact = torch.zeros_like(ids)
+            valid_ids = torch.zeros_like(ids, dtype=torch.bool)
             max_segments = 1
     else:
+        compact = ids
+        valid_ids = torch.zeros_like(ids, dtype=torch.bool)
         max_segments = 1
+
+    bucket_count = max_segments + 1
     out = torch.zeros(
-        b, max_segments + 1, d, device=x.device, dtype=x.dtype
+        b * bucket_count, d, device=device, dtype=x.dtype
     )
     counts = torch.zeros(
-        b, max_segments + 1, device=x.device, dtype=x.dtype
+        b * bucket_count, device=device, dtype=x.dtype
     )
-    for row in range(b):
-        valid = ids[row] > 0
-        if not valid.any():
-            continue
-        pos = ids[row][valid]
-        out[row].index_add_(
-            0, pos, x[row][valid].to(dtype=out.dtype)
+    if bool(valid_ids.any()):
+        offsets = (
+            torch.arange(b, device=device, dtype=torch.long).unsqueeze(1)
+            * bucket_count
         )
-        counts[row].index_add_(
-            0, pos, torch.ones_like(pos, dtype=counts.dtype)
+        flat_index = (offsets + compact).reshape(-1)
+        valid_flat = valid_ids.reshape(-1)
+        flat_x = x.reshape(-1, d) * valid_flat.unsqueeze(-1).to(dtype=x.dtype)
+        out.index_add_(0, flat_index, flat_x)
+        counts.index_add_(
+            0, flat_index, valid_flat.to(dtype=counts.dtype)
         )
-    gathered = out.gather(
-        1, ids.clamp_min(0).unsqueeze(-1).expand(-1, -1, d)
-    )
+    out = out.view(b, bucket_count, d)
+    counts = counts.view(b, bucket_count)
+    gather_index = compact.clamp_min(0).unsqueeze(-1).expand(-1, -1, d)
+    gathered = out.gather(1, gather_index)
     gathered = gathered / counts.unsqueeze(-1).gather(
-        1, ids.clamp_min(0).unsqueeze(-1)
+        1, compact.clamp_min(0).unsqueeze(-1)
     ).clamp_min(1.0)
     return gathered, counts
 
@@ -789,6 +805,7 @@ class ConceptLoop(nn.Module):
         top_triples: int = 8,
         object_id_dim: int = 0,
         subword_vocab_size: int = 0,
+        depth_carry: bool = True,
     ) -> None:
         super().__init__()
         if vertices != 256:
@@ -855,6 +872,10 @@ class ConceptLoop(nn.Module):
         # 0.5 keeps the first concept update visible while preventing the
         # carry from being overwritten wholesale at every block.
         self.carry_gate = nn.Parameter(torch.zeros(d_model))
+        self.depth_carry = bool(depth_carry)
+        self.depth_carry_gate = (
+            nn.Parameter(torch.zeros(())) if self.depth_carry else None
+        )
         self.state_norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
 
     def counts(self) -> dict[str, int]:
@@ -863,6 +884,96 @@ class ConceptLoop(nn.Module):
             "pairs": binomial(self.vertices, 2),
             "triples": binomial(self.vertices, 3),
         }
+
+    @staticmethod
+    def _histogram_stats(
+        ids: torch.Tensor,
+        object_count: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return normalized entropy, unique ratio, and top-share for ids."""
+        if ids.numel() == 0 or object_count <= 1:
+            zero = ids.new_zeros(())
+            return zero, zero, zero
+        flat = ids.reshape(-1).long()
+        _unique, counts = torch.unique(flat, return_counts=True)
+        total = counts.sum().clamp_min(1).to(dtype=torch.float32)
+        probs = counts.to(dtype=torch.float32) / total
+        entropy = -(probs * probs.clamp_min(1e-12).log()).sum()
+        entropy = entropy / math.log(float(object_count))
+        unique_ratio = _unique.numel() / max(1, flat.numel())
+        top_share = probs.max()
+        return entropy, torch.as_tensor(unique_ratio, device=ids.device), top_share
+
+    def _object_stats(
+        self,
+        pair_ids: torch.Tensor,
+        triple_ids: torch.Tensor | None,
+        pointer_soft: torch.Tensor,
+        triple_soft: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Cheap, detached diagnostics for the latent object address space.
+
+        The pointer CE target is the model's own hard selection.  These stats
+        make collapse visible instead of letting a self-consistent but dead
+        object memory look healthy in the loss curve.
+        """
+        with torch.no_grad():
+            pair_entropy, pair_unique, pair_top = self._histogram_stats(
+                pair_ids, binomial(self.vertices, 2)
+            )
+            if triple_ids is not None:
+                triple_entropy, triple_unique, triple_top = self._histogram_stats(
+                    triple_ids, binomial(self.vertices, 3)
+                )
+            else:
+                zero = pair_ids.new_zeros(())
+                triple_entropy = triple_unique = triple_top = zero
+            pointer_conf = pointer_soft.max(dim=-1).values.mean()
+            pointer_prob = pointer_soft.mean(dim=(0, 1))
+            pointer_entropy = -(
+                pointer_prob * pointer_prob.clamp_min(1e-12).log()
+            ).sum() / math.log(float(self.vertices))
+            triple_conf = triple_soft.max(dim=-1).values.mean()
+            triple_prob = triple_soft.mean(dim=(0, 1))
+            triple_entropy_ptr = -(
+                triple_prob * triple_prob.clamp_min(1e-12).log()
+            ).sum() / math.log(float(self.vertices))
+            # Switch-style vertex balance: V * sum(hard_freq * soft_mean).
+            hard_u = pointer_soft[:, :, 0].argmax(dim=-1)
+            hard_v = pointer_soft[:, :, 1].argmax(dim=-1)
+            hard = torch.cat([hard_u.reshape(-1), hard_v.reshape(-1)])
+            hard_counts = torch.bincount(
+                hard, minlength=self.vertices
+            ).to(dtype=pointer_prob.dtype)
+            hard_freq = hard_counts / hard_counts.sum().clamp_min(1)
+            soft_mean = pointer_prob.mean(dim=0)
+            soft_mean = soft_mean / soft_mean.sum().clamp_min(1e-9)
+            object_balance = self.vertices * (hard_freq * soft_mean).sum()
+            gate = torch.sigmoid(self.object_memory.gate_logit)
+            triple_gate = torch.sigmoid(self.object_memory.triple_gate_logit)
+            carry_gate = torch.sigmoid(self.carry_gate).mean()
+            depth_gate = (
+                torch.tanh(self.depth_carry_gate)
+                if self.depth_carry_gate is not None
+                else torch.zeros((), device=pair_ids.device)
+            )
+            return {
+                "pair_entropy": pair_entropy,
+                "pair_unique_ratio": pair_unique,
+                "pair_top_share": pair_top,
+                "triple_entropy": triple_entropy,
+                "triple_unique_ratio": triple_unique,
+                "triple_top_share": triple_top,
+                "pointer_confidence": pointer_conf,
+                "pointer_entropy": pointer_entropy,
+                "triple_pointer_confidence": triple_conf,
+                "triple_pointer_entropy": triple_entropy_ptr,
+                "object_gate": gate,
+                "triple_gate": triple_gate,
+                "carry_gate": carry_gate,
+                "depth_carry_gate": depth_gate,
+                "object_balance": object_balance,
+            }
 
     def router_token_state(
         self, concept: torch.Tensor, object_ctx: torch.Tensor
@@ -879,6 +990,8 @@ class ConceptLoop(nn.Module):
         sidecar: SpanSidecar | None,
         route_ctx: torch.Tensor,
         carry: torch.Tensor | None = None,
+        object_carry: torch.Tensor | None = None,
+        feedback_scale: float | torch.Tensor = 1.0,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Route/attention/MoE context conditions the concept abstraction and
         # the object query.  Without this the loop was one-way: concept fed
@@ -923,6 +1036,24 @@ class ConceptLoop(nn.Module):
         ).to(dtype=x.dtype)
         pointer_hard = torch.stack([u_onehot, v_onehot], dim=2)
         pointer_st = pointer_hard + pointer_soft - pointer_soft.detach()
+        # Differentiable vertex-balance pressure.  The hard histogram is a
+        # detached target; only the soft usage carries gradient.  This is the
+        # Switch-style load balance for the 256-vertex object codebook.
+        with torch.no_grad():
+            hard_u_balance = pointer_soft[:, :, 0].argmax(dim=-1)
+            hard_v_balance = pointer_soft[:, :, 1].argmax(dim=-1)
+            hard_balance = torch.cat(
+                [hard_u_balance.reshape(-1), hard_v_balance.reshape(-1)]
+            )
+            hard_counts = torch.bincount(
+                hard_balance, minlength=self.vertices
+            ).to(dtype=pointer_soft.dtype)
+            hard_freq = hard_counts / hard_counts.sum().clamp_min(1)
+        soft_usage = pointer_soft.mean(dim=(0, 1)).mean(dim=0)
+        soft_usage = soft_usage / soft_usage.sum().clamp_min(1e-9)
+        self.last_object_balance = self.vertices * (
+            hard_freq.detach() * soft_usage
+        ).sum()
         vertex_keys = F.normalize(
             self.object_memory.vertex_keys.to(dtype=x.dtype), dim=-1
         )
@@ -965,6 +1096,19 @@ class ConceptLoop(nn.Module):
         object_input = x + concept + pointer_prev + triple_prev
         if route_bias is not None:
             object_input = object_input + 0.1 * route_bias
+        if (
+            object_carry is not None
+            and self.depth_carry_gate is not None
+        ):
+            # Depth loop: the object state selected by the previous block is
+            # part of the query for the current block's object retrieval.
+            object_input = object_input + (
+                torch.as_tensor(
+                    feedback_scale, device=x.device, dtype=x.dtype
+                )
+                * torch.tanh(self.depth_carry_gate).to(dtype=x.dtype)
+                * object_carry
+            )
         object_ctx, object_aux = self.object_memory(object_input)
         # Current-layer pointer feedback.  This is the soft/current object
         # identity; pointer_prev above is the hard recurrent stream.
@@ -1006,6 +1150,12 @@ class ConceptLoop(nn.Module):
             # At long context the adaptive object policy disables triples;
             # do not expose a random triple readout with no retrieval target.
             self.last_triple_pointer_logits = None
+        self.last_object_stats = self._object_stats(
+            self.last_object_ids,
+            self.last_triple_ids,
+            pointer_soft,
+            triple_soft,
+        )
         # Return only the concept/object contribution.  The block adds the
         # route context separately; including it here double-counted the
         # router state on every layer.

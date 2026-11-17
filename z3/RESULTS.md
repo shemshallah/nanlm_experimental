@@ -5,9 +5,14 @@ quality and not frontier-scale training.
 
 ## Integrated architecture
 
-- **Params:** 286,517,376 total for the default `V3Config`.
+- **Params:** ~316.4M for the `train_v3.py` default (64,060 vocab);
+  ~316.4M for the `V3Config` dataclass default (64,000 vocab).  The
+  historical 286.5M figure came from an earlier flag set.
 - **Active/token:** roughly 70–80M (estimate from routed top-2 + shared experts,
   not a measured hardware counter).
+- **Feedback bus:** token-concept residual, route/concept/hidden feedback,
+  object depth carry, memory→MTP, and MTP→MTP; all gates start closed
+  (`tanh(0)=0`) and are reported in `aux["feedback"]`.
 - **Long context:** RoPE cache covers 8,192 positions. `rope_scaling="auto"`
   selects standard RoPE at 1k and YaRN above the 1k original window; `ntk` is
   also available explicitly.

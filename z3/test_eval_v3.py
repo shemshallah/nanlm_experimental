@@ -145,6 +145,38 @@ class EvalV3Tests(unittest.TestCase):
         self.assertNotEqual(meta_first["digest"], meta_other["digest"])
         self.assertEqual(len(other), 6)
 
+    def test_old_checkpoint_without_feedback_keys_loads(self) -> None:
+        torch.manual_seed(1)
+        cfg = tiny_config()
+        model = V3LM(cfg)
+        suffixes = (
+            "token_feedback_gate",
+            "route_hidden_gate",
+            "route_concept_gate",
+            "depth_carry_gate",
+            "memory_feedback_gate",
+            "mtp_carry_gate",
+        )
+        state = {
+            key: value
+            for key, value in model.state_dict().items()
+            if key != "feedback_progress"
+            and not key.endswith(suffixes)
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "old.pt"
+            torch.save(
+                {"model": state, "config": asdict(cfg), "step": 3},
+                checkpoint,
+            )
+            loaded, loaded_cfg, metadata = eval_v3.load_checkpoint(checkpoint)
+            self.assertEqual(loaded_cfg.vocab_size, cfg.vocab_size)
+            self.assertEqual(metadata["step"], 3)
+            self.assertEqual(float(loaded.feedback_progress), 0.0)
+            for name, parameter in loaded.named_parameters():
+                if name.endswith(suffixes):
+                    self.assertEqual(float(parameter), 0.0)
+
     def test_checkpoint_dict_and_config_json(self) -> None:
         torch.manual_seed(1)
         cfg = tiny_config()
@@ -311,6 +343,38 @@ class EvalV3Tests(unittest.TestCase):
         self.assertGreater(len(ids), 0)
         self.assertEqual(tokenizer.vocab_size, 64060)
         self.assertTrue(all(0 <= int(i) < tokenizer.vocab_size for i in ids))
+
+    def test_sidecar_builder_aligns_eval_windows(self) -> None:
+        path = ROOT / "tokenizers" / "layered_v1" / "layered_tokenizer.json"
+        if not path.is_file():
+            self.skipTest("layered tokenizer artifact not present")
+        tokenizer = eval_v3.load_tokenizer("layered", layered_model=path)
+        encoded = tokenizer.encode(
+            "A first sentence. A second sentence with $x+1$."
+        )
+        ids = encoded[:16]
+        builder = eval_v3._make_sidecar_builder(path)
+        self.assertIsNotNone(builder)
+        batch = eval_v3._build_sidecar_batch(
+            builder, torch.tensor([ids], dtype=torch.long)
+        )
+        self.assertEqual(batch.word_ids.shape[0], 1)
+        self.assertEqual(batch.word_ids.shape[1], len(ids))
+        self.assertGreater(int(batch.word_ids.max()), 0)
+
+    def test_sidecar_and_document_framing_cli_flags(self) -> None:
+        parser = eval_v3.build_parser()
+        args = parser.parse_args(["--checkpoint", "x", "--corpus", "y"])
+        self.assertTrue(args.sidecar)
+        self.assertFalse(args.document_framing)
+        args = parser.parse_args(
+            [
+                "--checkpoint", "x", "--corpus", "y",
+                "--no-sidecar", "--document-framing",
+            ]
+        )
+        self.assertFalse(args.sidecar)
+        self.assertTrue(args.document_framing)
 
     @unittest.skipUnless(BPE_PATH.is_file(), "z1 BPE tokenizer JSON not present")
     def test_bpe_tokenizer_loader(self) -> None:

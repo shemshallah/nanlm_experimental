@@ -461,5 +461,33 @@ class TestVectorizedSparseMoE(unittest.TestCase):
         self.assertEqual(model.dropout, 0.0)
 
 
+    def test_branch_layout_exposes_degenerate_topk(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            model = self._model(
+                n_experts=12,
+                topk=2,
+                hierarchical=True,
+                branches=8,
+            )
+        self.assertEqual((model.branches, model.experts_per_branch), (6, 2))
+        self.assertTrue(model.branch_degenerate)
+        self.assertTrue(
+            any("degenerate" in str(item.message) or "top-k" in str(item.message)
+                for item in caught)
+        )
+
+        model = self._model(
+            n_experts=12,
+            topk=2,
+            hierarchical=True,
+            branches=4,
+        )
+        self.assertEqual((model.branches, model.experts_per_branch), (4, 3))
+        self.assertFalse(model.branch_degenerate)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

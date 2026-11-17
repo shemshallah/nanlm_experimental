@@ -152,6 +152,19 @@ def _rows(corpus_a: Path, corpus_b: Path) -> list[tuple[str, dict[str, Any]]]:
             },
         ),
         (
+            "no_feedback",
+            {
+                "corpus": [corpus_a],
+                "extra": [
+                    "--no-feedback-token-residual",
+                    "--no-feedback-route-concept",
+                    "--no-feedback-object-carry",
+                    "--no-feedback-memory-mtp",
+                    "--no-feedback-mtp-carry",
+                ],
+            },
+        ),
+        (
             "domain_mixture",
             {
                 "corpus": [corpus_a, corpus_b],

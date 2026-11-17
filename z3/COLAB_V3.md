@@ -27,15 +27,16 @@ The T4 profile requested by the notebook, when the trainer exposes the flags:
 | routed experts | 32, top-2 |
 | shared experts | 2 |
 | expert FFN | 1,024 |
-| MTP | 2 |
-| vocabulary | 32,000 (v3 default) |
+| MTP | max lag 2 (one t+2 head) |
+| vocabulary | 32,000 BPE (explicit notebook flag; v3 default is 64,060) |
 | batch size | 4 |
 | precision | AMP when the trainer advertises `--amp`/`--fp16` |
 
 That configuration is the 128,619,264-parameter v3-small profile when counted
 directly from `V3LM.parameter_count()` with `expert_hidden=1024`; the count is
 an architecture fact, not a training result. The 384-wide / 12-layer default
-(286,517,376 parameters) is also T4-feasible. The notebook only passes flags the
+(~316.4M parameters with the 64,060-vocab tokenizer) is also T4-feasible.
+The notebook only passes flags the
 trainer advertises, so a trainer with a fixed config still runs with its own
 defaults.
 

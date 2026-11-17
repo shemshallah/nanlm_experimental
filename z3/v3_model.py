@@ -19,6 +19,7 @@ This is an architecture prototype, not a frontier-scale training claim.
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass
 from typing import Any, Sequence
@@ -27,6 +28,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.checkpoint import checkpoint
+
+try:
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+except ImportError:  # pragma: no cover - older torch
+    SDPBackend = None  # type: ignore[assignment]
+    sdpa_kernel = None  # type: ignore[assignment]
 
 try:  # support both `python z3/train_v3.py` and `import z3.v3_model`
     from .combinatorial_objects import CombinatorialMemory
@@ -127,6 +134,20 @@ class V3Config:
     concept_loop_attention: bool = False
     concept_router_tokens: bool = True
     concept_router_global: bool = True
+    # Coherent feedback bus.  Every path starts closed (tanh(0)=0), so a new
+    # model is numerically identical to the pre-feedback architecture at step
+    # zero, then gradients can open each path.  The loop is:
+    #   attention summary + hidden summary + concept/object state -> route
+    #   route -> next attention input + router context
+    #   token concept -> gated residual stream
+    #   object state -> next block's object retrieval
+    #   memory summary -> MTP context
+    #   previous MTP branch -> next future lag
+    feedback_token_residual: bool = True
+    feedback_route_concept: bool = True
+    feedback_object_carry: bool = True
+    feedback_memory_mtp: bool = True
+    feedback_mtp_carry: bool = True
     # Learn one positive gate per router-context component (route, pooled
     # concept, token-aligned concept).  The gates start at 1.0, so the first
     # step is numerically identical to the fixed sum, then the model can learn
@@ -224,6 +245,22 @@ def _causal_mask(
     return mask
 
 
+def _attention_context(device: torch.device):
+    """Keep CPU SDPA on the deterministic math kernel.
+
+    Some CPU PyTorch builds select a fused attention kernel that is not
+    bit-deterministic (and, on Android/Termux, not numerically stable).  CUDA
+    keeps the default fused-kernel selection.
+    """
+    if (
+        sdpa_kernel is not None
+        and SDPBackend is not None
+        and device.type == "cpu"
+    ):
+        return sdpa_kernel(SDPBackend.MATH)
+    return contextlib.nullcontext()
+
+
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -293,17 +330,22 @@ class Attention(nn.Module):
             v = v.repeat_interleave(self.kv_group, dim=1)
         if self.force_manual or x.device.type == "xla":
             y = self._manual_attention(q, k, v)
-        elif self.is_global:
-            y = F.scaled_dot_product_attention(
-                q, k, v, dropout_p=self.drop if self.training else 0.0, is_causal=True
-            )
         else:
-            mask = _causal_mask(
-                t, x.device, is_global=False, window=self.window
-            )
-            y = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=mask, dropout_p=self.drop if self.training else 0.0
-            )
+            with _attention_context(x.device):
+                if self.is_global:
+                    y = F.scaled_dot_product_attention(
+                        q, k, v,
+                        dropout_p=self.drop if self.training else 0.0,
+                        is_causal=True,
+                    )
+                else:
+                    mask = _causal_mask(
+                        t, x.device, is_global=False, window=self.window
+                    )
+                    y = F.scaled_dot_product_attention(
+                        q, k, v, attn_mask=mask,
+                        dropout_p=self.drop if self.training else 0.0,
+                    )
         y = y.transpose(1, 2).contiguous().view(b, t, d)
         y = self.out(y)
         if self.gate is not None:
@@ -382,7 +424,24 @@ class Block(nn.Module):
             nn.Linear(cfg.d_model, cfg.d_model, bias=False)
             if self.concept_loop else None
         )
+        self.feedback_token_residual = bool(
+            cfg.feedback_token_residual and self.loop_to_state is not None
+        )
+        self.token_feedback_gate = (
+            nn.Parameter(torch.zeros(()))
+            if self.feedback_token_residual else None
+        )
         self.route_feedback = bool(cfg.moe_route_feedback)
+        self.feedback_route = bool(
+            cfg.feedback_route_concept and self.route_feedback
+        )
+        self.route_hidden_gate = (
+            nn.Parameter(torch.zeros(())) if self.feedback_route else None
+        )
+        self.route_concept_gate = (
+            nn.Parameter(torch.zeros(()))
+            if self.feedback_route and self.concept_loop else None
+        )
         self.route_to_attention = bool(
             cfg.moe_route_to_attention and self.route_feedback
         )
@@ -400,7 +459,32 @@ class Block(nn.Module):
                     cfg.d_model, cfg.d_model, bias=False
                 )
 
-    def forward(self, x, route_ctx=None, loop_ctx=None, token_ctx=None):
+    def forward(
+        self,
+        x,
+        route_ctx=None,
+        loop_ctx=None,
+        token_ctx=None,
+        feedback_scale: float | torch.Tensor = 1.0,
+    ):
+        feedback_scale_t = torch.as_tensor(
+            feedback_scale, device=x.device, dtype=x.dtype
+        )
+        # Token-level multi-resolution state enters the residual stream, not
+        # only the router.  The gate starts at tanh(0)=0, so this is a no-op
+        # until the model learns to use it.
+        if (
+            self.feedback_token_residual
+            and token_ctx is not None
+            and self.loop_to_state is not None
+            and self.token_feedback_gate is not None
+        ):
+            x = x + (
+                self.loop_scale
+                * feedback_scale_t
+                * torch.tanh(self.token_feedback_gate).to(dtype=x.dtype)
+                * self.loop_to_state(token_ctx)
+            )
         if (
             self.route_to_attention
             and route_ctx is not None
@@ -420,7 +504,8 @@ class Block(nn.Module):
         attn_out = self.attn(self.n1(x))
         x = x + self.drop(attn_out)
         h = self.n2(x)
-        lb = z = aux = None
+        lb = z = None
+        aux: dict[str, Any] = {}
         if self.is_moe:
             if self.learned_router_mix:
                 weights = F.softplus(self.router_mix).to(dtype=x.dtype)
@@ -466,12 +551,45 @@ class Block(nn.Module):
                 route_ctx = attn_out.new_zeros(
                     attn_out.shape[0], attn_out.shape[-1]
                 )
-            feedback = self.route_attn_proj(attn_out.mean(dim=1))
+            summary = attn_out.mean(dim=1)
+            if self.route_hidden_gate is not None:
+                summary = summary + (
+                    feedback_scale_t
+                    * torch.tanh(self.route_hidden_gate).to(dtype=x.dtype)
+                    * x.mean(dim=1)
+                )
+            feedback = self.route_attn_proj(summary)
             if aux is not None and aux.get("route_summary") is not None:
                 feedback = feedback + self.route_moe_proj(
                     aux["route_summary"]
                 )
+            if (
+                self.route_concept_gate is not None
+                and loop_ctx is not None
+            ):
+                concept_summary = loop_ctx
+                if token_ctx is not None:
+                    concept_summary = concept_summary + token_ctx.mean(dim=1)
+                feedback = feedback + (
+                    feedback_scale_t
+                    * torch.tanh(self.route_concept_gate).to(dtype=x.dtype)
+                    * concept_summary
+                )
             route_ctx = self.route_norm(route_ctx + feedback)
+        if self.token_feedback_gate is not None:
+            aux["feedback_token_gate"] = torch.tanh(
+                self.token_feedback_gate
+            )
+        if self.route_hidden_gate is not None:
+            aux["feedback_route_hidden_gate"] = torch.tanh(
+                self.route_hidden_gate
+            )
+        if self.route_concept_gate is not None:
+            aux["feedback_route_concept_gate"] = torch.tanh(
+                self.route_concept_gate
+            )
+        if route_ctx is not None:
+            aux["route_state_norm"] = route_ctx.norm(dim=-1).mean()
         return x, lb, z, route_ctx, aux
 
 
@@ -574,20 +692,22 @@ class MTPAttention(nn.Module):
             v = v.repeat_interleave(self.kv_group, dim=1)
         if self.force_manual or x.device.type == "xla":
             y = self._manual(q, k, v)
-        elif self.is_global:
-            y = F.scaled_dot_product_attention(
-                q, k, v,
-                dropout_p=self.drop if self.training else 0.0,
-                is_causal=True,
-            )
         else:
-            mask = _causal_mask(
-                t, x.device, is_global=False, window=self.window
-            )
-            y = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=mask,
-                dropout_p=self.drop if self.training else 0.0,
-            )
+            with _attention_context(x.device):
+                if self.is_global:
+                    y = F.scaled_dot_product_attention(
+                        q, k, v,
+                        dropout_p=self.drop if self.training else 0.0,
+                        is_causal=True,
+                    )
+                else:
+                    mask = _causal_mask(
+                        t, x.device, is_global=False, window=self.window
+                    )
+                    y = F.scaled_dot_product_attention(
+                        q, k, v, attn_mask=mask,
+                        dropout_p=self.drop if self.training else 0.0,
+                    )
         y = y.transpose(1, 2).contiguous().view(b, t, d)
         y = self.out(y)
         if self.gate is not None:
@@ -703,6 +823,11 @@ class V3LM(nn.Module):
         self.blocks = nn.ModuleList([Block(cfg, i) for i in range(cfg.n_layers)])
         self.norm = RMSNorm(cfg.d_model)
         self.route_init = nn.Parameter(torch.zeros(cfg.d_model))
+        # 0 = every feedback gate is closed; 1 = full learned gate.  The
+        # trainer advances this during warmup, and evaluation sets it to 1.
+        self.register_buffer(
+            "feedback_progress", torch.zeros((), dtype=torch.float32)
+        )
         self.task_embedding = (
             nn.Embedding(cfg.task_vocab_size, cfg.d_model)
             if cfg.task_vocab_size > 0 else None
@@ -732,6 +857,7 @@ class V3LM(nn.Module):
                 subword_vocab_size=(
                     cfg.subword_vocab_size if cfg.subword_embedding else 0
                 ),
+                depth_carry=bool(cfg.feedback_object_carry),
             )
             if cfg.use_concept_loop else None
         )
@@ -808,7 +934,15 @@ class V3LM(nn.Module):
                     group_size=cfg.moe_group_size,
                     max_rows=cfg.moe_max_rows,
                     hierarchical=cfg.moe_hierarchical,
-                    branches=0,
+                    # MTP blocks have fewer experts than the trunk.  Pick a
+                    # layout with at least 2 experts per branch so top-2 is a
+                    # real within-branch choice instead of selecting the whole
+                    # branch (the old branches=0 auto-layout produced 4 x 2).
+                    branches=max(
+                        1,
+                        int(cfg.mtp_block_experts)
+                        // max(2, int(cfg.topk) * 2),
+                    ),
                     context_router=cfg.moe_context_router,
                     route_to_attention=cfg.moe_route_to_attention,
                     hyperdimensional=cfg.moe_hyperdimensional,
@@ -924,6 +1058,17 @@ class V3LM(nn.Module):
                     n_slots=cfg.memory_slots,
                     dropout=cfg.memory_dropout,
                 )
+        self.memory_feedback_gate = (
+            nn.Parameter(torch.zeros(()))
+            if cfg.feedback_memory_mtp
+            and (self.memory_path is not None or self.memory_cross is not None)
+            else None
+        )
+        self.mtp_carry_gate = (
+            nn.Parameter(torch.zeros(()))
+            if cfg.feedback_mtp_carry and n_mtp
+            else None
+        )
         self.apply(self._init)
         nn.init.normal_(self.route_init, mean=0.0, std=0.02)
         nn.init.normal_(self.tok.weight, mean=0.0, std=0.02)
@@ -1071,6 +1216,23 @@ class V3LM(nn.Module):
             self.memory_path.build_memory(tokens, max_tokens=max_tokens)
         return self
 
+    @torch.no_grad()
+    def set_feedback_progress(self, value: float) -> "V3LM":
+        """Scale every learned feedback gate by ``value`` in [0, 1].
+
+        This is a curriculum knob, not an architecture change.  At 0 the model
+        is the pre-feedback architecture; at 1 every gate uses its learned
+        ``tanh(parameter)`` strength.
+        """
+        self.feedback_progress.fill_(
+            max(0.0, min(1.0, float(value)))
+        )
+        return self
+
+    def feedback_gate_scale(self, dtype: torch.dtype | None = None) -> torch.Tensor:
+        scale = self.feedback_progress
+        return scale.to(dtype=dtype) if dtype is not None else scale
+
     @staticmethod
     def _init(m):
         if isinstance(m, nn.Linear):
@@ -1086,6 +1248,7 @@ class V3LM(nn.Module):
                 sidecar=None,
                 task_ids: torch.Tensor | None = None):
         x = self.embed(tokens)
+        feedback_scale = self.feedback_gate_scale(dtype=x.dtype)
         lbs, zs = [], []
         branch_lbs: list[torch.Tensor] = []
         hd_diversities: list[torch.Tensor] = []
@@ -1107,6 +1270,10 @@ class V3LM(nn.Module):
                 task_ctx = embedded.mean(dim=1)
             task_ctx = task_ctx.to(dtype=x.dtype)
         concept_carry = None
+        object_carry = None
+        object_stats: list[dict[str, torch.Tensor]] = []
+        object_balances: list[torch.Tensor] = []
+        feedback_stats: list[dict[str, torch.Tensor]] = []
         for layer_index, block in enumerate(self.blocks):
             concept_route = (
                 route_ctx + task_ctx
@@ -1116,9 +1283,23 @@ class V3LM(nn.Module):
             token_ctx = None
             if self.concept_loop is not None:
                 concept, object_ctx, loop_ctx = self.concept_loop(
-                    x, sidecar, concept_route, concept_carry
+                    x,
+                    sidecar,
+                    concept_route,
+                    concept_carry,
+                    object_carry,
+                    feedback_scale,
                 )
                 concept_carry = self.concept_loop.last_carry
+                object_carry = object_ctx
+                stats = getattr(self.concept_loop, "last_object_stats", None)
+                if stats:
+                    object_stats.append(stats)
+                balance = getattr(
+                    self.concept_loop, "last_object_balance", None
+                )
+                if balance is not None:
+                    object_balances.append(balance)
                 if self.cfg.concept_router_tokens:
                     token_ctx = self.concept_loop.router_token_state(
                         concept, object_ctx
@@ -1142,11 +1323,12 @@ class V3LM(nn.Module):
             if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                 x, lb, z, route_ctx, block_aux = checkpoint(
                     block, x, block_route, loop_ctx, token_ctx,
+                    feedback_scale,
                     use_reentrant=False,
                 )
             else:
                 x, lb, z, route_ctx, block_aux = block(
-                    x, block_route, loop_ctx, token_ctx
+                    x, block_route, loop_ctx, token_ctx, feedback_scale
                 )
             if layer_index in self.mtp_aux_layers:
                 aux_hidden[layer_index] = x
@@ -1160,6 +1342,18 @@ class V3LM(nn.Module):
                     hd_diversities.append(block_aux["hd_code_diversity"])
                 if block_aux.get("memory_gate_mean") is not None:
                     memory_gates.append(block_aux["memory_gate_mean"])
+                feedback_entry = {
+                    key: block_aux[key]
+                    for key in (
+                        "feedback_token_gate",
+                        "feedback_route_hidden_gate",
+                        "feedback_route_concept_gate",
+                        "route_state_norm",
+                    )
+                    if block_aux.get(key) is not None
+                }
+                if feedback_entry:
+                    feedback_stats.append(feedback_entry)
         if self.comb_memory is not None:
             x = x + self.comb_memory(x)
         mem_aux = {}
@@ -1167,6 +1361,19 @@ class V3LM(nn.Module):
             x, mem_aux = self.memory_path.cross(x)
         elif self.memory_cross is not None:
             x, mem_aux = self.memory_cross(x)
+        memory_summary = (
+            mem_aux.get("memory_summary")
+            if isinstance(mem_aux, dict) else None
+        )
+        if memory_summary is not None and self.memory_feedback_gate is not None:
+            # Global memory state re-enters the residual stream.  The gate is
+            # closed at init, so this is a learned feedback path, not a
+            # second unconditional residual.
+            x = x + (
+                feedback_scale
+                * torch.tanh(self.memory_feedback_gate).to(dtype=x.dtype)
+                * memory_summary.unsqueeze(1)
+            )
         x = self.norm(x)
         main = self.project_logits(x)
         if self.memory_path is not None:
@@ -1246,6 +1453,7 @@ class V3LM(nn.Module):
             mtp = []
             gate_losses = []
             mtp_diagnostics: list[dict[str, torch.Tensor]] = []
+            mtp_carry: torch.Tensor | None = None
             for idx in range(self.n_mtp_heads):
                 head = self.mtp_heads[idx] if self.mtp_heads else None
                 cond = (
@@ -1270,6 +1478,20 @@ class V3LM(nn.Module):
                         mtp_context + scaled_loop
                         if mtp_context is not None else scaled_loop
                     )
+                if memory_summary is not None and self.memory_feedback_gate is not None:
+                    mtp_context = _router_add(
+                        mtp_context,
+                        feedback_scale
+                        * torch.tanh(self.memory_feedback_gate).to(dtype=x.dtype)
+                        * memory_summary,
+                    )
+                if mtp_carry is not None and self.mtp_carry_gate is not None:
+                    mtp_context = _router_add(
+                        mtp_context,
+                        feedback_scale
+                        * torch.tanh(self.mtp_carry_gate).to(dtype=x.dtype)
+                        * mtp_carry,
+                    )
 
                 if self.grad_checkpoint and self.training and torch.is_grad_enabled():
                     branch, block_aux = checkpoint(
@@ -1284,6 +1506,9 @@ class V3LM(nn.Module):
                     )
                 if self.mtp_branch_norm is not None:
                     branch = self.mtp_branch_norm(branch)
+                if self.mtp_carry_gate is not None:
+                    # Next future lag sees the previous branch's summary.
+                    mtp_carry = branch.mean(dim=1)
                 if self.composition_head is not None:
                     # The future branch predicts future word/sentence/math
                     # composition too, not only the next subword.  Sharing
@@ -1416,6 +1641,45 @@ class V3LM(nn.Module):
                 mtp.append(self.mtp_head_logits(head, hidden))
             gate_loss = None
         aux = dict(mem_aux)
+        if object_stats:
+            keys = object_stats[0].keys()
+            object_memory = {
+                key: torch.stack([item[key] for item in object_stats]).mean()
+                for key in keys
+            }
+            aux["object_memory"] = object_memory
+            if object_balances:
+                aux["object_balance"] = torch.stack(object_balances).mean()
+            else:  # pragma: no cover - concept loop always exposes it
+                aux["object_balance"] = object_memory["object_balance"]
+        if feedback_stats:
+            feedback_keys = sorted(
+                {key for entry in feedback_stats for key in entry}
+            )
+            feedback = {
+                key: torch.stack(
+                    [entry[key] for entry in feedback_stats if key in entry]
+                ).mean()
+                for key in feedback_keys
+            }
+            if memory_summary is not None:
+                feedback["memory_summary_norm"] = memory_summary.norm(
+                    dim=-1
+                ).mean()
+            if self.memory_feedback_gate is not None:
+                feedback["memory_feedback_gate"] = torch.tanh(
+                    self.memory_feedback_gate
+                )
+            if self.mtp_carry_gate is not None:
+                feedback["mtp_carry_gate"] = torch.tanh(
+                    self.mtp_carry_gate
+                )
+            if object_stats:
+                feedback["object_depth_carry_gate"] = object_memory[
+                    "depth_carry_gate"
+                ]
+            feedback["progress"] = self.feedback_progress
+            aux["feedback"] = feedback
         if mtp_aux_logits:
             aux["mtp_aux_logits"] = mtp_aux_logits
             aux["mtp_aux_layers"] = self.mtp_aux_layers

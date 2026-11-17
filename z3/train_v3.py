@@ -21,6 +21,17 @@ Smoke mode (random token IDs, no tokenizer or corpus, CPU, 3-5 steps)::
 
     python z3/train_v3.py --random-smoke --steps 3 --out /tmp/v3_smoke
 
+The fixed 115M model (same shape on T4/A100/Blackwell)::
+
+    python z3/train_v3.py --preset 115m \
+        --corpus data/z3_domains_115m/train.bin \
+        --val-corpus data/z3_domains_115m/valid.bin \
+        --tokenizer bin --out runs/z3_115m
+
+The hashed n-gram memory is opt-in (``--ngram-memory``); the learned 256-slot
+memory is on by default.  See ``z3/PRESET_115M.md`` for the document-framed
+corpus build and the sidecar-aware full evaluator.
+
 The text objective is ordinary next-token cross entropy plus one auxiliary
 cross entropy per MTP head.  Head ``i`` predicts ``t + 2 + i`` and receives
 weight ``--mtp-weight / k`` (``k`` is the number of MTP heads).  MoE routing
@@ -33,6 +44,7 @@ import argparse
 import codecs
 import contextlib
 import copy
+import hashlib
 import json
 import math
 import random
@@ -52,6 +64,12 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from v3_model import V3Config, V3LM  # noqa: E402
+from presets import (  # noqa: E402
+    PRESETS,
+    expected_parameter_count,
+    get_preset,
+)
+from text_documents import iter_documents  # noqa: E402
 
 IGNORE_INDEX = -100
 READ_BYTES = 1_000_000
@@ -165,6 +183,7 @@ def _model_state(model: torch.nn.Module) -> dict[str, torch.Tensor]:
 _RESUME_NEW_PARAMS = (
     "concept_loop.carry_gate",
     "concept_loop.object_triple_pointer.weight",
+    "feedback_progress",
 )
 _RESUME_NEW_SUFFIXES = (
     ".router_mix",
@@ -172,6 +191,12 @@ _RESUME_NEW_SUFFIXES = (
     ".object_id_to_state.weight",
     ".object_id_gate",
     ".byte_sequence_probe.weight",
+    ".token_feedback_gate",
+    ".route_hidden_gate",
+    ".route_concept_gate",
+    ".depth_carry_gate",
+    ".memory_feedback_gate",
+    ".mtp_carry_gate",
 )
 
 
@@ -240,6 +265,92 @@ def _restore_rng(state: Any, device: torch.device) -> None:
 
 def _was_provided(argv: list[str], flag: str) -> bool:
     return any(arg == flag or arg.startswith(flag + "=") for arg in argv)
+
+
+def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
+    """Fill unset arguments from a named preset.
+
+    Explicit CLI flags always win.  This makes a preset a reproducible
+    baseline rather than a lock-in.
+    """
+    name = str(getattr(args, "preset", "") or "").strip()
+    if not name:
+        return
+    try:
+        spec = get_preset(name)
+    except KeyError as exc:
+        raise SystemExit(str(exc)) from exc
+    for key, value in spec.items():
+        flag = "--" + key.replace("_", "-")
+        negative = "--no-" + key.replace("_", "-")
+        if not _was_provided(argv, flag) and not _was_provided(argv, negative):
+            setattr(args, key, value)
+    print(f"[preset] applied {name} ({len(spec)} defaults)", flush=True)
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).expanduser().open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_data_manifest(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Verify that train/valid bins and the tokenizer match the builder."""
+    raw = str(getattr(args, "data_manifest", "") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_file():
+        raise SystemExit(f"data manifest not found: {path}")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if manifest.get("kind") != "z3-document-framed-domain-bins":
+        raise SystemExit(
+            f"unexpected data manifest kind: {manifest.get('kind')!r}"
+        )
+    expected_layered = manifest.get("layered_model_sha256")
+    layered_path = Path(args.layered_model).expanduser()
+    if expected_layered and layered_path.is_file():
+        actual_layered = _sha256_file(layered_path)
+        if actual_layered != expected_layered:
+            raise SystemExit(
+                "tokenizer does not match the data manifest: "
+                f"{layered_path} sha256={actual_layered} "
+                f"expected={expected_layered}"
+            )
+    if args.tokenizer == "bin":
+        if len(args.corpus) != 1:
+            raise SystemExit(
+                "--data-manifest bin mode expects exactly one --corpus train bin"
+            )
+        if not args.val_corpus:
+            raise SystemExit(
+                "--data-manifest bin mode requires --val-corpus"
+            )
+        checks = (
+            ("train", Path(args.corpus[0])),
+            ("valid", Path(args.val_corpus)),
+        )
+        for split, bin_path in checks:
+            entry = (manifest.get("bins") or {}).get(split) or {}
+            expected = entry.get("sha256")
+            if not expected:
+                raise SystemExit(f"manifest has no {split} bin hash")
+            actual = _sha256_file(bin_path)
+            if actual != expected:
+                raise SystemExit(
+                    f"{split} bin does not match manifest: "
+                    f"{bin_path} sha256={actual} expected={expected}"
+                )
+        manifest_vocab = manifest.get("vocab_size")
+        if manifest_vocab is not None and int(args.vocab_size) != int(manifest_vocab):
+            raise SystemExit(
+                f"--vocab-size {args.vocab_size} does not match manifest "
+                f"vocab_size {manifest_vocab}"
+            )
+    print(f"[data-manifest] verified {path}", flush=True)
+    return manifest
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +431,11 @@ class LayeredFlatTokenizer:
         encoded = self.layered.encode(text, add_document_frame=False)
         return np.asarray(encoded.subword.ids, dtype=np.int32)
 
+    def encode_document(self, text: str) -> np.ndarray:
+        """Encode one document with explicit ``<doc>``/``<eos>`` framing."""
+        encoded = self.layered.encode(text, add_document_frame=True)
+        return np.asarray(encoded.token_ids, dtype=np.int32)
+
 
 def build_tokenizer(
     args: argparse.Namespace,
@@ -339,8 +455,16 @@ def load_text_ids(
     paths: list[str],
     tokenizer: ByteTokenizer | BPETokenizer | LayeredFlatTokenizer,
     max_bytes: int,
+    *,
+    document_framing: bool = False,
 ) -> np.ndarray:
-    """Encode corpus files in bounded chunks, with separators between files."""
+    """Encode corpus files in bounded chunks, with separators between files.
+
+    With ``document_framing=True`` blank-line-separated documents are encoded
+    one at a time through ``encode_document`` when the tokenizer supports it.
+    That is the training/evaluation contract used by the concept sidecar: a
+    random window never has to guess where a document began.
+    """
     parts: list[np.ndarray] = []
     total_bytes = 0
     for raw_path in paths:
@@ -349,8 +473,34 @@ def load_text_ids(
         path = Path(raw_path).expanduser()
         if not path.is_file():
             raise SystemExit(f"corpus file not found: {path}")
+
+        if document_framing:
+            remaining = 0 if max_bytes <= 0 else max(0, max_bytes - total_bytes)
+            for document, raw_bytes in iter_documents(
+                path, max_bytes=remaining
+            ):
+                total_bytes += int(raw_bytes)
+                encode_document = getattr(tokenizer, "encode_document", None)
+                ids = (
+                    encode_document(document)
+                    if encode_document is not None
+                    else tokenizer.encode(document)
+                )
+                if ids.size:
+                    parts.append(np.asarray(ids, dtype=np.int32))
+                if max_bytes > 0 and total_bytes >= max_bytes:
+                    break
+            print(
+                f"[data] read {path} ({total_bytes:,} bytes total, "
+                "document framing)",
+                flush=True,
+            )
+            if max_bytes > 0 and total_bytes >= max_bytes:
+                break
+            continue
+
         if parts:
-            parts.append(tokenizer.separator)
+            parts.append(np.atleast_1d(np.asarray(tokenizer.separator, dtype=np.int32)))
 
         decoder = codecs.getincrementaldecoder("utf-8")(errors="ignore")
         with path.open("rb") as handle:
@@ -431,6 +581,8 @@ def load_text_ids_with_tasks(
     tokenizer: ByteTokenizer | BPETokenizer | LayeredFlatTokenizer,
     max_bytes: int,
     task_ids: list[int],
+    *,
+    document_framing: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Encode each corpus file separately with a token-aligned task id."""
     if len(paths) != len(task_ids):
@@ -438,7 +590,12 @@ def load_text_ids_with_tasks(
     parts: list[np.ndarray] = []
     token_tasks: list[np.ndarray] = []
     for index, (raw_path, task_id) in enumerate(zip(paths, task_ids)):
-        ids = load_text_ids([raw_path], tokenizer, max_bytes)
+        ids = load_text_ids(
+            [raw_path],
+            tokenizer,
+            max_bytes,
+            document_framing=document_framing,
+        )
         if parts:
             separator = np.atleast_1d(
                 np.asarray(tokenizer.separator, dtype=np.int32)
@@ -864,6 +1021,8 @@ def evaluate(
     load_balance_sum = 0.0
     router_z_sum = 0.0
     aux_batches = 0
+    object_sums: dict[str, float] = {}
+    feedback_sums: dict[str, float] = {}
 
     composition_sum = 0.0
     composition_tokens = 0
@@ -1237,6 +1396,16 @@ def evaluate(
                 load_balance_sum += float(_aux_scalar(aux["load_balance"]).detach())
             if aux.get("router_z") is not None:
                 router_z_sum += float(_aux_scalar(aux["router_z"]).detach())
+            if aux.get("object_memory"):
+                for key, value in aux["object_memory"].items():
+                    object_sums[key] = object_sums.get(key, 0.0) + float(
+                        _aux_scalar(value).detach()
+                    )
+            if aux.get("feedback"):
+                for key, value in aux["feedback"].items():
+                    feedback_sums[key] = feedback_sums.get(key, 0.0) + float(
+                        _aux_scalar(value).detach()
+                    )
             aux_batches += 1
 
     main_loss = main_ce_sum / max(1, main_tokens)
@@ -1388,6 +1557,14 @@ def evaluate(
             load_balance_sum / aux_batches if aux_batches else None
         ),
         "router_z": router_z_sum / aux_batches if aux_batches else None,
+        "object_memory": (
+            {key: value / aux_batches for key, value in object_sums.items()}
+            if aux_batches and object_sums else None
+        ),
+        "feedback": (
+            {key: value / aux_batches for key, value in feedback_sums.items()}
+            if aux_batches and feedback_sums else None
+        ),
     }
     _xla_sync(next(model.parameters()).device)
     model.train(was_training)
@@ -1429,9 +1606,20 @@ def build_parser() -> argparse.ArgumentParser:
                       default="uint16", help="dtype for --tokenizer bin")
     data.add_argument("--val-corpus", default="",
                       help="separate validation token file for --tokenizer bin")
+    data.add_argument(
+        "--data-manifest",
+        default="",
+        help="manifest.json from build_domain_bins.py; verifies bin/tokenizer hashes",
+    )
     data.add_argument("--sidecar", action=argparse.BooleanOptionalAction,
                       default=True,
                       help="build aligned word/sentence/math sidecars from token IDs")
+    data.add_argument(
+        "--document-framing",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="encode blank-line-separated documents with <doc>/<eos> frames",
+    )
     data.add_argument("--max-bytes", type=int, default=0, help="cap corpus bytes (0 = all)")
     data.add_argument(
         "--domain-mixture", action=argparse.BooleanOptionalAction,
@@ -1466,6 +1654,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--attn-gate", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="sigmoid-gate the attention output (default: on)")
+    model.add_argument("--force-manual-attention", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="use the explicit attention fallback (debugging / CPU determinism)")
     model.add_argument("--swiglu", type=int, default=1536)
     model.add_argument("--window", type=int, default=512)
     model.add_argument("--global-every", type=int, default=4)
@@ -1478,6 +1669,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="experts dispatched per batched einsum group")
     model.add_argument("--moe-max-rows", type=int, default=512,
                        help="token-row chunk size for MoE peak memory")
+    model.add_argument("--moe-dense-dispatch", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="fixed-shape dense dispatch (XLA); default grouped chunked")
     model.add_argument("--moe-hierarchical", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="use context-conditioned domain->branch->expert routing")
@@ -1524,6 +1718,21 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-router-global",
                        action=argparse.BooleanOptionalAction, default=True,
                        help="also add the pooled concept state to MoE routers")
+    model.add_argument("--feedback-token-residual",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="gate token concept/object state into the residual stream")
+    model.add_argument("--feedback-route-concept",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="gate concept/object/hidden summaries into the next route")
+    model.add_argument("--feedback-object-carry",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="carry object state across blocks")
+    model.add_argument("--feedback-memory-mtp",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="feed the post-trunk memory summary into the MTP context")
+    model.add_argument("--feedback-mtp-carry",
+                       action=argparse.BooleanOptionalAction, default=True,
+                       help="feed each MTP lag's branch summary into the next lag")
     model.add_argument("--learned-router-mix",
                        action=argparse.BooleanOptionalAction, default=False,
                        help="learn positive gates for route/pooled/token router context")
@@ -1532,6 +1741,11 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-top-vertices", type=int, default=8)
     model.add_argument("--concept-top-pairs", type=int, default=4)
     model.add_argument("--concept-top-triples", type=int, default=2)
+    model.add_argument("--subword-embedding",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="feed token-aligned subword IDs into the concept encoder")
+    model.add_argument("--subword-vocab-size", type=int, default=64060,
+                       help="subword embedding size when --subword-embedding is on")
     model.add_argument("--object-id-embedding",
                        action=argparse.BooleanOptionalAction, default=False,
                        help="learned hard C(256,2) object-ID readout")
@@ -1595,6 +1809,14 @@ def build_parser() -> argparse.ArgumentParser:
                        help="RMS-normalize the MTP branch before its output")
     model.add_argument("--mtp-gate-prior", type=float, default=0.7,
                        help="initial confidence-gate reliability prior")
+    model.add_argument("--mtp-gate", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="blend MTP branch logits with the fallback logits")
+    model.add_argument("--mtp-gate-hidden", type=int, default=256,
+                       help="hidden width of the MTP confidence gate")
+    model.add_argument("--mtp-gate-use-hidden", action=argparse.BooleanOptionalAction,
+                       default=True,
+                       help="feed the trunk hidden state into the MTP gate")
     model.add_argument("--dropout", type=float, default=0.1)
     model.add_argument("--rope-base", type=float, default=10000.0)
     model.add_argument("--max-ctx", type=int, default=8192,
@@ -1615,8 +1837,9 @@ def build_parser() -> argparse.ArgumentParser:
     mem.add_argument("--use-memory", action=argparse.BooleanOptionalAction,
                      default=True,
                      help="enable learned memory cross-attention (default: on)")
-    mem.add_argument("--no-ngram-memory", action="store_true",
-                     help="disable the sparse hashed n-gram logit bias")
+    mem.add_argument("--ngram-memory", action=argparse.BooleanOptionalAction,
+                     default=False,
+                     help="enable the sparse hashed n-gram logit bias (default: off)")
     mem.add_argument("--memory-slots", type=int, default=256)
     mem.add_argument("--memory-heads", type=int, default=4,
                      help="attention heads for the memory cross-attention (0 = n_heads)")
@@ -1670,6 +1893,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="auxiliary C(256,2) object-pointer CE weight")
     train.add_argument("--object-negative-weight", type=float, default=0.0,
                        help="hardest-negative margin weight for object pointers")
+    train.add_argument("--object-balance-coef", type=float, default=0.0,
+                       help="Switch-style balance over the 256 object vertices")
     train.add_argument("--object-negative-margin", type=float, default=1.0,
                        help="margin for the hardest-negative object pointer loss")
     train.add_argument("--object-triple-pointer-weight", type=float, default=0.01,
@@ -1688,6 +1913,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="final ground-truth mix; predicted distribution always remains")
     train.add_argument("--mtp-gt-mix-steps", type=int, default=0,
                        help="steps over which to decay the ground-truth mix")
+    train.add_argument(
+        "--feedback-gate-warmup-steps",
+        type=int,
+        default=0,
+        help="linearly open the feedback bus over this many steps (0 = full)",
+    )
     train.add_argument("--mtp-gate-coef", type=float, default=0.1,
                        help="supervision coefficient for the MTP confidence gate")
     train.add_argument("--load-balance-coef", type=float, default=0.01)
@@ -1732,6 +1963,12 @@ def build_parser() -> argparse.ArgumentParser:
     system.add_argument("--data-parallel", action="store_true",
                         help="wrap the model in nn.DataParallel when multiple CUDA GPUs exist")
     system.add_argument("--amp-init-scale", type=float, default=1024.0)
+    system.add_argument(
+        "--preset",
+        default="",
+        choices=("", *sorted(PRESETS)),
+        help="reproducible argument bundle; explicit flags still win",
+    )
     system.add_argument("--random-smoke", action="store_true",
                         help="random token IDs, no tokenizer/corpus, 3-5 CPU steps")
     return parser
@@ -1825,6 +2062,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--ema-start-frac must be in [0, 1]")
     if args.mtp_weight < 0 or args.load_balance_coef < 0 or args.router_z_coef < 0:
         raise SystemExit("loss coefficients must be non-negative")
+    if args.object_balance_coef < 0:
+        raise SystemExit("--object-balance-coef must be non-negative")
     if args.mtp_lr_scale < 0:
         raise SystemExit("--mtp-lr-scale must be non-negative")
     if args.max_bytes < 0 or args.max_seconds < 0:
@@ -1870,6 +2109,8 @@ def validate_args(args: argparse.Namespace) -> None:
             raise SystemExit("--concept-top-vertices must be in [2, concept-vertices]")
         if args.concept_top_pairs < 1 or args.concept_top_triples < 0:
             raise SystemExit("invalid concept object top-k")
+        if args.subword_vocab_size < 1:
+            raise SystemExit("--subword-vocab-size must be positive")
     if args.combinatorial_memory:
         if args.comb_vertices < 2:
             raise SystemExit("--comb-vertices must be at least 2")
@@ -1887,6 +2128,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp-adapter-rank must be non-negative")
     if args.mtp_block_experts < 1 or args.mtp_block_hidden < 1:
         raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
+    if args.mtp_gate_hidden < 1:
+        raise SystemExit("--mtp-gate-hidden must be positive")
     if not 0.0 <= args.mtp_teacher_prob <= 1.0:
         raise SystemExit("--mtp-teacher-prob must be in [0, 1]")
     if args.mtp_aux_layer >= args.n_layers:
@@ -1897,6 +2140,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("MTP gt-mix must satisfy 0 <= end <= start <= 1")
     if args.mtp_gt_mix_steps < 0:
         raise SystemExit("--mtp-gt-mix-steps must be non-negative")
+    if args.feedback_gate_warmup_steps < 0:
+        raise SystemExit("--feedback-gate-warmup-steps must be non-negative")
     if args.mtp_gate_coef < 0:
         raise SystemExit("--mtp-gate-coef must be non-negative")
     if args.global_every < 1 or args.window < 1:
@@ -1952,6 +2197,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         embedding_rank=int(args.embedding_rank),
         mtp_tie_heads=bool(args.mtp_tie_heads),
         attn_gate=bool(args.attn_gate),
+        force_manual_attention=bool(args.force_manual_attention),
         swiglu=int(args.swiglu),
         window=int(args.window),
         global_every=int(args.global_every),
@@ -1962,6 +2208,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         expert_hidden=int(args.expert_hidden),
         moe_group_size=int(args.moe_group_size),
         moe_max_rows=int(args.moe_max_rows),
+        moe_dense_dispatch=bool(args.moe_dense_dispatch),
         moe_hierarchical=bool(args.moe_hierarchical),
         moe_branches=int(args.moe_branches),
         moe_context_router=bool(args.moe_context_router),
@@ -1980,12 +2227,19 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         concept_loop_attention=bool(args.concept_loop_attention),
         concept_router_tokens=bool(args.concept_router_tokens),
         concept_router_global=bool(args.concept_router_global),
+        feedback_token_residual=bool(args.feedback_token_residual),
+        feedback_route_concept=bool(args.feedback_route_concept),
+        feedback_object_carry=bool(args.feedback_object_carry),
+        feedback_memory_mtp=bool(args.feedback_memory_mtp),
+        feedback_mtp_carry=bool(args.feedback_mtp_carry),
         learned_router_mix=bool(args.learned_router_mix),
         concept_loop_vertices=int(args.concept_vertices),
         concept_loop_dim=int(args.concept_dim),
         concept_top_vertices=int(args.concept_top_vertices),
         concept_top_pairs=int(args.concept_top_pairs),
         concept_top_triples=int(args.concept_top_triples),
+        subword_embedding=bool(args.subword_embedding),
+        subword_vocab_size=int(args.subword_vocab_size),
         object_id_embedding=bool(args.object_id_embedding),
         object_id_dim=int(args.object_id_dim),
         composition_head=bool(args.composition_head),
@@ -2004,12 +2258,28 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         mtp_block=bool(args.mtp_block),
         mtp_block_experts=int(args.mtp_block_experts),
         mtp_block_hidden=int(args.mtp_block_hidden),
+        mtp_attention_global=bool(args.mtp_attention_global),
+        mtp_attention_gate=bool(args.mtp_attention_gate),
         mtp_teacher_prob=float(args.mtp_teacher_prob),
+        mtp_softmax_temperature=float(args.mtp_softmax_temperature),
         mtp_aux_layer=int(args.mtp_aux_layer),
+        mtp_position_embed=bool(args.mtp_position_embed),
         mtp_hd_time=bool(args.mtp_hd_time),
         mtp_branch_norm=bool(args.mtp_branch_norm),
+        mtp_gate_prior=float(args.mtp_gate_prior),
+        mtp_gate=bool(args.mtp_gate),
+        mtp_gate_hidden=int(args.mtp_gate_hidden),
+        mtp_gate_use_hidden=bool(args.mtp_gate_use_hidden),
         mtp_aux_layers=tuple(
             int(x) for x in str(args.mtp_aux_layers).split(",") if x.strip()
+        ),
+        mtp_aux_layer_weights=(
+            tuple(
+                float(x)
+                for x in str(args.mtp_aux_layer_weights).split(",")
+                if x.strip()
+            )
+            or None
         ),
         mtp_aux_weight=float(args.mtp_aux_weight),
         dropout=float(args.dropout),
@@ -2022,7 +2292,10 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         rope_beta_slow=float(args.rope_beta_slow),
         rope_attention_factor=args.rope_attention_factor,
         use_memory=bool(args.use_memory),
-        use_ngram_memory=not bool(args.no_ngram_memory),
+        use_ngram_memory=bool(
+            getattr(args, "ngram_memory", False)
+            and not getattr(args, "no_ngram_memory", False)
+        ),
         memory_slots=int(args.memory_slots),
         memory_heads=int(args.memory_heads),
         memory_dropout=float(args.dropout),
@@ -2081,8 +2354,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
 
     if args.random_smoke:
+        if args.preset:
+            print(
+                f"[preset] ignoring {args.preset} for --random-smoke",
+                flush=True,
+            )
+            args.preset = ""
         apply_smoke_defaults(args, raw_argv)
+    else:
+        apply_preset(args, raw_argv)
     validate_args(args)
+    data_manifest = (
+        None if args.random_smoke else verify_data_manifest(args)
+    )
 
     if args.random_smoke:
         if args.device != "cpu":
@@ -2246,14 +2530,28 @@ def main(argv: list[str] | None = None) -> int:
                     "corpus task ids must be in [0, --task-vocab-size)"
                 )
             token_ids, token_task_ids = load_text_ids_with_tasks(
-                args.corpus, tokenizer, args.max_bytes, task_values
+                args.corpus,
+                tokenizer,
+                args.max_bytes,
+                task_values,
+                document_framing=bool(args.document_framing),
             )
             print(
                 f"[data] domain mixture tasks={task_values}", flush=True
             )
+            if not args.val_corpus:
+                print(
+                    "[warn] --domain-mixture without --val-corpus uses the "
+                    "tail of the concatenated stream as validation; pass a "
+                    "document-disjoint --val-corpus for a clean test split",
+                    flush=True,
+                )
         else:
             token_ids = load_text_ids(
-                args.corpus, tokenizer, args.max_bytes
+                args.corpus,
+                tokenizer,
+                args.max_bytes,
+                document_framing=bool(args.document_framing),
             )
         vocab_size = tokenizer.vocab_size
         args.vocab_size = int(vocab_size)
@@ -2263,10 +2561,33 @@ def main(argv: list[str] | None = None) -> int:
                 f"corpus has {n_tokens} tokens, need at least --ctx + 2 "
                 f"({args.ctx + 2})"
             )
-        split = int(n_tokens * args.train_fraction)
-        split = min(max(split, args.ctx + 1), n_tokens - 1)
-        if split <= args.ctx:
-            raise SystemExit("training split is too small for the requested --ctx")
+        val_ids = None
+        if args.val_corpus:
+            val_ids = load_text_ids(
+                [args.val_corpus],
+                tokenizer,
+                args.max_bytes,
+                document_framing=bool(args.document_framing),
+            )
+            if len(val_ids) < args.ctx + 2:
+                raise SystemExit(
+                    f"validation corpus has {len(val_ids)} tokens, need at "
+                    f"least --ctx + 2 ({args.ctx + 2})"
+                )
+            print(
+                f"[data] separate validation corpus={args.val_corpus} "
+                f"tokens={len(val_ids):,}",
+                flush=True,
+            )
+        if val_ids is not None:
+            # The explicit validation file is the complete held-out stream;
+            # do not also reserve a tail slice from the training corpus.
+            split = len(token_ids)
+        else:
+            split = int(n_tokens * args.train_fraction)
+            split = min(max(split, args.ctx + 1), n_tokens - 1)
+            if split <= args.ctx:
+                raise SystemExit("training split is too small for the requested --ctx")
         source = TextBatchSource(
             token_ids,
             split,
@@ -2274,6 +2595,7 @@ def main(argv: list[str] | None = None) -> int:
             args.batch_size,
             args.eval_batches,
             args.seed,
+            val_ids=val_ids,
             token_task_ids=token_task_ids,
         )
         source.info["vocab_size"] = vocab_size
@@ -2283,6 +2605,11 @@ def main(argv: list[str] | None = None) -> int:
         source.info["corpus_task_ids"] = (
             task_values if args.domain_mixture else None
         )
+        source.info["val_corpus"] = (
+            str(Path(args.val_corpus).expanduser())
+            if args.val_corpus else None
+        )
+        source.info["document_framing"] = bool(args.document_framing)
         # Bytes/token is independent of the concept sidecar.  Compute it for
         # every layered text run so the no-concept ablation still reports BPB.
         layered = getattr(tokenizer, "layered", None)
@@ -2293,9 +2620,15 @@ def main(argv: list[str] | None = None) -> int:
             source.info["bytes_per_token"] = 1.0
         print(
             f"[data] tokenizer={args.tokenizer} vocab={vocab_size} "
-            f"tokens={n_tokens:,} train={split:,} val={n_tokens - split:,} "
+            f"tokens={n_tokens:,} train={split:,} "
+            f"val={len(val_ids) if val_ids is not None else n_tokens - split:,} "
             f"ctx={args.ctx}",
             flush=True,
+        )
+
+    if data_manifest is not None:
+        source.info["data_manifest"] = str(
+            Path(args.data_manifest).expanduser().resolve()
         )
 
     if args.sidecar and args.tokenizer in (
@@ -2394,6 +2727,41 @@ def main(argv: list[str] | None = None) -> int:
         f"mtp_heads={_model_core(model).n_mtp_heads} moe_layers={cfg.moe_layers}",
         flush=True,
     )
+    expected_params = expected_parameter_count(args.preset)
+    if expected_params is not None:
+        if parameter_count == expected_params:
+            print(
+                f"[preset] parameter count matches {args.preset}: "
+                f"{parameter_count:,}",
+                flush=True,
+            )
+        else:
+            print(
+                f"[preset] WARNING expected {expected_params:,} params for "
+                f"{args.preset}, got {parameter_count:,}",
+                flush=True,
+            )
+    moe_layout = []
+    for layer_index, block in enumerate(_model_core(model).blocks):
+        if getattr(block, "is_moe", False):
+            inner = block.mlp.inner
+            moe_layout.append(
+                {
+                    "layer": layer_index,
+                    "branches": int(inner.branches),
+                    "experts_per_branch": int(inner.experts_per_branch),
+                    "topk": int(inner.topk),
+                    "degenerate": bool(inner.branch_degenerate),
+                }
+            )
+    if moe_layout:
+        print(f"[moe] layout={moe_layout}", flush=True)
+        if any(item["degenerate"] for item in moe_layout):
+            print(
+                "[moe] WARNING hierarchical layout is degenerate: top-k "
+                "selects every expert in the selected branch",
+                flush=True,
+            )
 
     if cfg.use_memory and cfg.use_ngram_memory and hasattr(source, "ids"):
         memory_tokens = source.ids[: source.split]
@@ -2581,6 +2949,7 @@ def main(argv: list[str] | None = None) -> int:
         "lr_horizon": horizon,
         "warmup_steps": warmup_steps,
         "warmup_frac": effective_warmup_frac,
+        "moe_layout": moe_layout,
         "data": source.info,
     }
     _write_json(out / "config.json", config_doc)
@@ -2682,9 +3051,21 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[train] device={device} amp={amp} steps={args.steps} "
         f"batch={args.batch_size} ctx={args.ctx} lr={args.lr:.2e} "
-        f"horizon={horizon} warmup_steps={warmup_steps}",
+        f"horizon={horizon} warmup_steps={warmup_steps} "
+        f"feedback_warmup={args.feedback_gate_warmup_steps}",
         flush=True,
     )
+
+    def feedback_progress_for(step: int) -> float:
+        if args.feedback_gate_warmup_steps <= 0:
+            return 1.0
+        return min(
+            1.0,
+            max(0.0, step / float(args.feedback_gate_warmup_steps)),
+        )
+
+    core_model = _model_core(model)
+    core_model.set_feedback_progress(feedback_progress_for(start_step))
 
     eval_before = None
     if args.eval_before:
@@ -2721,6 +3102,8 @@ def main(argv: list[str] | None = None) -> int:
         lr = current_lr(step, run_elapsed)
         for group in optimizer.param_groups:
             group["lr"] = lr * float(group.get("lr_scale", 1.0))
+        feedback_progress = feedback_progress_for(step)
+        core_model.set_feedback_progress(feedback_progress)
         if args.mtp_gt_mix_steps > 0:
             mix_frac = min(1.0, step / args.mtp_gt_mix_steps)
         else:
@@ -2779,10 +3162,15 @@ def main(argv: list[str] | None = None) -> int:
             hd_diversity = (
                 _aux_scalar(aux.get("hd_code_diversity")) if aux else None
             )
+            object_balance = (
+                _aux_scalar(aux.get("object_balance")) if aux else None
+            )
             if load_balance is not None:
                 loss = loss + args.load_balance_coef * load_balance
             if router_z is not None:
                 loss = loss + args.router_z_coef * router_z
+            if object_balance is not None:
+                loss = loss + args.object_balance_coef * object_balance
             # Per-lag MTP blocks have their own routers.  They need the same
             # balancing pressure as the trunk or they collapse to a few
             # experts and one or more experts die.
@@ -3188,6 +3576,16 @@ def main(argv: list[str] | None = None) -> int:
             "hd_code_diversity": (
                 _finite(hd_diversity) if hd_diversity is not None else None
             ),
+            "object_balance": (
+                _finite(object_balance) if object_balance is not None else None
+            ),
+            "feedback": (
+                {
+                    key: _finite(value)
+                    for key, value in aux.get("feedback", {}).items()
+                }
+                if aux else None
+            ),
             "composition": (
                 _finite(composition_loss)
                 if composition_loss is not None else None
@@ -3234,6 +3632,7 @@ def main(argv: list[str] | None = None) -> int:
             "grad_norm": _finite(grad_norm),
             "amp_skip": bool(amp_skip),
             "tokens": int(args.batch_size * args.ctx),
+            "feedback_progress": float(feedback_progress),
             "bits_per_token": float(parts["ce"]) / math.log(2),
             "bits_per_byte": (
                 float(parts["ce"])
@@ -3334,6 +3733,7 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     # Final artifacts ------------------------------------------------------
+    core_model.set_feedback_progress(1.0)
     final_metrics = evaluate(
         model, source.eval_batches, device, amp, args.mtp_weight,
         sidecar_builder=getattr(source, "build_sidecar", None),
@@ -3443,6 +3843,10 @@ def main(argv: list[str] | None = None) -> int:
         "best": best,
         "final": final_metrics,
         "final_ema": final_ema_metrics,
+        "feedback_gate_warmup_steps": int(
+            args.feedback_gate_warmup_steps
+        ),
+        "feedback_progress_final": 1.0,
         "last_train": last_train,
         "history_entries": len(history),
         "artifacts": artifacts,

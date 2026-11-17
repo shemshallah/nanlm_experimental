@@ -439,6 +439,11 @@ class MemoryCrossAttention(nn.Module):
         aux = {
             "memory_entropy": entropy.mean(),
             "memory_entropy_per_head": entropy.mean(dim=(0, 2)),
+            # Global summaries are the feedback-bus handoff.  They let the
+            # post-trunk memory state condition the MTP branch and the final
+            # feedback projection without adding a second memory read.
+            "memory_summary": y.mean(dim=1),
+            "memory_delta": (out - x).mean(dim=1),
         }
         if return_attn:
             aux["memory_attn"] = attn

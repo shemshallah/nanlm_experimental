@@ -38,6 +38,7 @@ the same. Tests use ``dropout=0``.
 from __future__ import annotations
 
 import math
+import warnings
 
 import torch
 import torch.nn.functional as F
@@ -142,6 +143,21 @@ class VectorizedSparseMoE(nn.Module):
             valid = [b for b in candidates if b <= requested]
             self.branches = max(valid) if valid else min(candidates)
             self.experts_per_branch = self.n_experts // self.branches
+        self.branch_layout = (self.branches, self.experts_per_branch)
+        self.branch_degenerate = bool(
+            self.hierarchical and self.topk >= self.experts_per_branch
+        )
+        if self.branch_degenerate:
+            warnings.warn(
+                "hierarchical MoE has "
+                f"{self.branches} branches x {self.experts_per_branch} experts "
+                f"with topk={self.topk}; top-k selects every expert in the "
+                "branch, so there is no within-branch sparsity.  Use fewer "
+                "branches (more experts per branch) for a real hierarchical "
+                "top-k.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         self.branch_router = (
             nn.Linear(self.d_model, self.branches, bias=False)
             if self.hierarchical else None
