@@ -103,6 +103,25 @@ class BlackwellPreflightTests(unittest.TestCase):
         got = VerbatimV103RSI._byte_to_conditional_bit_logits(logits, target)
         self.assertLess(float((reference - got).abs().max()), 1e-5)
 
+    def test_upgrade_aux_loss_trains_branch_at_zero_gate(self):
+        tiny = Preset("cpu", 32, 1, 4, 64, 1, 2, 3e-4, 1)
+        with patch.dict(PRESETS, {"cpu": tiny, "t4": tiny,
+                                  "blackwell": tiny}):
+            model = VerbatimV103RSI("cpu")
+            history = torch.randint(0, 256, (2, 32))
+            target = torch.randint(0, 256, (2,))
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            logits, bits, current = model(
+                history, target, aux, return_aux=True)
+            self.assertEqual(model.residual_gate.item(), 0.0)
+            loss = F.cross_entropy(current, target)
+            loss.backward()
+            grads = [parameter.grad for parameter in
+                     model.upgrades.output[0].parameters()]
+            self.assertTrue(any(gradient is not None
+                                and float(gradient.abs().sum()) > 0
+                                for gradient in grads))
+
     def test_v4_freezes_residual_gate_for_rsi(self):
         from terminal_rsi.verbatim_v103 import build_v103_optimizer
         model = VerbatimV103RSI("cpu")

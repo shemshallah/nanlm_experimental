@@ -61,7 +61,8 @@ class VerbatimV103RSI(nn.Module):
 
     def forward(self, previous: torch.Tensor, target: torch.Tensor,
                 aux: torch.Tensor | None = None,
-                local: torch.Tensor | None = None):
+                local: torch.Tensor | None = None,
+                return_aux: bool = False):
         if previous.ndim != 2 or previous.shape[1] < 32:
             raise ValueError("Exact v103 needs >=32 observed bytes; legacy uses LAST 32")
         # The archived v103 model always receives exactly its original 32
@@ -89,7 +90,10 @@ class VerbatimV103RSI(nn.Module):
         trust = 1.0 + 0.25 * torch.tanh(
             self.original.feedback_state.detach().float().mean())
         gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
-        return old_logits + gate * (proposed - old_logits), bits
+        final_logits = old_logits + gate * (proposed - old_logits)
+        if return_aux:
+            return final_logits, bits, current
+        return final_logits, bits
 
     @torch.no_grad()
     def observe_verified_byte(self, bpb: float, bit_accuracy: float):

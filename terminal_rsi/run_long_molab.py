@@ -56,6 +56,7 @@ def _train_command(args, output: Path, rolling: Path, metrics: Path,
         "--mode", args.mode, "--cpu-threads", str(args.cpu_threads),
         "--batch", str(args.batch),
         "--microbatch", str(args.microbatch),
+        "--upgrade-loss-weight", str(args.upgrade_loss_weight),
         "--train-stream", str(output / "train_curriculum.bin"),
         "--bpe-merges", str(args.bpe_merges),
         "--dev-bin", str(output / "win_dev.bin"),
@@ -151,6 +152,8 @@ def main(argv=None) -> int:
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--microbatch", type=int, default=0,
                    help="Split the effective batch for activation memory; 0=full")
+    p.add_argument("--upgrade-loss-weight", type=float, default=1.0,
+                   help="Direct byte CE on the additive upgrade branch")
     p.add_argument("--train-bytes", type=int, default=64_000_000)
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--rsi-holdout-books", type=int, default=4)

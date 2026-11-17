@@ -58,27 +58,52 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
 
 def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     target: torch.Tensor, aux: torch.Tensor,
-                    grad_clip: float = 1.0, microbatch: int = 0):
-    """One identical v103 observe AFTER optimizer step, RSI critic AFTER that."""
+                    grad_clip: float = 1.0, microbatch: int = 0,
+                    upgrade_loss_weight: float = 0.0):
+    """One identical v103 observe AFTER optimizer step, RSI critic AFTER that.
+
+    ``upgrade_loss_weight > 0`` adds direct byte cross-entropy on the additive
+    branch.  At ``residual_gate=0`` the final logits stay exactly v103, but the
+    100M upgrade branch now receives a gradient instead of staying random
+    until RSI opens the gate.
+    """
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
     if not math.isfinite(grad_clip) or grad_clip <= 0:
         raise ValueError("Gradient clip must be finite and positive")
+    if not math.isfinite(upgrade_loss_weight) or upgrade_loss_weight < 0:
+        raise ValueError("Upgrade loss weight must be finite and nonnegative")
     model.train()
     n = len(target)
+    use_aux = upgrade_loss_weight > 0
     if microbatch and microbatch < n:
         # Effective batch stays n; split only the activation working set.
         # Sum-of-loss/N over microbatches is the exact mean gradient.
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
+        aux_total = None
         total_hits = 0
         for start in range(0, n, microbatch):
             end = min(start + microbatch, n)
-            logits, bits = model(history[start:end], target[start:end],
-                                 aux[start:end])
+            part_target = target[start:end]
+            if use_aux:
+                logits, bits, current = model(
+                    history[start:end], part_target, aux[start:end],
+                    return_aux=True)
+                aux_sum = F.cross_entropy(current, part_target,
+                                          reduction="sum")
+                aux_total = (aux_sum.detach() if aux_total is None
+                             else aux_total + aux_sum.detach())
+            else:
+                logits, bits = model(history[start:end], part_target,
+                                     aux[start:end])
+                aux_sum = None
             loss_sum = F.binary_cross_entropy_with_logits(
                 logits, bits, reduction="sum")
-            (loss_sum / n).backward()
+            objective = loss_sum
+            if aux_sum is not None:
+                objective = objective + upgrade_loss_weight * aux_sum
+            (objective / n).backward()
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
             total_hits += int(((logits.detach() > 0) == (bits > 0.5)).sum())
@@ -90,18 +115,35 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         accuracy = total_hits / (n * 8)
         model.original.observe_online_bits(history[:, -32:], target, aux)
         model.observe_verified_byte(bpb, accuracy)
-        return {"bpb": bpb, "bit_accuracy": accuracy,
-                "grad_norm": grad_norm, "grad_clip": grad_clip}
-    logits, bits = model(history, target, aux)
-    loss, bpb, accuracy = score_byte_observations(logits, bits)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
+        report = {"bpb": bpb, "bit_accuracy": accuracy,
+                  "grad_norm": grad_norm, "grad_clip": grad_clip}
+        if use_aux:
+            upgrade_bpb = float(8 * (float(aux_total) / n) / math.log(2))
+            report["upgrade_bpb"] = upgrade_bpb
+        return report
+    if use_aux:
+        logits, bits, current = model(history, target, aux, return_aux=True)
+        loss, bpb, accuracy = score_byte_observations(logits, bits)
+        aux_loss = F.cross_entropy(current, target)
+        objective = loss + upgrade_loss_weight * aux_loss
+        optimizer.zero_grad(set_to_none=True)
+        objective.backward()
+        upgrade_bpb = float(aux_loss.detach() / math.log(2))
+    else:
+        logits, bits = model(history, target, aux)
+        loss, bpb, accuracy = score_byte_observations(logits, bits)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        upgrade_bpb = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
     model.original.observe_online_bits(history[:, -32:], target, aux)
     model.observe_verified_byte(bpb, accuracy)
-    return {"bpb": bpb, "bit_accuracy": accuracy,
-            "grad_norm": grad_norm, "grad_clip": grad_clip}
+    report = {"bpb": bpb, "bit_accuracy": accuracy,
+              "grad_norm": grad_norm, "grad_clip": grad_clip}
+    if upgrade_bpb is not None:
+        report["upgrade_bpb"] = upgrade_bpb
+    return report
 
 
 def finish_rsi_round(model: VerbatimV103RSI, optimizer):
@@ -250,6 +292,8 @@ def main(argv=None):
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--microbatch", type=int, default=0,
                    help="Split the effective batch for activation memory; 0=full batch")
+    p.add_argument("--upgrade-loss-weight", type=float, default=0.0,
+                   help="Direct byte CE on the additive upgrade branch (v4 training)")
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
@@ -303,11 +347,13 @@ def main(argv=None):
     if args.smoke:
         args.save_every = 0
     if (args.seconds < 0 or args.batch < 1 or args.microbatch < 0
+            or not math.isfinite(args.upgrade_loss_weight)
+            or args.upgrade_loss_weight < 0
             or args.max_dev_positions < 1
             or args.topk_probes < 1 or args.progress_every < 1
             or args.save_every < 0
             or (args.updates is not None and args.updates < 0)):
-        p.error("Nonnegative seconds/updates/microbatch and positive batch/dev/topk/progress sample required")
+        p.error("Nonnegative seconds/updates/microbatch/upgrade-loss and positive batch/dev/topk/progress sample required")
     if (args.hierarchical_eval_books < 0
             or args.hierarchical_eval_batch < 1
             or args.hierarchical_eval_max_positions < 0):
@@ -692,7 +738,8 @@ def main(argv=None):
             else:
                 report = train_one_batch(
                     model, optimizer, sample[:, :-1], sample[:, -1],
-                    sample_aux, grad_clip=clip, microbatch=args.microbatch)
+                    sample_aux, grad_clip=clip, microbatch=args.microbatch,
+                    upgrade_loss_weight=args.upgrade_loss_weight)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -756,10 +803,12 @@ def main(argv=None):
                 rsi_text = rsi_builder.progress_line()
             else:
                 rsi_text = "RSI disabled"
+            aux_text = (f" upgrade_bpb={report['upgrade_bpb']:.4f}"
+                        if "upgrade_bpb" in report else "")
             print(
                 f"PROGRESS step={step} {progress} elapsed={elapsed:.1f}s "
-                f"rate={rate:.2f} upd/s train_bpb={report['bpb']:.6f} "
-                f"bit_acc={report['bit_accuracy']:.4f} | {rsi_text}",
+                f"rate={rate:.2f} upd/s train_bit_bce={report['bpb']:.6f} "
+                f"bit_acc={report['bit_accuracy']:.4f}{aux_text} | {rsi_text}",
                 flush=True,
             )
     # Time ONLY the byte optimizer loop here. RSI feedback and held-out DEV

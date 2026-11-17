@@ -127,6 +127,9 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
     units = 0
     top1_hits = 0
     top5_hits = 0
+    byte_top1 = 0
+    byte_top5 = 0
+    byte_count = 0
     bits = 0.0
     loss = 0.0
     for text, top1, top5, target_logp in parts:
@@ -136,6 +139,9 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
             units += 1
             top1_hits += int(bool(top1[start:end].all()))
             top5_hits += int(bool(top5[start:end].all()))
+            byte_top1 += int(top1[start:end].sum())
+            byte_top5 += int(top5[start:end].sum())
+            byte_count += end - start
             bits += float(-target_logp[start:end].sum() / LN2)
             loss += float(-target_logp[start:end].sum())
     if units == 0:
@@ -144,6 +150,8 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
         "units": units,
         "top1": top1_hits / units,
         "top5": top5_hits / units,
+        "byte_top1": byte_top1 / max(1, byte_count),
+        "byte_top5": byte_top5 / max(1, byte_count),
         "bits_per_unit": bits / units,
         "loss_per_unit": loss / units,
     }
@@ -205,6 +213,25 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
     total_loss = float(-all_target_logp.sum())
 
     bpe_metrics = _unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
+    token_metrics = dict(bpe_metrics)
+    if bpe_metrics.get("units"):
+        token_metrics.update({
+            "exact_top1": bpe_metrics["top1"],
+            "exact_top5": bpe_metrics["top5"],
+            "top1": bpe_metrics["byte_top1"],
+            "top5": bpe_metrics["byte_top5"],
+            "definition": "mean per-byte top-k inside each BPE token",
+        })
+    word_metrics = _unit_metrics(parts, _word_spans)
+    sentence_metrics = _unit_metrics(parts, _sentence_spans)
+    if sentence_metrics.get("units"):
+        sentence_metrics.update({
+            "exact_top1": sentence_metrics["top1"],
+            "exact_top5": sentence_metrics["top5"],
+            "top1": sentence_metrics["byte_top1"],
+            "top5": sentence_metrics["byte_top5"],
+            "definition": "mean per-byte top-k inside each sentence",
+        })
     result = {
         "schema": "terminal-rsi-hierarchical-eval-v1",
         "books": used_books,
@@ -212,8 +239,11 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
         "characters": characters,
         "context": context,
         "note": (
-            "v103 is byte-level; token and subword are the same BPE units. "
-            "Unit top-1/top-5 require every byte in the unit to be correct."
+            "v103 is byte-level. subword is strict all-byte BPE exactness; "
+            "token is mean per-byte accuracy inside the same BPE units; word "
+            "is strict all-byte exactness; sentence reports mean per-byte "
+            "top-k plus exact_top1/exact_top5. Every level also exposes "
+            "byte_top1/byte_top5."
         ),
         "byte": {
             "units": byte_count,
@@ -226,8 +256,8 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
             "loss": total_loss / byte_count,
         },
         "subword": bpe_metrics,
-        "token": dict(bpe_metrics),
-        "word": _unit_metrics(parts, _word_spans),
-        "sentence": _unit_metrics(parts, _sentence_spans),
+        "token": token_metrics,
+        "word": word_metrics,
+        "sentence": sentence_metrics,
     }
     return result
