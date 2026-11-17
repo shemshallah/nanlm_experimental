@@ -117,7 +117,11 @@ actor on a task that does **not** optimize language performance. Predictive
 training now disables the demo by default (optional `--legacy-terminal-demo`
 is diagnostic only). The RSI actor/critic learns from the *signed measured BPB
 change* on two independent causal internal TRAIN probes. Both must improve,
-and the mean gain must exceed 0.002 BPB before a mutation survives. An
+and the mean gain must exceed 0.002 BPB before a mutation survives.
+The v3 controller also learns which of 10 concrete mutation targets/directions
+work: three specialist routes in both signs, plus capacity and refinement
+gates in both signs. Action counts and rewards persist in the same checkpoint;
+a v1/v2 RSI ledger is migrated without resetting model/AdamW moments. An
 independent DEV comparison happens only after the round, when considering the
 fully recoverable immutable champion. Sealed TEST remains untouched.
 
