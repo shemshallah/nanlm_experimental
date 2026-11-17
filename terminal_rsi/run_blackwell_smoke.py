@@ -76,7 +76,7 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-critic-steps", type=int, default=16)
     p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
     p.add_argument("--rsi-v4-branch-batch", type=int, default=64)
-    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=4)
+    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=16)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,

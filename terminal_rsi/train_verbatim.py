@@ -322,7 +322,7 @@ def main(argv=None):
     p.add_argument("--rsi-v4-policy-steps", type=int, default=16)
     p.add_argument("--rsi-v4-branch-batch", type=int, default=64,
                    help="Small fast batch for branch train/eval; main batch remains --batch")
-    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=4,
+    p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=16,
                    help="Mutations evaluated in one RSI tick")
     p.add_argument("--rsi-v4-entropy", type=float, default=0.01)
     p.add_argument("--legacy-terminal-demo", action="store_true",
@@ -768,6 +768,9 @@ def main(argv=None):
             remaining = ((args.updates - update_count)
                          if args.updates is not None else 10 ** 9)
             if v4_controller.should_cycle(step, remaining):
+                base_step = step
+                base_update = update_count
+                base_sampler = dict(sampler)
                 for _ in range(args.rsi_v4_cycles_per_tick):
                     v4_controller.run_cycle(
                         capture=capture_v4_branch,
@@ -776,7 +779,13 @@ def main(argv=None):
                         evaluate=evaluate_v4_branch,
                         step=step,
                     )
-                continue
+                # RSI branch training must not consume the main sampler or
+                # count as kept byte updates. Keep the chosen model/optimizer
+                # state, but restore the main cursor/counters.
+                step = base_step
+                update_count = base_update
+                sampler.clear()
+                sampler.update(base_sampler)
         report = train_updates(1)[0]
         if v4_controller is not None:
             elapsed = time.monotonic() - clock
