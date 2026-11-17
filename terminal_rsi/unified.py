@@ -28,10 +28,17 @@ class Preset:
 
 
 PRESETS = {
+    # One unified v3-sized model.  The CPU/T4/Blackwell names are execution
+    # profiles, not different architectures: parameter keys, shapes and counts
+    # are identical.  ``microbatch`` is the hardware batch hint used by
+    # preflight planning; ``train_verbatim --batch`` controls the actual batch.
     "cpu": Preset("cpu", 256, 3, 8, 256, 2, 2, 3e-4, 1),
-    "t4": Preset("t4", 512, 8, 8, 1024, 2, 2, 2e-4, 8),
-    "blackwell": Preset("blackwell", 2560, 32, 40, 8192, 1, 3, 8e-5, 8),
+    "t4": Preset("t4", 256, 3, 8, 256, 64, 2, 3e-4, 1),
+    "blackwell": Preset("blackwell", 256, 3, 8, 256, 512, 2, 3e-4, 1),
 }
+
+# Original v103 bit-path core, unchanged in every execution profile.
+ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 
 
 def static_upgrade_parameter_count(cfg: Preset) -> int:
@@ -54,17 +61,19 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
 
 def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
                           usable_fraction: float = 0.92) -> dict:
-    """Preflight of 96-GiB Blackwell upgrade, without 3B-parameter allocation.
+    """Preflight of the Blackwell execution profile for the unified v4 model.
 
-    FP32 weights/grads/Adam first+second moments occupy ~16 bytes/parameter.
-    BF16 autocast saves activation compute memory, NOT 32-bit master weights.
-    Activation lower bound is approximate: actual peak must be measured on GPU.
+    The model is the same 6.5M-parameter v3 graph on CPU, T4 and Blackwell.
+    FP32 weights/grads/Adam moments occupy ~16 bytes/parameter.  BF16 autocast
+    is used only for the additive upgrade branch; archived v103 logits, RSI
+    actor/critic and inherited AdamW groups stay in their original FP32 path.
     """
     cfg = PRESETS["blackwell"]
     if not 0.5 <= usable_fraction <= 1.0 or physical_vram_gib <= 0:
         raise ValueError("Invalid Blackwell VRAM or reserve fraction")
     params = static_upgrade_parameter_count(cfg)
-    state_gib = params * 16 / (1024 ** 3)
+    total_params = params + ORIGINAL_V103_PARAMETER_COUNT + 1  # + residual gate
+    state_gib = total_params * 16 / (1024 ** 3)
     # One BF16 checkpoint tensor per layer per recursive pass; underestimate,
     # because attention kernels, router branches, and temporary buffers add.
     checkpoint_activation_floor = (
@@ -74,6 +83,8 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
     return {
         "preset": "blackwell",
         "parameter_count_additive_specialist": params,
+        "parameter_count_original_v103": ORIGINAL_V103_PARAMETER_COUNT,
+        "parameter_count_total": total_params,
         "hidden_width": cfg.width,
         "layers": cfg.layers,
         "context_bytes": cfg.context,
@@ -88,9 +99,9 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
         "archived_v103_fp32_unchanged": True,
         "same_three_optimizer_groups": True,
         "native_pytorch_causal_sdpa": True,
-        "gradient_checkpointing": True,
+        "gradient_checkpointing": False,
         "gpu_peak_verified": False,
-        "note": "Lower-bound planning only: measure CUDA max_memory_allocated and OOM retry before a long run",
+        "note": "Same v3-sized graph on all modes; measure CUDA peak and scale batch/v4 branches to the card",
     }
 
 
@@ -99,10 +110,17 @@ def device_for(mode: str) -> torch.device:
         return torch.device("cpu")
     if not torch.cuda.is_available():
         raise RuntimeError(f"{mode} preset requires CUDA; run cpu mode first")
+    if mode not in ("t4", "blackwell"):
+        raise ValueError(f"Unknown execution profile: {mode}")
     if mode == "blackwell":
         props = torch.cuda.get_device_properties(0)
-        if props.total_memory < 80 * (1024 ** 3):
-            raise RuntimeError(f"Blackwell preset requires >=80 GiB actual GPU memory, found {props.total_memory / 2**30:.1f} GiB")
+        if props.total_memory < 8 * (1024 ** 3):
+            raise RuntimeError(
+                "Blackwell profile requires a CUDA GPU with at least 8 GiB; "
+                f"found {props.total_memory / 2**30:.1f} GiB")
+        if not torch.cuda.is_bf16_supported():
+            raise RuntimeError(
+                "Blackwell profile requires BF16 support; use --mode t4 or cpu")
     return torch.device("cuda")
 
 
@@ -160,7 +178,7 @@ class TerminalRSI(nn.Module):
     def __init__(self, cfg: Preset):
         super().__init__()
         self.cfg = cfg
-        self.gradient_checkpointing = cfg.name == "blackwell"
+        self.gradient_checkpointing = cfg.name == "blackwell" and cfg.layers >= 24
         d = cfg.width
         assert d % cfg.heads == 0
         self.byte = nn.Embedding(256, d)

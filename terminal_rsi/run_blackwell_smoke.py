@@ -46,19 +46,30 @@ def main(argv=None) -> int:
                    help="Previously extracted official NaNROUTER batch 0004")
     p.add_argument("--seconds", type=float, default=600.0,
                    help="Wall-clock smoke budget in the training loop")
-    p.add_argument("--context", type=int, default=512,
-                   help="Observed causal bytes; 512 keeps Blackwell activations bounded")
-    p.add_argument("--batch", type=int, default=1)
+    p.add_argument("--context", type=int, default=256,
+                   help="Observed causal bytes; the unified model caps at 256")
+    p.add_argument("--batch", type=int, default=512,
+                   help="Use the Blackwell card: large batches are cheap for the 6.5M model")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
     p.add_argument("--topk-probes", type=int, default=1)
     p.add_argument("--progress-every", type=int, default=1)
-    p.add_argument("--rsi-version", choices=("off", "v3"), default="off",
-                   help="v4 branch search is intentionally excluded from the 3.4B smoke")
+    p.add_argument("--rsi-version", choices=("off", "v3", "v4"), default="v4",
+                   help="v4 is the unified path; v3/off are parity baselines")
+    p.add_argument("--rsi-v4-cycle-updates", type=int, default=500)
+    p.add_argument("--rsi-v4-horizon", type=int, default=5)
+    p.add_argument("--rsi-v4-candidates", type=int, default=2)
+    p.add_argument("--rsi-v4-shards", type=int, default=4)
+    p.add_argument("--rsi-v4-shard-positions", type=int, default=128)
+    p.add_argument("--rsi-v4-eval-chunk", type=int, default=8)
+    p.add_argument("--rsi-v4-min-gain", type=float, default=0.01)
+    p.add_argument("--rsi-v4-z", type=float, default=2.0)
+    p.add_argument("--rsi-v4-critic-steps", type=int, default=16)
+    p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
     args = p.parse_args(argv)
-    if args.seconds <= 0 or args.batch < 1 or not 32 <= args.context <= 8192:
-        p.error("Positive seconds/batch and context in [32, 8192] are required")
+    if args.seconds <= 0 or args.batch < 1 or not 32 <= args.context <= 256:
+        p.error("Positive seconds/batch and context in [32, 256] are required")
 
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -103,6 +114,20 @@ def main(argv=None) -> int:
         "--progress-every", str(args.progress_every),
         "--smoke",
     ]
+    if args.rsi_version == "v4":
+        command += [
+            "--rsi-holdout-stream", str(output / "rsi_holdout.bin"),
+            "--rsi-v4-cycle-updates", str(args.rsi_v4_cycle_updates),
+            "--rsi-v4-horizon", str(args.rsi_v4_horizon),
+            "--rsi-v4-candidates", str(args.rsi_v4_candidates),
+            "--rsi-v4-shards", str(args.rsi_v4_shards),
+            "--rsi-v4-shard-positions", str(args.rsi_v4_shard_positions),
+            "--rsi-v4-eval-chunk", str(args.rsi_v4_eval_chunk),
+            "--rsi-v4-min-gain", str(args.rsi_v4_min_gain),
+            "--rsi-v4-z", str(args.rsi_v4_z),
+            "--rsi-v4-critic-steps", str(args.rsi_v4_critic_steps),
+            "--rsi-v4-policy-steps", str(args.rsi_v4_policy_steps),
+        ]
     status = _run_tee(command, Path.cwd(), console)
     receipt = json.loads(metrics.read_text()) if metrics.is_file() else None
     summary = {
@@ -114,8 +139,9 @@ def main(argv=None) -> int:
         "receipt": receipt,
         "console": str(console),
         "note": (
-            "Smoke only: no 3.4B optimizer checkpoint or champion is written. "
-            "Peak VRAM and throughput are in receipt.gpu."
+            "Smoke only: the 6.5M unified model is used; no tens-of-GiB "
+            "optimizer checkpoint or champion is written. Peak VRAM and "
+            "throughput are in receipt.gpu; v4 ledger is in receipt.rsi_v4."
         ),
     }
     (output / "blackwell_smoke_summary.json").write_text(
