@@ -62,7 +62,8 @@ class VerbatimV103RSI(nn.Module):
     def forward(self, previous: torch.Tensor, target: torch.Tensor,
                 aux: torch.Tensor | None = None,
                 local: torch.Tensor | None = None,
-                return_aux: bool = False):
+                return_aux: bool = False,
+                return_hierarchy: bool = False):
         if previous.ndim != 2 or previous.shape[1] < 32:
             raise ValueError("Exact v103 needs >=32 observed bytes; legacy uses LAST 32")
         # The archived v103 model always receives exactly its original 32
@@ -78,9 +79,11 @@ class VerbatimV103RSI(nn.Module):
             if not torch.cuda.is_bf16_supported():
                 raise RuntimeError("Blackwell upgrade requires BF16-capable CUDA")
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                current = self.upgrades(previous.long())["logits"][0, :, -1, :]
+                upgrade_out = self.upgrades(previous.long())
+                current = upgrade_out["logits"][0, :, -1, :]
         else:
-            current = self.upgrades(previous.long())["logits"][0, :, -1, :]
+            upgrade_out = self.upgrades(previous.long())
+            current = upgrade_out["logits"][0, :, -1, :]
         proposed = self._byte_to_conditional_bit_logits(current, target)
         # Recursive RSI is the mixing-policy controller in ALL three modes.
         # Its persistent state comes from prior byte errors and verified
@@ -91,6 +94,8 @@ class VerbatimV103RSI(nn.Module):
             self.original.feedback_state.detach().float().mean())
         gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
         final_logits = old_logits + gate * (proposed - old_logits)
+        if return_hierarchy:
+            return final_logits, bits, current, upgrade_out
         if return_aux:
             return final_logits, bits, current
         return final_logits, bits

@@ -57,6 +57,8 @@ def main(argv=None) -> int:
                    help="Microbatch for gradient accumulation; effective batch remains --batch")
     p.add_argument("--upgrade-loss-weight", type=float, default=1.0,
                    help="Direct byte CE on the additive upgrade branch")
+    p.add_argument("--boundary-loss-weight", type=float, default=0.02,
+                   help="Auxiliary causal subword/word/sentence boundary BCE")
     p.add_argument("--no-gradient-checkpointing", action="store_true",
                    help="Use VRAM for full activations instead of checkpoint recompute")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
@@ -127,6 +129,7 @@ def main(argv=None) -> int:
         "--seconds", str(args.seconds), "--batch", str(args.batch),
         "--microbatch", str(args.microbatch),
         "--upgrade-loss-weight", str(args.upgrade_loss_weight),
+        "--boundary-loss-weight", str(args.boundary_loss_weight),
         "--upgrade-context", str(args.context),
         "--train-stream", str(output / "train_cpu_pilot.bin"),
         "--bpe-merges", "terminal_rsi/reference/nancm_v103_bpe.txt",

@@ -13,6 +13,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from .hierarchical_bus import CausalHierarchy, hierarchy_parameter_count
+
 
 @dataclass(frozen=True)
 class Preset:
@@ -55,7 +57,8 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         d + 3 * 256 * d +                      # final norm, next/+2/+3
         d + d * (d // 4) + (d // 4) +          # critic norm + hidden
         (d // 4) + 1 +                        # critic scalar output
-        2 * d + 1                             # feedback and refine scale
+        2 * d + 1 +                           # feedback and refine scale
+        hierarchy_parameter_count(d)          # causal subword/word/sentence bus
     )
 
 
@@ -204,6 +207,7 @@ class TerminalRSI(nn.Module):
         self.critic = nn.Sequential(RMSNorm(d), nn.Linear(d, d // 4), nn.SiLU(), nn.Linear(d // 4, 1))
         self.feedback = nn.Linear(2, d, bias=False)
         self.refine_scale = nn.Parameter(torch.tensor(-3.0))
+        self.hierarchy = CausalHierarchy(d)
         # RSI-v4 intervention target.  This is deliberately a plain Python
         # attribute, not a buffer, so old v103 checkpoints load unchanged.
         self.router_temperature = 1.0
@@ -258,12 +262,13 @@ class TerminalRSI(nn.Module):
                         use_reentrant=True)
             else:
                 h = self._backbone_forward(h)
-            state = self.norm(h)
-            raw_next = self.output[0](state)
-            predicted_surprise = F.softplus(self.critic(state).squeeze(-1))
             if r + 1 < rounds:
                 # At offset i, token x[i] is already known. The previous prediction
                 # at i-1 can be scored; predicting x[i+1] may use that error.
+                intermediate = self.norm(h)
+                raw_next = self.output[0](intermediate)
+                predicted_surprise = F.softplus(
+                    self.critic(intermediate).squeeze(-1))
                 if t > 1:
                     previous_error = F.cross_entropy(
                         raw_next[:, :-1].transpose(1, 2).float(),
@@ -271,11 +276,23 @@ class TerminalRSI(nn.Module):
                     past_surprise = F.pad(previous_error, (1, 0))
                 signal = torch.stack([past_surprise.clamp_max(16), predicted_surprise], dim=-1)
                 h = h + torch.sigmoid(self.refine_scale) * self.feedback(signal.to(h.dtype))
+        # Final causal sweep: byte -> subword -> word -> sentence, then the
+        # top-down and lateral priors.  Every hierarchy edge is zero-gated, so
+        # at initialization this is exactly the previous byte-state path.
+        final_state = self.norm(h)
+        bus = self.hierarchy(final_state)
+        enhanced = bus.state
+        raw_next = self.output[0](enhanced) + bus.byte_prior
+        predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
         return {
-            "logits": torch.stack([head(self.norm(h)) for head in self.output], dim=0),
+            "logits": torch.stack(
+                [raw_next, self.output[1](enhanced), self.output[2](enhanced)],
+                dim=0),
             "critic": predicted_surprise,
             "past_surprise": past_surprise,
             "route_entropy": torch.stack(route_entropies).mean(),
+            "boundary_logits": bus.boundary_logits,
+            "hierarchy_gates": bus.gates,
         }
 
     def parameter_count(self) -> int:

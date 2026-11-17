@@ -33,6 +33,7 @@ from .legacy_v103_reference import (
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
     coverage_indices, co_prime_stride, terminal_feedback,
 )
+from .hierarchical_bus import boundary_loss, boundary_targets
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
 from .rsi_v4 import (
@@ -62,13 +63,15 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
 def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     target: torch.Tensor, aux: torch.Tensor,
                     grad_clip: float = 1.0, microbatch: int = 0,
-                    upgrade_loss_weight: float = 0.0):
+                    upgrade_loss_weight: float = 0.0,
+                    boundary_loss_weight: float = 0.0):
     """One identical v103 observe AFTER optimizer step, RSI critic AFTER that.
 
     ``upgrade_loss_weight > 0`` adds direct byte cross-entropy on the additive
     branch.  At ``residual_gate=0`` the final logits stay exactly v103, but the
     100M upgrade branch now receives a gradient instead of staying random
-    until RSI opens the gate.
+    until RSI opens the gate.  ``boundary_loss_weight > 0`` also trains the
+    causal subword/word/sentence boundary heads from observed bytes only.
     """
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
@@ -76,36 +79,55 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         raise ValueError("Gradient clip must be finite and positive")
     if not math.isfinite(upgrade_loss_weight) or upgrade_loss_weight < 0:
         raise ValueError("Upgrade loss weight must be finite and nonnegative")
+    if not math.isfinite(boundary_loss_weight) or boundary_loss_weight < 0:
+        raise ValueError("Boundary loss weight must be finite and nonnegative")
     model.train()
     n = len(target)
     use_aux = upgrade_loss_weight > 0
+    use_boundary = use_aux and boundary_loss_weight > 0
     if microbatch and microbatch < n:
         # Effective batch stays n; split only the activation working set.
         # Sum-of-loss/N over microbatches is the exact mean gradient.
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
         aux_total = None
+        boundary_total = 0.0
         total_hits = 0
         for start in range(0, n, microbatch):
             end = min(start + microbatch, n)
             part_target = target[start:end]
+            part_history = history[start:end]
             if use_aux:
-                logits, bits, current = model(
-                    history[start:end], part_target, aux[start:end],
-                    return_aux=True)
+                if use_boundary:
+                    logits, bits, current, upgrade_out = model(
+                        part_history, part_target, aux[start:end],
+                        return_aux=True, return_hierarchy=True)
+                else:
+                    logits, bits, current = model(
+                        part_history, part_target, aux[start:end],
+                        return_aux=True)
+                    upgrade_out = None
                 aux_sum = F.cross_entropy(current, part_target,
                                           reduction="sum")
                 aux_total = (aux_sum.detach() if aux_total is None
                              else aux_total + aux_sum.detach())
             else:
-                logits, bits = model(history[start:end], part_target,
+                logits, bits = model(part_history, part_target,
                                      aux[start:end])
                 aux_sum = None
+                upgrade_out = None
             loss_sum = F.binary_cross_entropy_with_logits(
                 logits, bits, reduction="sum")
             objective = loss_sum
             if aux_sum is not None:
                 objective = objective + upgrade_loss_weight * aux_sum
+            if use_boundary and upgrade_out is not None:
+                b_loss = boundary_loss(
+                    upgrade_out["boundary_logits"],
+                    boundary_targets(part_history).to(
+                        upgrade_out["boundary_logits"].device))
+                boundary_total += float(b_loss.detach()) * (end - start)
+                objective = objective + boundary_loss_weight * b_loss * (end - start)
             (objective / n).backward()
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
@@ -123,12 +145,26 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         if use_aux:
             upgrade_bpb = float(8 * (float(aux_total) / n) / math.log(2))
             report["upgrade_bpb"] = upgrade_bpb
+        if use_boundary:
+            report["boundary_bce"] = boundary_total / n
         return report
     if use_aux:
-        logits, bits, current = model(history, target, aux, return_aux=True)
+        if use_boundary:
+            logits, bits, current, upgrade_out = model(
+                history, target, aux, return_aux=True,
+                return_hierarchy=True)
+        else:
+            logits, bits, current = model(history, target, aux, return_aux=True)
+            upgrade_out = None
         loss, bpb, accuracy = score_byte_observations(logits, bits)
         aux_loss = F.cross_entropy(current, target)
         objective = loss + upgrade_loss_weight * aux_loss
+        if use_boundary and upgrade_out is not None:
+            b_loss = boundary_loss(
+                upgrade_out["boundary_logits"],
+                boundary_targets(history).to(
+                    upgrade_out["boundary_logits"].device))
+            objective = objective + boundary_loss_weight * b_loss
         optimizer.zero_grad(set_to_none=True)
         objective.backward()
         upgrade_bpb = float(aux_loss.detach() / math.log(2))
@@ -138,6 +174,7 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         upgrade_bpb = None
+        b_loss = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
     model.original.observe_online_bits(history[:, -32:], target, aux)
@@ -146,6 +183,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
               "grad_norm": grad_norm, "grad_clip": grad_clip}
     if upgrade_bpb is not None:
         report["upgrade_bpb"] = upgrade_bpb
+    if use_boundary and b_loss is not None:
+        report["boundary_bce"] = float(b_loss.detach())
     return report
 
 
@@ -299,6 +338,8 @@ def main(argv=None):
                    help="Split the effective batch for activation memory; 0=full batch")
     p.add_argument("--upgrade-loss-weight", type=float, default=0.0,
                    help="Direct byte CE on the additive upgrade branch (v4 training)")
+    p.add_argument("--boundary-loss-weight", type=float, default=0.02,
+                   help="Auxiliary causal subword/word/sentence boundary BCE")
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
@@ -759,7 +800,8 @@ def main(argv=None):
                 report = train_one_batch(
                     model, optimizer, sample[:, :-1], sample[:, -1],
                     sample_aux, grad_clip=clip, microbatch=args.microbatch,
-                    upgrade_loss_weight=args.upgrade_loss_weight)
+                    upgrade_loss_weight=args.upgrade_loss_weight,
+                    boundary_loss_weight=args.boundary_loss_weight)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -832,7 +874,8 @@ def main(argv=None):
                         clone_model, clone_optimizer,
                         sample[:, :-1], sample[:, -1], sample_aux,
                         grad_clip=clip, microbatch=args.microbatch,
-                        upgrade_loss_weight=args.upgrade_loss_weight))
+                        upgrade_loss_weight=args.upgrade_loss_weight,
+                        boundary_loss_weight=args.boundary_loss_weight))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
                 clone_model.train()
