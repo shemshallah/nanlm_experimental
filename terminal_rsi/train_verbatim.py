@@ -170,16 +170,27 @@ def main(argv=None):
                    help="Required for NEW DEV; checks book list and TRAIN/DEV SHA without opening TEST")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--seconds", type=float, default=0.0,
-                   help="Start with 0 CPU parity; only then authorize training")
+                   help="Optional wall-clock budget; cannot combine with --updates")
+    p.add_argument("--updates", type=int,
+                   help="Exact number of optimizer updates, e.g. 1000 on CPU; independent of speed")
+    p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4), default=2,
+                   help="CPU worker math threads: 1, 2 or 4; for GitHub/Molab")
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--max-dev-positions", type=int, default=16)
+    p.add_argument("--topk-probes", type=int, default=8,
+                   help="Bound exact 256-way byte top1/top5 probes to avoid 256x CPU evaluations")
     p.add_argument("--upgrade-context", type=int, default=None,
                    help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
                    help="Optional original C 256-probability oracle (matched SHA)")
     args = p.parse_args(argv)
-    if args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1:
-        p.error("Nonnegative seconds and positive batch/dev sample required")
+    if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
+            or args.topk_probes < 1 or (args.updates is not None and args.updates < 0)):
+        p.error("Nonnegative seconds/updates and positive batch/dev/topk sample required")
+    if args.updates is not None and args.seconds > 0:
+        p.error("Choose --updates OR --seconds, not both")
+    if args.mode == "cpu":
+        torch.set_num_threads(args.cpu_threads)
     if args.output.resolve() == args.legacy_checkpoint.resolve():
         p.error("Never overwrite the original trained v103 checkpoint")
     if args.output.exists() and (args.resume is None or args.output.resolve() != args.resume.resolve()):
@@ -287,7 +298,7 @@ def main(argv=None):
         if "python_rng" in source:
             random.setstate(source["python_rng"])
     before = byte_metrics_wrapped(model, probes, n=None,
-                                  topk_n=len(probes), auxiliary=probe_aux,
+                                  topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                   local=probe_local)
     print("DEV before:", before)
     c256_before = (compare_c256_wrapped(
@@ -297,7 +308,9 @@ def main(argv=None):
     if c256_before is not None:
         print("Original C full256 numerical parity BEFORE:", c256_before)
     clock = time.monotonic()
-    while time.monotonic() - clock < args.seconds:
+    update_count = 0
+    while ((update_count < args.updates) if args.updates is not None
+           else (time.monotonic() - clock < args.seconds)):
         indices = coverage_indices(sampler["cursor"], args.batch,
                                    len(train_data), sampler["stride"],
                                    torch.device("cpu"))
@@ -308,6 +321,7 @@ def main(argv=None):
                                  sample[:, -1], sample_aux)
         sampler["cursor"] += args.batch
         step += 1
+        update_count += 1
         if step % 50 == 0:
             print("RSI step", step, "train", report, flush=True)
     # The archived v103 original ALWAYS performs both verified actor/critic
@@ -315,7 +329,7 @@ def main(argv=None):
     # Keep that exact recursive learning behavior in all three presets.
     events.extend(finish_rsi_round(model, optimizer))
     after = byte_metrics_wrapped(model, probes, n=None,
-                                 topk_n=len(probes), auxiliary=probe_aux,
+                                 topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                  local=probe_local)
     c256_after = (compare_c256_wrapped(
         model, dev, args.reference_full256, auxiliary=dev_aux,
@@ -323,7 +337,15 @@ def main(argv=None):
         if args.reference_full256 else None)
     if c256_after is not None:
         print("Original C full256 numerical parity AFTER:", c256_after)
+    training_duration_seconds = time.monotonic() - clock
     receipt = {"mode": args.mode, "upgrade_context": upgrade_context,
+               "cpu_threads": args.cpu_threads if args.mode == "cpu" else None,
+               "requested_updates": args.updates,
+               "actual_byte_updates_this_round": update_count,
+               "training_duration_seconds": training_duration_seconds,
+               "updates_per_second": update_count / max(training_duration_seconds, 1e-9),
+               "dev_probes": len(probes),
+               "topk_probes": min(args.topk_probes, len(probes)),
                "legacy_step": provenance["legacy_step"],
                "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"])),
                "before": before, "after": after,
