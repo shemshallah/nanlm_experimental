@@ -63,7 +63,10 @@ class HierarchyBusTests(unittest.TestCase):
             logits, target)
         reconstructed = bit_logits_to_byte_log_probs(bit_logits)
         reference = F.log_softmax(logits, dim=-1)
-        self.assertLess(float((reconstructed - reference).abs().max()), 1e-5)
+        rows = torch.arange(len(target))
+        self.assertLess(
+            float((reconstructed[rows, target] - reference[rows, target]).abs().max()),
+            1e-5)
 
     def test_boundary_loss_trains_hierarchy_parameters(self):
         with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):

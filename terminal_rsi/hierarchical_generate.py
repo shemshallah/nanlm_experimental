@@ -78,7 +78,8 @@ def generate_bytes(
         else:
             upgrade_out = model.upgrades(context)
         current = upgrade_out["logits"][0, :, -1, :]
-        proposed = model._byte_to_conditional_bit_logits(current, candidates)
+        proposed = model._byte_to_conditional_bit_logits(
+            current.expand(256, -1), candidates)
 
         trust = 1.0 + 0.25 * torch.tanh(
             model.original.feedback_state.detach().float().mean())
