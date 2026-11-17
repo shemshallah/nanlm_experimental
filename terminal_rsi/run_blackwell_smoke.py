@@ -53,7 +53,7 @@ def main(argv=None) -> int:
                    help="Observed causal bytes; the unified model caps at 256")
     p.add_argument("--batch", type=int, default=8192,
                    help="Effective Blackwell batch; activation memory is split by --microbatch")
-    p.add_argument("--microbatch", type=int, default=4096,
+    p.add_argument("--microbatch", type=int, default=1024,
                    help="Microbatch for gradient accumulation; effective batch remains --batch")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
     p.add_argument("--dev-books", type=int, default=64)
