@@ -167,6 +167,51 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
+# Kaggle 10-minute profile.  This keeps the exact 115M model geometry and
+# parameter count; it changes only the short-run schedule, loss weights, and
+# the concept top-k.  Diagnostic heads stay in the parameter count but their
+# forward compute is skipped when their loss weight is zero (see V3LM.forward).
+PRESETS["kaggle10m"] = {
+    **PRESETS["115m"],
+    "tokenizer": "bin",
+    "layered_model": "z3/tokenizers/layered_v1/layered_tokenizer.json",
+    "ctx": 512,
+    "batch_size": 4,
+    "steps": 2000,
+    "max_seconds": 600.0,
+    "warmup_steps": 30,
+    "lr_total_steps": 600,
+    "eval_every": 100,
+    "eval_batches": 2,
+    "log_every": 10,
+    "save_every": 100,
+    "best_every": 100,
+    "no_ema": True,
+    "dropout": 0.05,
+    "feedback_gate_warmup_steps": 30,
+    "mtp_weight": 0.1,
+    "mtp_aux_weight": 0.0,
+    "byte_sequence_weight": 0.0,
+    "byte_probe_weight": 0.01,
+    "cross_resolution_weight": 0.0,
+    "object_pointer_weight": 0.005,
+    "object_triple_pointer_weight": 0.0,
+    "mtp_object_pointer_weight": 0.005,
+    "mtp_object_triple_pointer_weight": 0.0,
+    "composition_weight": 0.02,
+    "mtp_composition_weight": 0.01,
+    "concept_top_vertices": 4,
+    "concept_top_pairs": 2,
+    "concept_top_triples": 0,
+    "device": "cuda",
+    "amp": True,
+    "grad_checkpoint": True,
+    "threads": 2,
+    "out": "runs/z3_115m_kaggle10m",
+}
+PRESET_PARAM_COUNTS["kaggle10m"] = PRESET_PARAM_COUNTS["115m"]
+
+
 def get_preset(name: str) -> dict[str, Any]:
     key = str(name).strip().lower()
     if key not in PRESETS:

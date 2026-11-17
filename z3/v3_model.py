@@ -1246,7 +1246,10 @@ class V3LM(nn.Module):
                 mtp_gt_mix: float | None = None,
                 return_diagnostics: bool = False,
                 sidecar=None,
-                task_ids: torch.Tensor | None = None):
+                task_ids: torch.Tensor | None = None,
+                compute_mtp_aux: bool = True,
+                compute_byte_probe: bool = True,
+                compute_byte_sequence: bool = True):
         x = self.embed(tokens)
         feedback_scale = self.feedback_gate_scale(dtype=x.dtype)
         lbs, zs = [], []
@@ -1386,7 +1389,7 @@ class V3LM(nn.Module):
         # through the same small MTP head.  The residual stream is causal, so
         # no future token can leak into an earlier position.
         mtp_aux_logits: list[torch.Tensor] = []
-        if self.mtp_aux_norms:
+        if self.mtp_aux_norms and compute_mtp_aux:
             aux_head = self.mtp_heads[0] if self.mtp_heads else None
             for layer, norm in zip(self.mtp_aux_layers, self.mtp_aux_norms):
                 hidden = aux_hidden.get(layer)
@@ -1707,9 +1710,9 @@ class V3LM(nn.Module):
                     2 + idx for idx in range(len(mtp_composition_logits))
                 ]
         probe_hidden = x.detach() if self.cfg.probe_detach else x
-        if self.byte_probe is not None:
+        if self.byte_probe is not None and compute_byte_probe:
             aux["byte_probe_logits"] = self.byte_probe(probe_hidden)
-        if self.byte_sequence_probe is not None:
+        if self.byte_sequence_probe is not None and compute_byte_sequence:
             seq = self.byte_sequence_probe(probe_hidden)
             aux["byte_sequence_logits"] = seq.view(
                 *probe_hidden.shape[:2], MAX_TOKEN_BYTES, 256

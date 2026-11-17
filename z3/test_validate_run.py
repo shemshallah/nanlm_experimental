@@ -90,6 +90,12 @@ class ValidateRunTests(unittest.TestCase):
         self.assertIn("macro_vs_baseline", names)
         self.assertIn("domain_regressions", names)
 
+    def test_kaggle10m_preset_uses_115m_parameter_count(self):
+        run = _run()
+        run["config"]["preset"] = "kaggle10m"
+        result = validate_payload(run, _test())
+        self.assertTrue(result["ok"], result["errors"])
+
     def test_feedback_progress_must_reach_one(self):
         result = validate_payload(
             _run(feedback_progress_final=0.5), _test()

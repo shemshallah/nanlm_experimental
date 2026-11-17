@@ -13,6 +13,11 @@ on:
         required: true
         default: "1"
         type: string
+      preset:
+        description: "Training preset (115m or kaggle10m)"
+        required: true
+        default: "115m"
+        type: string
       run_tests:
         description: "Run the full z3 unit suite first"
         required: true
@@ -135,6 +140,7 @@ jobs:
           FEEDBACK_WARMUP: ${{ inputs.feedback_warmup || '-1' }}
           MAX_SECONDS: ${{ inputs.max_seconds || '0' }}
           REQUIRE_FEEDBACK_OPEN: ${{ inputs.require_feedback_open }}
+          PRESET: ${{ inputs.preset || '115m' }}
         run: |
           EXTRA=()
           if [ "$BEST_EVERY" != "0" ]; then
@@ -147,7 +153,7 @@ jobs:
             EXTRA+=(--max-seconds "$MAX_SECONDS")
           fi
 
-          python z3/train_v3.py --preset 115m \
+          python z3/train_v3.py --preset "$PRESET" \
             --corpus /tmp/z3_115m_bins/train.bin \
             --val-corpus /tmp/z3_115m_bins/valid.bin \
             --data-manifest /tmp/z3_115m_bins/manifest.json \

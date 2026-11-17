@@ -92,7 +92,7 @@ def validate_payload(
     if params is None:
         params = (test.get("model_config") or {}).get("params")
     target = expected_params
-    if target is None and preset == "115m":
+    if target is None and preset in ("115m", "kaggle10m"):
         target = EXPECTED_115M
     if target is not None:
         check(

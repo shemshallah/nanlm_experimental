@@ -1070,7 +1070,7 @@ def evaluate(
         with _amp_context(amp):
             logits, mtp_logits, aux = model(
                 xb, return_diagnostics=True, sidecar=sidecar,
-                task_ids=task_ids,
+                task_ids=task_ids, compute_mtp_aux=False,
             )
         if sidecar is not None and aux.get("composition_logits") is not None:
             comp_logits = aux["composition_logits"]
@@ -3145,6 +3145,12 @@ def main(argv: list[str] | None = None) -> int:
             logits, mtp_logits, aux = model(
                 xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
                 sidecar=sidecar, task_ids=task_ids,
+                compute_mtp_aux=args.mtp_aux_weight > 0,
+                compute_byte_probe=(
+                    args.byte_probe_weight > 0
+                    or args.cross_resolution_weight > 0
+                ),
+                compute_byte_sequence=args.byte_sequence_weight > 0,
             )
             loss, parts = lm_mtp_loss(
                 logits,

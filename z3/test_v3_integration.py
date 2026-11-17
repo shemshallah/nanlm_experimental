@@ -368,6 +368,45 @@ class V3IntegrationTest(unittest.TestCase):
             y_manual, _, _ = manual(x)
         torch.testing.assert_close(y_manual, y_sdpa, atol=1e-5, rtol=1e-5)
 
+    def test_auxiliary_compute_switches(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=32, d_model=32,
+            n_layers=2, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=2, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            moe_hierarchical=True, moe_branches=2,
+            moe_context_router=True, moe_route_feedback=True,
+            mtp=3, mtp_block=True, mtp_block_experts=4,
+            mtp_block_hidden=64, mtp_aux_layers=(0,),
+            concept_loop_vertices=8, concept_loop_dim=8,
+            concept_top_vertices=4, concept_top_pairs=2,
+            concept_top_triples=1, use_memory=True,
+            memory_slots=8, memory_heads=2,
+            byte_probe=True, byte_probe_full=True,
+            force_manual_attention=True, dropout=0.0,
+        )
+        model = V3LM(cfg).eval()
+        tokens = torch.randint(0, 64, (2, 16))
+        with torch.no_grad():
+            _, _, aux_off = model(
+                tokens,
+                compute_mtp_aux=False,
+                compute_byte_probe=False,
+                compute_byte_sequence=False,
+            )
+            self.assertNotIn("mtp_aux_logits", aux_off)
+            self.assertNotIn("byte_probe_logits", aux_off)
+            self.assertNotIn("byte_sequence_logits", aux_off)
+            _, _, aux_on = model(
+                tokens,
+                compute_mtp_aux=True,
+                compute_byte_probe=True,
+                compute_byte_sequence=True,
+            )
+            self.assertIn("mtp_aux_logits", aux_on)
+            self.assertIn("byte_probe_logits", aux_on)
+            self.assertIn("byte_sequence_logits", aux_on)
+
     def test_feedback_bus_starts_closed_and_carries_gradient(self):
         cfg = V3Config(
             vocab_size=64, ctx=16, max_ctx=32, d_model=32,

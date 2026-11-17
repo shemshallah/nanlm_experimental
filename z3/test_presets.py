@@ -64,6 +64,32 @@ class PresetTests(unittest.TestCase):
         self.assertEqual((mtp.branches, mtp.experts_per_branch), (2, 4))
         self.assertFalse(mtp.branch_degenerate)
 
+    def test_kaggle10m_preset_keeps_115m_geometry(self):
+        parser = build_parser()
+        argv = ["--preset", "kaggle10m", "--corpus", "x"]
+        args = parser.parse_args(argv)
+        apply_preset(args, argv)
+        self.assertEqual(args.max_seconds, 600.0)
+        self.assertEqual(args.steps, 2000)
+        self.assertEqual(args.batch_size, 4)
+        self.assertEqual(args.warmup_steps, 30)
+        self.assertEqual(args.feedback_gate_warmup_steps, 30)
+        self.assertEqual(args.mtp_weight, 0.1)
+        self.assertEqual(args.mtp_aux_weight, 0.0)
+        self.assertEqual(args.byte_sequence_weight, 0.0)
+        self.assertTrue(args.no_ema)
+        cfg = make_config(args, 64060)
+        model = V3LM(cfg)
+        self.assertEqual(
+            model.parameter_count(), PRESET_PARAM_COUNTS["115m"]
+        )
+        self.assertEqual(
+            PRESET_PARAM_COUNTS["kaggle10m"], PRESET_PARAM_COUNTS["115m"]
+        )
+        self.assertEqual(cfg.concept_top_vertices, 4)
+        self.assertEqual(cfg.concept_top_pairs, 2)
+        self.assertEqual(cfg.concept_top_triples, 0)
+
     def test_explicit_flag_beats_preset(self):
         parser = build_parser()
         argv = [
