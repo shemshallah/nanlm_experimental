@@ -806,6 +806,7 @@ class ConceptLoop(nn.Module):
         object_id_dim: int = 0,
         subword_vocab_size: int = 0,
         depth_carry: bool = True,
+        object_gate_init: float = 0.017986,
     ) -> None:
         super().__init__()
         if vertices != 256:
@@ -817,6 +818,11 @@ class ConceptLoop(nn.Module):
         self.encoder = ConceptEncoder(
             d_model, subword_vocab_size=subword_vocab_size
         )
+        if not 0.0 < float(object_gate_init) < 1.0:
+            raise ValueError("object_gate_init must be in (0, 1)")
+        object_gate_logit = math.log(
+            float(object_gate_init) / (1.0 - float(object_gate_init))
+        )
         self.object_memory = CombinatorialMemory(
             d_model=d_model,
             vertices=vertices,
@@ -824,6 +830,7 @@ class ConceptLoop(nn.Module):
             top_vertices=top_vertices,
             top_pairs=top_pairs,
             top_triples=top_triples,
+            gate_init=object_gate_logit,
         )
         # Seed the vertex space from a deterministic byte-symbol codebook.
         # Pair/triple objects are then bindings of these 256 concept seeds.

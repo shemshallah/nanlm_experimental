@@ -1686,6 +1686,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--moe-route-to-attention", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="feed routing context back into each attention block")
+    model.add_argument("--gate-route-attention", action=argparse.BooleanOptionalAction,
+                       default=False,
+                       help="gate the route->attention residual with the feedback curriculum")
     model.add_argument("--moe-hyperdimensional", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="fuse HD expert/branch codebook similarities into routing")
@@ -1741,6 +1744,8 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--concept-top-vertices", type=int, default=8)
     model.add_argument("--concept-top-pairs", type=int, default=4)
     model.add_argument("--concept-top-triples", type=int, default=2)
+    model.add_argument("--object-gate-init", type=float, default=0.017986,
+                       help="initial pair/triple object gate probability")
     model.add_argument("--subword-embedding",
                        action=argparse.BooleanOptionalAction, default=False,
                        help="feed token-aligned subword IDs into the concept encoder")
@@ -1776,6 +1781,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="MTP horizon; V3LM creates mtp-1 heads predicting t+2..t+mtp")
     model.add_argument("--mtp-adapter-rank", type=int, default=32,
                        help="low-rank MTP adapter width; 0 disables")
+    model.add_argument("--mtp-output-rank", type=int, default=0,
+                       help="low-rank MTP output width; 0 reuses embedding_rank")
     model.add_argument("--mtp-block", action=argparse.BooleanOptionalAction,
                        default=True,
                        help="use a per-lag t+1-conditioned MTP branch (default: on)")
@@ -2126,6 +2133,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--mtp must be at least 1")
     if args.mtp_adapter_rank < 0:
         raise SystemExit("--mtp-adapter-rank must be non-negative")
+    if args.mtp_output_rank < 0:
+        raise SystemExit("--mtp-output-rank must be non-negative")
+    if not 0.0 < args.object_gate_init < 1.0:
+        raise SystemExit("--object-gate-init must be in (0, 1)")
     if args.mtp_block_experts < 1 or args.mtp_block_hidden < 1:
         raise SystemExit("--mtp-block-experts and --mtp-block-hidden must be positive")
     if args.mtp_gate_hidden < 1:
@@ -2214,6 +2225,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         moe_context_router=bool(args.moe_context_router),
         moe_route_feedback=bool(args.moe_route_feedback),
         moe_route_to_attention=bool(args.moe_route_to_attention),
+        gate_route_attention=bool(args.gate_route_attention),
         moe_hyperdimensional=bool(args.moe_hyperdimensional),
         moe_hd_dim=int(args.moe_hd_dim),
         moe_hd_scale=float(args.moe_hd_scale),
@@ -2238,6 +2250,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         concept_top_vertices=int(args.concept_top_vertices),
         concept_top_pairs=int(args.concept_top_pairs),
         concept_top_triples=int(args.concept_top_triples),
+        object_gate_init=float(args.object_gate_init),
         subword_embedding=bool(args.subword_embedding),
         subword_vocab_size=int(args.subword_vocab_size),
         object_id_embedding=bool(args.object_id_embedding),
@@ -2255,6 +2268,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         comb_top_triples=int(args.comb_top_triples),
         mtp=int(args.mtp),
         mtp_adapter_rank=int(args.mtp_adapter_rank),
+        mtp_output_rank=int(args.mtp_output_rank),
         mtp_block=bool(args.mtp_block),
         mtp_block_experts=int(args.mtp_block_experts),
         mtp_block_hidden=int(args.mtp_block_hidden),

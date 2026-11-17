@@ -117,6 +117,7 @@ class CombinatorialMemory(nn.Module):
         top_triples: int = 8,
         adaptive_context: bool = True,
         seed: int = 20261113,
+        gate_init: float = -4.0,
     ) -> None:
         super().__init__()
         if vertices < 2 or top_vertices < 2:
@@ -140,8 +141,8 @@ class CombinatorialMemory(nn.Module):
         )
         self.query_proj = nn.Linear(d_model, dim, bias=False)
         self.out_proj = nn.Linear(dim, d_model, bias=False)
-        self.gate_logit = nn.Parameter(torch.tensor(-4.0))
-        self.triple_gate_logit = nn.Parameter(torch.tensor(-4.0))
+        self.gate_logit = nn.Parameter(torch.tensor(float(gate_init)))
+        self.triple_gate_logit = nn.Parameter(torch.tensor(float(gate_init)))
 
     @property
     def vertices(self) -> int:

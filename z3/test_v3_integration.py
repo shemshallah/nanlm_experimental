@@ -407,6 +407,67 @@ class V3IntegrationTest(unittest.TestCase):
             self.assertIn("byte_probe_logits", aux_on)
             self.assertIn("byte_sequence_logits", aux_on)
 
+    def test_gate_route_attention_is_zero_at_step_zero(self):
+        base = dict(
+            vocab_size=64, ctx=16, max_ctx=32, d_model=32,
+            n_layers=1, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=1, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            moe_hierarchical=True, moe_branches=2,
+            moe_context_router=True, moe_route_feedback=True,
+            moe_route_to_attention=True, use_concept_loop=False,
+            use_memory=False, mtp=1, dropout=0.0,
+            force_manual_attention=True,
+        )
+        off = V3LM(V3Config(**base, gate_route_attention=False)).eval()
+        on = V3LM(V3Config(**base, gate_route_attention=True)).eval()
+        on.load_state_dict(off.state_dict())
+        eye = torch.eye(base["d_model"])
+        for block in (off.blocks[0], on.blocks[0]):
+            with torch.no_grad():
+                block.route_to_state.weight.copy_(eye)
+        tokens = torch.randint(0, 64, (2, 16))
+        off.set_feedback_progress(0.0)
+        on.set_feedback_progress(0.0)
+        with torch.no_grad():
+            logits_off, _, _ = off(tokens)
+            logits_on, _, _ = on(tokens)
+        self.assertGreater(
+            float((logits_off - logits_on).abs().max()), 1e-6
+        )
+        off.set_feedback_progress(1.0)
+        on.set_feedback_progress(1.0)
+        with torch.no_grad():
+            logits_off, _, _ = off(tokens)
+            logits_on, _, _ = on(tokens)
+        torch.testing.assert_close(logits_off, logits_on, atol=1e-5, rtol=1e-5)
+
+    def test_low_rank_mtp_output(self):
+        cfg = V3Config(
+            vocab_size=64, ctx=16, max_ctx=32, d_model=32,
+            n_layers=2, n_heads=4, n_kv_heads=2, swiglu=64,
+            window=8, global_every=2, moe_layers=1, n_experts=4,
+            topk=2, shared_experts=1, expert_hidden=64,
+            factorized_embedding=True, embedding_rank=16,
+            mtp_tie_heads=True, mtp_output_rank=8, mtp=3,
+            mtp_block=True, mtp_block_experts=4, mtp_block_hidden=64,
+            use_concept_loop=False, use_memory=False, dropout=0.0,
+            force_manual_attention=True,
+        )
+        model = V3LM(cfg).eval()
+        self.assertEqual(tuple(model.mtp_output.shape), (64, 8))
+        self.assertEqual(model.mtp_heads[0].out_features, 8)
+        with torch.no_grad():
+            torch.testing.assert_close(
+                model.mtp_output, model.tok.weight[:, :8]
+            )
+            torch.testing.assert_close(
+                model.mtp_heads[0].weight, model.tok_up.weight.T[:8]
+            )
+            tokens = torch.randint(0, 64, (2, 16))
+            _logits, mtp, _aux = model(tokens)
+        self.assertEqual(tuple(mtp[0].shape), (2, 16, 64))
+
     def test_feedback_bus_starts_closed_and_carries_gradient(self):
         cfg = V3Config(
             vocab_size=64, ctx=16, max_ctx=32, d_model=32,

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 EXPECTED_115M = 115_238_237
+EXPECTED_KAGGLE10M_MTP64 = 111_097_437
 
 
 def _finite(value: Any) -> bool:
@@ -92,8 +93,12 @@ def validate_payload(
     if params is None:
         params = (test.get("model_config") or {}).get("params")
     target = expected_params
-    if target is None and preset in ("115m", "kaggle10m"):
+    if target is None and preset in (
+        "115m", "kaggle10m", "kaggle10m_obj", "kaggle10m_route",
+    ):
         target = EXPECTED_115M
+    elif target is None and preset == "kaggle10m_mtp64":
+        target = EXPECTED_KAGGLE10M_MTP64
     if target is not None:
         check(
             "parameter_count",

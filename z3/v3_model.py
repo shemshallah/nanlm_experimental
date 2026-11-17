@@ -113,6 +113,9 @@ class V3Config:
     moe_context_router: bool = True
     moe_route_feedback: bool = True
     moe_route_to_attention: bool = True
+    # Gate the route->attention residual with the feedback curriculum.  Off
+    # keeps the historical always-on context injection.
+    gate_route_attention: bool = False
     # Hyperdimensional expert/branch signatures fused into the router.
     # Off by default until the HD codebook is A/B gated against the learned
     # MLP router.
@@ -167,6 +170,9 @@ class V3Config:
     concept_top_vertices: int = 8
     concept_top_pairs: int = 4
     concept_top_triples: int = 2
+    # Initial pair-object gate probability.  The historical value is
+    # sigmoid(-4) = 0.017986, effectively closed for short runs.
+    object_gate_init: float = 0.017986
     composition_head: bool = True
     # Auxiliary multi-resolution probes.  They are trained on the shared
     # hidden state and do not feed generation.
@@ -186,6 +192,8 @@ class V3Config:
     # block per lag, not one shared branch reused for every horizon.
     mtp: int = 3
     mtp_adapter_rank: int = 32
+    # Low-rank MTP output width.  0 reuses the token embedding rank.
+    mtp_output_rank: int = 0
     mtp_block: bool = True
     mtp_block_experts: int = 8
     mtp_block_hidden: int = 1024
@@ -445,6 +453,7 @@ class Block(nn.Module):
         self.route_to_attention = bool(
             cfg.moe_route_to_attention and self.route_feedback
         )
+        self.gate_route_attention = bool(cfg.gate_route_attention)
         if self.route_feedback:
             self.route_attn_proj = nn.Linear(
                 cfg.d_model, cfg.d_model, bias=False
@@ -492,8 +501,12 @@ class Block(nn.Module):
         ):
             # Closed loop: the routing/context state modulates the
             # self-attention input, and the resulting attention summary
-            # updates the context for the next layer.
-            x = x + self.route_to_state(route_ctx).unsqueeze(1)
+            # updates the context for the next layer.  The optional
+            # curriculum gate keeps the path exactly zero at step zero.
+            route_scale = (
+                feedback_scale_t if self.gate_route_attention else 1.0
+            )
+            x = x + route_scale * self.route_to_state(route_ctx).unsqueeze(1)
         if (
             loop_ctx is not None
             and self.loop_to_state is not None
@@ -858,6 +871,7 @@ class V3LM(nn.Module):
                     cfg.subword_vocab_size if cfg.subword_embedding else 0
                 ),
                 depth_carry=bool(cfg.feedback_object_carry),
+                object_gate_init=float(cfg.object_gate_init),
             )
             if cfg.use_concept_loop else None
         )
@@ -883,11 +897,18 @@ class V3LM(nn.Module):
         # projections or, for 64k vocabularies, tied to the main token
         # geometry through project_logits().
         self.mtp_tie_heads = bool(cfg.mtp_tie_heads)
+        self.mtp_output_rank = int(
+            cfg.mtp_output_rank or self.embedding_rank
+        )
         if self.mtp_tie_heads and self.factorized_embedding:
+            if not 1 <= self.mtp_output_rank <= self.embedding_rank:
+                raise ValueError(
+                    "mtp_output_rank must be between 1 and embedding_rank"
+                )
             # The branch gets a tiny lag-specific projection into the shared
             # token rank.  This keeps v4 output tying without routing full
             # branch gradients through the input embedding projection.
-            mtp_head_dim = self.embedding_rank
+            mtp_head_dim = self.mtp_output_rank
         elif self.mtp_tie_heads:
             mtp_head_dim = 0
         else:
@@ -901,7 +922,9 @@ class V3LM(nn.Module):
         # a copy of the token geometry but has its own gradient path, so an
         # unstable future branch cannot corrupt the input/output embedding.
         self.mtp_output = (
-            nn.Parameter(torch.empty(cfg.vocab_size, self.embedding_rank))
+            nn.Parameter(
+                torch.empty(cfg.vocab_size, self.mtp_output_rank)
+            )
             if self.mtp_tie_heads and self.factorized_embedding else None
         )
         self.mtp_adapters = nn.ModuleList(
@@ -1087,9 +1110,13 @@ class V3LM(nn.Module):
             if self.mtp_tie_heads:
                 with torch.no_grad():
                     for head in self.mtp_heads:
-                        head.weight.copy_(self.tok_up.weight.T)
+                        head.weight.copy_(
+                            self.tok_up.weight.T[: self.mtp_output_rank]
+                        )
                     if self.mtp_output is not None:
-                        self.mtp_output.copy_(self.tok.weight)
+                        self.mtp_output.copy_(
+                            self.tok.weight[:, : self.mtp_output_rank]
+                        )
         # The global apply() initializes every Linear, including the router
         # context and inter-block feedback projections.  Keep those neutral
         # at step zero so the hierarchy itself is exercised first.
@@ -1205,7 +1232,7 @@ class V3LM(nn.Module):
         adapted = head(hidden)
         if (
             self.mtp_output is not None
-            and adapted.shape[-1] == self.embedding_rank
+            and adapted.shape[-1] == self.mtp_output_rank
         ):
             adapted = adapted @ self.mtp_output.T
         return adapted

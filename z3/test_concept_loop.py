@@ -111,6 +111,19 @@ class ConceptLoopTests(unittest.TestCase):
             (loop.last_object_ids < 32640).all()
         )
 
+    def test_object_gate_initialization_is_configurable(self):
+        sidecar = SpanSidecar.from_text(TEXT, self.tokenizer)
+        loop = ConceptLoop(
+            d_model=32, vertices=256, dim=16,
+            top_vertices=8, top_pairs=4, top_triples=0,
+            object_gate_init=0.05,
+        )
+        x = torch.randn(1, len(sidecar.word_ids), 32)
+        loop(x, sidecar, torch.zeros(1, 32))
+        self.assertAlmostEqual(
+            float(loop.last_object_stats["object_gate"]), 0.05, places=6
+        )
+
     def test_concept_loop_without_triples_has_float_stats(self):
         sidecar = SpanSidecar.from_text(TEXT, self.tokenizer)
         loop = ConceptLoop(

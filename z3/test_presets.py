@@ -90,6 +90,31 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(cfg.concept_top_pairs, 2)
         self.assertEqual(cfg.concept_top_triples, 0)
 
+    def test_next_move_experiment_presets(self):
+        parser = build_parser()
+        for name in ("kaggle10m_obj", "kaggle10m_route", "kaggle10m_mtp64"):
+            argv = ["--preset", name, "--corpus", "x"]
+            args = parser.parse_args(argv)
+            apply_preset(args, argv)
+            self.assertEqual(args.ctx, 512)
+            self.assertEqual(args.warmup_steps, 30)
+        argv = ["--preset", "kaggle10m_obj", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertAlmostEqual(args.object_gate_init, 0.05)
+        argv = ["--preset", "kaggle10m_route", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertTrue(args.gate_route_attention)
+        argv = ["--preset", "kaggle10m_mtp64", "--corpus", "x"]
+        args = parser.parse_args(argv); apply_preset(args, argv)
+        self.assertEqual(args.mtp_output_rank, 64)
+        cfg = make_config(args, 64060)
+        model = V3LM(cfg)
+        self.assertEqual(
+            model.parameter_count(), PRESET_PARAM_COUNTS["kaggle10m_mtp64"]
+        )
+        self.assertEqual(model.mtp_output.shape[-1], 64)
+        self.assertEqual(model.mtp_heads[0].out_features, 64)
+
     def test_explicit_flag_beats_preset(self):
         parser = build_parser()
         argv = [

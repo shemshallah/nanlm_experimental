@@ -211,6 +211,27 @@ PRESETS["kaggle10m"] = {
 }
 PRESET_PARAM_COUNTS["kaggle10m"] = PRESET_PARAM_COUNTS["115m"]
 
+# Controlled next-move experiments.  Each inherits the kaggle10m schedule and
+# changes exactly one architecture/initialization knob.
+PRESETS["kaggle10m_obj"] = {
+    **PRESETS["kaggle10m"],
+    "object_gate_init": 0.05,
+    "out": "runs/z3_115m_kaggle10m_obj",
+}
+PRESETS["kaggle10m_route"] = {
+    **PRESETS["kaggle10m"],
+    "gate_route_attention": True,
+    "out": "runs/z3_115m_kaggle10m_route",
+}
+PRESETS["kaggle10m_mtp64"] = {
+    **PRESETS["kaggle10m"],
+    "mtp_output_rank": 64,
+    "out": "runs/z3_115m_kaggle10m_mtp64",
+}
+for _name in ("kaggle10m_obj", "kaggle10m_route"):
+    PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
+PRESET_PARAM_COUNTS["kaggle10m_mtp64"] = 111_097_437
+
 
 def get_preset(name: str) -> dict[str, Any]:
     key = str(name).strip().lower()
