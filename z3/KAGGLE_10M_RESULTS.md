@@ -61,6 +61,35 @@ object-depth **-0.00021**, object gate **0.01918**.  The optimized run's
 30-step warmup opened the token gate further (**-0.03750**) and kept the
 object gate closed (**0.01943**).
 
+## Next-move arms
+
+Run: <https://www.kaggle.com/code/shem42/z4-115m-next-moves>  
+One kernel, same WikiText-2 bins, three sequential 600-second arms.
+
+| Arm | Params | Steps | Tokens | Best val BPB | Test BPB | Test top-1 | Object gate |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `kaggle10m` reference | 115,238,237 | 599 | 1,226,752 | **1.8254** | **1.7914** | **25.93%** | 0.01943 |
+| `kaggle10m_obj` (gate init 0.05) | 115,238,237 | 576 | 1,179,648 | 1.8248 | 1.7989 | 25.82% | **0.05237** |
+| `kaggle10m_route` (curriculum gate) | 115,238,237 | 597 | 1,222,656 | 1.8273 | **1.7910** | 25.87% | 0.01934 |
+| `kaggle10m_mtp64` (rank 64) | 111,097,437 | 586 | 1,200,128 | 1.8311 | 1.8012 | 24.74% | 0.01918 |
+
+Interpretation:
+
+- **Forcing the object gate open did not help.**  The gate reached 0.0524, so
+  the path was active, but test BPB regressed by 0.0075.  A closed object gate
+  is not the only reason the object memory is weak at this horizon.
+- **Route gating is a tie.**  Test BPB moved by 0.0004 (noise) and validation
+  BPB was 0.0019 worse.  It is safe but not a win.
+- **Rank-64 MTP did not pay.**  It saved 4.14M parameters and some head
+  compute, but test BPB regressed by 0.0099 and top-1 fell 1.2 points.  The
+  rank-128 MTP output stays.
+- The reference `kaggle10m` remains the best short-run profile among these.
+
+The next bottleneck is not these four knobs.  It is the **token budget**: the
+reference sees 1.23M tokens in 600 seconds.  The next round should test batch
+6/8 with the memory savings (8→6→4 fallback), and a 3e-4 LR at batch 4, before
+adding more architecture.
+
 ## Feedback and object gates
 
 At the end of the run:
