@@ -66,10 +66,60 @@ If PyTorch is not installed in the notebook, install a compatible CPU or CUDA Py
 The launcher downloads and SHA-256 checks *only* the public NaNROUTER short-story batch 0004, extracts it, builds a 2-million-byte training stream from English-eligible books, excludes Russian/Cyrillic sources and authors, builds a **new** 64-book English-only DEV with disjoint Gutenberg IDs, and saves:
 
 - `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_metrics.json` — new matched DEV before/after BPB, bit accuracy, byte top-1/top-5, thread count, actual update count, update-loop seconds, separate verified RSI feedback seconds.
-- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_candidate.pt` — unpromoted recoverable model plus **all three optimizer parameter groups and RSI state**.
+- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_candidate.pt` — unpromoted full model plus **all three optimizer parameter groups and RSI state**.
+- `terminal_rsi_cpu_molab_1000/champions/best.json` and the immutable champion `.pt` — checkpoint with full optimizer state, saved only when matched-DEV BPB strictly improves. Never replace a better checkpoint with a worse one.
+- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_console.log` — complete subprocess stdout/stderr captured while still showing live notebook output.
+- `terminal_rsi_cpu_molab_1000/terminal_rsi_cpu_1000_bundle.zip` — one recoverable bundle with champion checkpoint, source splits, manifests, console log, SHA256SUMS and metrics (no duplicate checkpoint).
 - `terminal_rsi_cpu_molab_1000/cpu_pilot.manifest.json`, `win_dev.manifest.json`, `train_book_ids.json` — source hashes, exclusions, book identities and split checks.
 
 Choose a new `--output-dir` for distinct experiments. The launcher intentionally refuses to overwrite a checkpoint or metric receipt. Save these output files to Molab persistent storage before ending a temporary notebook session.
+
+## Download metrics, full console output and weights directly in Molab
+
+After the training cell finishes, put this in a **NEW** Python cell. No output-selection, shell syntax or duplicated top-level imports are needed:
+
+```python
+def download_terminal_rsi_artifacts_20261117():
+    import marimo as mo
+    from pathlib import Path
+    folder = Path.cwd() / "nanlm_experimental" / "terminal_rsi_cpu_molab_1000"
+    requested = [
+        ("terminal_rsi_cpu_1000_console.log", "Download complete terminal log"),
+        ("terminal_rsi_cpu_1000_metrics.json", "Download benchmark JSON"),
+        ("terminal_rsi_cpu_1000_bundle.zip", "Download SHA-verified checkpoint ZIP"),
+    ]
+    buttons = [
+        mo.download(data=lambda path=folder / name: path.read_bytes(),
+                    filename=name, label=label)
+        for name, label in requested if (folder / name).is_file()
+    ]
+    return mo.vstack(buttons) if buttons else mo.md("Run the RSI training cell first.")
+
+download_terminal_rsi_artifacts_20261117()
+```
+
+You can also capture arbitrary future Python prints in a file using
+`contextlib.redirect_stdout`; the launcher's subprocess output is now
+**automatically teed** to `terminal_rsi_cpu_1000_console.log`.
+If the notebook already has a cell defining this same function name, delete
+that duplicate cell or rename the function.
+
+**Do not compare historic 1.33 BPB to the new 64-book DEV without an identical
+benchmark manifest.** To protect that historic winner, supply its full
+checkpoint and matching benchmark receipt; this launcher starts from an
+explicitly untrained original-v103 configuration, not the missing older weights.
+
+## Why this RSI reward differs from the archived v103 terminal demonstration
+
+The original terminal demo assigned +1 for command output `ready` and -1 for
+`broken`, unrelated to predictive BPB. That reward may train the original
+actor on a task that does **not** optimize language performance. Predictive
+training now disables the demo by default (optional `--legacy-terminal-demo`
+is diagnostic only). The RSI actor/critic learns from the *signed measured BPB
+change* on two independent causal internal TRAIN probes. Both must improve,
+and the mean gain must exceed 0.002 BPB before a mutation survives. An
+independent DEV comparison happens only after the round, when considering the
+fully recoverable immutable champion. Sealed TEST remains untouched.
 
 ## GitHub Actions
 
@@ -85,7 +135,7 @@ The public CPU pilot is separate from original trained checkpoint `terminal_rsi_
 
 - Same original v103 forward logits at upgrade gate=0; no disabled legacy features.
 - After exactly 1,000 updates, report **new** matched 64-book DEV BPB, bit accuracy, 256-way top-1/top-5 and counts.
-- Each training run executes its verified terminal RSI actor/critic feedback actions and preserves full optimizer states.
+- Each training run executes BPB-measured RSI actor/critic feedback actions (default interval 50 updates) and preserves all full optimizer states. The fixed command-output terminal demonstration is disabled for predictive training.
 - Sealed TEST untouched. Do not compare the new DEV against historical scores from a different dataset.
 - CPU duration is the time for 1,000 optimizer updates; RSI-feedback and held-out-evaluation durations are separate.
 - Blackwell 96 GiB specialization is a **separate numerical and VRAM acceptance phase**. A passing CPU pilot does not prove Blackwell kernel parity.
