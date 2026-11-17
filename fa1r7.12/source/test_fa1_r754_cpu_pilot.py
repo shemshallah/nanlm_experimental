@@ -113,11 +113,11 @@ class RealSuccessorForward(unittest.TestCase):
         nn.init.zeros_(module.r753_reliability.bias)
         with torch.no_grad():
             # Independent nonlexical predecessors map to the same oriented
-            # C(256,2) address as lexical query ID 1.
-            module.word_head_lookup[6] = module.word_head_lookup[1].clone()
-            module.word_head_lookup[7] = module.word_head_lookup[1].clone()
-        history = torch.tensor([[1, 2, 6, 5, 7, 4, 1, 2,
-                                 6, 5, 7, 5, 1]] * 2)
+            # C(256,2) address as lexical query ID 3 (non-BOS).
+            module.word_head_lookup[6] = module.word_head_lookup[3].clone()
+            module.word_head_lookup[7] = module.word_head_lookup[3].clone()
+        history = torch.tensor([[3, 2, 6, 5, 7, 4, 3, 2,
+                                 6, 5, 7, 5, 3]] * 2)
         data = dict(parent.data,
                     r753_successor_history_ids=history,
                     r753_successor_history_mask=torch.ones_like(
@@ -139,7 +139,7 @@ class RealSuccessorForward(unittest.TestCase):
             "geo=%s distinct=%s lookup=%s" % (
                 stats["r753_geometric_support"].tolist(),
                 stats["r753_distinct_predecessors"].tolist(),
-                mod.word_head_lookup[[1, 6, 7]].tolist()))
+                mod.word_head_lookup[[3, 6, 7]].tolist()))
         with torch.no_grad():
             mod.r753_word_gain.fill_(.25)
             mod.r753_geometry_gain.fill_(.25)
