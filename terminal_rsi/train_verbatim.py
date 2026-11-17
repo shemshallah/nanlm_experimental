@@ -285,6 +285,8 @@ def main(argv=None):
                    help="Write a rolling recoverable checkpoint every N kept updates; 0=final only")
     p.add_argument("--smoke", action="store_true",
                    help="Blackwell memory/throughput smoke: skip full checkpoint/champion writes")
+    p.add_argument("--no-gradient-checkpointing", action="store_true",
+                   help="Trade VRAM for compute: keep full upgrade activations instead of recomputing")
     p.add_argument("--no-gpu-window-cache", action="store_true",
                    help="Disable the Blackwell GPU sliding-window cache (CPU/T4 unaffected)")
     p.add_argument("--cpu-threads", type=int, choices=(1, 2, 4, 8, 16), default=2,
@@ -448,6 +450,8 @@ def main(argv=None):
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
+    if args.no_gradient_checkpointing:
+        model.upgrades.gradient_checkpointing = False
     optimizer = build_v103_optimizer(
         model, freeze_residual_gate=(args.rsi_version == "v4"))
     provenance = (restore_v103_parent(args.legacy_checkpoint, model, optimizer)

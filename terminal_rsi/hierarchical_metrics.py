@@ -122,7 +122,7 @@ def _byte_log_probs(model, previous: torch.Tensor, target: torch.Tensor,
         model.train()
 
 
-def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Tensor]],
+def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
                   span_fn) -> dict[str, Any]:
     units = 0
     top1_hits = 0
@@ -132,7 +132,7 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
     byte_count = 0
     bits = 0.0
     loss = 0.0
-    for text, top1, top5, target_logp in parts:
+    for text, top1, top5, target_logp, _logp in parts:
         for start, end in span_fn(text):
             if end <= start or end > len(top1):
                 continue
@@ -152,6 +152,55 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
         "top5": top5_hits / units,
         "byte_top1": byte_top1 / max(1, byte_count),
         "byte_top5": byte_top5 / max(1, byte_count),
+        "bits_per_unit": bits / units,
+        "loss_per_unit": loss / units,
+    }
+
+
+def _beam_unit_metrics(parts, span_fn, *, beam: int = 5) -> dict[str, Any]:
+    """True unit top-k by beam-ranking the unit's byte sequence.
+
+    At each byte position expand with the model's top-``beam`` bytes, retain
+    the best ``beam`` prefixes by summed log-probability, and compare the
+    target unit's score to the final beam. This is a proper unit-level top-k
+    for a byte model and is distinct from strict all-byte exactness.
+    """
+    units = 0
+    top1_hits = 0
+    top5_hits = 0
+    bits = 0.0
+    loss = 0.0
+    for text, _top1, _top5, target_logp, logp in parts:
+        for start, end in span_fn(text):
+            if end <= start or end > len(target_logp):
+                continue
+            length = end - start
+            beams: list[tuple[list[int], float]] = [([], 0.0)]
+            for offset in range(length):
+                row = logp[start + offset]
+                choices = torch.topk(row, k=min(beam, row.numel())).indices.tolist()
+                expanded = []
+                for prefix, score in beams:
+                    for byte in choices:
+                        expanded.append((prefix + [int(byte)], score + float(row[byte])))
+                expanded.sort(key=lambda item: item[1], reverse=True)
+                beams = expanded[:beam]
+            target = list(text[start:end])
+            target_score = sum(float(logp[start + i, byte])
+                               for i, byte in enumerate(target))
+            best_score = beams[0][1] if beams else float("-inf")
+            fifth_score = beams[-1][1] if beams else float("-inf")
+            units += 1
+            top1_hits += int(target_score >= best_score - 1e-7)
+            top5_hits += int(target_score >= fifth_score - 1e-7)
+            bits += float(-target_logp[start:end].sum() / LN2)
+            loss += float(-target_logp[start:end].sum())
+    if units == 0:
+        return {"units": 0}
+    return {
+        "units": units,
+        "top1": top1_hits / units,
+        "top5": top5_hits / units,
         "bits_per_unit": bits / units,
         "loss_per_unit": loss / units,
     }
@@ -198,7 +247,7 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
         top1 = (logp.argmax(dim=-1) == targets).cpu()
         top5 = (logp.topk(5, dim=-1).indices == targets[:, None]).any(dim=-1).cpu()
         scored_text = excerpt[context:context + len(positions)]
-        parts.append((scored_text, top1, top5, target_logp.cpu()))
+        parts.append((scored_text, top1, top5, target_logp.cpu(), logp.cpu()))
         used_books.append(book.get("gutenberg_id"))
     if not parts:
         raise ValueError("No DEV excerpt produced scorable positions")
@@ -212,25 +261,37 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
     total_bits = float(-all_target_logp.sum() / LN2)
     total_loss = float(-all_target_logp.sum())
 
-    bpe_metrics = _unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
-    token_metrics = dict(bpe_metrics)
-    if bpe_metrics.get("units"):
+    bpe_strict = _unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
+    bpe_beam = _beam_unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
+    token_metrics = dict(bpe_beam)
+    if bpe_beam.get("units"):
         token_metrics.update({
-            "exact_top1": bpe_metrics["top1"],
-            "exact_top5": bpe_metrics["top5"],
-            "top1": bpe_metrics["byte_top1"],
-            "top5": bpe_metrics["byte_top5"],
-            "definition": "mean per-byte top-k inside each BPE token",
+            "exact_top1": bpe_strict.get("top1", 0.0),
+            "exact_top5": bpe_strict.get("top5", 0.0),
+            "byte_top1": bpe_strict.get("byte_top1", 0.0),
+            "byte_top5": bpe_strict.get("byte_top5", 0.0),
+            "definition": "beam-ranked BPE token top-k",
         })
-    word_metrics = _unit_metrics(parts, _word_spans)
-    sentence_metrics = _unit_metrics(parts, _sentence_spans)
+    word_strict = _unit_metrics(parts, _word_spans)
+    word_metrics = _beam_unit_metrics(parts, _word_spans)
+    if word_metrics.get("units"):
+        word_metrics.update({
+            "exact_top1": word_strict.get("top1", 0.0),
+            "exact_top5": word_strict.get("top5", 0.0),
+            "byte_top1": word_strict.get("byte_top1", 0.0),
+            "byte_top5": word_strict.get("byte_top5", 0.0),
+            "definition": "beam-ranked word top-k",
+        })
+    sentence_mean = _unit_metrics(parts, _sentence_spans)
+    sentence_beam = _beam_unit_metrics(parts, _sentence_spans)
+    sentence_metrics = dict(sentence_mean)
     if sentence_metrics.get("units"):
         sentence_metrics.update({
-            "exact_top1": sentence_metrics["top1"],
-            "exact_top5": sentence_metrics["top5"],
-            "top1": sentence_metrics["byte_top1"],
-            "top5": sentence_metrics["byte_top5"],
-            "definition": "mean per-byte top-k inside each sentence",
+            "beam_top1": sentence_beam.get("top1", 0.0),
+            "beam_top5": sentence_beam.get("top5", 0.0),
+            "exact_top1": sentence_mean.get("top1", 0.0),
+            "exact_top5": sentence_mean.get("top5", 0.0),
+            "definition": "mean per-byte top-k; beam_top1/5 are whole-sentence beam ranks",
         })
     result = {
         "schema": "terminal-rsi-hierarchical-eval-v1",
@@ -240,9 +301,9 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
         "context": context,
         "note": (
             "v103 is byte-level. subword is strict all-byte BPE exactness; "
-            "token is mean per-byte accuracy inside the same BPE units; word "
-            "is strict all-byte exactness; sentence reports mean per-byte "
-            "top-k plus exact_top1/exact_top5. Every level also exposes "
+            "token is beam-ranked BPE top-k; word is beam-ranked word top-k; "
+            "sentence top1/top5 are mean per-byte, with beam_top1/beam_top5 "
+            "and exact_top1/exact_top5 also reported. Every level exposes "
             "byte_top1/byte_top5."
         ),
         "byte": {
@@ -255,7 +316,7 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
             "bpc": total_bits / max(1, characters),
             "loss": total_loss / byte_count,
         },
-        "subword": bpe_metrics,
+        "subword": bpe_strict,
         "token": token_metrics,
         "word": word_metrics,
         "sentence": sentence_metrics,

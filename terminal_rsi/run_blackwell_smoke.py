@@ -57,6 +57,8 @@ def main(argv=None) -> int:
                    help="Microbatch for gradient accumulation; effective batch remains --batch")
     p.add_argument("--upgrade-loss-weight", type=float, default=1.0,
                    help="Direct byte CE on the additive upgrade branch")
+    p.add_argument("--no-gradient-checkpointing", action="store_true",
+                   help="Use VRAM for full activations instead of checkpoint recompute")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
@@ -153,6 +155,8 @@ def main(argv=None) -> int:
             "--rsi-v4-branch-batch", str(args.rsi_v4_branch_batch),
             "--rsi-v4-cycles-per-tick", str(args.rsi_v4_cycles_per_tick),
         ]
+    if args.no_gradient_checkpointing:
+        command.append("--no-gradient-checkpointing")
     if args.hierarchical_eval_books:
         command += [
             "--hierarchical-eval-books", str(args.hierarchical_eval_books),
