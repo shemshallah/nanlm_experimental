@@ -121,5 +121,62 @@ class RealBookScorerTests(unittest.TestCase):
             places=5)
 
 
+    def test_warmup_uses_cross_window_history_but_scores_only_requested_bytes(self):
+        model=self.small_model()
+        book=self.book()
+        # 24 observed positions exceed the neural context (16); no warm-up
+        # position belongs in the denominator of the DEV scoring interval.
+        start,limit=24,12
+        result=evaluate_causal_book(model,book,"A",context=16,chunk=5,
+                                    history=128,score_start=start,
+                                    score_positions=limit)
+        self.assertEqual(result["exact"]["positions_scored"],limit)
+        self.assertEqual(result["exact"]["score_start"],start)
+        self.assertEqual(result["exact"]["score_end_exclusive"],start+limit)
+        self.assertEqual(result["exact"]["raw_target_bytes"],
+                         int(book[start+1:start+limit+1].ne(256).sum()))
+        for arm in ARMS:
+            self.assertEqual(result[arm]["positions_scored"],limit)
+            self.assertAlmostEqual(result[arm]["ce_2"],result["neutral"]["ce_2"])
+            self.assertAlmostEqual(result[arm]["ce_3"],result["neutral"]["ce_3"])
+
+    def test_unseen_suffix_does_not_affect_scored_predictions(self):
+        model=self.small_model()
+        book=self.book()
+        changed=book.clone()
+        # Last scored query is at 23, so +3 reaches only position 26.
+        # Any later suffix is neither observed nor used as a label.
+        changed[30:-1]=torch.tensor(90,dtype=torch.long)
+        args=dict(context=16,chunk=7,history=128,score_start=12,
+                  score_positions=12)
+        first=evaluate_causal_book(model,book,"A",**args)
+        second=evaluate_causal_book(model,changed,"A",**args)
+        for arm in ARMS:
+            for metric in METRICS:
+                self.assertAlmostEqual(first[arm][metric],second[arm][metric],
+                                       places=7)
+
+    def test_full_range_defaults_match_explicit_score_interval(self):
+        model=self.small_model()
+        book=self.book()
+        defaults=evaluate_causal_book(model,book,"A",context=16,chunk=4)
+        selected=evaluate_causal_book(model,book,"A",context=16,chunk=4,
+                                      score_start=0,score_positions=len(book)-1)
+        for arm in ARMS:
+            for metric in METRICS:
+                self.assertAlmostEqual(defaults[arm][metric],
+                                       selected[arm][metric],places=7)
+
+    def test_invalid_warmup_and_interval_rejected(self):
+        model=self.small_model()
+        book=self.book()
+        for args in (dict(score_start=-1),dict(score_start=len(book)-1),
+                     dict(score_start=0,score_positions=0),
+                     dict(score_start=0,score_positions=-1)):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError,"scoring interval"):
+                    evaluate_causal_book(model,book,"A",context=16,**args)
+
+
 if __name__=="__main__":
     unittest.main()
