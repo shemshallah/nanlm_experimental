@@ -111,6 +111,23 @@ class ConceptLoopTests(unittest.TestCase):
             (loop.last_object_ids < 32640).all()
         )
 
+    def test_concept_loop_without_triples_has_float_stats(self):
+        sidecar = SpanSidecar.from_text(TEXT, self.tokenizer)
+        loop = ConceptLoop(
+            d_model=32, vertices=256, dim=16,
+            top_vertices=8, top_pairs=4, top_triples=0,
+        )
+        x = torch.randn(1, len(sidecar.word_ids), 32)
+        route = torch.zeros(1, 32)
+        concept, object_ctx, loop_ctx = loop(x, sidecar, route)
+        self.assertTrue(torch.isfinite(concept).all())
+        self.assertTrue(torch.isfinite(object_ctx).all())
+        self.assertTrue(torch.isfinite(loop_ctx).all())
+        self.assertIsNone(loop.last_triple_pointer_logits)
+        for key, value in loop.last_object_stats.items():
+            self.assertTrue(value.is_floating_point(), key)
+            self.assertTrue(torch.isfinite(value).all(), key)
+
     def test_model_sidecar_feedback_and_generation(self):
         encoded = self.tokenizer.encode(TEXT, add_document_frame=False)
         sidecar = SpanSidecar.from_token_ids(

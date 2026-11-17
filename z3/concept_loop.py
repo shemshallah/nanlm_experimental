@@ -892,7 +892,7 @@ class ConceptLoop(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return normalized entropy, unique ratio, and top-share for ids."""
         if ids.numel() == 0 or object_count <= 1:
-            zero = ids.new_zeros(())
+            zero = torch.zeros((), device=ids.device, dtype=torch.float32)
             return zero, zero, zero
         flat = ids.reshape(-1).long()
         _unique, counts = torch.unique(flat, return_counts=True)
