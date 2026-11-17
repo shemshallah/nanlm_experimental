@@ -29,7 +29,9 @@ params           115,238,237
 
 The full staged train/test protocol is in
 [`TRAIN_TEST_115M.md`](TRAIN_TEST_115M.md).  The preset is a CLI argument
-bundle; explicit flags always win.
+bundle; explicit flags always win.  For the short-run Kaggle profile and the
+parameter/compute audit, see
+[`KAGGLE_10M_ARCHITECTURE.md`](KAGGLE_10M_ARCHITECTURE.md).
 
 The end-to-end driver is:
 

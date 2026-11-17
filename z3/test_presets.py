@@ -70,7 +70,7 @@ class PresetTests(unittest.TestCase):
         args = parser.parse_args(argv)
         apply_preset(args, argv)
         self.assertEqual(args.max_seconds, 600.0)
-        self.assertEqual(args.steps, 2000)
+        self.assertEqual(args.steps, 1000)
         self.assertEqual(args.batch_size, 4)
         self.assertEqual(args.warmup_steps, 30)
         self.assertEqual(args.feedback_gate_warmup_steps, 30)

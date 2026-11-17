@@ -110,7 +110,7 @@ concept top-k:
 | Setting | `115m` | `kaggle10m` |
 |---|---:|---:|
 | Warmup steps | 300 | **30** |
-| LR horizon steps | 10,000 | **600** |
+| LR horizon steps | 10,000 | **1,000** |
 | Batch size | 8 | **4** |
 | Wall cap | none | **600s** |
 | Eval cadence | 500 | **100** |
@@ -179,3 +179,27 @@ and tokens processed at the same 600-second wall cap, not step counts alone.
 
 A 10-minute T4 run is an early-training comparison.  It cannot establish a
 frontier BPB or long-context quality.
+
+## Next ablations, in profile order
+
+1. **One MTP head instead of two.**  The second MTP head plus its branch block
+   is ~13% of estimated compute.  This changes the parameter count unless the
+   unused branch is kept as dead weight; run it as an explicit ablation.
+2. **MTP output rank 64 instead of 128.**  The MTP output basis is 8.2M
+   parameters and the two MTP heads are 20.5% of compute.  A rank-64 branch
+   halves that head cost; it needs a separate init path from `tok_up`.
+3. **Concept loop every other block.**  The shared concept encoder is 7.6% of
+   compute and runs at all 10 blocks.  Running it on alternating blocks and
+   carrying the state would test whether the per-block reset is necessary.
+4. **One shared expert instead of two.**  MoE active compute drops from
+   4 experts to 3 per layer; parameters drop by ~3.7M.
+5. **Gate the route-to-attention projection with `feedback_progress`.**  This
+   is a no-parameter change that makes the step-zero model exactly the
+   pre-feedback trunk instead of a 1%-scale route injection.
+6. **MTP position embedding at 1,024 positions instead of 8,192.**  Saves
+   ~2.3M parameters for a 512-context run; no compute change.
+
+Do not stack all of these in the first Kaggle 10-minute test.  The first run
+isolates the aux-compute skip plus the short schedule; later runs should change
+one item at a time at equal wall time.
+

@@ -11,7 +11,10 @@ UTF-8 bytes, subwords, model tokens/specials, words, and sentences losslessly.
 See [`z3/LAYERED_TOKENIZER.md`](z3/LAYERED_TOKENIZER.md),
 [`z3/FRONTIER_FIX_PLAN.md`](z3/FRONTIER_FIX_PLAN.md), and the
 [`z3/FRONTIER_SCALING_PLAN.md`](z3/FRONTIER_SCALING_PLAN.md) for the measured
-Kaggle/CPU parameter ladder and the C(256,2+3) object-growth path.
+Kaggle/CPU parameter ladder and the C(256,2+3) object-growth path.  The 115M
+parameter/compute audit and the `kaggle10m` short-run profile are in
+[`z3/KAGGLE_10M_ARCHITECTURE.md`](z3/KAGGLE_10M_ARCHITECTURE.md); the Kaggle
+notebook is [`z3/kaggle_10m_115m.ipynb`](z3/kaggle_10m_115m.ipynb).
 
 **Z3 115M preset (fixed across hardware):** `z3/train_v3.py --preset 115m`
 constructs **115,238,237 parameters** on T4, A100, or Blackwell.  It uses

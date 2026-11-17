@@ -206,6 +206,37 @@ Do not read the 4.04 BPB as a model result: the test set is three short
 synthetic documents and the model has seen one optimizer step.  Use a GPU or
 self-hosted runner for the 10k–20k-step run in `TRAIN_TEST_115M.md`.
 
+### 300-step CPU feedback stability gate (2026-11-17)
+
+Run: <https://github.com/shemshallah/nanlm_experimental/actions/runs/44141483908>
+Preset: `115m` · 300 steps · `ctx=8` · batch 1 · feedback warmup 50 ·
+`best_every=50`
+
+| Metric | Value |
+|---|---:|
+| Parameters | 115,238,237 |
+| Steps completed | 300 |
+| Non-finite skips | 0 |
+| Training wall | 273.0 s |
+| Best eval | step 250, loss 2.6850 |
+| Best eval BPB | 0.8747 (synthetic template corpus) |
+| Final eval BPB | 0.9312 (synthetic template corpus) |
+| Held-out macro BPB | 0.6820 (300 synthetic tokens) |
+| Validation | `ok=true`, 0 errors, 1 warning |
+
+The feedback bus opened: memory gate **0.00693**, route-hidden gate
+**-0.00704**, route-concept gate **-0.00108**, token gate **+0.000323**,
+MTP-carry gate **-5.2e-06**, object-depth gate **-2.1e-05**, progress
+**1.0**.  The only validation warning is the object gate:
+**0.01803 < 0.05**, effectively still closed at 300 steps.
+
+The sub-1.0 BPB is **not** a language-model result.  The corpus is the tiny
+24-document-per-domain template built by the CI smoke; 300 steps fit that
+template.  Real 115M references are 1.944 BPB on FineWeb-Edu (byte/Blackwell)
+and 2.663 BPB on WikiText-103 (subword).  This gate only proves that the
+115M optimizer, feedback bus, checkpoint, evaluation, and validation paths
+work on a CPU runner.
+
 ## Not yet measured
 
 - No 30-minute T4/Colab v3 run has been completed for this integration.
