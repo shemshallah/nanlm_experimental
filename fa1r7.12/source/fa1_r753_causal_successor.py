@@ -18,7 +18,7 @@ from fa1_r749_address_reliability import ReliableAddressedMirrorBackoff
 ROUND = "FA1_R7_53_CAUSAL_SUCCESSOR_MIXTURE_V1"
 PARENT = "FA1_R7_49_CAUSAL_PAIR_ADDRESS_RELIABILITY_V1"
 CONTROLS = ("full", "disabled", "word_only", "wrong_addresses",
-            "wrong_successors", "no_apex")
+            "wrong_successors", "wrong_geometry_values", "no_apex")
 
 
 def causal_successor_evidence(history, history_mask, head_lookup, targets,
@@ -78,8 +78,13 @@ def causal_successor_evidence(history, history_mask, head_lookup, targets,
     gtotal = gmass.sum(dim=1)
     # The next-word target enters only these FINAL probability gathers.
     matching = (successors == targets[:, None]).float()
+    # A geometry-specific counterfactual must leave the lexical distribution
+    # intact; wrong_successors remains the legacy ALL-values intervention.
+    geo_successors = ((successors + 7919) % head_lookup.size(0)
+                      if control == "wrong_geometry_values" else successors)
+    geo_matching = (geo_successors == targets[:, None]).float()
     qw = (wmass * matching).sum(dim=1) / wtotal.clamp_min(1.e-20)
-    qg = (gmass * matching).sum(dim=1) / gtotal.clamp_min(1.e-20)
+    qg = (gmass * geo_matching).sum(dim=1) / gtotal.clamp_min(1.e-20)
     word_support = exact.sum(dim=1)
     geo_support = geometric.sum(dim=1)
     eligible = (geo_support >= 2) & (distinct >= 2)
