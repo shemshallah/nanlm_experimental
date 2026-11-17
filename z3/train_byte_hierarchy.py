@@ -236,6 +236,7 @@ def main() -> int:
         use_memory=False, use_ngram_memory=False,
         use_concept_loop=True, subword_embedding=True,
         subword_vocab_size=64060, composition_head=False,
+        concept_top_vertices=4, concept_top_pairs=2, concept_top_triples=1,
         attn_gate=True, mtp=2, mtp_block=False,
         grad_checkpoint=True, dropout=0.1,
     )
