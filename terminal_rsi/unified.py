@@ -28,13 +28,13 @@ class Preset:
 
 
 PRESETS = {
-    # One unified v3-sized model.  The CPU/T4/Blackwell names are execution
-    # profiles, not different architectures: parameter keys, shapes and counts
-    # are identical.  ``microbatch`` is the hardware batch hint used by
-    # preflight planning; ``train_verbatim --batch`` controls the actual batch.
-    "cpu": Preset("cpu", 256, 3, 8, 256, 2, 2, 3e-4, 1),
-    "t4": Preset("t4", 256, 3, 8, 256, 64, 2, 3e-4, 1),
-    "blackwell": Preset("blackwell", 256, 3, 8, 256, 512, 2, 3e-4, 1),
+    # One unified ~100M v4 graph.  CPU/T4/Blackwell are execution profiles:
+    # parameter keys, shapes and counts are identical.  ``microbatch`` is the
+    # hardware batch hint used by preflight planning; ``train_verbatim --batch``
+    # controls the actual runtime batch (Blackwell: 8192).
+    "cpu": Preset("cpu", 704, 12, 11, 256, 2, 2, 3e-4, 1),
+    "t4": Preset("t4", 704, 12, 11, 256, 64, 2, 3e-4, 1),
+    "blackwell": Preset("blackwell", 704, 12, 11, 256, 8192, 2, 3e-4, 1),
 }
 
 # Original v103 bit-path core, unchanged in every execution profile.
@@ -99,9 +99,9 @@ def blackwell_memory_plan(*, physical_vram_gib: float = 96.0,
         "archived_v103_fp32_unchanged": True,
         "same_three_optimizer_groups": True,
         "native_pytorch_causal_sdpa": True,
-        "gradient_checkpointing": False,
+        "gradient_checkpointing": True,
         "gpu_peak_verified": False,
-        "note": "Same v3-sized graph on all modes; measure CUDA peak and scale batch/v4 branches to the card",
+        "note": "Same ~100M graph on all modes; Blackwell profile uses batch 8192, BF16 upgrade autocast and checkpointing",
     }
 
 
@@ -178,7 +178,8 @@ class TerminalRSI(nn.Module):
     def __init__(self, cfg: Preset):
         super().__init__()
         self.cfg = cfg
-        self.gradient_checkpointing = cfg.name == "blackwell" and cfg.layers >= 24
+        self.gradient_checkpointing = (
+            cfg.name in ("t4", "blackwell") and cfg.width >= 512)
         d = cfg.width
         assert d % cfg.heads == 0
         self.byte = nn.Embedding(256, d)

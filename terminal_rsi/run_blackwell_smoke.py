@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -69,9 +70,18 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-z", type=float, default=2.0)
     p.add_argument("--rsi-v4-critic-steps", type=int, default=16)
     p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
+    p.add_argument("--hierarchical-eval-books", type=int, default=4,
+                   help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
+    p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
+                   help="Positions per book for hierarchical eval")
+    p.add_argument("--hierarchical-eval-batch", type=int, default=8)
     args = p.parse_args(argv)
     if args.seconds <= 0 or args.batch < 1 or not 32 <= args.context <= 256:
         p.error("Positive seconds/batch and context in [32, 256] are required")
+    if (args.hierarchical_eval_books < 0
+            or args.hierarchical_eval_max_positions < 0
+            or args.hierarchical_eval_batch < 1):
+        p.error("Hierarchical eval needs nonnegative books/positions and positive batch")
 
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -130,6 +140,15 @@ def main(argv=None) -> int:
             "--rsi-v4-critic-steps", str(args.rsi_v4_critic_steps),
             "--rsi-v4-policy-steps", str(args.rsi_v4_policy_steps),
         ]
+    if args.hierarchical_eval_books:
+        command += [
+            "--hierarchical-eval-books", str(args.hierarchical_eval_books),
+            "--hierarchical-eval-corpus-dir", str(corpus),
+            "--hierarchical-eval-max-positions",
+            str(args.hierarchical_eval_max_positions),
+            "--hierarchical-eval-batch", str(args.hierarchical_eval_batch),
+        ]
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     status = _run_tee(command, Path.cwd(), console)
     receipt = json.loads(metrics.read_text()) if metrics.is_file() else None
     summary = {
@@ -169,6 +188,22 @@ def main(argv=None) -> int:
             f"- Peak reserved: {gpu.get('peak_reserved_gib')} GiB",
             f"- DEV before/after BPB: {(receipt.get('before') or {}).get('bpb')} -> {(receipt.get('after') or {}).get('bpb')}",
         ]
+        hierarchical = receipt.get("hierarchical") or {}
+        for level in ("byte", "subword", "token", "word", "sentence"):
+            metric = hierarchical.get(level) or {}
+            if not metric.get("units"):
+                continue
+            lines.append(
+                f"- {level}: top1={metric.get('top1'):.4f} "
+                f"top5={metric.get('top5'):.4f} "
+                f"units={metric.get('units')} "
+                f"bits/unit={metric.get('bits_per_unit'):.4f} "
+                f"loss/unit={metric.get('loss_per_unit'):.4f}")
+        byte_metric = hierarchical.get("byte") or {}
+        if byte_metric:
+            lines.append(
+                f"- byte BPB/BPC/loss: {byte_metric.get('bpb'):.4f} / "
+                f"{byte_metric.get('bpc'):.4f} / {byte_metric.get('loss'):.4f}")
     lines += ["", f"Console: `{console}`", f"Metrics: `{metrics}`", ""]
     (output / "RUN_SUMMARY.md").write_text("\n".join(lines))
     print("SMOKE SUMMARY:", json.dumps(summary, indent=2), flush=True)

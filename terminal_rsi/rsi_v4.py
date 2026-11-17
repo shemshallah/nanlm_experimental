@@ -702,6 +702,7 @@ class RSIv4Config:
     min_gain: float = 0.01
     z_score: float = 2.0
     batch_size: int = 4
+    fixed_batch: bool = False
     grad_clip: float = 1.0
     seed: int = 2026
     critic_steps: int = 32
@@ -740,6 +741,7 @@ class RSIv4Controller:
         self.base_lrs = [float(group["lr"]) for group in optimizer.param_groups]
         self.current_action = Action.neutral()
         self.batch_size = int(config.batch_size)
+        self.fixed_batch = bool(config.fixed_batch)
         self.grad_clip = float(config.grad_clip)
         self.policy = ProposalPolicy(STATE_DIM).to(self.device)
         self.critic = EnsembleCritic(STATE_DIM, ACTION_DIM).to(self.device)
@@ -789,20 +791,33 @@ class RSIv4Controller:
             self.optimizer.param_groups[2]["weight_decay"] = float(values["weight_decay"])
         self.model.upgrades.router_temperature = float(values["router_temperature"])
         self.current_action = action
-        self.batch_size = int(values["batch_size"])
+        if not self.fixed_batch:
+            self.batch_size = int(values["batch_size"])
         self.grad_clip = float(values["grad_clip"])
 
     def apply(self, action: Action) -> None:
         apply_action(self.model, self.optimizer, self.base_lrs, action)
         values = action.values()
         self.current_action = action
-        self.batch_size = int(values["batch_size"])
+        if not self.fixed_batch:
+            self.batch_size = int(values["batch_size"])
         self.grad_clip = float(values["grad_clip"])
+
+    def action_label(self) -> str:
+        """Human-readable action; with a fixed batch, do not imply it changed."""
+        label = self.current_action.label()
+        if not self.fixed_batch:
+            return label
+        parts = label.split()
+        return " ".join(
+            f"batch=fixed({self.batch_size})" if item.startswith("batch=")
+            else item for item in parts)
 
     def restore_action_state(self, choices: Sequence[int], batch_size: int,
                              grad_clip: float) -> None:
         self.current_action = Action.from_tuple(choices)
-        self.batch_size = int(batch_size)
+        if not self.fixed_batch:
+            self.batch_size = int(batch_size)
         self.grad_clip = float(grad_clip)
 
     # -- fast CPU branch snapshots -----------------------------------------

@@ -257,6 +257,14 @@ def main(argv=None):
     p.add_argument("--max-dev-positions", type=int, default=16)
     p.add_argument("--topk-probes", type=int, default=8,
                    help="Bound exact 256-way byte top1/top5 probes to avoid 256x CPU evaluations")
+    p.add_argument("--hierarchical-eval-books", type=int, default=0,
+                   help="Evaluate contiguous DEV excerpts and report byte/BPE/word/sentence metrics")
+    p.add_argument("--hierarchical-eval-corpus-dir", type=Path,
+                   help="Extracted NaNROUTER corpus for hierarchical DEV excerpts")
+    p.add_argument("--hierarchical-eval-max-positions", type=int, default=0,
+                   help="Positions per book for hierarchical eval; 0=all after context")
+    p.add_argument("--hierarchical-eval-batch", type=int, default=8,
+                   help="Windows per 256-way byte-probability batch")
     p.add_argument("--upgrade-context", type=int, default=None,
                    help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
@@ -270,6 +278,12 @@ def main(argv=None):
             or args.save_every < 0
             or (args.updates is not None and args.updates < 0)):
         p.error("Nonnegative seconds/updates and positive batch/dev/topk/progress sample required")
+    if (args.hierarchical_eval_books < 0
+            or args.hierarchical_eval_batch < 1
+            or args.hierarchical_eval_max_positions < 0):
+        p.error("Hierarchical eval needs nonnegative books/positions and positive batch")
+    if args.hierarchical_eval_books and not args.hierarchical_eval_corpus_dir:
+        p.error("--hierarchical-eval-corpus-dir is required for hierarchical DEV evaluation")
     if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
             or not math.isfinite(args.rsi_min_bpb_gain) or args.rsi_min_bpb_gain <= 0):
         p.error("RSI cycle >=0, probe count positive, and minimum BPB gain finite and positive required")
@@ -490,6 +504,7 @@ def main(argv=None):
             min_gain=args.rsi_v4_min_gain,
             z_score=args.rsi_v4_z,
             batch_size=args.batch,
+            fixed_batch=args.mode in ("t4", "blackwell"),
             grad_clip=1.0,
             seed=args.seed,
             critic_steps=args.rsi_v4_critic_steps,
@@ -705,7 +720,7 @@ def main(argv=None):
                     f"rejected={v4_controller.rejected} "
                     f"branch_updates={v4_controller.branch_updates} "
                     f"compute={update_count + v4_controller.branch_updates} "
-                    f"action=[{v4_controller.current_action.label()}]")
+                    f"action=[{v4_controller.action_label()}]")
             elif rsi_builder is not None:
                 rsi_text = rsi_builder.progress_line()
             else:
@@ -792,6 +807,23 @@ def main(argv=None):
                "original_c256_parity_after": c256_after,
                "test_untouched": True,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
+    if args.hierarchical_eval_books:
+        if args.dev_manifest is None:
+            p.error("Hierarchical DEV evaluation requires --dev-manifest")
+        from .hierarchical_metrics import evaluate_dev_excerpts
+        receipt["hierarchical"] = evaluate_dev_excerpts(
+            model,
+            corpus_dir=args.hierarchical_eval_corpus_dir,
+            dev_manifest=args.dev_manifest,
+            bpe_merges=args.bpe_merges,
+            context=upgrade_context,
+            books=args.hierarchical_eval_books,
+            max_positions=args.hierarchical_eval_max_positions,
+            eval_batch=args.hierarchical_eval_batch,
+            device=device,
+        )
+        print("HIERARCHICAL HELD-OUT METRICS:",
+              json.dumps(receipt["hierarchical"], indent=2), flush=True)
     provenance["sampler"] = sampler
     if args.smoke:
         if device.type == "cuda":

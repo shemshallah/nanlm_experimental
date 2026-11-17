@@ -120,9 +120,9 @@ class TerminalRSICPUTests(unittest.TestCase):
     def test_preset_shapes_and_identity(self):
         from unified import PRESETS
         self.assertEqual(list(PRESETS), ["cpu", "t4", "blackwell"])
-        # Execution profiles, not model sizes: the exact v3 graph everywhere.
-        self.assertEqual({p.width for p in PRESETS.values()}, {256})
-        self.assertEqual({p.layers for p in PRESETS.values()}, {3})
+        # Execution profiles, not model sizes: the exact ~100M graph everywhere.
+        self.assertEqual({p.width for p in PRESETS.values()}, {704})
+        self.assertEqual({p.layers for p in PRESETS.values()}, {12})
         self.assertEqual({p.context for p in PRESETS.values()}, {256})
         self.assertLess(PRESETS["cpu"].microbatch, PRESETS["t4"].microbatch)
         self.assertLess(PRESETS["t4"].microbatch, PRESETS["blackwell"].microbatch)

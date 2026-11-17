@@ -40,21 +40,23 @@ class VerbatimV103RSI(nn.Module):
     @staticmethod
     def _byte_to_conditional_bit_logits(byte_logits: torch.Tensor,
                                         target: torch.Tensor):
-        """Exact differentiable 256-way factorization into causal bit logits."""
+        """Exact differentiable 256-way factorization into causal bit logits.
+
+        Hierarchical pairwise log-sum-exp: at each depth only the target-prefix
+        node is gathered.  This replaces eight full 256-way masked reductions
+        with 255 pair reductions, which matters at Blackwell batch 8192.
+        """
         if byte_logits.ndim != 2 or byte_logits.shape[-1] != 256:
             raise ValueError("Byte logits must be [batch,256]")
-        target = target.long()
-        choices = torch.arange(256, device=byte_logits.device)
-        log_probs = F.log_softmax(byte_logits.float(), dim=-1)
-        out = []
-        for depth in range(8):
-            # True target contributes only already-observed more-significant bits.
-            prefix = target >> (8 - depth)
-            same = (choices[None, :] >> (8 - depth)) == prefix[:, None]
-            bit_is_one = ((choices >> (7 - depth)) & 1).bool()[None, :]
-            mass_one = torch.logsumexp(log_probs.masked_fill(~(same & bit_is_one), -torch.inf), -1)
-            mass_zero = torch.logsumexp(log_probs.masked_fill(~(same & ~bit_is_one), -torch.inf), -1)
-            out.append(mass_one - mass_zero)
+        target = target.long().to(byte_logits.device)
+        values = F.log_softmax(byte_logits.float(), dim=-1)
+        out: list[torch.Tensor] = [None] * 8  # type: ignore[list-item]
+        for bit in range(7, -1, -1):
+            groups = values.reshape(values.shape[0], -1, 2)
+            diff = groups[..., 1] - groups[..., 0]
+            prefix = (target >> (8 - bit)).clamp(0, diff.shape[1] - 1)
+            out[bit] = diff.gather(1, prefix.view(-1, 1)).squeeze(1)
+            values = torch.logsumexp(groups, dim=-1)
         return torch.stack(out, dim=1)
 
     def forward(self, previous: torch.Tensor, target: torch.Tensor,

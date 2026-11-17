@@ -58,6 +58,32 @@ def test_action_vector_and_neutral():
     assert Action.from_tuple(neutral.as_tuple()) == neutral
 
 
+def test_fixed_batch_is_not_overridden_by_legacy_action():
+    model = TinyModel()
+    optimizer = tiny_optimizer(model)
+    probe = ProbeShards.build(
+        torch.randint(0, 256, (4096,), dtype=torch.uint8),
+        torch.zeros(4096 - 32, 6, dtype=torch.int32),
+        n_shards=2, positions_per_shard=4, history=32, seed=3)
+    config = RSIv4Config(
+        batch_size=8192, fixed_batch=True, candidates=1, horizon=2,
+        n_shards=2, positions_per_shard=4, critic_steps=1, policy_steps=1)
+    controller = RSIv4Controller(model, optimizer, probe, config)
+    assert controller.batch_size == 8192
+    controller.apply(Action.neutral())  # neutral legacy action says batch=4
+    assert controller.batch_size == 8192
+    assert "batch=fixed(8192)" in controller.action_label()
+
+    unfixed = RSIv4Controller(
+        model, optimizer, probe,
+        RSIv4Config(
+            batch_size=8192, fixed_batch=False, candidates=1, horizon=2,
+            n_shards=2, positions_per_shard=4, critic_steps=1,
+            policy_steps=1))
+    unfixed.apply(Action.neutral())
+    assert unfixed.batch_size == 4
+
+
 def test_apply_action_and_limits():
     model = TinyModel()
     optimizer = tiny_optimizer(model)
