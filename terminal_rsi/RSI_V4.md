@@ -4,6 +4,14 @@
 telemetry-conditioned, counterfactual training controller.  v3 remains
 available as a baseline; v4 is opt-in.
 
+**v4 is the unified execution path for the exact same graph as v3.**  CPU, T4
+and Blackwell are execution profiles, not model sizes: all three have the same
+**6,495,162 parameters** (2,782,515 v103 core + 3,712,646 upgrades + 1 residual
+gate).  v4 changes the controller/wiring; gate-zero v103 parity and CPU↔CUDA
+functional parity are enforced by tests.  Blackwell adds BF16 autocast only to
+the upgrade branch, native SDPA, the GPU window cache and large-batch/v4 branch
+search.
+
 ## What v4 does differently
 
 | v3 | v4 |

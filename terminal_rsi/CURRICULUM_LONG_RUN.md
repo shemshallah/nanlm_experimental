@@ -59,6 +59,7 @@ disjoint.
 python -m terminal_rsi.run_long_molab \
   --corpus-dir /path/to/nanrouter_batch0004 \
   --output-dir /path/to/long_run \
+  --mode cpu \
   --seconds 21600 \
   --cpu-threads 8 \
   --train-bytes 64000000 \
@@ -74,6 +75,13 @@ python -m terminal_rsi.run_long_molab \
   --rsi-v4-policy-steps 8 \
   --save-every 500
 ```
+
+`--mode` selects `cpu`, `t4` or `blackwell` for the **same 6,495,162-parameter
+v4 graph**. The six-hour example above is the CPU profile. On the 95 GiB
+Blackwell card use `--mode blackwell --batch 8192`; the upgrade branch uses
+BF16 autocast, the v103 path stays FP32, and the GPU window cache avoids
+per-step CPU window construction. The long supervisor always uses the v4
+controller; v3 remains available in `train_verbatim` as the parity baseline.
 
 The supervisor:
 

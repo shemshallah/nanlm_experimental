@@ -53,7 +53,7 @@ def _train_command(args, output: Path, rolling: Path, metrics: Path,
                    remaining: float) -> list[str]:
     command = [
         sys.executable, "-m", "terminal_rsi.train_verbatim",
-        "--mode", "cpu", "--cpu-threads", str(args.cpu_threads),
+        "--mode", args.mode, "--cpu-threads", str(args.cpu_threads),
         "--batch", str(args.batch),
         "--train-stream", str(output / "train_curriculum.bin"),
         "--bpe-merges", str(args.bpe_merges),
@@ -144,6 +144,8 @@ def main(argv=None) -> int:
     p.add_argument("--bpe-merges", type=Path,
                    default=Path("terminal_rsi/reference/nancm_v103_bpe.txt"))
     p.add_argument("--seconds", type=float, default=21_600.0)
+    p.add_argument("--mode", choices=("cpu", "t4", "blackwell"), default="cpu",
+                   help="Execution profile for the same v4 graph; Blackwell uses BF16 upgrade autocast")
     p.add_argument("--cpu-threads", type=int, default=8, choices=(4, 8, 16))
     p.add_argument("--batch", type=int, default=4)
     p.add_argument("--train-bytes", type=int, default=64_000_000)
@@ -257,6 +259,7 @@ def main(argv=None) -> int:
                                  for item in reports)
     summary = {
         "schema": "terminal-rsi-long-run-v1",
+        "mode": args.mode,
         "curriculum": report,
         "segments": len(reports),
         "wall_seconds": time.monotonic() - start_wall,
