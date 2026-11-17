@@ -41,7 +41,9 @@ jobs:
       - name: Measured shared CPU v103 RSI training-step throughput
         run: |
           python -m terminal_rsi.benchmark_cpu_steps --history 32 --batch 2 --warmup 1 --steps 3 --threads 2
+          python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --warmup 1 --steps 3 --threads 1
           python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --warmup 1 --steps 3 --threads 2
+          python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --warmup 1 --steps 3 --threads 4
           python -m terminal_rsi.plan_blackwell --physical-gib 96
       - name: Existing standalone Terminal-RSI regressions
         run: python -m unittest discover -s terminal_rsi/tests -v
