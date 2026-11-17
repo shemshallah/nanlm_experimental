@@ -3018,6 +3018,13 @@ def main(argv: list[str] | None = None) -> int:
         loss = metrics.get("loss")
         if loss is None or not math.isfinite(loss):
             return
+        # ``best_every`` is a checkpoint cadence, so a non-cadence evaluation
+        # must not become ``best`` unless it is the final/early-stop write.
+        # Otherwise the best state is tracked but never written: if the final
+        # model is worse, no best.pt exists at all.
+        if not force and step != args.steps:
+            if args.best_every <= 0 or step % args.best_every != 0:
+                return
         if best is not None and loss >= best.get("loss", float("inf")):
             return
         best = {
@@ -3026,9 +3033,6 @@ def main(argv: list[str] | None = None) -> int:
             "loss": float(loss),
             "metrics": metrics,
         }
-        if not force and step != args.steps:
-            if args.best_every <= 0 or step % args.best_every != 0:
-                return
         checkpoint_model = ema_model if source_name == "ema" else model
         _save_cpu(
             out / "best.pt",

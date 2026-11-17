@@ -227,6 +227,29 @@ class TrainV3SmokeTest(unittest.TestCase):
             self.assertEqual(ema["source"], "ema")
             self.assertEqual(final["model"].keys(), ema["model"].keys())
 
+    def test_best_checkpoint_is_written_when_best_is_between_cadences(self) -> None:
+        """A short run must not lose its best state to the best_every throttle."""
+        with tempfile.TemporaryDirectory(prefix="v3_best_cadence_") as tmp:
+            out = Path(tmp) / "run"
+            proc = self.run_cli(
+                "--random-smoke",
+                *TINY_CONFIG,
+                "--steps", "3",
+                "--eval-every", "1",
+                "--best-every", "10",
+                "--threads", "1",
+                "--seed", "11",
+                "--device", "cpu",
+                "--out", str(out),
+            )
+            self.assert_ok(proc)
+            best_path = out / "best.pt"
+            self.assertTrue(best_path.is_file(), "best.pt was not written")
+            result = json.loads((out / "result.json").read_text(encoding="utf-8"))
+            best = torch.load(best_path, map_location="cpu", weights_only=False)
+            self.assertEqual(best["step"], result["best"]["step"])
+            self.assertAlmostEqual(best["loss"], result["best"]["loss"])
+
     def test_text_sidecar_eval_with_future_composition(self) -> None:
         """Concept eval must keep main logits separate from future logits."""
         with tempfile.TemporaryDirectory(prefix="v3_sidecar_eval_") as tmp:

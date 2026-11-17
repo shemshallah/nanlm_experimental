@@ -28,6 +28,11 @@ on:
         required: true
         default: "50"
         type: string
+      best_every:
+        description: "Write best.pt every N steps (0 uses the preset value)"
+        required: true
+        default: "0"
+        type: string
       feedback_warmup:
         description: "Feedback gate warmup steps (-1 uses the preset value)"
         required: true
@@ -126,11 +131,15 @@ jobs:
         env:
           CTX: ${{ inputs.ctx || '8' }}
           EVAL_EVERY: ${{ inputs.eval_every || '50' }}
+          BEST_EVERY: ${{ inputs.best_every || '0' }}
           FEEDBACK_WARMUP: ${{ inputs.feedback_warmup || '-1' }}
           MAX_SECONDS: ${{ inputs.max_seconds || '0' }}
           REQUIRE_FEEDBACK_OPEN: ${{ inputs.require_feedback_open }}
         run: |
           EXTRA=()
+          if [ "$BEST_EVERY" != "0" ]; then
+            EXTRA+=(--best-every "$BEST_EVERY")
+          fi
           if [ "$FEEDBACK_WARMUP" != "-1" ]; then
             EXTRA+=(--feedback-gate-warmup-steps "$FEEDBACK_WARMUP")
           fi
