@@ -1,10 +1,12 @@
-"""10-minute Blackwell Terminal-RSI memory/throughput smoke on Molab.
+"""10-minute Blackwell v4 smoke for the unified 6.5M Terminal-RSI model.
 
 Builds a fresh English-only, book-disjoint pilot corpus, probes the
-96 GiB Blackwell GPU, then runs real FP32 forward/backward/AdamW steps
-through ``train_verbatim --smoke``.  The smoke reports peak VRAM,
-throughput and a small matched DEV receipt, but deliberately does NOT
-save the multi-tens-of-GiB optimizer checkpoint or a champion.
+95 GiB Blackwell GPU, then runs real FP32 v103 + BF16 upgrade-branch
+forward/backward/AdamW steps through ``train_verbatim --smoke``.  CPU, T4
+and Blackwell use the exact same 6,495,162-parameter graph; Blackwell is
+an execution option, not a larger model.  The smoke reports peak VRAM,
+throughput and the v4 ledger, but deliberately does NOT save a checkpoint
+or a champion.
 
 Example::
 
@@ -48,7 +50,7 @@ def main(argv=None) -> int:
                    help="Wall-clock smoke budget in the training loop")
     p.add_argument("--context", type=int, default=256,
                    help="Observed causal bytes; the unified model caps at 256")
-    p.add_argument("--batch", type=int, default=512,
+    p.add_argument("--batch", type=int, default=8192,
                    help="Use the Blackwell card: large batches are cheap for the 6.5M model")
     p.add_argument("--train-bytes", type=int, default=2_000_000)
     p.add_argument("--dev-books", type=int, default=64)

@@ -1,4 +1,4 @@
-"""CPU acceptance for Blackwell planning without allocating 3B weights."""
+"""CPU acceptance for Blackwell execution-profile planning (same 6.5M graph)."""
 from __future__ import annotations
 
 import unittest

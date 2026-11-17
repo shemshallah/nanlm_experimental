@@ -19,13 +19,13 @@
 
 The inherited original is not a Mamba state-space model and is not a Transformer top-k MoE. It has 32 adaptive context channels, real word/BPE/match specialists, 12 mixers and five adaptive probability maps, driven by a **recurrent RSI actor, feedback state, critic and terminal verifier**. Its C source-model is distinct from the GPU approximation. **Feature/path parity with C is NOT C numeric parity**; the full original trained C oracle requires its separate saved state and 256-probability reference. The historical verified C baseline was ~2.071214 BPB on its own aligned books, not an inherited GPU-v103 score.
 
-| Setting | Inherited RSI | Additive recursion | Nominal capacity | Status |
+| Setting | Inherited RSI | Additive recursion | Parameter count | Status |
 | --- | --- | --- | --- | --- |
-| CPU | Exact original weights, online buffers, 2 AdamW groups | width 256, 3 layers, 8 heads, 256-byte capacity context | CPU reference | GitHub CPU unit tests |
-| Tesla T4 (16 GB) | Same exact parent and state | width 512, 8 layers, 8 heads, 1K context | Pilot; no presumed extra corpus | Requires actual GPU acceptance |
-| Blackwell (96 GB GPU, 32 GB RAM) | Same exact parent and state | width 2560, 32 layers, 40 heads, up to 8192 context | Multi-billion-param, checkpoint/VRAM risk | Requires VRAM profiling, streaming and actual GPU acceptance |
+| CPU | Exact original weights, online buffers, 2 AdamW groups | width 256, 3 layers, 8 heads, 256-byte capacity context | **6,495,162** | GitHub CPU unit tests |
+| Tesla T4 (16 GB) | Same exact parent and state | same width/layers/heads/context | **6,495,162** | Same graph on CUDA; FP32 v103 path |
+| Blackwell (96 GB GPU, 32 GB RAM) | Same exact parent and state | same width/layers/heads/context | **6,495,162** | Execution option: BF16 upgrade-only autocast, SDPA, GPU window cache, large batches, v4 branch search |
 
-IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The additive neural branch now consumes 256/1024/up-to-8192 causally padded context bytes, with an explicit boundary test showing the old last-32+target rows remain identical. Do not claim 8K effective **historical** context or real-book gain without benchmarking. F32 CPU↔CUDA can differ numerically; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
+IMPORTANT: The *old v103 predictor* still consumes exactly 32 prior observed bytes. The additive upgrade branch consumes 256 causally padded context bytes in every mode; the old last-32+target rows remain identical at gate 0. Blackwell uses BF16 autocast only for the upgrade branch. F32 CPU↔CUDA can differ numerically within tolerance; same-device old-vs-zero-gate is exactly equal. No benchmark improvement claimed yet.
 
 ## Rebuild the SAME original independent DEV (no changed book split)
 
@@ -118,9 +118,9 @@ python -m terminal_rsi.migrate_verbatim \
   --output "/path/to/Terminal_RSI/verbatim_t4_candidate.pt"
 ```
 
-Then use `python -m terminal_rsi.train_verbatim --mode t4 --resume ...` with the **same legacy checkpoint/train-stream/BPE/DEV** flags; first `--seconds 0`, then a bounded pilot. For Blackwell, migrate `verbatim_t4_candidate.pt` with `--mode blackwell` to a new candidate and again run `--seconds 0` for DEV reacceptance first. *Capacity growth is NOT function-preserving once the learned residual gate is nonzero.* Do not automatically promote it on a new GPU.
+Then use `python -m terminal_rsi.train_verbatim --mode t4 --resume ...` with the **same legacy checkpoint/train-stream/BPE/DEV** flags; first `--seconds 0`, then a bounded pilot. For Blackwell, migrate `verbatim_t4_candidate.pt` with `--mode blackwell` to a new candidate and again run `--seconds 0` for DEV reacceptance first. The model graph and parameter count are identical across modes; the profile changes device, dtype and batch. Still re-run gate-0/DEV acceptance after a device move, because CUDA floating point is tolerance-equal, not promised bitwise.
 
-The 96 GB is VRAM, not the 32 GB host budget. A multi-billion-parameter AdamW model can exhaust host RAM or checkpoint I/O during migration. The current large Blackwell model is an ambitious candidate, not a demonstrated 96 GB fully saturated trainer; profile actual peak GPU, host RAM, time-to-checkpoint and byte/sec before raising context/batch. Use bf16 SDPA/checkpointing only on the additive branch where numerically safe.
+The 95 GB is VRAM, not the 32 GB host budget. The unified 6.5M model uses ~0.1 GB of FP32 AdamW state; the remaining headroom is for large batches, v4 model/optimizer snapshots, branch training and CUDA allocator reservations. Profile actual peak GPU, host RAM, time-to-checkpoint and bytes/sec before scaling batch or v4 candidates. BF16 is used only on the additive upgrade branch where numerically safe.
 
 ## Acceptance gates that cannot be skipped
 
@@ -226,14 +226,14 @@ python -m terminal_rsi.benchmark_cpu_steps --history 256 --batch 2 --steps 3
 The Blackwell execution route retains **exactly the same model and
 three-group inherited optimizer** as CPU and T4. The old native v103
 network, persistent terminal RSI state, actor/critic and both historical
-AdamW groups stay on the original FP32 math path. The *additive 32-layer
-2560D specialist only* uses BF16 CUDA autocast, PyTorch causal
-scaled-dot-product attention, and per-layer activation checkpointing
-through its three recursive passes. No tensors, state_dict keys, or
-checkpoint schemas are added or renamed.
+AdamW groups stay on the original FP32 math path. The *additive 3-layer
+256D upgrade branch* uses BF16 CUDA autocast and PyTorch causal
+scaled-dot-product attention. Gradient checkpointing is not needed for
+three layers. No tensors, state_dict keys, parameter counts, or checkpoint
+schemas are added or renamed across CPU/T4/Blackwell.
 
 ```bash
-# Works on CPU: analytical preflight, never allocates 3B weights.
+# Works on CPU: analytical preflight for the same 6.5M graph.
 python -m terminal_rsi.plan_blackwell --physical-gib 96
 
 # Run ONLY on the intended Blackwell container before training.

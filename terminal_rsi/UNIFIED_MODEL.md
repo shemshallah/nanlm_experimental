@@ -5,22 +5,24 @@
 **Terminal-RSI is the system.** FA1, FA2, M3 and Poincare experiments are independent.
 This directory is deliberately isolated from them.
 
-The same `unified.py`, `train.py`, loss, causal three-horizon heads, RSI
-feedback loop and checkpoint format run on all three compute targets.
-Preset choices change **capacity and batch/context**, not the model's identity.
+The same `unified.py`, loss, causal three-horizon heads, RSI feedback loop
+and checkpoint format run on all compute targets. `--mode` selects the
+**device/execution profile**, not the model graph: every mode has exactly
+**6,495,162 parameters** (2,782,515 original v103 core + 3,712,646 additive
+upgrades + 1 residual gate). Blackwell is an **option**, not a larger model.
 
-| Mode | Width | Layers | Heads | Context bytes | RSI passes | Training |
+| Mode | Width | Layers | Heads | Context bytes | RSI passes | Execution |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | CPU | 256 | 3 | 8 | 256 | 2 | float32; reproducible acceptance gate |
-| Tesla T4 (16GB) | 512 | 8 | 8 | 1024 | 2 | float16 autocast + scaling |
-| 96GB Blackwell | 2560 | 32 | 40 | 8192 | 3 | bfloat16 autocast / SDPA, 90% GPU cap |
+| Tesla T4 (16GB) | 256 | 3 | 8 | 256 | 2 | same graph on CUDA; FP32 v103 path |
+| 96GB Blackwell | 256 | 3 | 8 | 256 | 2 | same graph; BF16 upgrade-only autocast, native SDPA, GPU window cache, large batches |
 
-Blackwell is deliberately multi-billion-parameter and expensive. Monitor the
-reported parameter count, actual GPU peak, effective tokens/s and OOM autotune.
-NVIDIA hardware and software runtime determine which SDPA kernel executes.
-32GB *system RAM* is different from 96GB *GPU VRAM*. Real full-size checkpoint
-serialization can exceed the ten-minute budget. First establish CPU correctness,
-then run a shorter Blackwell pilot and profile memory before long training.
+The Blackwell card is used through **batch and v4 branch search**, not by
+inflating the architecture. The v4 controller snapshots the same 6.5M model,
+so multiple branch snapshots are cheap. Monitor reported peak VRAM, actual
+trials/s and bytes/s; the v103 byte path, not parameter count, is the limiter.
+32GB *system RAM* is different from 95GB *GPU VRAM*. First establish CPU and
+T4 parity, then run the Blackwell smoke and profile before a long run.
 
 ## RSI is the core, not an auxiliary afterthought
 
@@ -86,22 +88,23 @@ be exercised.
 ## Same source on T4 / Blackwell
 
 ```bash
-# T4 16GB, 10-minute experiment
+# T4 16GB, 10-minute experiment (same 6.5M graph)
 python terminal_rsi/train.py --mode t4 --corpus-dir /path/to/books \
   --checkpoint /path/to/drive/Terminal_RSI/unified_t4_candidate.pt \
-  --minutes 10 --context-override 512
+  --minutes 10 --context-override 256
 
-# 96GB Blackwell; shorten context for the FIRST profiling pilot
-python terminal_rsi/train.py --mode blackwell --corpus-dir /path/to/books \
-  --checkpoint /path/to/drive/Terminal_RSI/unified_blackwell_candidate.pt \
-  --minutes 10 --context-override 1024
+# 96GB Blackwell, same graph; use the dedicated smoke first
+python -m terminal_rsi.run_blackwell_smoke \
+  --output-dir /marimo/terminal_rsi_unified_v4_10m \
+  --seconds 600 --context 256 --batch 8192 --rsi-version v4
 ```
 
-Use the 8192-byte Blackwell default only after checking GPU peak and
-checkpoint writes. The runtime dynamically halves training context if CUDA
-reports an OOM, stopping at 256 bytes. Full 3.4B-scale training may exceed a
-10-minute notebook startup+save budget; do not treat a short pilot as training
-completion.
+The unified model context is 256 observed bytes; the original v103 path still
+uses exactly its last 32 bytes. Use the Blackwell smoke to measure peak VRAM
+and throughput before a long run. The v4 controller is the unified path; v3/off
+remain parity baselines. `train_verbatim.py` is the canonical strict
+checkpoint/parity entry point; `train.py` is the older standalone candidate
+path and uses the same presets.
 
 Resume a checkpoint with `--resume`; it refuses architecture or training-
 corpus mismatch. This prevents optimizer history from being silently discarded.
