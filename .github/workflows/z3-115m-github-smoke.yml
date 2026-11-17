@@ -76,7 +76,7 @@ jobs:
 
       - name: Verify 115M preset and full feedback forward
         run: |
-          python - <<'PY'
+          PYTHONPATH=z3 python - <<'PY'
           import torch
           from train_v3 import build_parser, apply_preset, make_config
           from v3_model import V3LM
