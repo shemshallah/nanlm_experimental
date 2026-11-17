@@ -87,6 +87,11 @@ def main(argv=None) -> int:
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
                    help="Positions per book for hierarchical eval")
     p.add_argument("--hierarchical-eval-batch", type=int, default=8)
+    p.add_argument("--generation-steps", type=int, default=0,
+                   help="Byte-driven generation probe after training; 0=off")
+    p.add_argument("--generation-prompt", default="The ")
+    p.add_argument("--generation-temperature", type=float, default=0.9)
+    p.add_argument("--generation-top-k", type=int, default=0)
     args = p.parse_args(argv)
     if (args.seconds <= 0 or args.batch < 1 or args.microbatch < 0
             or not args.upgrade_loss_weight >= 0
@@ -169,6 +174,13 @@ def main(argv=None) -> int:
             "--hierarchical-eval-max-positions",
             str(args.hierarchical_eval_max_positions),
             "--hierarchical-eval-batch", str(args.hierarchical_eval_batch),
+        ]
+    if args.generation_steps:
+        command += [
+            "--generation-steps", str(args.generation_steps),
+            "--generation-prompt", args.generation_prompt,
+            "--generation-temperature", str(args.generation_temperature),
+            "--generation-top-k", str(args.generation_top_k),
         ]
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     status = _run_tee(command, Path.cwd(), console)

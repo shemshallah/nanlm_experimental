@@ -390,6 +390,11 @@ def main(argv=None):
                    help="Positions per book for hierarchical eval; 0=all after context")
     p.add_argument("--hierarchical-eval-batch", type=int, default=8,
                    help="Windows per 256-way byte-probability batch")
+    p.add_argument("--generation-steps", type=int, default=0,
+                   help="Byte-driven generation probe after training; 0=off")
+    p.add_argument("--generation-prompt", default="The ")
+    p.add_argument("--generation-temperature", type=float, default=0.9)
+    p.add_argument("--generation-top-k", type=int, default=0)
     p.add_argument("--upgrade-context", type=int, default=None,
                    help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
@@ -410,6 +415,9 @@ def main(argv=None):
             or args.hierarchical_eval_batch < 1
             or args.hierarchical_eval_max_positions < 0):
         p.error("Hierarchical eval needs nonnegative books/positions and positive batch")
+    if (args.generation_steps < 0 or args.generation_temperature <= 0
+            or args.generation_top_k < 0):
+        p.error("Generation needs nonnegative steps/top-k and positive temperature")
     if args.hierarchical_eval_books and not args.hierarchical_eval_corpus_dir:
         p.error("--hierarchical-eval-corpus-dir is required for hierarchical DEV evaluation")
     if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
@@ -905,6 +913,7 @@ def main(argv=None):
         torch.cuda.synchronize(device)
         return results
 
+    report = {}
     while ((update_count < args.updates) if args.updates is not None
            else (time.monotonic() - clock < args.seconds)):
         if v4_controller is not None:
@@ -1053,6 +1062,52 @@ def main(argv=None):
                "original_c256_parity_after": c256_after,
                "test_untouched": True,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
+    hierarchy = model.upgrades.hierarchy
+    receipt["parameter_count"] = model.count_parameters()
+    receipt["hierarchy"] = {
+        "windows": list(hierarchy.windows),
+        "gates": {
+            "bottom_up": torch.tanh(
+                hierarchy.bottom_up_gates).detach().cpu().tolist(),
+            "top_down": torch.tanh(
+                hierarchy.top_down_gates).detach().cpu().tolist(),
+            "lateral": torch.tanh(
+                hierarchy.lateral_gates).detach().cpu().tolist(),
+        },
+        "last_boundary_bce": (report.get("boundary_bce")
+                              if isinstance(report, dict) else None),
+        "definition": "byte->subword->word->sentence bottom-up; "
+                      "sentence->word->subword->byte top-down; "
+                      "word/subword lateral byte priors",
+    }
+    if args.generation_steps:
+        from .hierarchical_generate import generate_bytes
+        generation = generate_bytes(
+            model, args.generation_prompt.encode("utf-8"),
+            args.generation_steps,
+            temperature=args.generation_temperature,
+            top_k=args.generation_top_k, seed=103, device=device)
+        records = generation["records"]
+        receipt["generation"] = {
+            "prompt": args.generation_prompt,
+            "text": generation["text"],
+            "bytes": len(generation["bytes"]),
+            "temperature": args.generation_temperature,
+            "top_k": args.generation_top_k,
+            "latent_word_boundaries": sum(
+                1 for record in records if record["boundary_word"] > 0.5),
+            "latent_sentence_boundaries": sum(
+                1 for record in records if record["boundary_sentence"] > 0.5),
+            "mean_word_boundary_probability": (
+                sum(record["boundary_word"] for record in records)
+                / max(len(records), 1)),
+            "mean_sentence_boundary_probability": (
+                sum(record["boundary_sentence"] for record in records)
+                / max(len(records), 1)),
+            "gate_snapshot": generation["hierarchy_gates"],
+        }
+        print("BYTE-DRIVEN GENERATION:", json.dumps(
+            receipt["generation"], indent=2), flush=True)
     if args.hierarchical_eval_books:
         if args.dev_manifest is None:
             p.error("Hierarchical DEV evaluation requires --dev-manifest")
