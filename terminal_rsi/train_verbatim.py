@@ -978,11 +978,11 @@ def main(argv=None):
                 rsi_text = rsi_builder.progress_line()
             else:
                 rsi_text = "RSI disabled"
-            aux_text = (f" upgrade_bpb={report['upgrade_bpb']:.4f}"
+            aux_text = (f" upgrade_byte_bpb={report['upgrade_bpb']:.4f}"
                         if "upgrade_bpb" in report else "")
             print(
                 f"PROGRESS step={step} {progress} elapsed={elapsed:.1f}s "
-                f"rate={rate:.2f} upd/s train_bit_bce={report['bpb']:.6f} "
+                f"rate={rate:.2f} upd/s train_v103_bit_bce={report['bpb']:.6f} "
                 f"bit_acc={report['bit_accuracy']:.4f}{aux_text} | {rsi_text}",
                 flush=True,
             )
@@ -1009,6 +1009,23 @@ def main(argv=None):
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                  local=probe_local)
+    after_upgrade_gate_1 = None
+    if v4_controller is not None:
+        # The v103 core and the 100M upgrade branch are two different
+        # predictors.  Report the upgrade branch at gate=1 on the same DEV
+        # probes so the progress line's v103 training BCE cannot be mistaken
+        # for the unified model's held-out quality.
+        saved_gate = model.residual_gate.detach().clone()
+        try:
+            with torch.no_grad():
+                model.residual_gate.fill_(10.0)  # tanh(10) ~= 1
+            after_upgrade_gate_1 = byte_metrics_wrapped(
+                model, probes, n=None,
+                topk_n=min(args.topk_probes, len(probes)),
+                auxiliary=probe_aux, local=probe_local)
+        finally:
+            with torch.no_grad():
+                model.residual_gate.copy_(saved_gate)
     c256_after = (compare_c256_wrapped(
         model, dev, args.reference_full256, auxiliary=dev_aux,
         local=dev_local, probe_count=min(16, args.max_dev_positions))
@@ -1032,6 +1049,7 @@ def main(argv=None):
                "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"]) if source else 0),
                "fresh_start_untrained_v103": provenance.get("fresh_start_untrained_v103", False),
                "before": before, "after": after,
+               "after_upgrade_gate_1": after_upgrade_gate_1,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
                "terminal_reward_mode": ("legacy_fixed_command_demo" if args.legacy_terminal_demo
