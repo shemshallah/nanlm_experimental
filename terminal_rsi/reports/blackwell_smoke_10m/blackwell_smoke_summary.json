@@ -1,0 +1,3831 @@
+{
+  "schema": "terminal-rsi-blackwell-smoke-v1",
+  "status": "completed",
+  "command": [
+    "/tmp/uv-venv/bin/python",
+    "-m",
+    "terminal_rsi.train_verbatim",
+    "--mode",
+    "blackwell",
+    "--fresh-start",
+    "--seconds",
+    "600.0",
+    "--batch",
+    "8192",
+    "--upgrade-context",
+    "256",
+    "--train-stream",
+    "/marimo/terminal_rsi_unified_v4_10m/train_cpu_pilot.bin",
+    "--bpe-merges",
+    "terminal_rsi/reference/nancm_v103_bpe.txt",
+    "--dev-bin",
+    "/marimo/terminal_rsi_unified_v4_10m/win_dev.bin",
+    "--dev-manifest",
+    "/marimo/terminal_rsi_unified_v4_10m/win_dev.manifest.json",
+    "--output",
+    "/marimo/terminal_rsi_unified_v4_10m/blackwell_smoke_candidate.pt",
+    "--metrics-output",
+    "/marimo/terminal_rsi_unified_v4_10m/blackwell_smoke_metrics.json",
+    "--max-dev-positions",
+    "8",
+    "--topk-probes",
+    "1",
+    "--rsi-version",
+    "v4",
+    "--progress-every",
+    "1",
+    "--smoke",
+    "--rsi-holdout-stream",
+    "/marimo/terminal_rsi_unified_v4_10m/rsi_holdout.bin",
+    "--rsi-v4-cycle-updates",
+    "500",
+    "--rsi-v4-horizon",
+    "5",
+    "--rsi-v4-candidates",
+    "2",
+    "--rsi-v4-shards",
+    "4",
+    "--rsi-v4-shard-positions",
+    "128",
+    "--rsi-v4-eval-chunk",
+    "8",
+    "--rsi-v4-min-gain",
+    "0.01",
+    "--rsi-v4-z",
+    "2.0",
+    "--rsi-v4-critic-steps",
+    "16",
+    "--rsi-v4-policy-steps",
+    "8"
+  ],
+  "preflight": {
+    "archived_v103_fp32_unchanged": true,
+    "bf16_checkpoint_activation_floor_gib": 0.375,
+    "bf16_cuda_upgrade_only": true,
+    "context_bytes": 256,
+    "fp32_weights_grad_adam_gib_approx": 0.09678545594215393,
+    "gpu_peak_verified": false,
+    "gradient_checkpointing": false,
+    "hardware": {
+      "bf16_supported": true,
+      "device_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "free_vram_gib": 94.42730712890625
+    },
+    "hidden_width": 256,
+    "layers": 3,
+    "microbatch": 512,
+    "native_pytorch_causal_sdpa": true,
+    "note": "Same v3-sized graph on all modes; measure CUDA peak and scale batch/v4 branches to the card",
+    "parameter_count_additive_specialist": 3712646,
+    "parameter_count_original_v103": 2782515,
+    "parameter_count_total": 6495162,
+    "physical_vram_gib": 94.972412109375,
+    "preset": "blackwell",
+    "provisional_headroom_gib": 86.90283368468285,
+    "recursive_passes": 2,
+    "same_three_optimizer_groups": true,
+    "usable_vram_budget_gib": 87.374619140625
+  },
+  "corpus": {
+    "schema": "terminal-rsi-nanrouter-cpu-pilot-v1",
+    "source": "shemshallah/NaNROUTER/corpora/short_stories",
+    "seed": 103,
+    "train_bytes": 2000000,
+    "train_sha256": "c2917f345bc14ac0a4dc89dbfc65b23093b37ddd7d1649afe309daba347101f2",
+    "train_books": 44,
+    "rsi_holdout_books": 4,
+    "rsi_holdout_bytes": 222507,
+    "rsi_holdout_sha256": "31cde3373361de3e90d097db34ff8bc67e53c9d956b94c659b4b304dc09e3a9c",
+    "rsi_holdout_book_ids": [
+      "64448",
+      "67476",
+      "68051",
+      "69260"
+    ],
+    "book_disjoint_train_rsi_holdout_verified": true,
+    "dev_books": 64,
+    "dev_scored_bytes": 65536,
+    "dev_sha256": "b540e7d06175402055eab8d4866a8fc9d4a6ec098743d379bacdad85b520b307",
+    "book_disjoint_train_dev_verified_by_gutenberg_ids": true,
+    "russian_exclusion": "all_cyrillic_text; Russian_language_metadata; Russian_title; conservative_Russian_author",
+    "source_rejection_counts": {
+      "russian_title_or_filename": 5,
+      "too_short": 3,
+      "russian_author_conservative_exclusion": 1
+    },
+    "sealed_test_never_opened": true,
+    "historic_dev_never_restored": true
+  },
+  "receipt": {
+    "actual_byte_updates_this_round": 21040,
+    "after": {
+      "bit_accuracy": 0.84375,
+      "bpb": 3.854028016245024,
+      "evaluated_bytes": 8,
+      "maximum_log_probability_mass_error": 3.2782554626464844e-07,
+      "top1_byte": 0.0,
+      "top5_byte": 1.0,
+      "topk_evaluated_bytes": 1
+    },
+    "before": {
+      "bit_accuracy": 0.359375,
+      "bpb": 8.188456547006338,
+      "evaluated_bytes": 8,
+      "maximum_log_probability_mass_error": 0.0,
+      "top1_byte": 0.0,
+      "top5_byte": 0.0,
+      "topk_evaluated_bytes": 1
+    },
+    "book_disjoint_dev_digest": "b540e7d06175402055eab8d4866a8fc9d4a6ec098743d379bacdad85b520b307",
+    "cpu_threads": null,
+    "dev_after_seconds": 0.034821686999748636,
+    "dev_probes": 8,
+    "feature_digest": "2e22a33fc4d4445df9fb60c517deff11b0172e530ccaec6cf664bfef0d7b8e42",
+    "final_step": 21040,
+    "fresh_start_untrained_v103": true,
+    "gpu": {
+      "bf16_supported": true,
+      "cuda_version": "13.0",
+      "device_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "peak_allocated_gib": 1.564,
+      "peak_reserved_gib": 44.0,
+      "torch_version": "2.11.0+cu130",
+      "total_vram_gib": 94.972
+    },
+    "legacy_step": 0,
+    "legacy_terminal_demo_disabled": true,
+    "mode": "blackwell",
+    "new_dev_books": 64,
+    "new_dev_id_level_train_disjoint_proven": true,
+    "new_dev_scored_positions": 65536,
+    "old_v103_logits_identical_at_gate_zero": true,
+    "original_c256_parity_after": null,
+    "original_c256_parity_before": null,
+    "requested_updates": null,
+    "rsi_feedback_seconds": 1.576000613567885e-06,
+    "rsi_mutations_accepted": 1,
+    "rsi_mutations_verified": 84,
+    "rsi_self_construction": null,
+    "rsi_v4": {
+      "accepted": 1,
+      "branch_updates": 630,
+      "config": {
+        "batch_size": 8192,
+        "candidates": 2,
+        "critic_lr": 0.0003,
+        "critic_steps": 16,
+        "cycle_updates": 500,
+        "entropy_coef": 0.01,
+        "eval_chunk": 8,
+        "grad_clip": 1.0,
+        "horizon": 5,
+        "min_gain": 0.01,
+        "n_shards": 4,
+        "policy_lr": 0.0003,
+        "policy_steps": 8,
+        "positions_per_shard": 128,
+        "replay_capacity": 4096,
+        "seed": 2026,
+        "target_updates": 0,
+        "z_score": 2.0
+      },
+      "cycles": 42,
+      "events": [
+        {
+          "accepted": true,
+          "best_standard_error": 0.018936954276567827,
+          "best_utility": 0.047598729995924516,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 3.638604272975236,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 3.613002145522496,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.004945151939314797,
+              "utility": 0.02560212745273993
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                4,
+                2,
+                3,
+                1
+              ],
+              "bpb": 3.5910055429793117,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.08 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.018936954276567827,
+              "utility": 0.047598729995924516
+            }
+          ],
+          "chosen": [
+            1,
+            0,
+            2,
+            0,
+            4,
+            2,
+            3,
+            1
+          ],
+          "cycle": 1,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 2,
+            "rejected": 1
+          },
+          "noop_bpb": 3.638604272975236,
+          "step": 500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.004172103964099888,
+          "best_utility": -0.005488189429032508,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 3.21812109247545,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 3.2236092819044826,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.004172103964099888,
+              "utility": -0.005488189429032508
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                4,
+                2,
+                3,
+                1
+              ],
+              "bpb": 3.2707057580663936,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.08 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.01510095428129332,
+              "utility": -0.05258466559094377
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 2,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 4,
+            "rejected": 3
+          },
+          "noop_bpb": 3.21812109247545,
+          "step": 1000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.005071802578613334,
+          "best_utility": -0.0013565574979576,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 3.055241011714134,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 3.056597569212092,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.005071802578613334,
+              "utility": -0.0013565574979576
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                4,
+                2,
+                3,
+                1
+              ],
+              "bpb": 3.08038842509968,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.08 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.021165806688544966,
+              "utility": -0.025147413385545603
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 3,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 6,
+            "rejected": 5
+          },
+          "noop_bpb": 3.055241011714134,
+          "step": 1500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0002663387120509759,
+          "best_utility": 0.0006864862179069009,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.9565841690703003,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                4,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1
+              ],
+              "bpb": 2.9558976828523935,
+              "critic_mean": 0.0197613462805748,
+              "critic_std": 0.8800227046012878,
+              "label": "lr=1.25 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=-0.02 temp=1.00 batch=4",
+              "predicted_bpb": 0.08954919874668121,
+              "rank_score": 0.2352895587682724,
+              "standard_error": 0.0002663387120509759,
+              "utility": 0.0006864862179069009
+            },
+            {
+              "action": [
+                3,
+                1,
+                0,
+                0,
+                0,
+                3,
+                2,
+                0
+              ],
+              "bpb": 3.0306328217144656,
+              "critic_mean": 0.017873607575893402,
+              "critic_std": 0.9060744047164917,
+              "label": "lr=1.10 up_lr=1.00 clip=0.50 wd=0.000 gate=-0.08 refine=+0.02 temp=1.25 batch=2",
+              "predicted_bpb": 0.2330227941274643,
+              "rank_score": 0.2327410727739334,
+              "standard_error": 0.01602983075769555,
+              "utility": -0.07404865264416516
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 4,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 8,
+            "rejected": 7
+          },
+          "noop_bpb": 2.9565841690703003,
+          "step": 2000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0008683220293639844,
+          "best_utility": -0.0005183772075318949,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.9176696492851146,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1
+              ],
+              "bpb": 2.9181880264926465,
+              "critic_mean": -0.024504080414772034,
+              "critic_std": 0.7790449857711792,
+              "label": "lr=0.90 up_lr=2.00 clip=1.00 wd=0.010 gate=+0.00 refine=-0.02 temp=1.00 batch=4",
+              "predicted_bpb": 0.825516939163208,
+              "rank_score": 0.1289813220500946,
+              "standard_error": 0.0008683220293639844,
+              "utility": -0.0005183772075318949
+            },
+            {
+              "action": [
+                1,
+                1,
+                0,
+                2,
+                2,
+                4,
+                1,
+                0
+              ],
+              "bpb": 2.924740934984496,
+              "critic_mean": -0.013957802206277847,
+              "critic_std": 0.7957965731620789,
+              "label": "lr=0.90 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.08 temp=1.00 batch=2",
+              "predicted_bpb": 1.1362197399139404,
+              "rank_score": 0.1281803548336029,
+              "standard_error": 0.0018109277497390802,
+              "utility": -0.007071285699381313
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 5,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 10,
+            "rejected": 9
+          },
+          "noop_bpb": 2.9176696492851146,
+          "step": 2500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.004504125611802902,
+          "best_utility": 0.003947660208386883,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.881247270974546,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                4,
+                2,
+                2,
+                1,
+                1,
+                1,
+                0,
+                0
+              ],
+              "bpb": 2.9045030915225283,
+              "critic_mean": -0.0051384298130869865,
+              "critic_std": 0.6844784617424011,
+              "label": "lr=1.25 up_lr=2.00 clip=2.00 wd=0.010 gate=-0.02 refine=-0.02 temp=0.80 batch=2",
+              "predicted_bpb": 1.8257869482040405,
+              "rank_score": 0.07469183951616287,
+              "standard_error": 0.005526004501318038,
+              "utility": -0.023255820547982586
+            },
+            {
+              "action": [
+                1,
+                1,
+                2,
+                1,
+                3,
+                0,
+                1,
+                1
+              ],
+              "bpb": 2.8772996107661593,
+              "critic_mean": -0.004821213893592358,
+              "critic_std": 0.6331089735031128,
+              "label": "lr=0.90 up_lr=1.00 clip=2.00 wd=0.010 gate=+0.02 refine=-0.08 temp=1.00 batch=4",
+              "predicted_bpb": 2.4087698459625244,
+              "rank_score": 0.033017538487911224,
+              "standard_error": 0.004504125611802902,
+              "utility": 0.003947660208386883
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 6,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 12,
+            "rejected": 11
+          },
+          "noop_bpb": 2.881247270974546,
+          "step": 3000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0011334719268058092,
+          "best_utility": 0.0023613325452621625,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.8178997886694748,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                4,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1
+              ],
+              "bpb": 2.8174935078727152,
+              "critic_mean": 0.0021475739777088165,
+              "critic_std": 0.44627484679222107,
+              "label": "lr=1.25 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=-0.02 temp=1.00 batch=4",
+              "predicted_bpb": 3.040116310119629,
+              "rank_score": -0.03828953206539154,
+              "standard_error": 0.0002485410617981514,
+              "utility": 0.0004062807967598614
+            },
+            {
+              "action": [
+                1,
+                1,
+                0,
+                2,
+                2,
+                4,
+                1,
+                0
+              ],
+              "bpb": 2.8155384561242127,
+              "critic_mean": -0.006638102233409882,
+              "critic_std": 0.47518032789230347,
+              "label": "lr=0.90 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.08 temp=1.00 batch=2",
+              "predicted_bpb": 3.359070062637329,
+              "rank_score": -0.05579652637243271,
+              "standard_error": 0.0011334719268058092,
+              "utility": 0.0023613325452621625
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 7,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 14,
+            "rejected": 13
+          },
+          "noop_bpb": 2.8178997886694748,
+          "step": 3500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00039750955954477845,
+          "best_utility": 0.0016971221114852053,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.856925974908805,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                2,
+                1,
+                1,
+                2,
+                2,
+                4,
+                2,
+                1
+              ],
+              "bpb": 2.857007009640494,
+              "critic_mean": -0.00209493818692863,
+              "critic_std": 0.2917443513870239,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.100 gate=+0.00 refine=+0.08 temp=1.25 batch=4",
+              "predicted_bpb": 3.3415660858154297,
+              "rank_score": -0.09623715281486511,
+              "standard_error": 6.443277425228057e-05,
+              "utility": -8.103473168896702e-05
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                2,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.85522885279732,
+              "critic_mean": -0.000222671777009964,
+              "critic_std": 0.27636486291885376,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.00 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.5151729583740234,
+              "rank_score": -0.10689011216163635,
+              "standard_error": 0.00039750955954477845,
+              "utility": 0.0016971221114852053
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 8,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 16,
+            "rejected": 15
+          },
+          "noop_bpb": 2.856925974908805,
+          "step": 4000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005116494454800466,
+          "best_utility": 0.0006305045214366478,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.8352694465598707,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                2,
+                1,
+                1,
+                1,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.8380579020493935,
+              "critic_mean": -0.016267606988549232,
+              "critic_std": 0.18439647555351257,
+              "label": "lr=0.80 up_lr=2.00 clip=1.00 wd=0.010 gate=-0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.1150248050689697,
+              "rank_score": -0.12591972947120667,
+              "standard_error": 0.0028458981003847464,
+              "utility": -0.0027884554895231117
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                2,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.834638942038434,
+              "critic_mean": 0.001988926436752081,
+              "critic_std": 0.15681636333465576,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.00 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.3797779083251953,
+              "rank_score": -0.12779590487480164,
+              "standard_error": 0.0005116494454800466,
+              "utility": 0.0006305045214366478
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 9,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 18,
+            "rejected": 17
+          },
+          "noop_bpb": 2.8352694465598707,
+          "step": 4500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005138422033976527,
+          "best_utility": 0.0001284401370619248,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7808012014480026,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                2,
+                2,
+                1,
+                1,
+                0,
+                1,
+                1,
+                2
+              ],
+              "bpb": 2.848835434029086,
+              "critic_mean": -0.02039816603064537,
+              "critic_std": 0.11563108116388321,
+              "label": "lr=1.00 up_lr=2.00 clip=1.00 wd=0.010 gate=-0.08 refine=-0.02 temp=1.00 batch=8",
+              "predicted_bpb": 2.6882221698760986,
+              "rank_score": -0.1259015053510666,
+              "standard_error": 0.010286785489142568,
+              "utility": -0.06803423258108299
+            },
+            {
+              "action": [
+                3,
+                0,
+                0,
+                0,
+                2,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.7806727613109405,
+              "critic_mean": -0.003341078758239746,
+              "critic_std": 0.09469356387853622,
+              "label": "lr=1.10 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.00 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.2991690635681152,
+              "rank_score": -0.14462614059448242,
+              "standard_error": 0.0005138422033976527,
+              "utility": 0.0001284401370619248
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 10,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 20,
+            "rejected": 19
+          },
+          "noop_bpb": 2.7808012014480026,
+          "step": 5000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.003297509980635904,
+          "best_utility": 0.0011716103111714116,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.8266928679290535,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                4,
+                1,
+                1,
+                2,
+                2,
+                0,
+                3,
+                2
+              ],
+              "bpb": 2.825521257617882,
+              "critic_mean": -0.01775095984339714,
+              "critic_std": 0.08747189491987228,
+              "label": "lr=1.25 up_lr=1.00 clip=1.00 wd=0.100 gate=+0.00 refine=-0.08 temp=1.50 batch=8",
+              "predicted_bpb": 3.1005163192749023,
+              "rank_score": -0.15090879797935486,
+              "standard_error": 0.003297509980635904,
+              "utility": 0.0011716103111714116
+            },
+            {
+              "action": [
+                4,
+                2,
+                1,
+                1,
+                0,
+                1,
+                1,
+                2
+              ],
+              "bpb": 2.863042326939271,
+              "critic_mean": -0.035116616636514664,
+              "critic_std": 0.08611901849508286,
+              "label": "lr=1.25 up_lr=2.00 clip=1.00 wd=0.010 gate=-0.08 refine=-0.02 temp=1.00 batch=8",
+              "predicted_bpb": 2.8852691650390625,
+              "rank_score": -0.15785032510757446,
+              "standard_error": 0.011291723772443309,
+              "utility": -0.03634945901021758
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 11,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 22,
+            "rejected": 21
+          },
+          "noop_bpb": 2.8266928679290535,
+          "step": 5500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00018203572807360644,
+          "best_utility": -0.0006189373445516511,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.879056202597252,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                2,
+                0,
+                3,
+                0,
+                4,
+                1,
+                1,
+                1
+              ],
+              "bpb": 2.906551196634063,
+              "critic_mean": -0.034276317805051804,
+              "critic_std": 0.07771587371826172,
+              "label": "lr=1.00 up_lr=0.50 clip=4.00 wd=0.000 gate=+0.08 refine=-0.02 temp=1.00 batch=4",
+              "predicted_bpb": 2.6514551639556885,
+              "rank_score": -0.14742010831832886,
+              "standard_error": 0.024734353441233908,
+              "utility": -0.027494994036810882
+            },
+            {
+              "action": [
+                1,
+                1,
+                0,
+                2,
+                2,
+                4,
+                1,
+                1
+              ],
+              "bpb": 2.879675139941804,
+              "critic_mean": -0.0019107697298750281,
+              "critic_std": 0.05903509259223938,
+              "label": "lr=0.90 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.08 temp=1.00 batch=4",
+              "predicted_bpb": 3.2973198890686035,
+              "rank_score": -0.1520179957151413,
+              "standard_error": 0.00018203572807360644,
+              "utility": -0.0006189373445516511
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 12,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 24,
+            "rejected": 23
+          },
+          "noop_bpb": 2.879056202597252,
+          "step": 6000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0003232636221067248,
+          "best_utility": 0.00034702336823622115,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7862781931941267,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7859311698258904,
+              "critic_mean": -0.008541757240891457,
+              "critic_std": 0.048914872109889984,
+              "label": "lr=0.80 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 3.0070228576660156,
+              "rank_score": -0.14666417241096497,
+              "standard_error": 0.0003232636221067248,
+              "utility": 0.00034702336823622115
+            },
+            {
+              "action": [
+                1,
+                0,
+                1,
+                1,
+                2,
+                1,
+                3,
+                0
+              ],
+              "bpb": 2.7868136893934916,
+              "critic_mean": -0.02376730367541313,
+              "critic_std": 0.06305904686450958,
+              "label": "lr=0.90 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.00 refine=-0.02 temp=1.50 batch=2",
+              "predicted_bpb": 2.802429437637329,
+              "rank_score": -0.14812400937080383,
+              "standard_error": 0.0004384544286802211,
+              "utility": -0.0005354961993649932
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 13,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 26,
+            "rejected": 25
+          },
+          "noop_bpb": 2.7862781931941267,
+          "step": 6500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.002593990946941403,
+          "best_utility": 0.0040156484436705275,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7643279090722173,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                3,
+                0,
+                1,
+                1,
+                1,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.7704099653435943,
+              "critic_mean": -0.006226128898561001,
+              "critic_std": 0.05105108022689819,
+              "label": "lr=1.10 up_lr=0.50 clip=1.00 wd=0.010 gate=-0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.036837577819824,
+              "rank_score": -0.14530523121356964,
+              "standard_error": 0.002031226470710379,
+              "utility": -0.006082056271377367
+            },
+            {
+              "action": [
+                1,
+                0,
+                0,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.7603122606285466,
+              "critic_mean": -0.012952144257724285,
+              "critic_std": 0.05077935755252838,
+              "label": "lr=0.90 up_lr=0.50 clip=0.50 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.414191722869873,
+              "rank_score": -0.17096687853336334,
+              "standard_error": 0.002593990946941403,
+              "utility": 0.0040156484436705275
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 14,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 28,
+            "rejected": 27
+          },
+          "noop_bpb": 2.7643279090722173,
+          "step": 7000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00041413697932866136,
+          "best_utility": -0.0003459121990778691,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.772133965118735,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7724798773178128,
+              "critic_mean": -0.0039405738934874535,
+              "critic_std": 0.040976811200380325,
+              "label": "lr=0.80 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.798405647277832,
+              "rank_score": -0.13361665606498718,
+              "standard_error": 0.00041413697932866136,
+              "utility": -0.0003459121990778691
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                4,
+                0,
+                1,
+                1
+              ],
+              "bpb": 2.7930559112265576,
+              "critic_mean": -0.03200651705265045,
+              "critic_std": 0.05319901928305626,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.08 refine=-0.08 temp=1.00 batch=4",
+              "predicted_bpb": 2.7640960216522217,
+              "rank_score": -0.15691155195236206,
+              "standard_error": 0.019834581104149984,
+              "utility": -0.020921946107822498
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 15,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 30,
+            "rejected": 29
+          },
+          "noop_bpb": 2.772133965118735,
+          "step": 7500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00035450903377048573,
+          "best_utility": -0.00012364612066917413,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7387035192714912,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                1,
+                1,
+                1,
+                2,
+                4,
+                0,
+                1
+              ],
+              "bpb": 2.7389736301172016,
+              "critic_mean": 0.017176372930407524,
+              "critic_std": 0.04817773774266243,
+              "label": "lr=0.80 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.08 temp=0.80 batch=4",
+              "predicted_bpb": 2.78251051902771,
+              "rank_score": -0.10990472137928009,
+              "standard_error": 0.0004462794608210445,
+              "utility": -0.00027011084571015864
+            },
+            {
+              "action": [
+                1,
+                1,
+                0,
+                2,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7388271653921605,
+              "critic_mean": -0.0014164000749588013,
+              "critic_std": 0.04006741940975189,
+              "label": "lr=0.90 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 3.1237518787384033,
+              "rank_score": -0.1475871354341507,
+              "standard_error": 0.00035450903377048573,
+              "utility": -0.00012364612066917413
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 16,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 32,
+            "rejected": 31
+          },
+          "noop_bpb": 2.7387035192714912,
+          "step": 8000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.005354906946742213,
+          "best_utility": 0.0028175232447478216,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7493578915189483,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                2,
+                1,
+                2,
+                3,
+                0,
+                0,
+                1
+              ],
+              "bpb": 2.746540368274201,
+              "critic_mean": 0.014898467808961868,
+              "critic_std": 0.04346562922000885,
+              "label": "lr=0.90 up_lr=2.00 clip=1.00 wd=0.100 gate=+0.02 refine=-0.08 temp=0.80 batch=4",
+              "predicted_bpb": 3.0566670894622803,
+              "rank_score": -0.12706848978996277,
+              "standard_error": 0.005354906946742213,
+              "utility": 0.0028175232447478216
+            },
+            {
+              "action": [
+                2,
+                0,
+                3,
+                2,
+                2,
+                2,
+                1,
+                0
+              ],
+              "bpb": 2.7500058724336647,
+              "critic_mean": 0.0052770525217056274,
+              "critic_std": 0.04264167696237564,
+              "label": "lr=1.00 up_lr=0.50 clip=4.00 wd=0.100 gate=+0.00 refine=+0.00 temp=1.00 batch=2",
+              "predicted_bpb": 3.0056567192077637,
+              "rank_score": -0.13434535264968872,
+              "standard_error": 0.0020991071884136616,
+              "utility": -0.0006479809147160731
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 17,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 34,
+            "rejected": 33
+          },
+          "noop_bpb": 2.7493578915189483,
+          "step": 8500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00031744712997117916,
+          "best_utility": 0.0001662400426613031,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.698117958275101,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                1,
+                1,
+                2,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.6979517182324395,
+              "critic_mean": 0.012879205867648125,
+              "critic_std": 0.0338340625166893,
+              "label": "lr=0.90 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 3.0036206245422363,
+              "rank_score": -0.1288433074951172,
+              "standard_error": 0.00031744712997117916,
+              "utility": 0.0001662400426613031
+            },
+            {
+              "action": [
+                3,
+                1,
+                3,
+                2,
+                2,
+                4,
+                2,
+                1
+              ],
+              "bpb": 2.6981779573788063,
+              "critic_mean": -0.005766641348600388,
+              "critic_std": 0.04151628166437149,
+              "label": "lr=1.10 up_lr=1.00 clip=4.00 wd=0.100 gate=+0.00 refine=+0.08 temp=1.25 batch=4",
+              "predicted_bpb": 2.8466625213623047,
+              "rank_score": -0.13772068917751312,
+              "standard_error": 0.00010242816391052724,
+              "utility": -5.9999103705354884e-05
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 18,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 36,
+            "rejected": 35
+          },
+          "noop_bpb": 2.698117958275101,
+          "step": 9000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00043365185091648545,
+          "best_utility": -0.00019522315017495018,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.713842818431922,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                1,
+                0,
+                2,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7140380415820973,
+              "critic_mean": -0.003969098441302776,
+              "critic_std": 0.03148888051509857,
+              "label": "lr=0.80 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.9716501235961914,
+              "rank_score": -0.14467938244342804,
+              "standard_error": 0.00043365185091648545,
+              "utility": -0.00019522315017495018
+            },
+            {
+              "action": [
+                2,
+                1,
+                2,
+                1,
+                4,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.743798205677278,
+              "critic_mean": -0.02711614780128002,
+              "critic_std": 0.030440839007496834,
+              "label": "lr=1.00 up_lr=1.00 clip=2.00 wd=0.010 gate=+0.08 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.794633150100708,
+              "rank_score": -0.1592375934123993,
+              "standard_error": 0.013433167568665317,
+              "utility": -0.029955387245355514
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 19,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 38,
+            "rejected": 37
+          },
+          "noop_bpb": 2.713842818431922,
+          "step": 9500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.000324297568409853,
+          "best_utility": 0.00071693923963978,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6843320224624203,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.684321616168429,
+              "critic_mean": 0.002469127532094717,
+              "critic_std": 0.02724379487335682,
+              "label": "lr=0.90 up_lr=1.00 clip=1.00 wd=0.100 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.89349365234375,
+              "rank_score": -0.1353946179151535,
+              "standard_error": 0.00033234606484188595,
+              "utility": 1.0406293991516158e-05
+            },
+            {
+              "action": [
+                2,
+                1,
+                0,
+                2,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6836150832227808,
+              "critic_mean": -0.0008772611618041992,
+              "critic_std": 0.030220869928598404,
+              "label": "lr=1.00 up_lr=1.00 clip=0.50 wd=0.100 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.8991246223449707,
+              "rank_score": -0.1382782757282257,
+              "standard_error": 0.000324297568409853,
+              "utility": 0.00071693923963978
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 20,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 40,
+            "rejected": 39
+          },
+          "noop_bpb": 2.6843320224624203,
+          "step": 10000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005055906326979416,
+          "best_utility": -0.0003172542462633876,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.719977732496151,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                2,
+                2,
+                0,
+                0,
+                1
+              ],
+              "bpb": 2.720294986742414,
+              "critic_mean": 0.014755094423890114,
+              "critic_std": 0.03453601151704788,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.100 gate=+0.00 refine=-0.08 temp=0.80 batch=4",
+              "predicted_bpb": 2.5849881172180176,
+              "rank_score": -0.10586030781269073,
+              "standard_error": 0.0005055906326979416,
+              "utility": -0.0003172542462633876
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                1,
+                2,
+                4,
+                3,
+                0
+              ],
+              "bpb": 2.720324254696193,
+              "critic_mean": 0.00028999149799346924,
+              "critic_std": 0.0286706555634737,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.010 gate=+0.00 refine=+0.08 temp=1.50 batch=2",
+              "predicted_bpb": 2.9352636337280273,
+              "rank_score": -0.13930551707744598,
+              "standard_error": 0.0013594902735881596,
+              "utility": -0.00034652220004260936
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 21,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 42,
+            "rejected": 41
+          },
+          "noop_bpb": 2.719977732496151,
+          "step": 10500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0011701216555325344,
+          "best_utility": -0.0005730999372534074,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7359670132914444,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                1,
+                3,
+                2,
+                3,
+                0,
+                3,
+                1
+              ],
+              "bpb": 2.743452104028561,
+              "critic_mean": 0.011339446529746056,
+              "critic_std": 0.035120848566293716,
+              "label": "lr=0.90 up_lr=1.00 clip=4.00 wd=0.100 gate=+0.02 refine=-0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.5780696868896484,
+              "rank_score": -0.10878381878137589,
+              "standard_error": 0.004523118270749419,
+              "utility": -0.00748509073711634
+            },
+            {
+              "action": [
+                0,
+                0,
+                1,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.7365401132286977,
+              "critic_mean": -0.00552488025277853,
+              "critic_std": 0.023781586438417435,
+              "label": "lr=0.80 up_lr=0.50 clip=1.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.948301076889038,
+              "rank_score": -0.14699454605579376,
+              "standard_error": 0.0011701216555325344,
+              "utility": -0.0005730999372534074
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 22,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 44,
+            "rejected": 43
+          },
+          "noop_bpb": 2.7359670132914444,
+          "step": 11000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00036600539947844466,
+          "best_utility": -0.0009849876371540445,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6923285533256123,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                3,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6933135409627664,
+              "critic_mean": -0.0008364183595404029,
+              "critic_std": 0.02318970486521721,
+              "label": "lr=0.90 up_lr=0.50 clip=4.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.7289507389068604,
+              "rank_score": -0.13148652017116547,
+              "standard_error": 0.00036600539947844466,
+              "utility": -0.0009849876371540445
+            },
+            {
+              "action": [
+                2,
+                2,
+                2,
+                2,
+                4,
+                0,
+                1,
+                1
+              ],
+              "bpb": 2.735572700068679,
+              "critic_mean": -0.03343699499964714,
+              "critic_std": 0.028616173192858696,
+              "label": "lr=1.00 up_lr=2.00 clip=2.00 wd=0.100 gate=+0.08 refine=-0.08 temp=1.00 batch=4",
+              "predicted_bpb": 2.6123709678649902,
+              "rank_score": -0.1569014936685562,
+              "standard_error": 0.01778352504349683,
+              "utility": -0.043244146743066536
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 23,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 46,
+            "rejected": 45
+          },
+          "noop_bpb": 2.6923285533256123,
+          "step": 11500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.003467061404228953,
+          "best_utility": -0.0025419936019209777,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.677482196672772,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                1,
+                3,
+                2,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6800241902746933,
+              "critic_mean": 0.00629662349820137,
+              "critic_std": 0.021674342453479767,
+              "label": "lr=0.90 up_lr=1.00 clip=4.00 wd=0.100 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.886903762817383,
+              "rank_score": -0.13262999057769775,
+              "standard_error": 0.003467061404228953,
+              "utility": -0.0025419936019209777
+            },
+            {
+              "action": [
+                1,
+                1,
+                3,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.680033935510371,
+              "critic_mean": -0.003591953543946147,
+              "critic_std": 0.02161824330687523,
+              "label": "lr=0.90 up_lr=1.00 clip=4.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.950296640396118,
+              "rank_score": -0.14570222795009613,
+              "standard_error": 0.0034269986909289487,
+              "utility": -0.002551738837598627
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 24,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 48,
+            "rejected": 47
+          },
+          "noop_bpb": 2.677482196672772,
+          "step": 12000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0001582635463249806,
+          "best_utility": 0.00028182447657132403,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.681298827599033,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.681017003122461,
+              "critic_mean": -0.006729914806783199,
+              "critic_std": 0.02212694101035595,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6301865577697754,
+              "rank_score": -0.13270750641822815,
+              "standard_error": 0.0001582635463249806,
+              "utility": 0.00028182447657132403
+            },
+            {
+              "action": [
+                1,
+                0,
+                1,
+                1,
+                4,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.7124946961455434,
+              "critic_mean": -0.021208953112363815,
+              "critic_std": 0.02260122448205948,
+              "label": "lr=0.90 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.08 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.597317934036255,
+              "rank_score": -0.14542454481124878,
+              "standard_error": 0.009136218171469375,
+              "utility": -0.031195868546510797
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 25,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 50,
+            "rejected": 49
+          },
+          "noop_bpb": 2.681298827599033,
+          "step": 12500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0023034656434118314,
+          "best_utility": -0.0040384764533435424,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6663787777239123,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                1,
+                3,
+                2,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6704172541772557,
+              "critic_mean": 0.0038529611192643642,
+              "critic_std": 0.019786613062024117,
+              "label": "lr=0.90 up_lr=1.00 clip=4.00 wd=0.100 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6786837577819824,
+              "rank_score": -0.12513457238674164,
+              "standard_error": 0.0023034656434118314,
+              "utility": -0.0040384764533435424
+            },
+            {
+              "action": [
+                3,
+                0,
+                1,
+                1,
+                4,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7129533147563585,
+              "critic_mean": -0.021516498178243637,
+              "critic_std": 0.025977078825235367,
+              "label": "lr=1.10 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.08 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.6729297637939453,
+              "rank_score": -0.14866872131824493,
+              "standard_error": 0.009459633432780208,
+              "utility": -0.046574537032446295
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 26,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 52,
+            "rejected": 51
+          },
+          "noop_bpb": 2.6663787777239123,
+          "step": 13000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.004123826931079261,
+          "best_utility": -3.6859375477482637e-05,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.650893512241189,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6512367210879737,
+              "critic_mean": -0.007097593508660793,
+              "critic_std": 0.019427718594670296,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6487951278686523,
+              "rank_score": -0.13468042016029358,
+              "standard_error": 0.0005430008804194025,
+              "utility": -0.0003432088467847372
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.650930371616666,
+              "critic_mean": -0.005856676958501339,
+              "critic_std": 0.021354347467422485,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 2.832505226135254,
+              "rank_score": -0.1421433389186859,
+              "standard_error": 0.004123826931079261,
+              "utility": -3.6859375477482637e-05
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 27,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 54,
+            "rejected": 53
+          },
+          "noop_bpb": 2.650893512241189,
+          "step": 13500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.004321210336937467,
+          "best_utility": -0.004126836571067605,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6755153345531677,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                0,
+                1,
+                1,
+                4,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.7078989381279825,
+              "critic_mean": -0.024100225418806076,
+              "critic_std": 0.01902121491730213,
+              "label": "lr=0.80 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.08 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": 2.5354769229888916,
+              "rank_score": -0.14611877501010895,
+              "standard_error": 0.016357289432102778,
+              "utility": -0.03238360357481507
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                1,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.679642171124235,
+              "critic_mean": -0.008901672437787056,
+              "critic_std": 0.01923614740371704,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=-0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.9925920963287354,
+              "rank_score": -0.15372224152088165,
+              "standard_error": 0.004321210336937467,
+              "utility": -0.004126836571067605
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 28,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 56,
+            "rejected": 55
+          },
+          "noop_bpb": 2.6755153345531677,
+          "step": 14000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0034923215037644087,
+          "best_utility": -0.0036124848324575742,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6467781877588132,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.6504128153575692,
+              "critic_mean": -0.0011677158763632178,
+              "critic_std": 0.019558336585760117,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 2.7776243686676025,
+              "rank_score": -0.13515935838222504,
+              "standard_error": 0.0034421456367428687,
+              "utility": -0.0036346275987562127
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.650390672591271,
+              "critic_mean": -0.0021338537335395813,
+              "critic_std": 0.01913965865969658,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.7822256088256836,
+              "rank_score": -0.13646021485328674,
+              "standard_error": 0.0034923215037644087,
+              "utility": -0.0036124848324575742
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 29,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 58,
+            "rejected": 57
+          },
+          "noop_bpb": 2.6467781877588132,
+          "step": 14500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.001044380565539664,
+          "best_utility": -0.001746001461920721,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6643904312090942,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6661364326710153,
+              "critic_mean": -0.0007231223280541599,
+              "critic_std": 0.019006112590432167,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6382815837860107,
+              "rank_score": -0.12788566946983337,
+              "standard_error": 0.001044380565539664,
+              "utility": -0.001746001461920721
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.669453572234592,
+              "critic_mean": -0.0008976347744464874,
+              "critic_std": 0.02001320570707321,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 2.8474373817443848,
+              "rank_score": -0.1382661908864975,
+              "standard_error": 0.005074014990221238,
+              "utility": -0.005063141025497542
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 30,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 60,
+            "rejected": 59
+          },
+          "noop_bpb": 2.6643904312090942,
+          "step": 15000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0003903952631995983,
+          "best_utility": 0.0012032228721833294,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6642002103355535,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.66299698746337,
+              "critic_mean": -0.002556547522544861,
+              "critic_std": 0.01837923564016819,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6953980922698975,
+              "rank_score": -0.13273164629936218,
+              "standard_error": 0.0003903952631995983,
+              "utility": 0.0012032228721833294
+            },
+            {
+              "action": [
+                0,
+                0,
+                1,
+                1,
+                4,
+                0,
+                3,
+                1
+              ],
+              "bpb": 2.7000261716235325,
+              "critic_mean": -0.03086838126182556,
+              "critic_std": 0.019589778035879135,
+              "label": "lr=0.80 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.08 refine=-0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.1426990032196045,
+              "rank_score": -0.13310588896274567,
+              "standard_error": 0.014289035318449151,
+              "utility": -0.03582596128797921
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 31,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 62,
+            "rejected": 61
+          },
+          "noop_bpb": 2.6642002103355535,
+          "step": 15500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0007384725874125769,
+          "best_utility": 0.0016303444728298366,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6733915113923614,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                0,
+                2,
+                1,
+                2,
+                3,
+                3,
+                1
+              ],
+              "bpb": 2.6717687731209887,
+              "critic_mean": -0.03412940725684166,
+              "critic_std": 0.021799203008413315,
+              "label": "lr=0.80 up_lr=0.50 clip=2.00 wd=0.010 gate=+0.00 refine=+0.02 temp=1.50 batch=4",
+              "predicted_bpb": 2.0448837280273438,
+              "rank_score": -0.130923792719841,
+              "standard_error": 0.0006966330504297092,
+              "utility": 0.0016227382713726035
+            },
+            {
+              "action": [
+                0,
+                0,
+                1,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6717611669195316,
+              "critic_mean": -0.0035451799631118774,
+              "critic_std": 0.018332310020923615,
+              "label": "lr=0.80 up_lr=0.50 clip=1.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.850177764892578,
+              "rank_score": -0.1414709985256195,
+              "standard_error": 0.0007384725874125769,
+              "utility": 0.0016303444728298366
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 32,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 64,
+            "rejected": 63
+          },
+          "noop_bpb": 2.6733915113923614,
+          "step": 16000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0007428202502301457,
+          "best_utility": -0.0006649306111272679,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6622033197763852,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                1,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6628682503875125,
+              "critic_mean": -0.0024247406981885433,
+              "critic_std": 0.018340425565838814,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.4560275077819824,
+              "rank_score": -0.12064101547002792,
+              "standard_error": 0.0007428202502301457,
+              "utility": -0.0006649306111272679
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                3,
+                3,
+                1
+              ],
+              "bpb": 2.6628932080261043,
+              "critic_mean": -0.031101254746317863,
+              "critic_std": 0.0216468907892704,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.02 temp=1.50 batch=4",
+              "predicted_bpb": 2.2275214195251465,
+              "rank_score": -0.1370656043291092,
+              "standard_error": 0.0007417734355098462,
+              "utility": -0.0006898882497192727
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 33,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 66,
+            "rejected": 65
+          },
+          "noop_bpb": 2.6622033197763852,
+          "step": 16500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00457654955934241,
+          "best_utility": 0.0008461882326066261,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6206373515245347,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6198869132891813,
+              "critic_mean": 0.006483191158622503,
+              "critic_std": 0.01884518191218376,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6697704792022705,
+              "rank_score": -0.12229403853416443,
+              "standard_error": 0.0007511443972454276,
+              "utility": 0.0007504382353532568
+            },
+            {
+              "action": [
+                0,
+                0,
+                2,
+                0,
+                3,
+                2,
+                3,
+                0
+              ],
+              "bpb": 2.619791163291928,
+              "critic_mean": 0.0012754760682582855,
+              "critic_std": 0.019037164747714996,
+              "label": "lr=0.80 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=2",
+              "predicted_bpb": 2.873074531555176,
+              "rank_score": -0.13761895895004272,
+              "standard_error": 0.00457654955934241,
+              "utility": 0.0008461882326066261
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 34,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 68,
+            "rejected": 67
+          },
+          "noop_bpb": 2.6206373515245347,
+          "step": 17000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.005384595863454865,
+          "best_utility": -0.002579892934990502,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6198623533604697,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                1,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6227621971759447,
+              "critic_mean": 0.0032320606987923384,
+              "critic_std": 0.019293036311864853,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.010 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6651694774627686,
+              "rank_score": -0.12520316243171692,
+              "standard_error": 0.005106960572249505,
+              "utility": -0.002899843815474923
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.62244224629546,
+              "critic_mean": 0.0015388715546578169,
+              "critic_std": 0.019267626106739044,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 2.914026975631714,
+              "rank_score": -0.13934557139873505,
+              "standard_error": 0.005384595863454865,
+              "utility": -0.002579892934990502
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 35,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 70,
+            "rejected": 69
+          },
+          "noop_bpb": 2.6198623533604697,
+          "step": 17500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0002612875958518584,
+          "best_utility": -3.130218607150237e-05,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.6270121948228615,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                1,
+                1,
+                1,
+                2,
+                4,
+                3,
+                1
+              ],
+              "bpb": 2.627043497008933,
+              "critic_mean": 0.005488240625709295,
+              "critic_std": 0.01960121840238571,
+              "label": "lr=0.90 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.3691911697387695,
+              "rank_score": -0.10807102173566818,
+              "standard_error": 0.0002612875958518584,
+              "utility": -3.130218607150237e-05
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.629785221587542,
+              "critic_mean": 0.0023211552761495113,
+              "critic_std": 0.01867729239165783,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.7932052612304688,
+              "rank_score": -0.13266979157924652,
+              "standard_error": 0.004439088491923188,
+              "utility": -0.0027730267646806084
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 36,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 72,
+            "rejected": 71
+          },
+          "noop_bpb": 2.6270121948228615,
+          "step": 18000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005761916174073516,
+          "best_utility": 0.001297574166783888,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.5826582829985965,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                1,
+                3,
+                1
+              ],
+              "bpb": 2.581360708831813,
+              "critic_mean": -0.005094492342323065,
+              "critic_std": 0.01831780932843685,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=-0.02 temp=1.50 batch=4",
+              "predicted_bpb": 2.3007020950317383,
+              "rank_score": -0.11555014550685883,
+              "standard_error": 0.0005761916174073516,
+              "utility": 0.001297574166783888
+            },
+            {
+              "action": [
+                1,
+                0,
+                1,
+                0,
+                3,
+                0,
+                3,
+                0
+              ],
+              "bpb": 2.588558999688013,
+              "critic_mean": -0.008355652913451195,
+              "critic_std": 0.01858852431178093,
+              "label": "lr=0.90 up_lr=0.50 clip=1.00 wd=0.000 gate=+0.02 refine=-0.08 temp=1.50 batch=2",
+              "predicted_bpb": 2.5342705249786377,
+              "rank_score": -0.13042205572128296,
+              "standard_error": 0.003060787872361381,
+              "utility": -0.005900716689416274
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 37,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 74,
+            "rejected": 73
+          },
+          "noop_bpb": 2.5826582829985965,
+          "step": 18500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.00394892913310961,
+          "best_utility": -0.0014379872522977122,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.5682249668668637,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                0,
+                2,
+                0,
+                3,
+                0,
+                3,
+                1
+              ],
+              "bpb": 2.56978799491164,
+              "critic_mean": -0.0014853093307465315,
+              "critic_std": 0.019186129793524742,
+              "label": "lr=0.80 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=-0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.199878215789795,
+              "rank_score": -0.1066826805472374,
+              "standard_error": 0.0035683815974373485,
+              "utility": -0.0015630280447762601
+            },
+            {
+              "action": [
+                3,
+                0,
+                2,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.5696629541191616,
+              "critic_mean": -0.008882991038262844,
+              "critic_std": 0.01835489459335804,
+              "label": "lr=1.10 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6537609100341797,
+              "rank_score": -0.13698230683803558,
+              "standard_error": 0.00394892913310961,
+              "utility": -0.0014379872522977122
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 38,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 76,
+            "rejected": 75
+          },
+          "noop_bpb": 2.5682249668668637,
+          "step": 19000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005067552028135693,
+          "best_utility": 0.0010089604063469038,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.592482167148411,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                1,
+                1,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.591473206742064,
+              "critic_mean": 0.004495500586926937,
+              "critic_std": 0.018838034942746162,
+              "label": "lr=0.90 up_lr=0.50 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.289975166320801,
+              "rank_score": -0.10529375076293945,
+              "standard_error": 0.0005067552028135693,
+              "utility": 0.0010089604063469038
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                0,
+                1
+              ],
+              "bpb": 2.594610413488019,
+              "critic_mean": 0.0010428702225908637,
+              "critic_std": 0.018876168876886368,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=0.80 batch=4",
+              "predicted_bpb": 2.6336236000061035,
+              "rank_score": -0.12591926753520966,
+              "standard_error": 0.003994342074151875,
+              "utility": -0.002128246339607953
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 39,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 78,
+            "rejected": 77
+          },
+          "noop_bpb": 2.592482167148411,
+          "step": 19500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0005884440553375401,
+          "best_utility": 0.001146530403663637,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.5972343554794612,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                0,
+                0,
+                2,
+                2,
+                2,
+                0,
+                3,
+                1
+              ],
+              "bpb": 2.5960878250757977,
+              "critic_mean": 0.002099222270771861,
+              "critic_std": 0.01938350684940815,
+              "label": "lr=0.80 up_lr=0.50 clip=2.00 wd=0.100 gate=+0.00 refine=-0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.4747543334960938,
+              "rank_score": -0.11679262667894363,
+              "standard_error": 0.0005884440553375401,
+              "utility": 0.001146530403663637
+            },
+            {
+              "action": [
+                1,
+                0,
+                3,
+                2,
+                4,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.6452680188505027,
+              "critic_mean": -0.030418742448091507,
+              "critic_std": 0.018634971231222153,
+              "label": "lr=0.90 up_lr=0.50 clip=4.00 wd=0.100 gate=+0.08 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.6332039833068848,
+              "rank_score": -0.15742018818855286,
+              "standard_error": 0.01635661160789515,
+              "utility": -0.0480336633710412
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 40,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 80,
+            "rejected": 79
+          },
+          "noop_bpb": 2.5972343554794612,
+          "step": 20000
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.004077652185975593,
+          "best_utility": -0.0018100260345478292,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.5907082265674117,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                3,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.5927025629154916,
+              "critic_mean": -0.006316924002021551,
+              "critic_std": 0.018516506999731064,
+              "label": "lr=0.90 up_lr=0.50 clip=4.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.2837066650390625,
+              "rank_score": -0.11587312817573547,
+              "standard_error": 0.004098952594810035,
+              "utility": -0.0019943363480798837
+            },
+            {
+              "action": [
+                1,
+                1,
+                2,
+                0,
+                3,
+                4,
+                3,
+                1
+              ],
+              "bpb": 2.5925182526019594,
+              "critic_mean": -0.005348902195692062,
+              "critic_std": 0.01841462031006813,
+              "label": "lr=0.90 up_lr=1.00 clip=2.00 wd=0.000 gate=+0.02 refine=+0.08 temp=1.50 batch=4",
+              "predicted_bpb": 2.655470132827759,
+              "rank_score": -0.1335187554359436,
+              "standard_error": 0.004077652185975593,
+              "utility": -0.0018100260345478292
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 41,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 82,
+            "rejected": 81
+          },
+          "noop_bpb": 2.5907082265674117,
+          "step": 20500
+        },
+        {
+          "accepted": false,
+          "best_standard_error": 0.0003341328038094752,
+          "best_utility": -0.00017933356557275903,
+          "branch_updates": 15,
+          "candidates": [
+            {
+              "action": [
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                1
+              ],
+              "bpb": 2.556928522921085,
+              "critic_mean": null,
+              "critic_std": null,
+              "label": "lr=1.00 up_lr=1.00 clip=1.00 wd=0.010 gate=+0.00 refine=+0.00 temp=1.00 batch=4",
+              "predicted_bpb": null,
+              "rank_score": null,
+              "standard_error": 0.0,
+              "utility": 0.0
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                2,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.557107856486658,
+              "critic_mean": 0.003921048250049353,
+              "critic_std": 0.019036928191781044,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.00 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 2.7952444553375244,
+              "rank_score": -0.1310819387435913,
+              "standard_error": 0.0003341328038094752,
+              "utility": -0.00017933356557275903
+            },
+            {
+              "action": [
+                1,
+                0,
+                2,
+                0,
+                3,
+                2,
+                3,
+                1
+              ],
+              "bpb": 2.5599376455878096,
+              "critic_mean": 0.00027206912636756897,
+              "critic_std": 0.018608707934617996,
+              "label": "lr=0.90 up_lr=0.50 clip=2.00 wd=0.000 gate=+0.02 refine=+0.00 temp=1.50 batch=4",
+              "predicted_bpb": 3.028459310531616,
+              "rank_score": -0.14649870991706848,
+              "standard_error": 0.0016475928607857073,
+              "utility": -0.003009122666724817
+            }
+          ],
+          "chosen": [
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            1,
+            1
+          ],
+          "cycle": 42,
+          "ledger": {
+            "accepted": 1,
+            "proposals": 84,
+            "rejected": 83
+          },
+          "noop_bpb": 2.556928522921085,
+          "step": 21000
+        }
+      ],
+      "proposals": 84,
+      "rejected": 83
+    },
+    "rsi_version": "v4",
+    "sampler": {
+      "cursor": 84160,
+      "schema": "full-cycle-affine-v1",
+      "stride": 1205633,
+      "train_positions": 1999968
+    },
+    "smoke": true,
+    "smoke_wall_seconds": 604.9395640349999,
+    "terminal_events": [],
+    "terminal_reward_mode": "predictive_dual_train_bpb",
+    "test_untouched": true,
+    "topk_probes": 1,
+    "total_train_rsi_dev_seconds": 600.0635033320004,
+    "training_duration_seconds": 600.0102293359996,
+    "updates_per_second": 35.066068828999605,
+    "updates_this_round": 21040,
+    "upgrade_context": 256
+  },
+  "console": "/marimo/terminal_rsi_unified_v4_10m/blackwell_smoke_console.log",
+  "note": "Smoke only: the 6.5M unified model is used; no tens-of-GiB optimizer checkpoint or champion is written. Peak VRAM and throughput are in receipt.gpu; v4 ledger is in receipt.rsi_v4."
+}

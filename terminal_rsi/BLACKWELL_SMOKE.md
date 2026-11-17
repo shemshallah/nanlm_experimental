@@ -71,6 +71,30 @@ The GPU window cache (zero-padded sliding view, GPU gather of contexts and
 auxiliary features) is enabled by default for Blackwell. It removes the
 per-step CPU window construction but does not change the v103 forward cost.
 
+## Completed 10-minute unified-v4 smoke
+
+Receipt: [`reports/blackwell_smoke_10m/`](reports/blackwell_smoke_10m/).
+
+| Metric | Value |
+|---|---:|
+| Kept updates | **21,040** |
+| Training loop | **600.0 s** |
+| Updates/s | **35.07** |
+| Peak allocated | **1.564 GiB** |
+| Peak reserved | **44.0 GiB** of 95.0 GiB |
+| v4 cycles | **42** |
+| v4 proposals / accepted / rejected | **84 / 1 / 83** |
+| v4 branch updates | **630** |
+| DEV BPB, 8 probes | 8.188456 → **3.854028** |
+| Bit accuracy, 8 probes | 0.359375 → **0.843750** |
+| Gate-zero original v103 parity | **exact** |
+| Sealed TEST | untouched |
+
+The v4 controller is deliberately conservative here: 1 accepted branch in 42
+cycles. This is a throughput/hardware/parity smoke, not a quality claim; the
+DEV probe is only 8 positions. The full receipt and v4 event ledger are in
+`blackwell_smoke_metrics.json` and `blackwell_smoke_summary.json`.
+
 ## Parity gates
 
 - 14/14 CPU/T4/Blackwell tests pass on the live Molab Blackwell card.
