@@ -39,7 +39,8 @@ def _append_stats(sums,counts,predictions,targets,horizon):
 
 @torch.no_grad()
 def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
-                         history=32768,key_mode="hierarchical"):
+                         history=32768,key_mode="hierarchical",
+                         score_start=0,score_positions=None):
     """Matched causal result per arm on one independent book's input prefix.
 
     Args:
@@ -64,6 +65,13 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
         raise ValueError("R63 causal book streaming currently requires CPU model")
     if key_mode not in ("pair_byte","pair_bigram","head_byte","hierarchical"):
         raise ValueError("Unsupported causal book key mode")
+    total=len(book_tokens)-1
+    if (not isinstance(score_start,int) or score_start<0 or score_start>=total or
+            (score_positions is not None and
+             (not isinstance(score_positions,int) or score_positions<1))):
+        raise ValueError("Invalid causal scoring interval")
+    score_end=(total if score_positions is None else
+               min(total,score_start+score_positions))
 
     # All five histories start empty and never receive another book's data.
     wrong_pair=torch.arange(32640,dtype=torch.long).roll(137)
@@ -83,20 +91,30 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
 
     sums={arm:[0.0]*len(METRICS) for arm in ARMS}
     counts={arm:[0]*len(METRICS) for arm in ARMS}
-    total=len(book_tokens)-1
-    raw_targets=int(book_tokens[1:].ne(256).sum().item())
+    raw_targets=int(book_tokens[score_start+1:score_end+1].ne(256).sum().item())
+    if raw_targets==0:
+        raise ValueError("No literal bytes in requested scoring interval")
     start_time=perf_counter()
-    for start in range(0,total,chunk):
-        stop=min(total,start+chunk)
+    for start in range(0,score_end,chunk):
+        stop=min(score_end,start+chunk)
         left=max(0,stop-context)
         ids=book_tokens[left:stop].unsqueeze(0)
         _,hidden,_=model(ids)
-        raw_logits=model.head(hidden).detach()
-        plus2,plus3=model.future_logits(hidden)
         pairs=model._r54_geometry().r54_last_pairs.detach()
         if pairs.shape[:2]!=ids.shape:
             raise AssertionError("Stale or missing causal pair-address capture")
-        offset=start-left
+        # Warm-up is causal: input bytes and pair IDs update all histories,
+        # but warm-up positions never contribute evaluation metrics.
+        if stop<=score_start:
+            for stream in streams.values():
+                for t in range(start,stop):
+                    stream.step(book_id,int(book_tokens[t]),pairs[0,t-left].tolist())
+            continue
+        raw_logits=model.head(hidden).detach()
+        plus2,plus3=model.future_logits(hidden)
+        query_start=max(start,score_start)
+        lo=query_start-left
+        hi=stop-left
         arm_values={}
         for arm,stream in streams.items():
             hist=torch.zeros_like(raw_logits)
@@ -113,16 +131,16 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
             corrected,_=model.pair_successor(
                 raw_logits,pairs,ids,
                 joint_memory_override=(hist,coverage,hits))
-            arm_values[arm]=corrected[0,offset:offset+stop-start].detach()
+            arm_values[arm]=corrected[0,lo:hi].detach()
         for arm,logits in arm_values.items():
             for future,prediction in enumerate((
-                    logits,plus2[0,offset:offset+stop-start],
-                    plus3[0,offset:offset+stop-start])):
+                    logits,plus2[0,lo:hi],
+                    plus3[0,lo:hi])):
                 horizon=future+1
-                valid=min(stop-start,max(0,len(book_tokens)-start-horizon))
+                valid=min(stop-query_start,max(0,len(book_tokens)-query_start-horizon))
                 if valid==0:
                     continue
-                labels=book_tokens[start+horizon:start+horizon+valid]
+                labels=book_tokens[query_start+horizon:query_start+horizon+valid]
                 _append_stats(sums[arm],counts[arm],prediction[:valid],
                               labels,future)
     elapsed=perf_counter()-start_time
@@ -137,6 +155,8 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
             "bits_per_byte_or_eos_target":metrics["ce_1"]/math.log(2),
             "positions_scored":counts[arm][0],
             "raw_target_bytes":raw_targets,
+            "score_start":score_start,
+            "score_end_exclusive":score_end,
             "evaluated_tokens_per_second":counts[arm][0]/max(elapsed,1e-9),
         }
     return output
