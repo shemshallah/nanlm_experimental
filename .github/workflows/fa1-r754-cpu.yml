@@ -1,0 +1,148 @@
+name: FA1 R7.54 - causal successor CPU gates
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r754-cpu.yml'
+      - 'fa1r7.12/source/fa1_r754_cpu_pilot.py'
+      - 'fa1r7.12/source/test_fa1_r754_cpu_pilot.py'
+      - 'fa1r7.12/source/fa1_r753_*.py'
+      - 'fa1r7.12/FA1_R7p54_CPU_PILOT.md'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release containing verified FA1 R7.49 CPU recovery bundle'
+        required: true
+        default: 'fa1-r749-cpu-recovery'
+        type: string
+      bundle_asset:
+        description: 'Archive with documented R7.54 recovery directory contract'
+        required: true
+        default: 'FA1_R749_CPU_RECOVERY.zip'
+        type: string
+      threads:
+        description: 'CPU threads: 1, 2 or 4'
+        required: true
+        default: '4'
+        type: choice
+        options: ['1', '2', '4']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fa1-r754-cpu-master
+  cancel-in-progress: false
+
+jobs:
+  source-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile checkpoint, successor and pilot source
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r753_*.py
+          python -m py_compile fa1r7.12/source/fa1_r754_cpu_pilot.py
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
+      - name: Exercise new causal, optimizer and inherited regression contracts
+        run: |
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r754_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r753_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r749_*.py' -v
+
+  checkpoint-backed-cpu:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source-regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONPATH: ${{ github.workspace }}/fa1r7.12/source
+      OMP_NUM_THREADS: ${{ inputs.threads }}
+      MKL_NUM_THREADS: ${{ inputs.threads }}
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Fail closed unless full recoverable FA1 R7.49 bundle exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fa1-r754"
+          gh release download '${{ inputs.release_tag }}' -R "$GITHUB_REPOSITORY" \
+            --pattern '${{ inputs.bundle_asset }}' -D "$RUNNER_TEMP/fa1-r754"
+          python - "$RUNNER_TEMP/fa1-r754/${{ inputs.bundle_asset }}" "$RUNNER_TEMP/fa1-r754/recovered" <<'PY'
+          from pathlib import Path
+          import sys, zipfile
+          source, target = map(Path, sys.argv[1:])
+          if not source.is_file(): raise SystemExit("required verified recovery asset absent")
+          target.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(source) as z:
+              for member in z.infolist():
+                  resolved = (target / member.filename).resolve()
+                  if not resolved.is_relative_to(target.resolve()):
+                      raise SystemExit("archive path traversal refused")
+              z.extractall(target)
+          root = target / "root"
+          required = [
+              root / "corpus/vocab.words.txt",
+              root / "corpus/token_heads.u16",
+              root / "corpus/tree.i32",
+              target / "r749.pt",
+              target / "processed/train_documents.json",
+              target / "processed/dev_documents.json",
+              target / "metadata/train_documents.json",
+              target / "metadata/dev_documents.json",
+          ]
+          missing = [str(p) for p in required if not p.is_file()]
+          if missing: raise SystemExit("incomplete recovery bundle: " + repr(missing))
+          import hashlib
+          h = hashlib.sha256()
+          with (target/"r749.pt").open("rb") as f:
+              for part in iter(lambda: f.read(1<<20), b""): h.update(part)
+          expected = "b8dabe54e2417a75defd01c776606367a3f3b0f18f479b032f8390b6fc87ddb5"
+          if h.hexdigest() != expected:
+              raise SystemExit("protected FA1 R7.49 checkpoint SHA-256 mismatch")
+          print("R7.49 verified; recovered root, TRAIN/DEV metadata present; TEST unopened")
+          PY
+      - name: 1,000-update CPU word then geometry pilot, DEV-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fa1-r754/out"
+          python fa1r7.12/source/fa1_r754_cpu_pilot.py \
+            --root "$RUNNER_TEMP/fa1-r754/recovered/root" \
+            --corpus-dir "$RUNNER_TEMP/fa1-r754/recovered/processed" \
+            --split-metadata "$RUNNER_TEMP/fa1-r754/recovered/metadata" \
+            --checkpoint "$RUNNER_TEMP/fa1-r754/recovered/r749.pt" \
+            --output-checkpoint "$RUNNER_TEMP/fa1-r754/out/FA1_R753_UNPROMOTED.pt" \
+            --report "$RUNNER_TEMP/fa1-r754/out/FA1_R754_DEV.json" \
+            --threads '${{ inputs.threads }}' \
+            --word-steps 256 --geo-steps 744 --context 512 --long-context 2048
+      - name: Upload candidate and exact matched DEV report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fa1-r754-dev-only-unpromoted
+          path: ${{ runner.temp }}/fa1-r754/out/
+          if-no-files-found: warn
+          retention-days: 30
