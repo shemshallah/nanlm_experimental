@@ -65,6 +65,8 @@ def validate_payload(
     max_macro_regression: float = 0.03,
     max_domain_regression: float = 0.05,
     min_object_gate: float = 0.05,
+    require_feedback_open: bool = False,
+    require_object_gate: bool = False,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
 
@@ -161,7 +163,7 @@ def validate_payload(
         "feedback_path_opened",
         max_gate > min_feedback_gate,
         {"max_abs_gate": max_gate, "threshold": min_feedback_gate},
-        severity="warning",
+        severity="error" if require_feedback_open else "warning",
     )
 
     macro = test.get("macro_bits_per_byte")
@@ -176,7 +178,7 @@ def validate_payload(
             "object_gate_open",
             float(object_gate) > min_object_gate,
             {"object_gate": object_gate, "threshold": min_object_gate},
-            severity="warning",
+            severity="error" if require_object_gate else "warning",
         )
 
     layout = resolved.get("moe_layout") or []
@@ -268,6 +270,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-macro-regression", type=float, default=0.03)
     parser.add_argument("--max-domain-regression", type=float, default=0.05)
     parser.add_argument("--min-object-gate", type=float, default=0.05)
+    parser.add_argument(
+        "--require-feedback-open",
+        action="store_true",
+        help="treat a closed feedback bus as an error (for stability gates)",
+    )
+    parser.add_argument(
+        "--require-object-gate",
+        action="store_true",
+        help="treat a closed object gate as an error",
+    )
     args = parser.parse_args(argv)
 
     run_dir = Path(args.run).expanduser()
@@ -293,6 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         max_macro_regression=args.max_macro_regression,
         max_domain_regression=args.max_domain_regression,
         min_object_gate=args.min_object_gate,
+        require_feedback_open=args.require_feedback_open,
+        require_object_gate=args.require_object_gate,
     )
     if args.out:
         out = Path(args.out).expanduser()

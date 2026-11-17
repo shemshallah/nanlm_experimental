@@ -102,6 +102,35 @@ class ValidateRunTests(unittest.TestCase):
             )
         )
 
+    def test_required_feedback_open_is_an_error(self):
+        test = _test()
+        test["aggregate"]["feedback"]["feedback_token_gate"] = 0.0
+        test["aggregate"]["feedback"]["feedback_route_concept_gate"] = 0.0
+        result = validate_payload(_run(), test, require_feedback_open=True)
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any(
+                item["name"] == "feedback_path_opened"
+                for item in result["errors"]
+            )
+        )
+
+    def test_required_feedback_open_accepts_an_open_gate(self):
+        result = validate_payload(_run(), _test(), require_feedback_open=True)
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_required_object_gate_is_an_error(self):
+        test = _test()
+        test["aggregate"]["object_memory"]["object_gate"] = 0.01
+        result = validate_payload(_run(), test, require_object_gate=True)
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any(
+                item["name"] == "object_gate_open"
+                for item in result["errors"]
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

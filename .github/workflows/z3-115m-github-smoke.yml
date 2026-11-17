@@ -18,6 +18,31 @@ on:
         required: true
         default: true
         type: boolean
+      ctx:
+        description: "Context length for the 115M run"
+        required: true
+        default: "8"
+        type: string
+      eval_every:
+        description: "Evaluation interval in steps"
+        required: true
+        default: "50"
+        type: string
+      feedback_warmup:
+        description: "Feedback gate warmup steps (-1 uses the preset value)"
+        required: true
+        default: "-1"
+        type: string
+      max_seconds:
+        description: "Optional wall-clock cap in seconds (0 disables)"
+        required: true
+        default: "0"
+        type: string
+      require_feedback_open:
+        description: "Fail validation unless at least one feedback gate opens"
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: z3-115m-smoke-${{ github.ref }}
@@ -98,31 +123,86 @@ jobs:
           PY
 
       - name: One-step 115M train -> per-domain test -> validate
+        env:
+          CTX: ${{ inputs.ctx || '8' }}
+          EVAL_EVERY: ${{ inputs.eval_every || '50' }}
+          FEEDBACK_WARMUP: ${{ inputs.feedback_warmup || '-1' }}
+          MAX_SECONDS: ${{ inputs.max_seconds || '0' }}
+          REQUIRE_FEEDBACK_OPEN: ${{ inputs.require_feedback_open }}
         run: |
+          EXTRA=()
+          if [ "$FEEDBACK_WARMUP" != "-1" ]; then
+            EXTRA+=(--feedback-gate-warmup-steps "$FEEDBACK_WARMUP")
+          fi
+          if [ "$MAX_SECONDS" != "0" ]; then
+            EXTRA+=(--max-seconds "$MAX_SECONDS")
+          fi
+
           python z3/train_v3.py --preset 115m \
             --corpus /tmp/z3_115m_bins/train.bin \
             --val-corpus /tmp/z3_115m_bins/valid.bin \
             --data-manifest /tmp/z3_115m_bins/manifest.json \
-            --tokenizer bin --ctx 8 --batch-size 1 \
+            --tokenizer bin --ctx "$CTX" --batch-size 1 \
             --steps "${{ inputs.steps || '1' }}" \
-            --eval-every 1 --eval-batches 1 --log-every 1 \
+            --eval-every "$EVAL_EVERY" --eval-batches 1 --log-every 1 \
             --no-ema --no-grad-checkpoint \
             --device cpu --threads 2 \
-            --out /tmp/z3_115m_run
+            --out /tmp/z3_115m_run \
+            "${EXTRA[@]}"
 
           python z3/eval_domains.py \
             --checkpoint /tmp/z3_115m_run/best.pt \
             --test-dir /tmp/z3_115m_bins/test \
             --data-manifest /tmp/z3_115m_bins/manifest.json \
             --tokenizer layered --document-framing --sidecar --require-sidecar \
-            --ctx 8 --batch-size 1 --device cpu \
+            --ctx "$CTX" --batch-size 1 --device cpu \
             --out /tmp/z3_115m_run/test_domains.json
 
+          VALIDATE=()
+          if [ "$REQUIRE_FEEDBACK_OPEN" = "true" ]; then
+            VALIDATE+=(--require-feedback-open)
+          fi
           python z3/validate_run.py \
             --run /tmp/z3_115m_run \
             --test /tmp/z3_115m_run/test_domains.json \
             --expected-params 115238237 \
-            --out /tmp/z3_115m_run/validation.json
+            --out /tmp/z3_115m_run/validation.json \
+            "${VALIDATE[@]}"
+
+      - name: Publish 115M result summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          run = Path('/tmp/z3_115m_run')
+          print('## Z4 115M CPU run')
+          print()
+          print('| Metric | Value |')
+          print('|---|---:|')
+          for name in ('result.json', 'test_domains.json', 'validation.json'):
+              path = run / name
+              if not path.is_file():
+                  print(f'| {name} | missing |')
+                  continue
+              data = json.loads(path.read_text(encoding='utf-8'))
+              if name == 'result.json':
+                  print(f'| Params | {data.get("params")} |')
+                  print(f'| Steps | {data.get("steps_completed")} |')
+                  print(f'| Non-finite skips | {data.get("nonfinite_skips")} |')
+                  print(f'| Feedback warmup | {data.get("feedback_gate_warmup_steps")} |')
+                  print(f'| Feedback progress | {data.get("feedback_progress_final")} |')
+                  feedback = (data.get('final') or {}).get('feedback') or {}
+                  print(f'| Max abs feedback gate | {max((abs(float(v)) for k, v in feedback.items() if k.endswith("gate")), default=0.0):.6f} |')
+              elif name == 'test_domains.json':
+                  print(f'| Macro BPB | {data.get("macro_bits_per_byte")} |')
+                  aggregate = data.get('aggregate') or {}
+                  feedback = aggregate.get('feedback') or {}
+                  print(f'| Eval max abs gate | {max((abs(float(v)) for k, v in feedback.items() if k.endswith("gate")), default=0.0):.6f} |')
+                  print(f'| Object gate | {(aggregate.get("object_memory") or {}).get("object_gate")} |')
+              else:
+                  print(f'| Validation | ok={data.get("ok")} errors={len(data.get("errors", []))} warnings={len(data.get("warnings", []))} |')
+          PY
 
       - name: Collect smoke artifacts
         if: always()
