@@ -103,6 +103,16 @@ class BlackwellPreflightTests(unittest.TestCase):
         got = VerbatimV103RSI._byte_to_conditional_bit_logits(logits, target)
         self.assertLess(float((reference - got).abs().max()), 1e-5)
 
+    def test_v4_freezes_residual_gate_for_rsi(self):
+        from terminal_rsi.verbatim_v103 import build_v103_optimizer
+        model = VerbatimV103RSI("cpu")
+        optimizer = build_v103_optimizer(model, freeze_residual_gate=True)
+        self.assertFalse(model.residual_gate.requires_grad)
+        parameter_ids = {
+            id(parameter) for group in optimizer.param_groups
+            for parameter in group["params"]}
+        self.assertNotIn(id(model.residual_gate), parameter_ids)
+
     def test_gpu_window_cache_matches_causal_contexts(self):
         from terminal_rsi.train_verbatim import (
             build_causal_contexts, build_window_cache,

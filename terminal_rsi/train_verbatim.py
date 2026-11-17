@@ -396,7 +396,8 @@ def main(argv=None):
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
-    optimizer = build_v103_optimizer(model)
+    optimizer = build_v103_optimizer(
+        model, freeze_residual_gate=(args.rsi_version == "v4"))
     provenance = (restore_v103_parent(args.legacy_checkpoint, model, optimizer)
                   if source is not None else
                   {"legacy_step": 0, "legacy_checkpoint_sha256": None,

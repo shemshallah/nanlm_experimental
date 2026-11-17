@@ -104,17 +104,27 @@ class VerbatimV103RSI(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
-def build_v103_optimizer(model: VerbatimV103RSI):
+def build_v103_optimizer(model: VerbatimV103RSI, *,
+                         freeze_residual_gate: bool = False):
     """Preserve the ORIGINAL two AdamW learning-rate groups, plus upgrades.
 
     The historical v103 notebook used 2e-3 for inherited GPUFullSystem
     parameters and 5e-4 for new v103 specialists. New upgrade tensors live
     in a third group; they never alter the old group's optimizer histories.
+
+    With ``freeze_residual_gate=True`` the residual mixing gate is owned by
+    the RSI controller, not by direct gradient descent.  This is required for
+    the v4 path: the 100M upgrade branch is random at gate 0, so a direct gate
+    gradient would inject random logits before RSI has verified any branch.
     """
     parent = list(model.original.named_parameters())
     base = [p for name, p in parent if not name.startswith("v103_")]
     specialists = [p for name, p in parent if name.startswith("v103_")]
-    added = [model.residual_gate, *model.upgrades.parameters()]
+    added = [*model.upgrades.parameters()]
+    if freeze_residual_gate:
+        model.residual_gate.requires_grad_(False)
+    else:
+        added.insert(0, model.residual_gate)
     if not base or not specialists or not added:
         raise RuntimeError("Historical two-way v103 parameter partition unavailable")
     return torch.optim.AdamW([
