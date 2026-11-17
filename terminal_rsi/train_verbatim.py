@@ -143,7 +143,7 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         report = {"bpb": bpb, "bit_accuracy": accuracy,
                   "grad_norm": grad_norm, "grad_clip": grad_clip}
         if use_aux:
-            upgrade_bpb = float(8 * (float(aux_total) / n) / math.log(2))
+            upgrade_bpb = float((float(aux_total) / n) / math.log(2))
             report["upgrade_bpb"] = upgrade_bpb
         if use_boundary:
             report["boundary_bce"] = boundary_total / n

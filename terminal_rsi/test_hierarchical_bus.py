@@ -68,6 +68,21 @@ class HierarchyBusTests(unittest.TestCase):
             float((reconstructed[rows, target] - reference[rows, target]).abs().max()),
             1e-5)
 
+    def test_microbatch_aux_bpb_is_nats_to_bits(self):
+        from terminal_rsi.train_verbatim import train_one_batch
+        from terminal_rsi.verbatim_v103 import build_v103_optimizer
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            optimizer = build_v103_optimizer(model, freeze_residual_gate=True)
+            history = torch.randint(0, 256, (2, 32))
+            target = torch.randint(0, 256, (2,))
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            report = train_one_batch(
+                model, optimizer, history, target, aux, microbatch=1,
+                upgrade_loss_weight=1.0, boundary_loss_weight=0.02)
+            # The upgrade head starts at zero, so byte CE is exactly log(256).
+            self.assertLess(abs(report["upgrade_bpb"] - 8.0), 1e-3)
+
     def test_boundary_loss_trains_hierarchy_parameters(self):
         with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
             model = VerbatimV103RSI("cpu")
