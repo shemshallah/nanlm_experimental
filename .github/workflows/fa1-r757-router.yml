@@ -1,0 +1,44 @@
+name: FA1 R7.57 - train-only signed geometric transitions
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/fa1-r757-router.yml'
+      - 'fa1r7.12/source/fa1_r757_*.py'
+      - 'fa1r7.12/source/test_fa1_r757_*.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - 'fa1r7.12/FA1_R7p57_TRAIN_ONLY_SIGNED_TRANSITION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONPATH: fa1r7.12/source
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU Torch and corpus parser
+        run: |
+          python -m pip install numpy sentencepiece zstandard
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile new and inherited checkpoint code
+        run: |
+          python -m py_compile fa1r7.12/source/fa1_r757_geometric_transition_router.py
+          python -m py_compile fa1r7.12/source/fa1_r757_cpu_pilot.py
+          python -m py_compile fa1r7.12/source/fa1_r727_checkpoint.py
+      - name: Verify causal leave-one-out, signed addresses, and optimizer interfaces
+        run: |
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r757_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r754_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r753_*.py' -v
+          python -m unittest discover -s fa1r7.12/source -p 'test_fa1_r749_*.py' -v

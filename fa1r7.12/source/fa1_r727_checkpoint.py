@@ -96,7 +96,13 @@ def load_unified(path, root, threads=2):
         raise ValueError('invalid or promoted R7.27 checkpoint')
     if obj.get('corpus_metadata_sha256') != corpus_digests(root):
         raise ValueError('R7.27 tokenizer/tree identity mismatch')
-    recorded_architecture = obj.get('architecture_round')
+    serialized_architecture = obj.get('architecture_round')
+    # R7.57 retains the complete R7.53 topology and appends one trained
+    # transition-router group. Reconstruct the inherited base first.
+    recorded_architecture = (
+        'FA1_R7_53_CAUSAL_SUCCESSOR_MIXTURE_V1'
+        if serialized_architecture == 'FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1'
+        else serialized_architecture)
     # R7.44-50 are strictly additive extensions of R7.40. First rebuild the
     # original 24-group topology, then append the one backoff group. Do not
     # infer or reinitialize any of the inherited moments from the round tag.
@@ -259,12 +265,19 @@ def load_unified(path, root, threads=2):
             if recorded_architecture == 'FA1_R7_53_CAUSAL_SUCCESSOR_MIXTURE_V1':
                 from fa1_r753_causal_successor import attach_causal_successors
                 attach_causal_successors(model, unified)
+                if serialized_architecture == 'FA1_R7_57_TRAIN_ONLY_SIGNED_PAIR_ROUTER_V1':
+                    from fa1_r757_geometric_transition_router import (
+                        BANK_FIELDS, attach_transition_router)
+                    banks = {field: obj['model'][
+                        'word_backoff.r757_router.' + field]
+                        for field in BANK_FIELDS}
+                    attach_transition_router(model, unified, banks)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)
     if unified is None:
         unified = UnifiedR7Optimizer(model, old_optimizers, allow_empty_inherited=True)
     unified.load_state_dict(obj['optimizer'])
-    if recorded_architecture != obj.get('architecture_round'):
-        obj['architecture_round'] = recorded_architecture
+    if serialized_architecture != obj.get('architecture_round'):
+        obj['architecture_round'] = serialized_architecture
     return model, unified, base, compositor, obj
