@@ -34,6 +34,7 @@ jobs:
           python -m unittest terminal_rsi.test_restore_win_dev -v
           python -m unittest terminal_rsi.test_build_fresh_dev -v
           python -m unittest terminal_rsi.test_blackwell_preflight -v
+          python -m unittest terminal_rsi.test_cpu_fresh_start -v
           python -m unittest terminal_rsi.test_original_runner -v
           python -m unittest terminal_rsi.test_original_end_to_end -v
           python -m unittest terminal_rsi.test_verbatim_training -v
