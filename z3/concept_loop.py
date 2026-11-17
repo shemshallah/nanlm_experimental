@@ -926,7 +926,9 @@ class ConceptLoop(nn.Module):
                     triple_ids, binomial(self.vertices, 3)
                 )
             else:
-                zero = pair_ids.new_zeros(())
+                zero = torch.zeros(
+                    (), device=pair_ids.device, dtype=torch.float32
+                )
                 triple_entropy = triple_unique = triple_top = zero
             pointer_conf = pointer_soft.max(dim=-1).values.mean()
             pointer_prob = pointer_soft.mean(dim=(0, 1))
