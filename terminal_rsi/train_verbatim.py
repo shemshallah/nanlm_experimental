@@ -301,6 +301,9 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--mode", choices=PRESETS, default="cpu")
     p.add_argument("--legacy-checkpoint", type=Path)
+    p.add_argument("--allow-parent-mismatch", action="store_true",
+                   help="Experimental: load verified parent weights even when the "
+                        "train/DEV stream digests differ from the parent provenance")
     p.add_argument("--fresh-start", action="store_true",
                    help="Explicit disposable CPU bootstrap from original v103 architecture, no inherited weights")
     p.add_argument("--seed", type=int, default=2026,
@@ -489,9 +492,15 @@ def main(argv=None):
         raise ValueError("Different DEV requires explicit --dev-manifest with verified contents")
     if using_new_dev and args.reference_full256:
         raise ValueError("Historic frozen C full256 positions cannot score a NEW DEV")
-    sampler = (verify_parent_source(
-        source, raw, args.bpe_merges, manifest, dev_digest,
-        explicit_new_dev=fresh_dev_metadata is not None)
+    warm_parent = source is not None and args.allow_parent_mismatch
+    sampler = (
+        {"schema": "full-cycle-affine-v1", "cursor": 0,
+         "stride": co_prime_stride(len(raw) - PARITY_CONTEXT, args.seed),
+         "train_positions": len(raw) - PARITY_CONTEXT}
+        if warm_parent else
+        verify_parent_source(
+            source, raw, args.bpe_merges, manifest, dev_digest,
+            explicit_new_dev=fresh_dev_metadata is not None)
         if source is not None else
         {"schema": "full-cycle-affine-v1", "cursor": 0,
          "stride": co_prime_stride(len(raw) - PARITY_CONTEXT, args.seed),

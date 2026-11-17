@@ -65,6 +65,9 @@ def main(argv=None) -> int:
                    help="TRAIN bytes for the pilot; 0 = 10M with a parent, else 2M")
     p.add_argument("--legacy-checkpoint", type=Path,
                    help="Warm-start the inherited v103 core from a verified parent")
+    p.add_argument("--allow-parent-mismatch", action="store_true",
+                   help="Experimental warm start when the pilot train/DEV digests "
+                        "differ from the parent provenance")
     p.add_argument("--dev-books", type=int, default=64)
     p.add_argument("--max-dev-positions", type=int, default=8)
     p.add_argument("--topk-probes", type=int, default=1)
@@ -115,7 +118,8 @@ def main(argv=None) -> int:
 
     corpus = source_dir(output, args.corpus_dir)
     train_bytes = args.train_bytes or (
-        10_000_000 if args.legacy_checkpoint else 2_000_000)
+        10_000_000 if (args.legacy_checkpoint and not args.allow_parent_mismatch)
+        else 2_000_000)
     corpus_report = build_cpu_pilot(
         corpus_dir=corpus, output_dir=output,
         train_bytes=train_bytes, dev_books=args.dev_books,
@@ -138,6 +142,7 @@ def main(argv=None) -> int:
         "--mode", "blackwell",
         *(["--legacy-checkpoint", str(args.legacy_checkpoint)]
           if args.legacy_checkpoint else ["--fresh-start"]),
+        *(["--allow-parent-mismatch"] if args.allow_parent_mismatch else []),
         "--seconds", str(args.seconds), "--batch", str(args.batch),
         "--microbatch", str(args.microbatch),
         "--upgrade-loss-weight", str(args.upgrade_loss_weight),
