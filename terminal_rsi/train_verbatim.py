@@ -187,6 +187,8 @@ def main(argv=None):
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-probe-positions", type=int, default=8,
                    help="Causal internal TRAIN probes for RSI verification; DEV/TEST never used")
+    p.add_argument("--rsi-min-bpb-gain", type=float, default=0.002,
+                   help="Minimum mean BPB gain on TWO disjoint internal TRAIN probes")
     p.add_argument("--max-dev-positions", type=int, default=16)
     p.add_argument("--topk-probes", type=int, default=8,
                    help="Bound exact 256-way byte top1/top5 probes to avoid 256x CPU evaluations")
@@ -198,8 +200,9 @@ def main(argv=None):
     if (args.seconds < 0 or args.batch < 1 or args.max_dev_positions < 1
             or args.topk_probes < 1 or (args.updates is not None and args.updates < 0)):
         p.error("Nonnegative seconds/updates and positive batch/dev/topk sample required")
-    if args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1:
-        p.error("RSI cycle must be >=0 and internal probe count positive")
+    if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
+            or not math.isfinite(args.rsi_min_bpb_gain) or args.rsi_min_bpb_gain <= 0):
+        p.error("RSI cycle >=0, probe count positive, and minimum BPB gain finite and positive required")
     if args.updates is not None and args.seconds > 0:
         p.error("Choose --updates OR --seconds, not both")
     if args.mode == "cpu":
@@ -331,15 +334,27 @@ def main(argv=None):
     # Public book-disjoint DEV is never consulted for self-construction.
     rsi_builder = None
     if args.rsi_cycle_updates:
-        meta_count = min(args.rsi_probe_positions, len(train_data),
+        # Two DISJOINT causal partitions of TRAIN only. No held-out DEV/TEST
+        # samples can influence RSI actor/critic rewards or mutation acceptance.
+        meta_count = min(args.rsi_probe_positions, len(train_data) // 2,
                          2 if device.type == "cuda" else args.rsi_probe_positions)
-        meta_indices = torch.linspace(0, len(train_data) - 1, meta_count).long()
-        meta_window = build_causal_contexts(
-            raw_tensor, meta_indices + PARITY_CONTEXT, upgrade_context).to(device)
-        meta_aux = aux_data[meta_indices].to(device)
+        if meta_count < 1:
+            raise ValueError("Need >=2 distinct training positions for dual RSI probes")
+        paired_indices = torch.linspace(0, len(train_data) - 1, 2 * meta_count).long()
+        verify_indices, audit_indices = paired_indices[::2], paired_indices[1::2]
+        if torch.isin(verify_indices, audit_indices).any():
+            raise AssertionError("RSI verifier/audit causal targets overlap")
+        verify_window = build_causal_contexts(
+            raw_tensor, verify_indices + PARITY_CONTEXT, upgrade_context).to(device)
+        audit_window = build_causal_contexts(
+            raw_tensor, audit_indices + PARITY_CONTEXT, upgrade_context).to(device)
         rsi_builder = RSISelfBuilder(
-            model, optimizer, meta_window[:, :-1], meta_window[:, -1],
-            meta_aux, interval=args.rsi_cycle_updates)
+            model, optimizer, verify_window[:, :-1], verify_window[:, -1],
+            aux_data[verify_indices].to(device),
+            interval=args.rsi_cycle_updates,
+            audit_history=audit_window[:, :-1], audit_targets=audit_window[:, -1],
+            audit_auxiliary=aux_data[audit_indices].to(device),
+            min_gain_bpb=args.rsi_min_bpb_gain)
         if args.resume and resumed["rng"].get("rsi_self_builder"):
             rsi_builder.load_state_dict(resumed["rng"]["rsi_self_builder"])
         elif args.resume and resumed["rng"].get("rsi_self_builder") is None:
