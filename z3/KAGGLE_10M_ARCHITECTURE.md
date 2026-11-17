@@ -1,7 +1,9 @@
 # Z4 115M architecture profile and 10-minute Kaggle profile
 
 This is a static parameter/compute audit of the fixed `115m` preset plus the
-short-run changes used by the `kaggle10m` preset.  It is not a training result.
+short-run changes used by the `kaggle10m` preset.  The first T4 measurement is
+in [`KAGGLE_10M_RESULTS.md`](KAGGLE_10M_RESULTS.md): 115,238,237 parameters,
+599 steps, 1.7914 WikiText-2 BPB at a 600-second cap.
 
 The profile was produced by:
 
