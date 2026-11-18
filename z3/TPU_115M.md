@@ -26,6 +26,27 @@ points at Kaggle's one-time **Persona identity verification** gate for TPUs
 <https://www.kaggle.com/settings>; after that, rerun the notebook.  Do not
 record a TPU result until the log shows a TPU device.
 
+### Push recipe (Kaggle API)
+
+Use the newer service endpoint; the legacy `/api/v1/kernels/push` silently
+ignores `machineShape`.
+
+```sh
+POST https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel
+{
+  "slug": "shem42/z4-115m-tpu",
+  "machineShape": "TpuV5E8",
+  "dockerImage": "",
+  "dockerImagePinningType": "latest",
+  "enableTpu": true,
+  "kernelExecutionType": "QUICK_SAVE"
+}
+```
+
+`dockerImage: ""` is the important part: omitting the field leaves the old
+CPU image pin in place.  `GetKernel` must show `machineShape: "TpuV5E8"` and
+no `dockerImage` before the run.
+
 The trainer has a maintained TPU path:
 
 ```sh
