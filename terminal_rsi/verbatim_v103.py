@@ -75,7 +75,9 @@ class VerbatimV103RSI(nn.Module):
         # ONLY for the additive specialist. Keep archived v103 logits, RSI
         # actor/critic and inherited AdamW groups in their original FP32
         # execution path. This changes no checkpoint keys or parameters.
-        upgrade_module = getattr(self, "_compiled_upgrades", None) or self.upgrades
+        upgrade_module = getattr(self, "_compiled_upgrades", None)
+        if upgrade_module is None:
+            upgrade_module = self.upgrades
         if self.cfg.name == "blackwell" and previous.is_cuda:
             if not torch.cuda.is_bf16_supported():
                 raise RuntimeError("Blackwell upgrade requires BF16-capable CUDA")
