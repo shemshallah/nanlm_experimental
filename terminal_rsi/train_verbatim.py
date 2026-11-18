@@ -1270,7 +1270,8 @@ def main(argv=None):
             aux_text = (f" upgrade_byte_bpb={report['upgrade_bpb']:.4f}"
                         if "upgrade_bpb" in report else "")
             print(
-                f"PROGRESS step={step} {progress} elapsed={elapsed:.1f}s "
+                f"PROGRESS legacy_step={step} run_update={update_count} "
+                f"{progress} elapsed={elapsed:.1f}s "
                 f"rate={rate:.2f} upd/s train_v103_bit_bce={report['bpb']:.6f} "
                 f"bit_acc={report['bit_accuracy']:.4f}{aux_text} | {rsi_text}",
                 flush=True,
