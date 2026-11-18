@@ -11,6 +11,19 @@ protocol.  It is not the Kaggle TPU path.
 - [`train_v3.py`](train_v3.py) — `--amp-dtype auto|fp16|bf16`
 - [`BLACKWELL_MOLAB.md`](BLACKWELL_MOLAB.md) — this file
 
+## Measured 2026-11-18
+
+- 600-second cap: 1,100 steps, 9,011,200 tokens, **0.5336 validation BPB**
+  and **0.5183 held-out WikiText-2 split BPB** (71.55% top-1).
+- OOD Tiny Shakespeare: **4.4842 BPB** (8.50% top-1).  The model is a narrow
+  Wikipedia/WikiText-2 fit, not a general language model.
+- Official WikiText-103 test transfer: **0.7905 BPB** (59.63% top-1).  This
+  is same-domain Wikipedia transfer, **not** a WikiText-103 benchmark or
+  leaderboard claim.
+
+See [`BLACKWELL_600S_2026_11_18.md`](BLACKWELL_600S_2026_11_18.md) for the
+full tables, overlap checks, and reproduction commands.
+
 ## Requirements
 
 - A CUDA GPU.  Blackwell (`sm_100`/`sm_120`) needs a PyTorch build with
