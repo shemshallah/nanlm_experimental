@@ -18,6 +18,7 @@ protocol.  It is not the Kaggle TPU path.
   `torch==2.9.0` from the matching PyTorch index).
 - `git`, internet access for the first WikiText-2 download, and enough disk
   for the repo plus the 115M checkpoints.
+- `tokenizers` and `pyarrow` (the app installs them if missing).
 - `nvidia-smi` available.
 
 Check the environment first:

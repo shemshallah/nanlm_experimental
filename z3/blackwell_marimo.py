@@ -158,6 +158,15 @@ def _(
         return repo
 
     repo = find_repo()
+    for module in ("tokenizers", "pyarrow"):
+        try:
+            __import__(module)
+        except ImportError:
+            print(f"installing {module}...", flush=True)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-q", module],
+                check=True,
+            )
     data = repo / "data"
     bins = data / "wikitext_bins"
     if not (bins / "train.bin").is_file():
