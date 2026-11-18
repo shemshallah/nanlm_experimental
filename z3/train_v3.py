@@ -242,7 +242,22 @@ def _tpu_environment() -> bool:
     )
 
 
-def _amp_context(enabled: bool, device_type: str = "cuda"):
+def _cuda_amp_dtype() -> torch.dtype:
+    """fp16 for T4/V100, bf16 for Ampere and newer (A100/H100/Blackwell)."""
+    if not torch.cuda.is_available():
+        return torch.float16
+    try:
+        major, _minor = torch.cuda.get_device_capability()
+    except Exception:
+        return torch.float16
+    return torch.bfloat16 if major >= 8 else torch.float16
+
+
+def _amp_context(
+    enabled: bool,
+    device_type: str = "cuda",
+    cuda_dtype: torch.dtype = torch.float16,
+):
     if not enabled:
         return contextlib.nullcontext()
     if device_type == "xla":
@@ -258,7 +273,7 @@ def _amp_context(enabled: bool, device_type: str = "cuda"):
                 )
             except Exception:
                 return contextlib.nullcontext()
-    return torch.amp.autocast("cuda", enabled=True)
+    return torch.amp.autocast("cuda", dtype=cuda_dtype, enabled=True)
 
 
 def _capture_rng(device: torch.device) -> dict[str, Any]:
@@ -1035,6 +1050,7 @@ def evaluate(
     task_id: int = -1,
     bytes_per_token: float | None = None,
     eval_task_ids: list[torch.Tensor] | None = None,
+    amp_dtype: torch.dtype = torch.float16,
 ) -> dict[str, Any]:
     """Evaluate on fixed windows; returns token-weighted metrics."""
     was_training = model.training
@@ -1104,7 +1120,7 @@ def evaluate(
             )
         else:
             task_ids = None
-        with _amp_context(amp, device.type):
+        with _amp_context(amp, device.type, amp_dtype):
             logits, mtp_logits, aux = model(
                 xb, return_diagnostics=True, sidecar=sidecar,
                 task_ids=task_ids, compute_mtp_aux=False,
@@ -2009,7 +2025,9 @@ def build_parser() -> argparse.ArgumentParser:
     system.add_argument("--device", default="auto",
                         help="'auto', 'cpu', 'cuda', 'cuda:1', 'xla', or 'tpu'")
     system.add_argument("--amp", action=argparse.BooleanOptionalAction, default=None,
-                        help="bf16 autocast on XLA/TPU, fp16 on CUDA; CPU fp32")
+                        help="bf16 autocast on XLA/TPU; fp16/bf16 on CUDA; CPU fp32")
+    system.add_argument("--amp-dtype", choices=("auto", "fp16", "bf16"), default="auto",
+                        help="CUDA autocast dtype; auto uses bf16 on Ampere+ and fp16 on T4")
     system.add_argument("--data-parallel", action="store_true",
                         help="wrap the model in nn.DataParallel when multiple CUDA GPUs exist")
     system.add_argument("--amp-init-scale", type=float, default=1024.0)
@@ -2484,6 +2502,17 @@ def main(argv: list[str] | None = None) -> int:
             )
     if args.random_smoke:
         amp = False
+    if args.amp_dtype == "auto":
+        cuda_amp_dtype = _cuda_amp_dtype()
+    elif args.amp_dtype == "bf16":
+        cuda_amp_dtype = torch.bfloat16
+    else:
+        cuda_amp_dtype = torch.float16
+    print(
+        f"[amp] cuda_dtype={cuda_amp_dtype} scaler="
+        f"{amp and device.type == 'cuda' and cuda_amp_dtype == torch.float16}",
+        flush=True,
+    )
 
     out = Path(args.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -2937,7 +2966,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
-        if amp and device.type == "cuda" else None
+        if amp and device.type == "cuda" and cuda_amp_dtype == torch.float16
+        else None
     )
 
     ema_model = None
@@ -3154,6 +3184,7 @@ def main(argv: list[str] | None = None) -> int:
             task_id=args.task_id,
             bytes_per_token=source.info.get("bytes_per_token"),
             eval_task_ids=getattr(source, "eval_task_ids", None),
+            amp_dtype=cuda_amp_dtype,
         )
         print(
             f"[eval-before] model loss={eval_before['loss']:.4f} "
@@ -3216,7 +3247,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             task_ids = None
         optimizer.zero_grad(set_to_none=True)
-        with _amp_context(amp, device.type):
+        with _amp_context(amp, device.type, cuda_amp_dtype):
             logits, mtp_logits, aux = model(
                 xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
                 sidecar=sidecar, task_ids=task_ids,
@@ -3745,6 +3776,7 @@ def main(argv: list[str] | None = None) -> int:
                 task_id=args.task_id,
                 bytes_per_token=source.info.get("bytes_per_token"),
                 eval_task_ids=getattr(source, "eval_task_ids", None),
+                amp_dtype=cuda_amp_dtype,
             )
             val_ema = (
                 evaluate(
@@ -3754,6 +3786,7 @@ def main(argv: list[str] | None = None) -> int:
                     task_id=args.task_id,
                     bytes_per_token=source.info.get("bytes_per_token"),
                     eval_task_ids=getattr(source, "eval_task_ids", None),
+                    amp_dtype=cuda_amp_dtype,
                 )
                 if ema_model is not None else None
             )
@@ -3825,6 +3858,7 @@ def main(argv: list[str] | None = None) -> int:
         task_id=args.task_id,
         bytes_per_token=source.info.get("bytes_per_token"),
         eval_task_ids=getattr(source, "eval_task_ids", None),
+        amp_dtype=cuda_amp_dtype,
     )
     final_ema_metrics = (
         evaluate(
@@ -3833,6 +3867,7 @@ def main(argv: list[str] | None = None) -> int:
             task_id=args.task_id,
             bytes_per_token=source.info.get("bytes_per_token"),
             eval_task_ids=getattr(source, "eval_task_ids", None),
+            amp_dtype=cuda_amp_dtype,
         )
         if ema_model is not None else None
     )
