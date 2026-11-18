@@ -1322,6 +1322,9 @@ def main(argv=None):
                 sampler.clear()
                 sampler.update(base_sampler)
         report = train_updates(1)[0]
+        if report.get("nonfinite_skip"):
+            print("NONFINITE SKIP", report.get("nonfinite_params"),
+                  flush=True)
         if v4_controller is not None:
             elapsed = time.monotonic() - clock
             v4_controller.observe(
