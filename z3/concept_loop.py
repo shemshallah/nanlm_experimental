@@ -382,6 +382,28 @@ class SpanSidecar:
         return cls.from_encoding(encoding)
 
 
+def _fixed_segment_ids(ids: torch.Tensor) -> torch.Tensor:
+    """Compact segment ids with a fixed output shape.
+
+    ``torch.unique`` returns tensors whose size depends on the batch data, and
+    XLA recompiles whenever that size changes.  Sorting preserves the exact
+    grouping while keeping every intermediate shape static: equal ids receive
+    the same 1-based rank and ``0`` (no segment) stays ``0``.
+    """
+    flat = ids.reshape(-1)
+    sorted_ids, order = torch.sort(flat)
+    new_segment = torch.ones_like(sorted_ids)
+    if flat.numel() > 1:
+        new_segment[1:] = (sorted_ids[1:] != sorted_ids[:-1]).to(
+            dtype=sorted_ids.dtype
+        )
+    ranks = torch.cumsum(new_segment, dim=0)
+    ranks = torch.where(sorted_ids > 0, ranks, torch.zeros_like(ranks))
+    compact = torch.zeros_like(flat)
+    compact.scatter_(0, order, ranks)
+    return compact.view_as(ids)
+
+
 def _segment_pool(
     x: torch.Tensor,  # (B,T,D)
     ids: torch.Tensor,  # (B,T), 0 = none, positive segment ids
@@ -396,9 +418,15 @@ def _segment_pool(
     """
     b, _t, d = x.shape
     device = x.device
+    is_xla = device.type == "xla"
     if ids.numel():
         valid_ids = ids > 0
-        if bool(valid_ids.any()):
+        if is_xla:
+            # Fixed-shape compaction: the segment count varies per batch, so
+            # unique() would force an XLA recompile on every step.
+            compact = _fixed_segment_ids(ids)
+            max_segments = ids.numel()
+        elif bool(valid_ids.any()):
             # Byte-aligned sidecars carry global word/sentence IDs.  Remap
             # them to compact per-batch IDs before allocating the segment
             # table; otherwise max(id) can create tens of gigabytes of zeros.
@@ -424,7 +452,7 @@ def _segment_pool(
     counts = torch.zeros(
         b * bucket_count, device=device, dtype=x.dtype
     )
-    if bool(valid_ids.any()):
+    if is_xla or bool(valid_ids.any()):
         offsets = (
             torch.arange(b, device=device, dtype=torch.long).unsqueeze(1)
             * bucket_count
@@ -899,6 +927,11 @@ class ConceptLoop(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return normalized entropy, unique ratio, and top-share for ids."""
         if ids.numel() == 0 or object_count <= 1:
+            zero = torch.zeros((), device=ids.device, dtype=torch.float32)
+            return zero, zero, zero
+        if ids.device.type == "xla":
+            # Diagnostics only: unique() has a data-dependent output size and
+            # would recompile the XLA graph.  Report neutral fixed zeros.
             zero = torch.zeros((), device=ids.device, dtype=torch.float32)
             return zero, zero, zero
         flat = ids.reshape(-1).long()

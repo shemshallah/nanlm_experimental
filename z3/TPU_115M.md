@@ -34,6 +34,12 @@ checking CUDA.
 - **Model paths.**  Attention already switches to the manual causal path on
   `x.device.type == "xla"`; the MoE router already uses its fixed-shape dense
   dispatch on XLA.
+- **Fixed-shape segment pooling.**  Concept segment pooling used
+  `torch.unique`, whose output size changes with every batch.  XLA treats that
+  as a new graph and recompiles, so the TPU run stalls.  On XLA the trainer
+  now uses a sort-based, fixed-size compaction (`_fixed_segment_ids`) and
+  skips the unique-based object diagnostics.  Semantics are unchanged; only
+  the diagnostic entropy/unique-ratio columns are reported as zero on XLA.
 
 ## Multi-core
 

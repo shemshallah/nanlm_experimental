@@ -17,6 +17,7 @@ from concept_loop import (
     ConceptLoop,
     IncrementalCompositionDecoder,
     SpanSidecar,
+    _fixed_segment_ids,
     _segment_pool,
 )
 from layered_tokenizer import LayeredTokenizer
@@ -30,6 +31,26 @@ TEXT = (
 
 
 class ConceptLoopTests(unittest.TestCase):
+    def test_fixed_segment_ids_preserve_groups(self):
+        torch.manual_seed(0)
+        for _ in range(20):
+            ids = torch.randint(0, 64, (2, 97))
+            ids[:, ::5] = 0
+            compact = _fixed_segment_ids(ids)
+            self.assertTrue(
+                torch.equal(
+                    ids.unsqueeze(-1) == ids.unsqueeze(-2),
+                    compact.unsqueeze(-1) == compact.unsqueeze(-2),
+                )
+            )
+            self.assertTrue(
+                torch.equal(
+                    compact[ids == 0],
+                    torch.zeros_like(compact[ids == 0]),
+                )
+            )
+            self.assertLessEqual(int(compact.max()), ids.numel())
+
     @classmethod
     def setUpClass(cls):
         cls.tokenizer = LayeredTokenizer(
