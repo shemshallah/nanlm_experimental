@@ -83,6 +83,40 @@ class V5ModuleTests(unittest.TestCase):
         (scale * prior.detach()).sum().backward()
         self.assertTrue(bool(torch.isfinite(gate.grad).all()))
 
+    def test_word_boundary_window_and_ngram_loss(self):
+        raw = (b"alpha beta gamma delta epsilon zeta eta theta "
+               b"alpha beta gamma delta epsilon zeta eta theta") * 2
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY,
+                                  "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            labels = build_unit_labels(raw, BPE)
+            model.set_word_vocab(labels.word_vocab)
+            model.set_word_ngram(raw)
+            optimizer = build_v103_optimizer(
+                model, freeze_residual_gate=True)
+            history = torch.frombuffer(
+                bytearray(raw[:32]), dtype=torch.uint8).long()[None].repeat(2, 1)
+            target = torch.frombuffer(
+                bytearray(raw[32:34]), dtype=torch.uint8).long()
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            unit = labels.gather(torch.tensor([31, 31]))
+            window = labels.gather_window(torch.tensor([0, 16]), 32)
+            report = train_one_batch(
+                model, optimizer, history, target, aux, microbatch=0,
+                upgrade_loss_weight=1.0, unit_targets=unit,
+                unit_loss_weight=0.2, unit_byte_loss_weight=0.2,
+                unit_byte_distill_weight=0.0, distill_weight=0.0,
+                boundary_loss_weight=0.0, moe_loss_weight=0.01,
+                top5_byte_loss_weight=0.1,
+                unit_window_targets=window,
+                word_boundary_loss_weight=0.2,
+                word_top5_loss_weight=0.1,
+                word_ngram_weight=0.5)
+            self.assertFalse(report.get("nonfinite_skip", False))
+            self.assertIn("next_word_units", report)
+            self.assertGreater(report["next_word_units"], 0)
+            self.assertGreater(report["current_word_units"], 0)
+
     def test_top5_byte_loss_is_finite_and_ranked(self):
         bit_logits = torch.randn(4, 8, requires_grad=True)
         target = torch.randint(0, 256, (4,))

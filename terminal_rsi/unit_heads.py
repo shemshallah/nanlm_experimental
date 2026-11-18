@@ -174,6 +174,34 @@ class UnitLabels:
             "sentence_start": self.sentence_start[positions].bool(),
         }
 
+    def gather_window(self, starts: torch.Tensor,
+                      context: int) -> dict[str, torch.Tensor]:
+        """Per-position labels for every byte in a causal window.
+
+        ``starts`` are the first observed byte positions; every returned
+        tensor is ``[batch,context]`` so word/next-word heads can train on
+        every boundary instead of only the window's last byte.
+        """
+        starts = starts.long().cpu()
+        positions = starts[:, None] + torch.arange(
+            int(context), dtype=torch.long)[None, :]
+        positions = positions.clamp(0, len(self.next_word) - 1)
+        target_positions = (positions + 1).clamp(
+            max=len(self.current_word) - 1)
+        return {
+            "next_token": self.next_token[positions].long(),
+            "next_word": self.next_word[positions].long(),
+            "next_sentence": self.next_sentence[positions].long(),
+            "next_token_start": self.next_token_start[positions].bool(),
+            "next_word_start": self.next_word_start[positions].bool(),
+            "next_sentence_start": self.next_sentence_start[positions].bool(),
+            "current_token": self.current_token[target_positions].long(),
+            "current_word": self.current_word[target_positions].long(),
+            "token_start": self.token_start[positions].bool(),
+            "word_start": self.word_start[positions].bool(),
+            "sentence_start": self.sentence_start[positions].bool(),
+        }
+
 
 def build_unit_labels(raw: bytes, bpe_merges: Path, *,
                       token_vocab: dict[int, int] | None = None,
@@ -321,10 +349,20 @@ class UnitHeads(nn.Module):
         }
 
 
+def top5_hinge(logits: torch.Tensor, target: torch.Tensor,
+               margin: float = 0.5) -> torch.Tensor:
+    """Push the target above the fifth-best non-target logit."""
+    target_logit = logits.gather(1, target[:, None])
+    masked = logits.scatter(1, target[:, None], -1e9)
+    fifth = masked.topk(min(5, logits.shape[-1]), dim=-1).values[:, -1:]
+    return F.softplus(fifth - target_logit + margin).mean()
+
+
 def unit_head_loss(logits: dict[str, torch.Tensor],
                    targets: dict[str, torch.Tensor],
                    *, weights: dict[str, float] | None = None,
-                   boundary_only: bool = True) -> tuple[torch.Tensor, dict]:
+                   boundary_only: bool = True,
+                   top5_weight: float = 0.0) -> tuple[torch.Tensor, dict]:
     weights = weights or {
         "token": 1.0, "word": 1.0, "sentence": 0.5,
         "current_token": 0.5, "current_word": 0.5,
@@ -349,6 +387,9 @@ def unit_head_loss(logits: dict[str, torch.Tensor],
         if not bool(valid.any()):
             continue
         loss = F.cross_entropy(logits[name][valid], target[valid])
+        if top5_weight > 0:
+            loss = loss + top5_weight * top5_hinge(
+                logits[name][valid], target[valid])
         total = loss * weight if total is None else total + loss * weight
         with torch.no_grad():
             prediction = logits[name][valid].topk(5, dim=-1).indices
@@ -375,14 +416,15 @@ def unit_parameter_count(bus_width: int, byte_width: int | None = None) -> int:
 def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                            bpe_merges: Path, context: int, books: int,
                            max_positions: int, device: torch.device,
-                           vocabulary: UnitLabels) -> dict:
+                           vocabulary: UnitLabels,
+                           ngram_weight: float = 0.0) -> dict:
     """Score the real token/word/sentence heads on held-out DEV excerpts."""
     manifest = json.loads(Path(dev_manifest).read_text())
     selected = manifest.get("selected_books") or []
     if not selected:
         raise ValueError("DEV manifest has no selected_books")
     totals = {name: {"units": 0, "top1": 0, "top5": 0}
-              for name in ("token", "word", "sentence")}
+              for name in ("token", "word", "sentence", "word_observed")}
     used = []
     was_training = model.training
     model.eval()
@@ -415,6 +457,12 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
             logits = upgrade.get("unit_logits") or {}
             if not logits:
                 return {"schema": "terminal-rsi-unit-heads-v1", "levels": {}}
+            observed = torch.tensor(
+                sorted(set(vocabulary.word_vocab.values())),
+                dtype=torch.long, device=device)
+            observed_mask = torch.zeros(
+                logits["word"].shape[-1], dtype=torch.bool, device=device)
+            observed_mask[observed.clamp(0, len(observed_mask) - 1)] = True
             for name in ("token", "word", "sentence"):
                 target = getattr(labels, f"next_{name}")[positions - 1].to(device)
                 starts = getattr(
@@ -422,12 +470,33 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                 valid = (target != IGNORE_ID) & starts
                 if not bool(valid.any()):
                     continue
-                prediction = logits[name][valid].topk(5, dim=-1).indices
+                head_logits = logits[name]
+                if name == "word" and ngram_weight > 0:
+                    bigram = getattr(model, "word_bigram_log_probs", None)
+                    if bigram is not None and bigram.numel():
+                        previous = labels.current_word[positions - 1].to(device)
+                        prior = model.word_unigram_log_probs.to(device)[
+                            None, :].expand(len(previous), -1)
+                        ok = (previous > 0) & (previous < bigram.shape[0])
+                        if bool(ok.any()):
+                            prior = prior.clone()
+                            prior[ok] = bigram.to(device)[previous[ok]]
+                        head_logits = head_logits + ngram_weight * prior
+                prediction = head_logits[valid].topk(5, dim=-1).indices
                 totals[name]["units"] += int(valid.sum())
                 totals[name]["top1"] += int(
                     (prediction[:, 0] == target[valid]).sum())
                 totals[name]["top5"] += int(
                     (prediction == target[valid, None]).any(-1).sum())
+                if name == "word":
+                    masked = head_logits[valid].masked_fill(
+                        ~observed_mask[None, :], -1e9)
+                    obs_pred = masked.topk(5, dim=-1).indices
+                    totals["word_observed"]["units"] += int(valid.sum())
+                    totals["word_observed"]["top1"] += int(
+                        (obs_pred[:, 0] == target[valid]).sum())
+                    totals["word_observed"]["top5"] += int(
+                        (obs_pred == target[valid, None]).any(-1).sum())
             used.append(book.get("gutenberg_id"))
     finally:
         model.train(was_training)

@@ -36,7 +36,7 @@ from .legacy_v103_reference import (
 from .hierarchical_bus import (
     boundary_loss, boundary_targets, bit_logits_to_byte_log_probs,
 )
-from .unit_heads import build_unit_labels, unit_head_loss
+from .unit_heads import IGNORE_ID, build_unit_labels, top5_hinge, unit_head_loss
 from .fast_rsi import build_fast_cache, run_fast_adapter_rsi
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
@@ -87,6 +87,75 @@ def top5_byte_loss(bit_logits: torch.Tensor, target: torch.Tensor,
             - target_logp).mean()
 
 
+def _word_ngram_prior(model, window, index, device):
+    bigram = getattr(model, "word_bigram_log_probs", None)
+    if bigram is None or bigram.numel() == 0:
+        return None
+    previous = window["current_word"].to(device).long()[
+        index[:, 0], index[:, 1]]
+    unigram = model.word_unigram_log_probs.to(device)
+    prior = unigram[None, :].expand(len(previous), -1).clone()
+    valid = (previous > 0) & (previous < bigram.shape[0])
+    if bool(valid.any()):
+        prior[valid] = bigram.to(device)[previous[valid]]
+    return prior
+
+
+def word_boundary_loss(model, upgrade_out, window, *,
+                       max_current: int = 4096, max_next: int = 2048,
+                       top5_weight: float = 0.1,
+                       ngram_weight: float = 0.5) -> tuple:
+    """Train the current/next word heads on every boundary in the window."""
+    word_state = upgrade_out.get("word_state")
+    byte_state = upgrade_out.get("byte_state")
+    heads = getattr(model.upgrades.hierarchy, "unit_heads", None)
+    if (word_state is None or byte_state is None or heads is None
+            or window is None):
+        return None, {}
+    device = word_state.device
+    total = None
+    stats = {}
+    specs = (
+        ("current_word", "current_word", heads.current_word,
+         max_current, 0.5, False),
+        ("next_word", "next_word", heads.word, max_next, 1.0, True),
+    )
+    for name, key, head, cap, weight, use_ngram in specs:
+        target_all = window[key].to(device).long()
+        valid = target_all != IGNORE_ID
+        if key == "next_word":
+            valid = valid & window["next_word_start"].to(device).bool()
+        index = torch.nonzero(valid, as_tuple=False)
+        if len(index) == 0:
+            continue
+        if len(index) > cap:
+            pick = torch.randperm(len(index), device=device)[:cap]
+            index = index[pick]
+        target = target_all[index[:, 0], index[:, 1]]
+        hidden = torch.cat((
+            word_state[index[:, 0], index[:, 1]],
+            heads.byte_proj(byte_state[index[:, 0], index[:, 1]])), dim=-1)
+        logits = head(hidden)
+        if use_ngram:
+            prior = _word_ngram_prior(model, window, index, device)
+            if prior is not None:
+                logits = logits + ngram_weight * prior
+        ce = F.cross_entropy(logits, target)
+        loss = ce
+        if top5_weight > 0:
+            loss = loss + top5_weight * top5_hinge(logits, target)
+        total = loss * weight if total is None else total + loss * weight
+        with torch.no_grad():
+            prediction = logits.topk(5, dim=-1).indices
+            stats[f"{name}_top1"] = float(
+                (prediction[:, 0] == target).float().mean())
+            stats[f"{name}_top5"] = float(
+                (prediction == target[:, None]).any(-1).float().mean())
+            stats[f"{name}_units"] = int(len(target))
+            stats[f"{name}_loss"] = float(ce.detach())
+    return total, stats
+
+
 def _full_parent_log_probs(model: VerbatimV103RSI, history: torch.Tensor,
                             aux: torch.Tensor, samples: int):
     """Exact full 256-way teacher distribution from the inherited v103 core."""
@@ -123,6 +192,11 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     moe_loss_weight: float = 0.01,
                     unit_byte_loss_weight: float = 0.0,
                     unit_byte_distill_weight: float = 0.0,
+                    top5_byte_loss_weight: float = 0.0,
+                    unit_window_targets: dict | None = None,
+                    word_boundary_loss_weight: float = 0.0,
+                    word_top5_loss_weight: float = 0.0,
+                    word_ngram_weight: float = 0.0,
                     freeze_parent: bool = False):
     """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
@@ -135,7 +209,11 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                         ("distill", distill_weight),
                         ("moe", moe_loss_weight),
                         ("unit_byte", unit_byte_loss_weight),
-                        ("unit_byte_distill", unit_byte_distill_weight)):
+                        ("unit_byte_distill", unit_byte_distill_weight),
+                        ("top5_byte", top5_byte_loss_weight),
+                        ("word_boundary", word_boundary_loss_weight),
+                        ("word_top5", word_top5_loss_weight),
+                        ("word_ngram", word_ngram_weight)):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
@@ -143,7 +221,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
     use_aux = upgrade_loss_weight > 0
     use_hierarchy = use_aux and (
         boundary_loss_weight > 0 or unit_loss_weight > 0
-        or distill_weight > 0 or moe_loss_weight > 0)
+        or distill_weight > 0 or moe_loss_weight > 0
+        or word_boundary_loss_weight > 0)
     if microbatch and microbatch < n:
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
@@ -202,10 +281,24 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                 part_units = {key: value[start:end]
                               for key, value in unit_targets.items()}
                 u_loss, u_stats = unit_head_loss(
-                    upgrade_out["unit_logits"], part_units)
+                    upgrade_out["unit_logits"], part_units,
+                    top5_weight=word_top5_loss_weight)
                 objective = objective + unit_loss_weight * u_loss * (end - start)
                 _accumulate_stats(unit_total, u_stats, end - start)
                 unit_weight_total += end - start
+            if (upgrade_out is not None and unit_window_targets is not None
+                    and word_boundary_loss_weight > 0):
+                part_window = {key: value[start:end]
+                               for key, value in unit_window_targets.items()}
+                w_loss, w_stats = word_boundary_loss(
+                    model, upgrade_out, part_window,
+                    top5_weight=word_top5_loss_weight,
+                    ngram_weight=word_ngram_weight)
+                if w_loss is not None:
+                    objective = objective + (
+                        word_boundary_loss_weight * w_loss * (end - start))
+                    _accumulate_stats(unit_total, w_stats, end - start)
+                    unit_weight_total += end - start
             if upgrade_out is not None and distill_weight > 0:
                 teacher = _full_parent_log_probs(
                     model, part_history, aux[start:end], distill_samples)
@@ -307,10 +400,21 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         if (upgrade_out is not None and unit_targets is not None
                 and unit_loss_weight > 0 and upgrade_out.get("unit_logits")):
             u_loss, u_stats = unit_head_loss(
-                upgrade_out["unit_logits"], unit_targets)
+                upgrade_out["unit_logits"], unit_targets,
+                top5_weight=word_top5_loss_weight)
             objective = objective + unit_loss_weight * u_loss
         else:
             u_stats = {}
+        if (upgrade_out is not None and unit_window_targets is not None
+                and word_boundary_loss_weight > 0):
+            w_loss, w_stats = word_boundary_loss(
+                model, upgrade_out, unit_window_targets,
+                top5_weight=word_top5_loss_weight,
+                ngram_weight=word_ngram_weight)
+            if w_loss is not None:
+                objective = objective + word_boundary_loss_weight * w_loss
+                for key, value in w_stats.items():
+                    u_stats[key] = value
         if upgrade_out is not None and distill_weight > 0:
             teacher = _full_parent_log_probs(
                 model, history, aux, distill_samples)
@@ -776,6 +880,7 @@ def main(argv=None):
     model = VerbatimV103RSI(args.mode).to(device)
     if unit_labels is not None:
         model.set_word_vocab(unit_labels.word_vocab)
+        model.set_word_ngram(raw)
     ablation_flags = {
         "bottom_up": True, "top_down": True, "lateral": True,
         "pair": True, "units": True, "boundary_pooling": True,
@@ -1151,6 +1256,9 @@ def main(argv=None):
                     raw_tensor, indices + PARITY_CONTEXT,
                     upgrade_context).to(device)
                 sample_aux = aux_data[indices].to(device=device)
+            unit_window = (unit_labels.gather_window(
+                indices + PARITY_CONTEXT - 1, upgrade_context)
+                if unit_labels is not None else None)
             if rsi_builder is not None:
                 report = rsi_builder.train_step(
                     train_one_batch, sample[:, :-1], sample[:, -1], sample_aux)
@@ -1171,6 +1279,10 @@ def main(argv=None):
                     unit_byte_loss_weight=args.unit_byte_loss_weight,
                     unit_byte_distill_weight=args.unit_byte_distill_weight,
                     top5_byte_loss_weight=args.top5_byte_loss_weight,
+                    unit_window_targets=unit_window,
+                    word_boundary_loss_weight=args.word_boundary_loss_weight,
+                    word_top5_loss_weight=args.word_top5_loss_weight,
+                    word_ngram_weight=args.word_ngram_weight,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0))
             sampler["cursor"] += batch
             step += 1
@@ -1294,6 +1406,10 @@ def main(argv=None):
                         unit_byte_loss_weight=args.unit_byte_loss_weight,
                     unit_byte_distill_weight=args.unit_byte_distill_weight,
                     top5_byte_loss_weight=args.top5_byte_loss_weight,
+                    unit_window_targets=None,
+                    word_boundary_loss_weight=0.0,
+                    word_top5_loss_weight=0.0,
+                    word_ngram_weight=0.0,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0)))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
@@ -1665,11 +1781,12 @@ def main(argv=None):
                 dev_manifest=args.dev_manifest,
                 bpe_merges=args.bpe_merges,
                 context=upgrade_context,
-                books=min(2, args.hierarchical_eval_books),
-                max_positions=min(128, args.hierarchical_eval_max_positions
-                                  or 128),
+                books=min(8, args.hierarchical_eval_books),
+                max_positions=min(512, args.hierarchical_eval_max_positions
+                                  or 512),
                 device=device,
                 vocabulary=unit_labels,
+                ngram_weight=args.word_ngram_weight,
             )
             print("UNIT-HEAD HELD-OUT METRICS:",
                   json.dumps(receipt["unit_heads_dev"], indent=2), flush=True)

@@ -68,6 +68,9 @@ def main(argv=None) -> int:
     p.add_argument("--unit-byte-loss-weight", type=float, default=0.1)
     p.add_argument("--unit-byte-distill-weight", type=float, default=0.5)
     p.add_argument("--top5-byte-loss-weight", type=float, default=0.0)
+    p.add_argument("--word-boundary-loss-weight", type=float, default=0.0)
+    p.add_argument("--word-top5-loss-weight", type=float, default=0.0)
+    p.add_argument("--word-ngram-weight", type=float, default=0.0)
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full")
@@ -190,6 +193,9 @@ def main(argv=None) -> int:
         "--unit-byte-loss-weight", str(args.unit_byte_loss_weight),
         "--unit-byte-distill-weight", str(args.unit_byte_distill_weight),
         "--top5-byte-loss-weight", str(args.top5_byte_loss_weight),
+        "--word-boundary-loss-weight", str(args.word_boundary_loss_weight),
+        "--word-top5-loss-weight", str(args.word_top5_loss_weight),
+        "--word-ngram-weight", str(args.word_ngram_weight),
         "--ablation", args.ablation,
         *(["--compile-upgrade"] if args.compile_upgrade else []),
         "--upgrade-context", str(args.context),

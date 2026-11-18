@@ -47,6 +47,11 @@ class VerbatimV103RSI(nn.Module):
                              persistent=False)
         self.register_buffer("word_lengths", torch.zeros(1, dtype=torch.long),
                              persistent=False)
+        self.register_buffer("word_bigram_log_probs", torch.zeros(0),
+                             persistent=False)
+        self.register_buffer("word_unigram_log_probs", torch.zeros(0),
+                             persistent=False)
+        self._word_vocab: dict[bytes, int] | None = None
 
     @torch.no_grad()
     def set_word_vocab(self, vocabulary: dict[bytes, int], maxlen: int = 24):
@@ -62,6 +67,33 @@ class VerbatimV103RSI(nn.Module):
             lengths[index] = min(len(word), maxlen)
         self.word_bytes = table
         self.word_lengths = lengths
+        self._word_vocab = dict(vocabulary)
+
+    @torch.no_grad()
+    def set_word_ngram(self, raw: bytes, alpha: float = 0.1):
+        """Build a 4k-vocab word bigram prior from the training stream."""
+        if not self._word_vocab:
+            return
+        from .unit_heads import _word_tokens
+        ids = [self._word_vocab.get(word, 0)
+               for _start, _end, word in _word_tokens(raw)]
+        ids = [index for index in ids if index > 0]
+        size = int(self.upgrades.hierarchy.unit_heads.word.out_features)
+        counts = torch.zeros((size, size), dtype=torch.float32)
+        if len(ids) > 1:
+            previous = torch.tensor(ids[:-1], dtype=torch.long)
+            following = torch.tensor(ids[1:], dtype=torch.long)
+            counts.index_put_((previous, following),
+                              torch.ones(len(previous)), accumulate=True)
+        row = counts.sum(1, keepdim=True)
+        logp = torch.log((counts + alpha) / (row + alpha * size))
+        unigram = counts.sum(0)
+        logu = torch.log((unigram + alpha)
+                         / (unigram.sum() + alpha * size))
+        device = next(self.parameters()).device
+        self.word_bigram_log_probs = logp.to(device)
+        self.word_unigram_log_probs = logu.to(device)
+        self.word_ngram_counts = int(len(ids))
 
     @staticmethod
     def _byte_to_conditional_bit_logits(byte_logits: torch.Tensor,

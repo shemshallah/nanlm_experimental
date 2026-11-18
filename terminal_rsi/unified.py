@@ -433,6 +433,8 @@ class TerminalRSI(nn.Module):
             "last_base_logits": base_last_logits,
             "last_refined_logits": refined_last,
             "gate_features": enhanced[:, -1],
+            "word_state": bus.word,
+            "byte_state": enhanced,
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),
