@@ -18,6 +18,7 @@ from terminal_rsi.pair_memory import (
 from terminal_rsi.unit_heads import (
     TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE, SENTENCE_VOCAB_SIZE,
     UnitHeads, build_unit_labels, unit_head_loss, unit_parameter_count,
+    word_prefix_byte_log_probs,
 )
 from terminal_rsi.unified import (
     PRESETS, Preset, TerminalRSI, static_upgrade_parameter_count,
@@ -61,6 +62,25 @@ class V5ModuleTests(unittest.TestCase):
         self.assertEqual(int(pair_addresses(
             torch.tensor([PAIR_SLOTS - 1]),
             torch.tensor([PAIR_SLOTS - 1]))[0]), PAIR_CONCEPT_COUNT - 1)
+
+    def test_word_prefix_prior_is_normalized_and_finite(self):
+        word_logits = torch.randn(2, 8, requires_grad=True)
+        history = torch.tensor([[32, 97, 98, 99, 32], [32, 120, 121, 0, 32]])
+        word_bytes = torch.tensor([[97, 98, 99], [120, 121, 0]])
+        lengths = torch.tensor([3, 2])
+        prior = word_prefix_byte_log_probs(
+            word_logits, history, word_bytes, lengths)
+        self.assertEqual(tuple(prior.shape), (2, 256))
+        self.assertTrue(bool(torch.isfinite(prior).all()))
+        normalizer = torch.logsumexp(prior, dim=-1)
+        self.assertTrue(torch.allclose(normalizer, torch.zeros(2), atol=1e-5))
+        (prior * torch.randn_like(prior)).sum().backward()
+        self.assertTrue(bool(torch.isfinite(word_logits.grad).all()))
+        # A gate exactly at zero must not create 0 * log(0) NaNs.
+        gate = torch.zeros((), requires_grad=True)
+        scale = 0.05 * torch.tanh(gate)
+        (scale * prior.detach()).sum().backward()
+        self.assertTrue(bool(torch.isfinite(gate.grad).all()))
 
     def test_moe_zero_gate_is_identity(self):
         moe = SparseRankOneMoE(32, experts=256)

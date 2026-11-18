@@ -506,5 +506,16 @@ def word_prefix_byte_log_probs(word_logits: torch.Tensor,
     # Log a strictly positive tensor: selecting -30 with torch.where while
     # calling log(0) in the other branch makes LogBackward emit 0/0 = NaN
     # even when this prior is gated off.  Clamp first, then floor the result.
-    result = probabilities.clamp_min(1e-30).log().clamp_min(-30.0)
-    return torch.nan_to_num(result, nan=-30.0, neginf=-30.0, posinf=0.0)
+    # Make the prior a proper next-byte distribution before it reaches the
+    # bit factorization.  Raw scatter counts are unnormalized and the old
+    # -30 floor produced extreme logits; a small gate then dominated the
+    # parent and cost held-out BPB.  Normalize, then mix a 5% uniform floor
+    # so every log-probability is finite and bounded.
+    vocab_size = probabilities.shape[-1]
+    total = probabilities.sum(-1, keepdim=True)
+    normalized = torch.where(
+        total > 0,
+        probabilities / total.clamp_min(1e-12),
+        torch.full_like(probabilities, 1.0 / vocab_size))
+    smoothed = 0.95 * normalized + 0.05 / vocab_size
+    return smoothed.log()

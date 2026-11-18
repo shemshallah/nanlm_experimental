@@ -25,6 +25,11 @@ from torch.nn import functional as F
 
 from .legacy_v103_reference import V103ParityGPUFullSystem, PARITY_SCHEMA
 from .unit_heads import WORD_VOCAB_SIZE, word_prefix_byte_log_probs
+
+# Trust region for the word-prefix prior.  The prior is a classifier-derived
+# distribution, so a free gate lets it dominate the parent before the word
+# head is accurate.  0.05 caps its logit contribution at ~0.4.
+WORD_PRIOR_MAX_SCALE = 0.05
 from .unified import PRESETS, TerminalRSI, device_for
 
 
@@ -139,9 +144,10 @@ class VerbatimV103RSI(nn.Module):
             prior = torch.nan_to_num(prior, nan=-30.0, neginf=-30.0,
                                      posinf=0.0)
             prior_bits = self._byte_to_conditional_bit_logits(prior, target)
-            final_logits = final_logits + torch.tanh(
-                self.word_prior_gate).to(final_logits.dtype) * prior_bits.to(
-                    final_logits.dtype)
+            word_scale = WORD_PRIOR_MAX_SCALE * torch.tanh(
+                self.word_prior_gate)
+            final_logits = final_logits + word_scale.to(
+                final_logits.dtype) * prior_bits.to(final_logits.dtype)
         if use_fast_adapter:
             adapter_input = upgrade_out.get("adapter_input")
             if adapter_input is not None:
