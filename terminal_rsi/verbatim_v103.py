@@ -110,6 +110,24 @@ class VerbatimV103RSI(nn.Module):
         """Reuses the original v103 RSI critic; AFTER scoring only."""
         self.original.observe_byte_loss(bpb, bit_accuracy)
 
+    def load_state_dict(self, state_dict, strict: bool = True,
+                        assign: bool = False):
+        from .unified import TerminalRSI
+        migrated = TerminalRSI.migrate_state_dict(dict(state_dict))
+        missing, unexpected = super().load_state_dict(
+            migrated, strict=False, assign=assign)
+        allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
+                   "upgrades.hierarchy.pair_memory.",
+                   "upgrades.hierarchy.unit_heads.")
+        bad_missing = [
+            key for key in missing
+            if not key.startswith(allowed) and ".moe." not in key]
+        if strict and (unexpected or bad_missing):
+            raise RuntimeError(
+                f"Checkpoint mismatch: missing={bad_missing[:4]} "
+                f"unexpected={unexpected[:4]}")
+        return torch.nn.modules.module._IncompatibleKeys(missing, unexpected)
+
     @torch.no_grad()
     def observe_verified_terminal(self, success: bool):
         self.original.observe_terminal(success)

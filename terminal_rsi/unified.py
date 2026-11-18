@@ -233,7 +233,8 @@ class TerminalRSI(nn.Module):
         """Migrate v4 split-GLU keys to the fused v5 GLU without data loss."""
         migrated = dict(state_dict)
         for key in list(migrated):
-            if (key.startswith("upgrades.backbone.")
+            if ((key.startswith("upgrades.backbone.")
+                 or key.startswith("backbone."))
                     and key.endswith(".gate.weight")):
                 prefix = key[:-len("gate.weight")]
                 value_key = prefix + "value.weight"
