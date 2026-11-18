@@ -503,6 +503,8 @@ def word_prefix_byte_log_probs(word_logits: torch.Tensor,
     probabilities = torch.zeros((batch, 256), device=device)
     probabilities.scatter_add_(
         1, next_byte.clamp(0, 255), torch.exp(top_values) * valid)
-    result = torch.where(probabilities > 0, probabilities.log(),
-                         torch.full_like(probabilities, -30.0))
+    # Log a strictly positive tensor: selecting -30 with torch.where while
+    # calling log(0) in the other branch makes LogBackward emit 0/0 = NaN
+    # even when this prior is gated off.  Clamp first, then floor the result.
+    result = probabilities.clamp_min(1e-30).log().clamp_min(-30.0)
     return torch.nan_to_num(result, nan=-30.0, neginf=-30.0, posinf=0.0)
