@@ -4,9 +4,10 @@ This is the first real 10-minute 115M run on a Kaggle T4 using the
 `kaggle10m` short-run profile.  It is an early-training comparison, not a
 frontier claim.
 
-**Current best short-run profile: `kaggle10m_lr3e4`, 1.7489 test BPB /
-1.7835 validation BPB after 592 steps.**  The original 2e-4 result below is
-kept as the historical reference.
+**Current best short-run profile: `kaggle10m_nomtp`, 1.5981 test BPB /
+1.6425 validation BPB after 900 steps.**  It keeps the concept loop and
+feedback bus but skips the MTP branch and full-vocab MTP heads.  The original
+2e-4 result and the 3e-4/MTP-on result are kept as historical references.
 
 ## Run
 
@@ -97,6 +98,37 @@ Same WikiText-2 bins, batch 4, 600-second cap.
 
 Early decay and 4e-4 did **not** beat the plain 3e-4 / 1,000-step horizon.
 The 4e-4 arm was close but 0.0075 test BPB worse.  Keep `kaggle10m_lr3e4`.
+
+## Active-compute ablation
+
+Run: <https://www.kaggle.com/code/shem42/z4-115m-compute-ablation>  
+All arms keep the **115,238,237** parameter count; skipped modules stay in the
+checkpoint, but their compute is not executed.  Same WikiText-2 bins, batch 4,
+3e-4 LR, 600-second cap.
+
+| Arm | Steps | Tokens | Best val BPB | Test BPB | Test top-1 | Active changes |
+|---|---:|---:|---:|---:|---:|---|
+| **`kaggle10m_nomtp`** | **900** | **1,843,200** | **1.6425** | **1.5981** | **31.56%** | skip MTP branch + MTP heads |
+| `kaggle10m` (3e-4 reference) | 592 | 1,212,416 | 1.7835 | 1.7489 | 26.86% | full graph |
+| `kaggle10m_noconcept` | 757 | 1,550,336 | 1.8159 | 1.7822 | 24.60% | skip concept loop |
+| `kaggle10m_trunk` | 1,000* | 2,048,000 | 1.7517 | 1.7239 | 25.75% | skip both |
+
+`*` The trunk arm reached the 1,000-step preset cap at 475 s, leaving part of
+the 600-second budget unused.
+
+This is the decisive result:
+
+- **The MTP branch is harmful at 10 minutes.**  Skipping its two branch blocks
+  and full-vocab heads improves test BPB by **0.1508** and top-1 by **4.7
+  points**, while processing 1.84M tokens instead of 1.21M.
+- **The concept loop is valuable.**  Removing it makes the result worse than
+  the full 3e-4 reference (1.7822 vs 1.7489) despite more steps.
+- Skipping both is better than the full graph but worse than keeping the
+  concept loop and dropping MTP (1.7239 vs 1.5981).
+
+The recommended short-run profile is therefore **`kaggle10m_nomtp`**: concept
+loop + feedback, MTP compute skipped, 3e-4 LR, batch 4.  The MTP parameters
+remain in the 115M checkpoint but are not executed.
 
 ## Next-move arms
 

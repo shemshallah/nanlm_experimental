@@ -3,9 +3,12 @@
 This is a static parameter/compute audit of the fixed `115m` preset plus the
 short-run changes used by the `kaggle10m` preset.  The T4 measurements are in
 [`KAGGLE_10M_RESULTS.md`](KAGGLE_10M_RESULTS.md).  The current best short-run
-profile is `kaggle10m_lr3e4`: 115,238,237 parameters, 592 steps, **1.7489
-WikiText-2 BPB** at a 600-second cap.  The original 2e-4 profile is the
-1.7914 reference; a 600-step decay and a 4e-4 arm were both worse.
+profile is **`kaggle10m_nomtp`**: 115,238,237 parameters, 900 steps, **1.5981
+WikiText-2 BPB** at a 600-second cap.  It keeps the concept loop and feedback
+bus but skips the MTP branch/head compute; the MTP parameters remain in the
+checkpoint but are not executed.  The 3e-4/MTP-on profile is 1.7489; the
+original 2e-4 profile is 1.7914.  Removing the concept loop is worse (1.7822),
+so the concept path pays for itself at this horizon.
 
 The profile was produced by:
 
