@@ -111,6 +111,7 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
     p.add_argument("--rsi-fast-z", type=float, default=1.5)
     p.add_argument("--rsi-fast-shards", type=int, default=8)
+    p.add_argument("--rsi-fast-top-k", type=int, default=8)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
@@ -230,6 +231,7 @@ def main(argv=None) -> int:
             "--rsi-fast-min-gain", str(args.rsi_fast_min_gain),
             "--rsi-fast-z", str(args.rsi_fast_z),
             "--rsi-fast-shards", str(args.rsi_fast_shards),
+            "--rsi-fast-top-k", str(args.rsi_fast_top_k),
         ]
     if args.no_gradient_checkpointing:
         command.append("--no-gradient-checkpointing")

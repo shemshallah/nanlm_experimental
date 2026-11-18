@@ -548,6 +548,7 @@ def main(argv=None):
     p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
     p.add_argument("--rsi-fast-z", type=float, default=1.5)
     p.add_argument("--rsi-fast-shards", type=int, default=8)
+    p.add_argument("--rsi-fast-top-k", type=int, default=8)
     p.add_argument("--rsi-v4-meta", type=Path,
                    help="Optional v4 meta/replay JSON from a previous run")
     p.add_argument("--rsi-v4-critic-steps", type=int, default=32)
@@ -978,7 +979,7 @@ def main(argv=None):
                 holdout_features[PARITY_CONTEXT:].copy()).to(dtype=torch.int32)
             fast_source = str(args.rsi_holdout_stream)
         fast_probe = ProbeShards.build(
-            fast_raw, fast_aux, n_shards=8, positions_per_shard=64,
+            fast_raw, fast_aux, n_shards=16, positions_per_shard=64,
             history=upgrade_context, seed=args.seed + 17)
         print("Fast-adapter RSI probe:", fast_source,
               "positions", len(fast_probe.positions), flush=True)
@@ -1129,10 +1130,10 @@ def main(argv=None):
         # Train and validate on the same book-disjoint holdout.  Training on
         # the main stream and validating on the holdout created a distribution
         # mismatch that made every fast adapter look worse than no-op.
-        branch_windows = torch.cat(fast_probe.windows[:4], dim=0)
-        branch_aux = torch.cat(fast_probe.auxiliary[:4], dim=0)
-        probe_windows = torch.cat(fast_probe.windows[4:], dim=0)
-        probe_aux = torch.cat(fast_probe.auxiliary[4:], dim=0)
+        branch_windows = torch.cat(fast_probe.windows[:8], dim=0)
+        branch_aux = torch.cat(fast_probe.auxiliary[:8], dim=0)
+        probe_windows = torch.cat(fast_probe.windows[8:], dim=0)
+        probe_aux = torch.cat(fast_probe.auxiliary[8:], dim=0)
         branch = build_fast_cache(
             model, branch_windows[:, :-1], branch_windows[:, -1], branch_aux)
         probe = build_fast_cache(
@@ -1147,6 +1148,7 @@ def main(argv=None):
             min_gain=args.rsi_fast_min_gain,
             z_score=args.rsi_fast_z,
             shards=args.rsi_fast_shards,
+            top_k=args.rsi_fast_top_k,
             seed=args.seed + 1000 + len(fast_stats),
         )
         fast_stats.append(stats)

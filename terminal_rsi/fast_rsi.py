@@ -108,7 +108,7 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                          steps: int = 2, lr: float = 0.05, rank: int = 8,
                          min_gain: float = 0.0005, z_score: float = 1.5,
                          shards: int = 8, noise: float = 0.005,
-                         seed: int | None = None) -> dict:
+                         top_k: int = 8, seed: int | None = None) -> dict:
     """Train/evaluate cached rank-r adapters and persist the best accepted one."""
     if candidates < 1 or rounds < 1 or steps < 1:
         return {"proposals": 0, "accepted": 0, "rounds": 0}
@@ -121,10 +121,17 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
     best_delta = -float("inf")
     best_se = float("inf")
     shard_count = max(2, min(int(shards), len(probe.targets)))
+    # Selection uses the first half of the probe; confirmation the second half.
+    half = max(1, len(probe.targets) // 2)
+    probe_sel = FastCache(probe.inputs[:half], probe.base_bits[:half],
+                          probe.bits[:half], probe.targets[:half])
+    probe_conf = FastCache(probe.inputs[half:], probe.base_bits[half:],
+                           probe.bits[half:], probe.targets[half:])
+    conf_shards = max(2, min(int(shards), len(probe_conf.targets)))
     with torch.no_grad():
-        noop_shards = _noop_loss(
-            model, adapter, probe, per_sample=True).reshape(
-                shard_count, -1).mean(-1)
+        noop_conf_shards = _noop_loss(
+            model, adapter, probe_conf, per_sample=True).reshape(
+                conf_shards, -1).mean(-1)
     for _round in range(rounds):
         with torch.no_grad():
             A0 = adapter.A.detach()
@@ -147,19 +154,24 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
             nn.utils.clip_grad_norm_(population.parameters(), 1.0)
             optimizer.step()
         with torch.no_grad():
-            sample_loss = population.loss(
-                model, probe, per_sample=True)  # [K,N]
-            candidate_shards = sample_loss.reshape(
-                candidates, shard_count, -1).mean(-1)
-            diff = noop_shards[None] - candidate_shards
-            mean_diff = diff.mean(-1)
-            if shard_count > 1:
-                se = diff.std(-1, unbiased=True) / math.sqrt(shard_count)
-            else:
-                se = torch.full_like(mean_diff, float("inf"))
-            index = int(torch.argmax(mean_diff).item())
-            delta = float(mean_diff[index].item())
-            standard_error = float(se[index].item())
+            selection_loss = population.loss(
+                model, probe_sel, per_sample=True).mean(-1)
+            keep = min(max(1, int(top_k)), candidates)
+            top = torch.argsort(selection_loss)[:keep]
+            weights = torch.softmax(-selection_loss[top], dim=0)
+            A_ens = (population.A[top] * weights[:, None, None]).sum(0)[None]
+            B_ens = (population.B[top] * weights[:, None, None]).sum(0)[None]
+            bias_ens = (population.bias[top] * weights[:, None]).sum(0)[None]
+            ensemble_loss = _adapter_loss(
+                model, A_ens, B_ens, bias_ens, probe_conf,
+                per_sample=True)[0]
+            candidate_shards = ensemble_loss.reshape(
+                conf_shards, -1).mean(-1)
+            diff = noop_conf_shards - candidate_shards
+            delta = float(diff.mean().item())
+            standard_error = (float(diff.std(unbiased=True).item()
+                                    / math.sqrt(conf_shards))
+                              if conf_shards > 1 else float("inf"))
             threshold = max(float(min_gain), float(z_score) * standard_error)
             proposals += candidates
             if delta > best_delta:
@@ -167,9 +179,9 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                 best_se = standard_error
             if delta > threshold:
                 accepted += 1
-                adapter.A.copy_(population.A[index].detach())
-                adapter.B.copy_(population.B[index].detach())
-                adapter.bias.copy_(population.bias[index].detach())
+                adapter.A.copy_(A_ens[0].detach())
+                adapter.B.copy_(B_ens[0].detach())
+                adapter.bias.copy_(bias_ens[0].detach())
     noop_bpb = float(
         _noop_loss(model, adapter, probe).item() * 8 / math.log(2))
     return {
