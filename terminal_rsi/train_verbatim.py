@@ -101,6 +101,27 @@ def _word_ngram_prior(model, window, index, device):
     return prior
 
 
+def _unit_logits_with_ngram(model, unit_logits, targets, weight):
+    if weight <= 0 or not unit_logits or targets is None:
+        return unit_logits
+    word_logits = unit_logits.get("word")
+    previous = targets.get("current_word")
+    bigram = getattr(model, "word_bigram_log_probs", None)
+    if (word_logits is None or previous is None or bigram is None
+            or bigram.numel() == 0):
+        return unit_logits
+    device = word_logits.device
+    previous = previous.to(device).long()
+    prior = model.word_unigram_log_probs.to(device)[None, :].expand(
+        len(previous), -1).clone()
+    valid = (previous > 0) & (previous < bigram.shape[0])
+    if bool(valid.any()):
+        prior[valid] = bigram.to(device)[previous[valid]]
+    merged = dict(unit_logits)
+    merged["word"] = word_logits + weight * prior
+    return merged
+
+
 def word_boundary_loss(model, upgrade_out, window, *,
                        max_current: int = 4096, max_next: int = 2048,
                        top5_weight: float = 0.1,
@@ -132,10 +153,12 @@ def word_boundary_loss(model, upgrade_out, window, *,
             pick = torch.randperm(len(index), device=device)[:cap]
             index = index[pick]
         target = target_all[index[:, 0], index[:, 1]]
+        param_dtype = heads.byte_proj.weight.dtype
         hidden = torch.cat((
-            word_state[index[:, 0], index[:, 1]],
-            heads.byte_proj(byte_state[index[:, 0], index[:, 1]])), dim=-1)
-        logits = head(hidden)
+            word_state[index[:, 0], index[:, 1]].to(param_dtype),
+            heads.byte_proj(byte_state[index[:, 0], index[:, 1]].to(
+                param_dtype))), dim=-1)
+        logits = head(hidden.to(head.weight.dtype))
         if use_ngram:
             prior = _word_ngram_prior(model, window, index, device)
             if prior is not None:
@@ -281,8 +304,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                 part_units = {key: value[start:end]
                               for key, value in unit_targets.items()}
                 u_loss, u_stats = unit_head_loss(
-                    upgrade_out["unit_logits"], part_units,
-                    top5_weight=word_top5_loss_weight)
+                    _unit_logits_with_ngram(
+                        model, upgrade_out["unit_logits"], part_units,
+                        word_ngram_weight),
+                    part_units, top5_weight=word_top5_loss_weight)
                 objective = objective + unit_loss_weight * u_loss * (end - start)
                 _accumulate_stats(unit_total, u_stats, end - start)
                 unit_weight_total += end - start
@@ -400,8 +425,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         if (upgrade_out is not None and unit_targets is not None
                 and unit_loss_weight > 0 and upgrade_out.get("unit_logits")):
             u_loss, u_stats = unit_head_loss(
-                upgrade_out["unit_logits"], unit_targets,
-                top5_weight=word_top5_loss_weight)
+                _unit_logits_with_ngram(
+                    model, upgrade_out["unit_logits"], unit_targets,
+                    word_ngram_weight),
+                unit_targets, top5_weight=word_top5_loss_weight)
             objective = objective + unit_loss_weight * u_loss
         else:
             u_stats = {}
