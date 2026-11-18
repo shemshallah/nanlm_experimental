@@ -360,6 +360,8 @@ class TerminalRSI(nn.Module):
             "boundary_probs": bus.boundary_probs,
             "hierarchy_gates": bus.gates,
             "unit_logits": bus.unit_logits,
+            "unit_byte_raw": bus.unit_byte_raw,
+            "unit_byte_logits": bus.unit_byte_logits,
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),
