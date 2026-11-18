@@ -13,7 +13,7 @@ from m3_r30.train_dev import gate_pass, FrozenR29Adam
 class R30Tests(unittest.TestCase):
     def test_zero_init_exact_canonical_r29_all_steps_and_reset(self):
         prior = np.arange(1, 257, dtype=np.float64)
-        promoted = M3DefaultPredictor(prior)
+        promoted = M3DefaultPredictor(prior, mode="r29")
         candidate = M3R30Predictor(prior)
         for byte in b"the green lake and the blue lake, the green lake. " * 2:
             promoted.observe(byte)

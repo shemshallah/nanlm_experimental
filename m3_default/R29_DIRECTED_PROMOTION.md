@@ -39,7 +39,7 @@ histories of equal length and separately report full unrelated-book evidence.
 
 ## Deployment invariants
 
-- `M3DefaultPredictor(prior)` uses exact R29 weights.
+- `M3DefaultPredictor(prior, mode="r29")` preserves exact R29 weights after the later R31 directed promotion.
 - `predict_logp("r26")`, `"r24"`, and `"r20"` preserve inherited outputs.
 - `mode="r26"` omits lexical memory, preserving the certified deployment.
 - Checkpoint-dependent training remains in `m3_r29`; normal inference uses

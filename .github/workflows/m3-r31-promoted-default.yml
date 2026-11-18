@@ -1,0 +1,27 @@
+name: M3 R31 directed default parity regression
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_default/**'
+      - '.github/workflows/m3-r31-promoted-default.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r31-default:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Exact canonical/research parity and fallbacks
+        run: |
+          python -m compileall -q m3_default m3_r29 m3_r30 m3_r31
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r29 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r30 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r31 -p 'test_*.py' -v

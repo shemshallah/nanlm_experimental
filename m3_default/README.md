@@ -1,16 +1,17 @@
-# Canonical M3 online predictor — R29 directed default with certified R26 fallback
+# Canonical M3 online predictor — R31 directed default with certified R26 fallback
 
-M3 now defaults to the combined R21/R24/R26/R29 architecture: signed mirror
+M3 now defaults to the combined R21/R24/R26/R29/R30/R31 architecture: signed mirror
 pair/triangle successors, causal prefix copy, R26's near/lifetime context
-tree, and R29's trained word-conditioned lexical successor feedback. **R26 is
-the latest independently TEST-certified checkpoint.** R29 was made the default
-at the user's explicit direction despite its unrelated-history control
-outperforming it on GATE/DEV. Do not call this an R29 TEST certification.
+tree, R29's trained word-conditioned lexical successor feedback, R30's trained
+three-scalar correction, and R31's class-selective calibration. **R26 is the
+latest independently TEST-certified checkpoint.** Both R29 and R31 were made
+defaults at the user's explicit direction despite unrelated-history controls
+outperforming them on GATE/DEV. Do not call R31 a TEST certification.
 This remains separate from FA1, FA2, NaNLMind and Terminal-RSI.
 
 ```python
 from m3_default import M3DefaultPredictor, M3R21Predictor
-default = M3DefaultPredictor(original_r16_train_prior)  # "r29", user-directed default
+default = M3DefaultPredictor(original_r16_train_prior)  # "r31", user-directed default
 certified = M3DefaultPredictor(original_r16_train_prior, mode="r26")
 legacy = M3R21Predictor(original_r16_train_prior)    # exact "r20"
 for byte in document_prefix:
@@ -37,15 +38,33 @@ Frozen inherited parameters:
   the independently tested recovery checkpoint.
 - R29 eight-scalar lexical feedback readout, embedded exactly from the
   768-update R29 checkpoint; all 22 Adam groups remain recoverable.
+- R30 three-scalar corrective readout, with 25 optimizer groups retained.
+- R31 three-scalar class-selective calibration, with all 28 optimizer groups
+  retained in its exact recoverable checkpoint.
 
 The exact copy gain and entire five-scalar Adam optimizer moment history
 are frozen in `m3_r24/r23_frozen_candidate.json`; the original R23 fitted
 checkpoint remains recoverable from GitHub Actions. The newer R26 checkpoint
 preserves all 14 Adam group moments and steps.
 
-Use `default.predict_proba("r26")` or `"r24"` for exact inherited predictions;
+Use `default.predict_proba("r30")`, `"r29"`, `"r26"` or `"r24"` for exact
+inherited predictions;
 construct `M3DefaultPredictor(prior, mode="r26")` or `mode="r24"` to omit the
 newer auxiliary memory when not needed.
+
+## R31 directed engineering promotion
+
+The exact trained R31 coefficients are `1.2195544888726837`,
+`0.03536605045213109`, and `-0.8597706306738135`. On 12 held-out
+DEV books, its BPB improved from R29 **3.410224** to **3.394562** and its
+nonspace BPB from **4.057942** to **3.898143**. However, matched unrelated
+history scored **3.386495**, R31 top-1 dropped slightly, and only 7/12
+books improved. Its GATE and DEV research criteria therefore **failed**;
+TEST books 444–467 remain sealed. The user explicitly requested R31 as the
+runtime default while this research continues.
+
+- [R31 exact 28-group training checkpoint and metrics](https://github.com/shemshallah/nanlm_experimental/actions/runs/44227555060)
+- [Explicit directed promotion and candid evidence ledger](R31_DIRECTED_PROMOTION.md)
 
 ## R29 user-directed default and scientific limit
 

@@ -1,4 +1,4 @@
-"""Canonical online M3 predictor: R29 with exact R26/R24/R21 fallback.
+"""Canonical online M3 predictor: R31 with exact R30/R29/R26/R24/R21 fallback.
 
 The original R21 signed pair/triangle model remains M3R21Predictor exactly.
 R24 adds the previously accepted frozen prefix-copy readout. The R26 candidate
@@ -7,7 +7,10 @@ tree to this SAME online state, with its exact independently tested readout.
 R29 adds a frozen trained lexical successor feedback path. Its promotion is
 user-directed, despite failing the unrelated-history DEV control, and is not
 an independent TEST certification. The rejected R23 toroidal apex is NOT
-enabled. All state updates are causal.
+enabled. R31 adds trained, class-selective lexical calibration as the user-
+directed default; its held-out unrelated-history control was also stronger,
+so this is an engineering promotion, NOT a scientific superiority claim.
+All state updates are causal.
 """
 from __future__ import annotations
 
@@ -23,11 +26,11 @@ from m3_r20.successor_dev import (
     combined_logp, R19_SPACE_SCALE, R19_NONSPACE_SCALE, SHIFT,
 )
 
-DEFAULT_MODE = "r29"
+DEFAULT_MODE = "r31"
 R20_PAIR_SCALE = 0.5
 R20_TRIANGLE_SCALE = 0.5
 LEGACY_MODES = ("r20", "r19", "oscillator", "wrong_address", "wrong_context", "triangle_only")
-MODES = ("r29", "r26", "r24") + LEGACY_MODES
+MODES = ("r31", "r30", "r29", "r26", "r24") + LEGACY_MODES
 R24_COPY_GAIN = 1.0962571833587516  # exact R23 frozen TRAIN-only scalar
 R26_THETA = np.array((
     0.20522936927790486, 0.5247820788932681, 0.014546217566135089,
@@ -44,6 +47,14 @@ R29_THETA = np.array((
     -0.038336626963906786, 0.7541392402081305,
 ), dtype=np.float64)
 R29_TRAINING_CHECKPOINT_SHA256 = "02c340e82ec77ae2c6e1d20ddd808ca4f63e3c242fe6fc94ff8f2235d8ab9386"
+R30_DELTA = np.array((
+    -0.0583874445684363, -0.3092941951187244, -0.257904760223574,
+), dtype=np.float64)
+R30_TRAINING_CHECKPOINT_SHA256 = "a757433f6b72b4b444763de2f3158eea960a530c94fe613af58de247647b3421"
+R31_THETA = np.array((
+    1.2195544888726837, 0.03536605045213109, -0.8597706306738135,
+), dtype=np.float64)
+R31_TRAINING_CHECKPOINT_SHA256 = "dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff"
 
 
 class M3R21Predictor:
@@ -139,7 +150,7 @@ class M3R21Predictor:
 
 
 class M3DefaultPredictor(M3R21Predictor):
-    """One unified R29/R26/R24/R21 streaming predictor with fallbacks.
+    """One unified R31/R30/R29/R26/R24/R21 predictor with fallbacks.
 
     The frozen R24 parent is always present. New R26 context memories are
     instantiated only for the promoted default mode, so R25/R26 research
@@ -151,8 +162,8 @@ class M3DefaultPredictor(M3R21Predictor):
             raise ValueError("unrecognized M3 mode")
         # M3R21Predictor.__init__ calls reset by dynamic dispatch. Set this
         # flag first so both initialization and later resets agree.
-        self._r26_enabled = mode in ("r29", "r26")
-        self._r29_enabled = mode == "r29"
+        self._r26_enabled = mode in ("r31", "r30", "r29", "r26")
+        self._r29_enabled = mode in ("r31", "r30", "r29")
         super().__init__(original_train_prior,mode="r20")
         self.mode = mode
 
@@ -198,6 +209,15 @@ class M3DefaultPredictor(M3R21Predictor):
             frozen_base = predictions["r26"]
             features = pack_lexical(self.r29_lexical.features(frozen_base))
             predictions["r29"] = lexical_readout(frozen_base, features, R29_THETA)
+            if self.mode in ("r30", "r31"):
+                from m3_r30.router import router_features, router_readout, support
+                evidence = support(self.r29_lexical)
+                predictions["r30"] = router_readout(
+                    predictions["r29"], router_features(features, evidence), R30_DELTA)
+            if self.mode == "r31":
+                from m3_r31.calibration import class_features, calibrated_readout
+                predictions["r31"] = calibrated_readout(
+                    predictions["r29"], class_features(features, evidence), R31_THETA)
         return predictions
 
     def predict_logp(self, mode: str | None = None) -> np.ndarray:
@@ -208,4 +228,8 @@ class M3DefaultPredictor(M3R21Predictor):
             raise ValueError("R26 mode requires an R26-enabled predictor")
         if chosen == "r29" and not self._r29_enabled:
             raise ValueError("R29 mode requires an R29-enabled predictor")
+        if chosen == "r30" and self.mode not in ("r30", "r31"):
+            raise ValueError("R30 mode requires an R30-enabled predictor")
+        if chosen == "r31" and self.mode != "r31":
+            raise ValueError("R31 mode requires an R31-enabled predictor")
         return self.predict_all()[chosen]

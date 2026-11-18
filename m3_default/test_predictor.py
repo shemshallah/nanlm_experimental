@@ -6,6 +6,7 @@ import numpy as np
 from m3_default.predictor import (M3DefaultPredictor, M3R21Predictor,
                                   DEFAULT_MODE, R24_COPY_GAIN, R26_THETA,
                                   R29_THETA, R29_TRAINING_CHECKPOINT_SHA256,
+                                  R30_DELTA, R31_THETA, R31_TRAINING_CHECKPOINT_SHA256,
                                   R26_TRAINING_CHECKPOINT_SHA256)
 from m3_r23.apex import M3R23Predictor
 from m3_r24.locked_test import load_locked_candidate
@@ -18,9 +19,9 @@ from m3_r20.successor_dev import combined_logp
 
 
 class M3StreamingParity(unittest.TestCase):
-    def test_default_is_r29_and_reset_is_reproducible(self):
+    def test_default_is_r31_and_reset_is_reproducible(self):
         p = M3DefaultPredictor(np.ones(256))
-        self.assertEqual(DEFAULT_MODE, "r29")
+        self.assertEqual(DEFAULT_MODE, "r31")
         with self.assertRaises(ValueError):
             p.predict_proba()
         p.observe(65)
@@ -142,7 +143,7 @@ class M3StreamingParity(unittest.TestCase):
         for byte in seq:
             for p in (canonical, frozen, original_r26):
                 p.observe(byte)
-            np.testing.assert_array_equal(canonical.predict_logp(), frozen.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r29"), frozen.predict_logp())
             np.testing.assert_array_equal(canonical.predict_logp("r26"),
                                           original_r26.predict_logp())
             np.testing.assert_array_equal(canonical.predict_logp("r24"),
@@ -154,8 +155,33 @@ class M3StreamingParity(unittest.TestCase):
         canonical.observe(65)
         frozen.observe(65)
         original_r26.observe(65)
-        np.testing.assert_array_equal(canonical.predict_logp(), frozen.predict_logp())
+        np.testing.assert_array_equal(canonical.predict_logp("r29"), frozen.predict_logp())
         self.assertFalse(np.array_equal(old, original_r26.predict_logp()))
+
+    def test_user_directed_r31_matches_trained_research_and_fallbacks(self):
+        from m3_r31.calibration import M3R31Predictor
+        from m3_r30.router import M3R30Predictor
+        from m3_r29.lexical import M3R29Predictor
+        self.assertEqual(R31_TRAINING_CHECKPOINT_SHA256,
+                         "dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff")
+        prior = np.arange(1, 257, dtype=np.float64)
+        canonical = M3DefaultPredictor(prior)
+        r31 = M3R31Predictor(prior, theta=R31_THETA)
+        r30 = M3R30Predictor(prior, delta=R30_DELTA)
+        r29 = M3R29Predictor(prior, theta=R29_THETA)
+        previous = M3DefaultPredictor(prior, mode="r29")
+        for byte in b"the quick red fox ran to the red house, the quick red fox. " * 3:
+            for predictor in (canonical, r31, r30, r29, previous):
+                predictor.observe(byte)
+            np.testing.assert_array_equal(canonical.predict_logp(), r31.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r30"), r30.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r29"), r29.predict_logp())
+            np.testing.assert_array_equal(previous.predict_logp(), r29.predict_logp())
+        for predictor in (canonical, r31, r30, r29, previous):
+            predictor.reset()
+            predictor.observe(65)
+        np.testing.assert_array_equal(canonical.predict_logp(), r31.predict_logp())
+        np.testing.assert_array_equal(canonical.predict_logp("r29"), previous.predict_logp())
 
 
 if __name__ == "__main__":

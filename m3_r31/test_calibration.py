@@ -12,7 +12,7 @@ from m3_r31.calibration import (M3R31Predictor, R30_DELTA,
 class R31Tests(unittest.TestCase):
     def test_zero_init_exactly_preserves_promoted_r29_distribution(self):
         prior = np.arange(1,257,dtype=np.float64)
-        accepted = M3DefaultPredictor(prior)
+        accepted = M3DefaultPredictor(prior, mode="r29")
         trial = M3R31Predictor(prior)
         for byte in b"the yellow bird flew over the garden. " * 3:
             accepted.observe(byte)
