@@ -24,7 +24,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .legacy_v103_reference import V103ParityGPUFullSystem, PARITY_SCHEMA
-from .unit_heads import word_prefix_byte_log_probs
+from .unit_heads import WORD_VOCAB_SIZE, word_prefix_byte_log_probs
 from .unified import PRESETS, TerminalRSI, device_for
 
 
@@ -46,7 +46,9 @@ class VerbatimV103RSI(nn.Module):
 
     @torch.no_grad()
     def set_word_vocab(self, vocabulary: dict[bytes, int], maxlen: int = 24):
-        size = max(vocabulary.values(), default=0) + 1
+        # Must cover every class the word head emits, even on a tiny corpus.
+        size = max(WORD_VOCAB_SIZE,
+                   max(vocabulary.values(), default=0) + 1)
         table = torch.zeros((size, maxlen), dtype=torch.long)
         lengths = torch.zeros(size, dtype=torch.long)
         for word, index in vocabulary.items():
