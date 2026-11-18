@@ -59,7 +59,7 @@ def hierarchy_parameter_count(width: int) -> int:
 def unit_decoder_parameter_count(width: int, hidden: int = 256) -> int:
     bw = hierarchy_bus_width(width)
     input_dim = 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE) + SENTENCE_VOCAB_SIZE + width + 3 * bw
-    return (input_dim * hidden + hidden + 2 * hidden
+    return (2 * input_dim + input_dim * hidden + hidden + 2 * hidden
             + hidden * 256 + 256 + 1)
 
 
@@ -177,6 +177,7 @@ class CausalHierarchy(nn.Module):
         decoder_input_dim = (2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
                              + SENTENCE_VOCAB_SIZE + width + 3 * bw)
         self.unit_to_byte = nn.Sequential(
+            nn.LayerNorm(decoder_input_dim),
             nn.Linear(decoder_input_dim, 256, bias=True),
             nn.GELU(),
             nn.LayerNorm(256),

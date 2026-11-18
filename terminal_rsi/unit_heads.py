@@ -475,7 +475,9 @@ def word_prefix_byte_log_probs(word_logits: torch.Tensor,
     prefix_length = (time - 1 - last_space).clamp(0, maxlen)
     suffix = history.flip(1)[:, :maxlen]
     prefix_mask = torch.arange(maxlen, device=device)[None, :] < prefix_length[:, None]
-    logp = torch.log_softmax(word_logits.float(), dim=-1)
+    logp = torch.log_softmax(
+        torch.nan_to_num(word_logits.float(), nan=0.0, posinf=30.0,
+                         neginf=-30.0), dim=-1)
     keep = min(int(top_k), logp.shape[-1])
     top_values, top_indices = logp.topk(keep, dim=-1)
     table = table_all[top_indices]              # [B,K,maxlen]
@@ -489,5 +491,6 @@ def word_prefix_byte_log_probs(word_logits: torch.Tensor,
     probabilities = torch.zeros((batch, 256), device=device)
     probabilities.scatter_add_(
         1, next_byte.clamp(0, 255), torch.exp(top_values) * valid)
-    return torch.where(probabilities > 0, probabilities.log(),
-                       torch.full_like(probabilities, -30.0))
+    result = torch.where(probabilities > 0, probabilities.log(),
+                         torch.full_like(probabilities, -30.0))
+    return torch.nan_to_num(result, nan=-30.0, neginf=-30.0, posinf=0.0)

@@ -133,6 +133,8 @@ class VerbatimV103RSI(nn.Module):
             prior = word_prefix_byte_log_probs(
                 word_logits, previous, self.word_bytes, self.word_lengths,
                 top_k=8)
+            prior = torch.nan_to_num(prior, nan=-30.0, neginf=-30.0,
+                                     posinf=0.0)
             prior_bits = self._byte_to_conditional_bit_logits(prior, target)
             final_logits = final_logits + torch.tanh(
                 self.word_prior_gate).to(final_logits.dtype) * prior_bits.to(
@@ -230,7 +232,7 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
         {"params": base, "lr": 2e-3, "name": "original_base"},
         {"params": specialists, "lr": 5e-4, "name": "original_v103"},
         {"params": added, "lr": model.cfg.lr, "name": "recursive_upgrades"},
-        {"params": side, "lr": 1e-3, "name": "unit_side_heads"},
+        {"params": side, "lr": 5e-4, "name": "unit_side_heads"},
     ])
 
 
