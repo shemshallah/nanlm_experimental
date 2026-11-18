@@ -145,7 +145,9 @@ class VerbatimV103RSI(nn.Module):
         if use_fast_adapter:
             adapter_input = upgrade_out.get("adapter_input")
             if adapter_input is not None:
-                adapter_logits = self.upgrades.fast_adapter(adapter_input)
+                adapter_logits = torch.nan_to_num(
+                    self.upgrades.fast_adapter(adapter_input),
+                    nan=0.0, posinf=10.0, neginf=-10.0).clamp(-10.0, 10.0)
                 adapter_bits = self._byte_to_conditional_bit_logits(
                     adapter_logits, target)
                 final_logits = final_logits + adapter_bits.to(final_logits.dtype)

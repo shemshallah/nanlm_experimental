@@ -209,6 +209,12 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                     adapter.B.copy_(B_ens[0].detach())
                     adapter.bias.copy_(bias_ens[0].detach())
                     best_delta = max(best_delta, full_delta)
+    with torch.no_grad():
+        if (not torch.isfinite(adapter.A).all()
+                or not torch.isfinite(adapter.B).all()
+                or not torch.isfinite(adapter.bias).all()
+                or adapter.A.norm() > 10.0 or adapter.B.norm() > 10.0):
+            adapter.A.zero_(); adapter.B.zero_(); adapter.bias.zero_()
     noop_bpb = float(
         _noop_loss(model, adapter, probe).item() * 8 / math.log(2))
     return {
