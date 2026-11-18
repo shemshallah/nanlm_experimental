@@ -1,0 +1,62 @@
+name: M3 R32 train-only anchor memory CPU TRAIN GATE DEV
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r32/**'
+      - '.github/workflows/m3-r32-train-only-anchor.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  m3-r32-anchor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Prove R31 default and R32 exact zero-gain parity
+        run: |
+          python -m compileall -q m3_default m3_r31 m3_r32
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r31 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r32 -p 'test_*.py' -v
+      - name: Recover exact R31 28-group Adam and validate SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r32_parent
+          gh run download 44227555060 -R shemshallah/nanlm_experimental \
+            -n m3-r31-28-group-optimizer-and-class-dev -D /tmp/m3_r32_parent
+          printf '%s  %s\n' \
+            dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff \
+            /tmp/m3_r32_parent/R31_full_adam_checkpoint.npz | sha256sum -c -
+      - name: Download and verify NaNROUTER Release corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r32_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER \
+            --dir /tmp/m3_r32_corpus
+          cd /tmp/m3_r32_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Train anchor gains and compare matched unrelated history
+        run: |
+          python -m m3_r32.train_dev \
+            --corpus-root /tmp/m3_r32_corpus \
+            --parent-checkpoint /tmp/m3_r32_parent/R31_full_adam_checkpoint.npz \
+            --output m3_r32/results/R32_DEV.json \
+            --checkpoint m3_r32/results/R32_full_adam_checkpoint.npz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r32-32-group-checkpoint-with-anchor-and-dev
+          path: m3_r32/results/
+          if-no-files-found: warn
