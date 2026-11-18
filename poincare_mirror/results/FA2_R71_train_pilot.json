@@ -1,0 +1,63 @@
+{
+  "round": "FA2_R71",
+  "status": "TRAIN-only, not promoted",
+  "parent_step": 4465,
+  "candidate_step": 4529,
+  "parent_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
+  "candidate_sha256": "66975c0187a9b0cb20c6709d9b7ed03bb87db158a3165b6833c87b9a6e3f30ea",
+  "train_sha256": "7e368e4a8b4260400b859146404673f1013293794f79f0af9386c6f5312e703f",
+  "books": 8,
+  "feature_seconds": 25.945284441000013,
+  "optimizer_seconds": 0.19398959699998386,
+  "learning": {
+    "updates": 64,
+    "loss2_first_last": [
+      4.255465507507324,
+      3.3265514373779297
+    ],
+    "loss3_first_last": [
+      4.665486812591553,
+      3.629558801651001
+    ],
+    "future_before": [
+      [
+        0.0971350371837616,
+        0.07700269669294357,
+        0.10697612911462784,
+        -0.2123655080795288
+      ],
+      [
+        0.09902823716402054,
+        0.08251164853572845,
+        0.08819136023521423,
+        -0.15281441807746887
+      ]
+    ],
+    "future_after": [
+      [
+        0.0930357351899147,
+        0.07281124591827393,
+        0.10406696796417236,
+        -0.2232472002506256
+      ],
+      [
+        0.08559952676296234,
+        0.06828143447637558,
+        0.0788806825876236,
+        -0.17477671802043915
+      ]
+    ],
+    "distinct_positions": 1536,
+    "cached_chunks": 96,
+    "weight2": 0.35,
+    "anchor": 0.01
+  },
+  "inheritance": {
+    "inherited_neural_tensors_unchanged": 201,
+    "inherited_adam_states_unchanged": 197,
+    "all_adam_states": 198
+  },
+  "test_opened": false,
+  "dev_opened": false,
+  "promoted": false
+}
