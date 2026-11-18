@@ -12,8 +12,8 @@ from terminal_rsi.fast_weights import FastWeightHead, fast_weight_parameter_coun
 from terminal_rsi.hierarchical_bus import CausalHierarchy
 from terminal_rsi.low_rank_moe import SparseRankOneMoE, moe_parameter_count
 from terminal_rsi.pair_memory import (
-    N_PAIR, N_PALINDROME, PAIR_CONCEPT_COUNT, PairConceptMemory,
-    pair_parameter_count,
+    N_PAIR, N_PALINDROME, PAIR_CONCEPT_COUNT, PAIR_SLOTS, PairConceptMemory,
+    pair_addresses, pair_parameter_count,
 )
 from terminal_rsi.unit_heads import (
     TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE, SENTENCE_VOCAB_SIZE,
@@ -43,6 +43,24 @@ class V5ModuleTests(unittest.TestCase):
         self.assertTrue(int(out.pair_index.min()) >= 0)
         self.assertTrue(int(out.pair_index.max()) < PAIR_CONCEPT_COUNT)
         self.assertEqual(float(out.pair_gate), 0.0)
+
+    def test_pair_addresses_cover_entire_bank(self):
+        left = torch.arange(PAIR_SLOTS).repeat_interleave(PAIR_SLOTS)
+        right = torch.arange(PAIR_SLOTS).repeat(PAIR_SLOTS)
+        addresses = pair_addresses(left, right)
+        self.assertEqual(int(addresses.min()), 0)
+        self.assertEqual(int(addresses.max()), PAIR_CONCEPT_COUNT - 1)
+        self.assertEqual(torch.unique(addresses).numel(), PAIR_CONCEPT_COUNT)
+        # Boundary points of the four disjoint ranges.
+        self.assertEqual(int(pair_addresses(
+            torch.tensor([0]), torch.tensor([1]))[0]), 0)
+        self.assertEqual(int(pair_addresses(
+            torch.tensor([0]), torch.tensor([0]))[0]), N_PAIR)
+        self.assertEqual(int(pair_addresses(
+            torch.tensor([1]), torch.tensor([0]))[0]), PAIR_CONCEPT_COUNT // 2)
+        self.assertEqual(int(pair_addresses(
+            torch.tensor([PAIR_SLOTS - 1]),
+            torch.tensor([PAIR_SLOTS - 1]))[0]), PAIR_CONCEPT_COUNT - 1)
 
     def test_moe_zero_gate_is_identity(self):
         moe = SparseRankOneMoE(32, experts=256)

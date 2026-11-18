@@ -26,6 +26,29 @@ N_PALINDROME = PAIR_SLOTS
 PAIR_CONCEPT_COUNT = 2 * (32 ** 3)  # 65,536 = 2 * C(256,2) + 256
 
 
+def pair_addresses(left: torch.Tensor, right: torch.Tensor,
+                   slots: int = PAIR_SLOTS) -> torch.Tensor:
+    """Map two slot ids onto the closed 2*C(slots,2)+slots address space.
+
+    Ranges (for slots=256):
+      0..32639       bottom triangular pairs (left < right)
+      32640..32767   bottom special points (left == right < 128)
+      32768..65407   top mirrored pairs (left > right)
+      65408..65535   top special points (left == right >= 128)
+    """
+    lo = torch.minimum(left, right)
+    hi = torch.maximum(left, right)
+    triangular = (lo * slots - lo * (lo + 1) // 2
+                  + (hi - lo - 1).clamp_min(0))
+    top_base = PAIR_CONCEPT_COUNT // 2  # 32,768 = one 32^3 lattice
+    return torch.where(
+        left < right, triangular,
+        torch.where(left > right, top_base + triangular,
+                    torch.where(left < slots // 2,
+                                N_PAIR + left,
+                                top_base + N_PAIR + (left - slots // 2))))
+
+
 @dataclass
 class PairMemoryState:
     sentence: torch.Tensor
@@ -66,15 +89,7 @@ class PairConceptMemory(nn.Module):
         # 128+128 special-point split:
         # bottom = 32,640 triangular pairs + 128 diagonal points
         # top    = 32,640 mirrored pairs + the other 128 diagonal points
-        lo = torch.minimum(left, right)
-        hi = torch.maximum(left, right)
-        triangular = (lo * self.slots - lo * (lo + 1) // 2
-                      + (hi - lo - 1).clamp_min(0))
-        pair_index = torch.where(
-            left < right, triangular,
-            torch.where(left > right, 32768 + triangular,
-                        torch.where(left < 128, 32640 + left,
-                                    32768 + (left - 128))))
+        pair_index = pair_addresses(left, right, self.slots)
         concept = self.bank(pair_index) + self.write(bottom)
         prior = self.read(concept)
         gate = torch.tanh(self.gate)
