@@ -699,6 +699,31 @@ def main(argv=None):
                                   topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                   local=probe_local)
     print("DEV before:", before)
+
+    def _bit_logit_snapshot() -> torch.Tensor:
+        """Per-probe bit logits, so before/after changes cannot look stale."""
+        windows = probes.reshape(-1, probes.shape[-1]).long()
+        aux_flat = (probe_aux.reshape(-1, 6).long()
+                    if probe_aux is not None else None)
+        local_flat = (probe_local.reshape(-1, 4).long()
+                      if probe_local is not None else None)
+        rows = []
+        was_training = model.training
+        model.eval()
+        try:
+            with torch.no_grad():
+                for index in range(len(windows)):
+                    logits, _ = model(
+                        windows[index:index + 1, :-1],
+                        windows[index:index + 1, -1],
+                        aux_flat[index:index + 1] if aux_flat is not None else None,
+                        local_flat[index:index + 1] if local_flat is not None else None)
+                    rows.append(logits.detach().float().cpu())
+        finally:
+            model.train(was_training)
+        return torch.cat(rows)
+
+    before_bit_logits = _bit_logit_snapshot()
     c256_before = (compare_c256_wrapped(
         model, dev, args.reference_full256, auxiliary=dev_aux,
         local=dev_local, probe_count=min(16, args.max_dev_positions))
@@ -1027,6 +1052,14 @@ def main(argv=None):
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                  local=probe_local)
+    after_bit_logits = _bit_logit_snapshot()
+    bit_logit_delta = {
+        "mean_abs": float((after_bit_logits - before_bit_logits).abs().mean()),
+        "max_abs": float((after_bit_logits - before_bit_logits).abs().max()),
+        "bit_flips": int(((after_bit_logits > 0)
+                          != (before_bit_logits > 0)).sum()),
+        "total_bits": int(after_bit_logits.numel()),
+    }
     after_upgrade_gate_1 = None
     if v4_controller is not None:
         # The v103 core and the 100M upgrade branch are two different
@@ -1067,6 +1100,7 @@ def main(argv=None):
                "final_step": step, "updates_this_round": step - (resumed["step"] if args.resume else int(source["steps"]) if source else 0),
                "fresh_start_untrained_v103": provenance.get("fresh_start_untrained_v103", False),
                "before": before, "after": after,
+               "bit_logit_delta": bit_logit_delta,
                "after_upgrade_gate_1": after_upgrade_gate_1,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
