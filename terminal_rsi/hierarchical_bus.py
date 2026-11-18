@@ -24,6 +24,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from .norm import RMSNorm
+from .pair_memory import PairConceptMemory, pair_parameter_count
+from .unit_heads import UnitHeads, unit_parameter_count
 
 
 def hierarchy_bus_width(width: int) -> int:
@@ -42,6 +44,8 @@ def hierarchy_parameter_count(width: int) -> int:
         + 3 * bw * 256                          # lateral byte-logit priors
         + 3 * width + 3                         # boundary heads + biases
         + width + 3 * bw                        # input + three level RMSNorm
+        + pair_parameter_count(bw)              # 65,536 paired concepts
+        + unit_parameter_count(bw)              # real token/word/sentence heads
     )
 
 
@@ -107,6 +111,10 @@ class HierarchyState:
     word: torch.Tensor
     sentence: torch.Tensor
     boundary_logits: torch.Tensor
+    boundary_probs: torch.Tensor
+    unit_logits: dict[str, torch.Tensor]
+    pair_entropy: torch.Tensor
+    pair_gate: torch.Tensor
     gates: dict[str, torch.Tensor]
 
 
@@ -118,12 +126,17 @@ class CausalHierarchy(nn.Module):
     full-width byte state is restored through a learned up-projection.
     """
 
-    def __init__(self, width: int, windows: tuple[int, int, int] = (4, 16, 64)):
+    def __init__(self, width: int, windows: tuple[int, int, int] = (4, 16, 64),
+                 *, boundary_pooling: bool = True, enable_pair: bool = True,
+                 enable_units: bool = True,
+                 ablation: dict[str, bool] | None = None):
         super().__init__()
         bw = hierarchy_bus_width(width)
         self.width = width
         self.bus_width = bw
         self.windows = windows
+        self.boundary_pooling = boundary_pooling
+        self.ablation = dict(ablation or {})
         self.input_norm = RMSNorm(width)
         self.down = nn.Linear(width, bw, bias=False)
         self.up = nn.Linear(bw, width, bias=False)
@@ -138,6 +151,8 @@ class CausalHierarchy(nn.Module):
         self.byte_priors = nn.ModuleList(
             [nn.Linear(bw, 256, bias=False) for _ in windows])
         self.boundary = nn.Linear(width, 3)
+        self.pair_memory = PairConceptMemory(bw) if enable_pair else None
+        self.unit_heads = UnitHeads(bw) if enable_units else None
 
         # Small, nonzero lateral projections so a gate that opens can learn.
         # The gates themselves are exact zero, which is what preserves parity.
@@ -156,15 +171,36 @@ class CausalHierarchy(nn.Module):
         gates_bu = torch.tanh(self.bottom_up_gates)
         gates_td = torch.tanh(self.top_down_gates)
         gates_lat = torch.tanh(self.lateral_gates)
+        if not self.ablation.get("bottom_up", True):
+            gates_bu = torch.zeros_like(gates_bu)
+        if not self.ablation.get("top_down", True):
+            gates_td = torch.zeros_like(gates_td)
+        if not self.ablation.get("lateral", True):
+            gates_lat = torch.zeros_like(gates_lat)
+        boundary_logits = self.boundary(state)
+        boundary_probs = torch.sigmoid(boundary_logits.float()).to(state.dtype)
 
         levels: list[torch.Tensor] = []
         current = bus
         for level, window in enumerate(self.windows):
             pooled = causal_mean(current, window)
             pooled = self.level_norms[level](pooled)
+            if (self.boundary_pooling
+                    and self.ablation.get("boundary_pooling", True)):
+                gate = boundary_probs[..., level:level + 1]
+                pooled = gate * current + (1 - gate) * pooled
             levels.append(pooled + gates_bu[level] * self.level_up[level](pooled))
             current = levels[-1]
         subword, word, sentence = levels
+
+        pair_entropy = torch.zeros((), device=state.device)
+        pair_gate = torch.zeros((), device=state.device)
+        if (self.pair_memory is not None
+                and self.ablation.get("pair", True)):
+            pair_state = self.pair_memory(subword, sentence)
+            sentence = pair_state.sentence
+            pair_entropy = pair_state.pair_entropy
+            pair_gate = pair_state.pair_gate
 
         # Top-down sweep: sentence -> word -> subword -> byte.  Each edge is
         # a separate gated residual; at gate zero every level is unchanged.
@@ -181,7 +217,10 @@ class CausalHierarchy(nn.Module):
             + gates_lat[1] * self.byte_priors[1](word)
             + gates_lat[2] * self.byte_priors[2](sentence)
         )
-        boundary_logits = self.boundary(state)
+        unit_logits = {}
+        if (self.unit_heads is not None
+                and self.ablation.get("units", True)):
+            unit_logits = self.unit_heads(subword, word, sentence)
         return HierarchyState(
             state=enhanced,
             byte_prior=byte_prior,
@@ -189,6 +228,10 @@ class CausalHierarchy(nn.Module):
             word=word,
             sentence=sentence,
             boundary_logits=boundary_logits,
+            boundary_probs=boundary_probs,
+            unit_logits=unit_logits,
+            pair_entropy=pair_entropy,
+            pair_gate=pair_gate,
             gates={
                 "bottom_up": gates_bu.detach(),
                 "top_down": gates_td.detach(),

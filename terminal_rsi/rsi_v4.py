@@ -50,6 +50,7 @@ GATE_DELTAS = (-0.08, -0.02, 0.0, 0.02, 0.08)
 REFINE_DELTAS = (-0.08, -0.02, 0.0, 0.02, 0.08)
 ROUTER_TEMPS = (0.8, 1.0, 1.25, 1.5)
 BATCH_SIZES = (2, 4, 8)
+HIERARCHY_DELTAS = (-0.02, 0.0, 0.02)
 
 PRIMITIVES: tuple[tuple[str, tuple[Any, ...]], ...] = (
     ("lr_mult", LR_MULTS),
@@ -60,6 +61,9 @@ PRIMITIVES: tuple[tuple[str, tuple[Any, ...]], ...] = (
     ("refine_scale_delta", REFINE_DELTAS),
     ("router_temperature", ROUTER_TEMPS),
     ("batch_size", BATCH_SIZES),
+    ("hierarchy_bottom_up_delta", HIERARCHY_DELTAS),
+    ("hierarchy_top_down_delta", HIERARCHY_DELTAS),
+    ("hierarchy_lateral_delta", HIERARCHY_DELTAS),
 )
 PRIMITIVE_NAMES = tuple(name for name, _ in PRIMITIVES)
 NEUTRAL_INDEX = {
@@ -71,6 +75,9 @@ NEUTRAL_INDEX = {
     "refine_scale_delta": REFINE_DELTAS.index(0.0),
     "router_temperature": ROUTER_TEMPS.index(1.0),
     "batch_size": BATCH_SIZES.index(4),
+    "hierarchy_bottom_up_delta": HIERARCHY_DELTAS.index(0.0),
+    "hierarchy_top_down_delta": HIERARCHY_DELTAS.index(0.0),
+    "hierarchy_lateral_delta": HIERARCHY_DELTAS.index(0.0),
 }
 NEUTRAL_CHOICES = tuple(NEUTRAL_INDEX[name] for name in PRIMITIVE_NAMES)
 ACTION_DIM = sum(len(values) for _, values in PRIMITIVES)
@@ -118,7 +125,10 @@ class Action:
             f"clip={v['grad_clip']:.2f} wd={v['weight_decay']:.3f} "
             f"gate={v['residual_gate_delta']:+.2f} "
             f"refine={v['refine_scale_delta']:+.2f} "
-            f"temp={v['router_temperature']:.2f} batch={v['batch_size']}"
+            f"temp={v['router_temperature']:.2f} batch={v['batch_size']} "
+            f"bu={v['hierarchy_bottom_up_delta']:+.2f} "
+            f"td={v['hierarchy_top_down_delta']:+.2f} "
+            f"lat={v['hierarchy_lateral_delta']:+.2f}"
         )
 
     def is_noop(self) -> bool:
@@ -155,6 +165,15 @@ def apply_action(
         model.residual_gate.add_(float(values["residual_gate_delta"])).clamp_(-2.0, 2.0)
         upgrades.refine_scale.add_(float(values["refine_scale_delta"])).clamp_(-6.0, 6.0)
     upgrades.router_temperature = float(values["router_temperature"])
+    hierarchy = getattr(upgrades, "hierarchy", None)
+    if hierarchy is not None:
+        with torch.no_grad():
+            hierarchy.bottom_up_gates.add_(
+                float(values["hierarchy_bottom_up_delta"])).clamp_(-1.0, 1.0)
+            hierarchy.top_down_gates.add_(
+                float(values["hierarchy_top_down_delta"])).clamp_(-1.0, 1.0)
+            hierarchy.lateral_gates.add_(
+                float(values["hierarchy_lateral_delta"])).clamp_(-1.0, 1.0)
 
 
 # ---------------------------------------------------------------------------

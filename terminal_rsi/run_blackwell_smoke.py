@@ -59,6 +59,15 @@ def main(argv=None) -> int:
                    help="Direct byte CE on the additive upgrade branch")
     p.add_argument("--boundary-loss-weight", type=float, default=0.02,
                    help="Auxiliary causal subword/word/sentence boundary BCE")
+    p.add_argument("--unit-loss-weight", type=float, default=0.1,
+                   help="Auxiliary token/word/sentence head loss")
+    p.add_argument("--distill-weight", type=float, default=0.5,
+                   help="Full 256-way parent-to-upgrade KL")
+    p.add_argument("--distill-samples", type=int, default=8)
+    p.add_argument("--moe-loss-weight", type=float, default=0.01)
+    p.add_argument("--ablation", choices=(
+        "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
+        "no_pair", "no_units", "no_boundary_pooling"), default="full")
     p.add_argument("--no-gradient-checkpointing", action="store_true",
                    help="Use VRAM for full activations instead of checkpoint recompute")
     p.add_argument("--train-bytes", type=int, default=0,
@@ -83,7 +92,7 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-shards", type=int, default=4)
     p.add_argument("--rsi-v4-shard-positions", type=int, default=128)
     p.add_argument("--rsi-v4-eval-chunk", type=int, default=8)
-    p.add_argument("--rsi-v4-min-gain", type=float, default=0.01)
+    p.add_argument("--rsi-v4-min-gain", type=float, default=0.001)
     p.add_argument("--rsi-v4-z", type=float, default=2.0)
     p.add_argument("--rsi-v4-critic-steps", type=int, default=16)
     p.add_argument("--rsi-v4-policy-steps", type=int, default=8)
@@ -109,6 +118,11 @@ def main(argv=None) -> int:
             or args.hierarchical_eval_max_positions < 0
             or args.hierarchical_eval_batch < 1):
         p.error("Hierarchical eval needs nonnegative books/positions and positive batch")
+    for name, value in (("unit", args.unit_loss_weight),
+                        ("distill", args.distill_weight),
+                        ("moe", args.moe_loss_weight)):
+        if value < 0:
+            p.error(f"{name} loss weight must be nonnegative")
 
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -151,6 +165,11 @@ def main(argv=None) -> int:
         "--microbatch", str(args.microbatch),
         "--upgrade-loss-weight", str(args.upgrade_loss_weight),
         "--boundary-loss-weight", str(args.boundary_loss_weight),
+        "--unit-loss-weight", str(args.unit_loss_weight),
+        "--distill-weight", str(args.distill_weight),
+        "--distill-samples", str(args.distill_samples),
+        "--moe-loss-weight", str(args.moe_loss_weight),
+        "--ablation", args.ablation,
         "--upgrade-context", str(args.context),
         "--train-stream", str(output / "train_cpu_pilot.bin"),
         "--bpe-merges", "terminal_rsi/reference/nancm_v103_bpe.txt",

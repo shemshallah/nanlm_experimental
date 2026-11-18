@@ -85,6 +85,11 @@ class VerbatimV103RSI(nn.Module):
             upgrade_out = self.upgrades(previous.long())
             current = upgrade_out["logits"][0, :, -1, :]
         proposed = self._byte_to_conditional_bit_logits(current, target)
+        # Distillation views: the parent's target-conditioned bit logits are
+        # the teacher; the 100M branch's bit path is the student.  No teacher
+        # gradient enters the parent.
+        upgrade_out["teacher_bits"] = old_logits.detach()
+        upgrade_out["student_bits"] = proposed
         # Recursive RSI is the mixing-policy controller in ALL three modes.
         # Its persistent state comes from prior byte errors and verified
         # terminal outcomes only; no future target enters this trust signal.

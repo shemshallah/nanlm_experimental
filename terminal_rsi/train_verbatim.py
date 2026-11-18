@@ -33,7 +33,10 @@ from .legacy_v103_reference import (
     read_bpe_ranks, heldout_windows, heldout_auxiliary, make_windows,
     coverage_indices, co_prime_stride, terminal_feedback,
 )
-from .hierarchical_bus import boundary_loss, boundary_targets
+from .hierarchical_bus import (
+    boundary_loss, boundary_targets, bit_logits_to_byte_log_probs,
+)
+from .unit_heads import build_unit_labels, unit_head_loss
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
 from .rsi_v4 import (
@@ -60,45 +63,76 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
     return loss, bpb, accuracy
 
 
+def _full_parent_log_probs(model: VerbatimV103RSI, history: torch.Tensor,
+                            aux: torch.Tensor, samples: int):
+    """Exact full 256-way teacher distribution from the inherited v103 core."""
+    n = min(int(samples), len(history))
+    if n <= 0:
+        return None
+    candidates = torch.arange(256, device=history.device).repeat(n)
+    previous = history[:n].repeat_interleave(256, dim=0)
+    repeated_aux = aux[:n].repeat_interleave(256, dim=0)
+    teacher_bits, _ = model.original(
+        previous[:, -32:], candidates, repeated_aux)
+    logp = bit_logits_to_byte_log_probs(teacher_bits)
+    diagonal = logp.diagonal().reshape(n, 256)
+    return F.log_softmax(diagonal, dim=-1)
+
+
+def _accumulate_stats(total: dict, stats: dict, weight: int) -> None:
+    for key, value in stats.items():
+        if key.endswith("_units"):
+            total[key] = total.get(key, 0) + int(value)
+        elif isinstance(value, (int, float)):
+            total[key] = total.get(key, 0.0) + float(value) * weight
+
+
 def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     target: torch.Tensor, aux: torch.Tensor,
                     grad_clip: float = 1.0, microbatch: int = 0,
                     upgrade_loss_weight: float = 0.0,
-                    boundary_loss_weight: float = 0.0):
-    """One identical v103 observe AFTER optimizer step, RSI critic AFTER that.
-
-    ``upgrade_loss_weight > 0`` adds direct byte cross-entropy on the additive
-    branch.  At ``residual_gate=0`` the final logits stay exactly v103, but the
-    100M upgrade branch now receives a gradient instead of staying random
-    until RSI opens the gate.  ``boundary_loss_weight > 0`` also trains the
-    causal subword/word/sentence boundary heads from observed bytes only.
-    """
+                    boundary_loss_weight: float = 0.0,
+                    unit_targets: dict | None = None,
+                    unit_loss_weight: float = 0.0,
+                    distill_weight: float = 0.0,
+                    distill_samples: int = 8,
+                    moe_loss_weight: float = 0.01):
+    """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
     if not math.isfinite(grad_clip) or grad_clip <= 0:
         raise ValueError("Gradient clip must be finite and positive")
-    if not math.isfinite(upgrade_loss_weight) or upgrade_loss_weight < 0:
-        raise ValueError("Upgrade loss weight must be finite and nonnegative")
-    if not math.isfinite(boundary_loss_weight) or boundary_loss_weight < 0:
-        raise ValueError("Boundary loss weight must be finite and nonnegative")
+    for name, value in (("upgrade", upgrade_loss_weight),
+                        ("boundary", boundary_loss_weight),
+                        ("unit", unit_loss_weight),
+                        ("distill", distill_weight),
+                        ("moe", moe_loss_weight)):
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
     n = len(target)
     use_aux = upgrade_loss_weight > 0
-    use_boundary = use_aux and boundary_loss_weight > 0
+    use_hierarchy = use_aux and (
+        boundary_loss_weight > 0 or unit_loss_weight > 0
+        or distill_weight > 0 or moe_loss_weight > 0)
     if microbatch and microbatch < n:
-        # Effective batch stays n; split only the activation working set.
-        # Sum-of-loss/N over microbatches is the exact mean gradient.
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
         aux_total = None
         boundary_total = 0.0
+        distill_total = 0.0
+        distill_count = 0
+        moe_total = 0.0
+        moe_count = 0
+        unit_total: dict = {}
+        unit_weight_total = 0
         total_hits = 0
         for start in range(0, n, microbatch):
             end = min(start + microbatch, n)
             part_target = target[start:end]
             part_history = history[start:end]
             if use_aux:
-                if use_boundary:
+                if use_hierarchy:
                     logits, bits, current, upgrade_out = model(
                         part_history, part_target, aux[start:end],
                         return_aux=True, return_hierarchy=True)
@@ -121,13 +155,40 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             objective = loss_sum
             if aux_sum is not None:
                 objective = objective + upgrade_loss_weight * aux_sum
-            if use_boundary and upgrade_out is not None:
+            if upgrade_out is not None and boundary_loss_weight > 0:
                 b_loss = boundary_loss(
                     upgrade_out["boundary_logits"],
                     boundary_targets(part_history).to(
                         upgrade_out["boundary_logits"].device))
                 boundary_total += float(b_loss.detach()) * (end - start)
                 objective = objective + boundary_loss_weight * b_loss * (end - start)
+            if (upgrade_out is not None and unit_targets is not None
+                    and unit_loss_weight > 0 and upgrade_out.get("unit_logits")):
+                part_units = {key: value[start:end]
+                              for key, value in unit_targets.items()}
+                u_loss, u_stats = unit_head_loss(
+                    upgrade_out["unit_logits"], part_units)
+                objective = objective + unit_loss_weight * u_loss * (end - start)
+                _accumulate_stats(unit_total, u_stats, end - start)
+                unit_weight_total += end - start
+            if upgrade_out is not None and distill_weight > 0:
+                teacher = _full_parent_log_probs(
+                    model, part_history, aux[start:end], distill_samples)
+                if teacher is not None:
+                    k = teacher.shape[0]
+                    student = F.log_softmax(current[:k].float(), dim=-1)
+                    kl = F.kl_div(student, teacher, log_target=True,
+                                  reduction="sum")
+                    objective = objective + distill_weight * kl * (n / k)
+                    distill_total += float(kl.detach())
+                    distill_count += k
+            if upgrade_out is not None and moe_loss_weight > 0:
+                moe_value = upgrade_out.get("moe_load_balance")
+                if moe_value is not None:
+                    objective = objective + moe_loss_weight * float(
+                        moe_value.detach()) * (end - start)
+                    moe_total += float(moe_value.detach()) * (end - start)
+                    moe_count += end - start
             (objective / n).backward()
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
@@ -143,13 +204,20 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         report = {"bpb": bpb, "bit_accuracy": accuracy,
                   "grad_norm": grad_norm, "grad_clip": grad_clip}
         if use_aux:
-            upgrade_bpb = float((float(aux_total) / n) / math.log(2))
-            report["upgrade_bpb"] = upgrade_bpb
-        if use_boundary:
+            report["upgrade_bpb"] = float(
+                (float(aux_total) / n) / math.log(2))
+        if boundary_loss_weight > 0:
             report["boundary_bce"] = boundary_total / n
+        for key, value in unit_total.items():
+            report[key] = (float(value) / max(unit_weight_total, 1)
+                           if not key.endswith("_units") else int(value))
+        if distill_count:
+            report["distill_kl"] = distill_total / distill_count
+        if moe_count:
+            report["moe_load_balance"] = moe_total / moe_count
         return report
     if use_aux:
-        if use_boundary:
+        if use_hierarchy:
             logits, bits, current, upgrade_out = model(
                 history, target, aux, return_aux=True,
                 return_hierarchy=True)
@@ -159,12 +227,32 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         loss, bpb, accuracy = score_byte_observations(logits, bits)
         aux_loss = F.cross_entropy(current, target)
         objective = loss + upgrade_loss_weight * aux_loss
-        if use_boundary and upgrade_out is not None:
+        b_loss = None
+        if upgrade_out is not None and boundary_loss_weight > 0:
             b_loss = boundary_loss(
                 upgrade_out["boundary_logits"],
                 boundary_targets(history).to(
                     upgrade_out["boundary_logits"].device))
             objective = objective + boundary_loss_weight * b_loss
+        if (upgrade_out is not None and unit_targets is not None
+                and unit_loss_weight > 0 and upgrade_out.get("unit_logits")):
+            u_loss, u_stats = unit_head_loss(
+                upgrade_out["unit_logits"], unit_targets)
+            objective = objective + unit_loss_weight * u_loss
+        else:
+            u_stats = {}
+        if upgrade_out is not None and distill_weight > 0:
+            teacher = _full_parent_log_probs(
+                model, history, aux, distill_samples)
+            if teacher is not None:
+                k = teacher.shape[0]
+                student = F.log_softmax(current[:k].float(), dim=-1)
+                objective = objective + distill_weight * F.kl_div(
+                    student, teacher, log_target=True, reduction="batchmean")
+        moe_value = (upgrade_out.get("moe_load_balance")
+                     if upgrade_out is not None else None)
+        if moe_value is not None and moe_loss_weight > 0:
+            objective = objective + moe_loss_weight * moe_value.float()
         optimizer.zero_grad(set_to_none=True)
         objective.backward()
         upgrade_bpb = float(aux_loss.detach() / math.log(2))
@@ -175,6 +263,9 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         loss.backward()
         upgrade_bpb = None
         b_loss = None
+        u_stats = {}
+        moe_value = None
+        upgrade_out = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
     model.original.observe_online_bits(history[:, -32:], target, aux)
@@ -183,8 +274,21 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
               "grad_norm": grad_norm, "grad_clip": grad_clip}
     if upgrade_bpb is not None:
         report["upgrade_bpb"] = upgrade_bpb
-    if use_boundary and b_loss is not None:
+    if b_loss is not None:
         report["boundary_bce"] = float(b_loss.detach())
+    report.update(u_stats)
+    if moe_value is not None:
+        report["moe_load_balance"] = float(moe_value.detach())
+    if upgrade_out is not None and distill_weight > 0:
+        teacher = _full_parent_log_probs(
+            model, history, aux, distill_samples)
+        if teacher is not None:
+            # Reported value for the full-batch path; the loss above already
+            # used the same teacher distribution.
+            k = teacher.shape[0]
+            report["distill_kl"] = float(F.kl_div(
+                F.log_softmax(current[:k].float(), dim=-1), teacher,
+                log_target=True, reduction="batchmean").detach())
     return report
 
 
@@ -345,6 +449,18 @@ def main(argv=None):
                    help="Direct byte CE on the additive upgrade branch (v4 training)")
     p.add_argument("--boundary-loss-weight", type=float, default=0.02,
                    help="Auxiliary causal subword/word/sentence boundary BCE")
+    p.add_argument("--unit-loss-weight", type=float, default=0.1,
+                   help="Auxiliary token/word/sentence head loss")
+    p.add_argument("--distill-weight", type=float, default=0.5,
+                   help="Full 256-way KL from the inherited parent into the 100M branch")
+    p.add_argument("--distill-samples", type=int, default=8,
+                   help="Samples per microbatch used for the 256-way teacher distribution")
+    p.add_argument("--moe-loss-weight", type=float, default=0.01,
+                   help="Load-balancing regularizer for the 256-expert MoE")
+    p.add_argument("--ablation", choices=(
+        "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
+        "no_pair", "no_units", "no_boundary_pooling"), default="full",
+                   help="Hierarchy ablation variant for the current run")
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
@@ -363,7 +479,7 @@ def main(argv=None):
                    help="Mini-batch size for CPU probe evaluation; small is faster")
     p.add_argument("--rsi-holdout-stream", type=Path,
                    help="Book-disjoint raw bytes reserved only for RSI probes")
-    p.add_argument("--rsi-v4-min-gain", type=float, default=0.01,
+    p.add_argument("--rsi-v4-min-gain", type=float, default=0.001,
                    help="Minimum paired BPB gain for a v4 branch to be accepted")
     p.add_argument("--rsi-v4-z", type=float, default=2.0,
                    help="Paired standard-error multiplier for v4 acceptance")
@@ -425,6 +541,13 @@ def main(argv=None):
         p.error("Generation needs nonnegative steps/top-k and positive temperature")
     if args.legacy_core_lr_scale <= 0:
         p.error("Parent warm-start LR scale must be positive")
+    for name, value in (("unit", args.unit_loss_weight),
+                        ("distill", args.distill_weight),
+                        ("moe", args.moe_loss_weight)):
+        if value < 0:
+            p.error(f"{name} loss weight must be nonnegative")
+    if args.distill_samples < 0:
+        p.error("Distill samples must be nonnegative")
     if args.hierarchical_eval_books and not args.hierarchical_eval_corpus_dir:
         p.error("--hierarchical-eval-corpus-dir is required for hierarchical DEV evaluation")
     if (args.rsi_cycle_updates < 0 or args.rsi_probe_positions < 1
@@ -515,9 +638,41 @@ def main(argv=None):
     aux_data = torch.from_numpy(train_features[PARITY_CONTEXT:].copy()).to(dtype=torch.int32)
     if len(train_data) != len(aux_data):
         raise AssertionError("Original feature-target offset mismatch")
+    unit_labels = None
+    if args.unit_loss_weight > 0:
+        unit_labels = build_unit_labels(raw, args.bpe_merges)
+        print(
+            "Unit labels:",
+            f"tokens={len(unit_labels.token_vocab)}",
+            f"words={len(unit_labels.word_vocab)}",
+            f"sentences={len(unit_labels.sentence_vocab)}",
+            flush=True,
+        )
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
+    ablation_flags = {
+        "bottom_up": True, "top_down": True, "lateral": True,
+        "pair": True, "units": True, "boundary_pooling": True,
+    }
+    if args.ablation == "no_loops":
+        ablation_flags.update(
+            {"bottom_up": False, "top_down": False, "lateral": False,
+             "pair": False})
+    elif args.ablation == "no_bottom_up":
+        ablation_flags["bottom_up"] = False
+    elif args.ablation == "no_top_down":
+        ablation_flags["top_down"] = False
+    elif args.ablation == "no_lateral":
+        ablation_flags["lateral"] = False
+    elif args.ablation == "no_pair":
+        ablation_flags["pair"] = False
+    elif args.ablation == "no_units":
+        ablation_flags["units"] = False
+    elif args.ablation == "no_boundary_pooling":
+        ablation_flags["boundary_pooling"] = False
+    model.upgrades.hierarchy.ablation.update(ablation_flags)
+    print("Hierarchy ablation:", ablation_flags, flush=True)
     if args.no_gradient_checkpointing:
         model.upgrades.gradient_checkpointing = False
     optimizer = build_v103_optimizer(
@@ -849,11 +1004,19 @@ def main(argv=None):
                 report = rsi_builder.train_step(
                     train_one_batch, sample[:, :-1], sample[:, -1], sample_aux)
             else:
+                unit_batch = (unit_labels.gather(
+                    indices + PARITY_CONTEXT - 1)
+                    if unit_labels is not None else None)
                 report = train_one_batch(
                     model, optimizer, sample[:, :-1], sample[:, -1],
                     sample_aux, grad_clip=clip, microbatch=args.microbatch,
                     upgrade_loss_weight=args.upgrade_loss_weight,
-                    boundary_loss_weight=args.boundary_loss_weight)
+                    boundary_loss_weight=args.boundary_loss_weight,
+                    unit_targets=unit_batch,
+                    unit_loss_weight=args.unit_loss_weight,
+                    distill_weight=args.distill_weight,
+                    distill_samples=args.distill_samples,
+                    moe_loss_weight=args.moe_loss_weight)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -890,7 +1053,10 @@ def main(argv=None):
                     raw_tensor, indices + PARITY_CONTEXT,
                     upgrade_context).to(device)
                 sample_aux = aux_data[indices].to(device=device)
-            branch_data.append((sample, sample_aux))
+            branch_data.append((
+                sample, sample_aux,
+                unit_labels.gather(indices + PARITY_CONTEXT - 1)
+                if unit_labels is not None else None))
             local_cursor += branch_batch
         torch.cuda.synchronize(device)
 
@@ -921,13 +1087,18 @@ def main(argv=None):
                 clip = float(values["grad_clip"])
                 clone_model.train()
                 reports = []
-                for sample, sample_aux in branch_data:
+                for sample, sample_aux, unit_batch in branch_data:
                     reports.append(train_one_batch(
                         clone_model, clone_optimizer,
                         sample[:, :-1], sample[:, -1], sample_aux,
                         grad_clip=clip, microbatch=args.microbatch,
                         upgrade_loss_weight=args.upgrade_loss_weight,
-                        boundary_loss_weight=args.boundary_loss_weight))
+                        boundary_loss_weight=args.boundary_loss_weight,
+                        unit_targets=unit_batch,
+                        unit_loss_weight=args.unit_loss_weight,
+                        distill_weight=args.distill_weight,
+                        distill_samples=args.distill_samples,
+                        moe_loss_weight=args.moe_loss_weight))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
                 clone_model.train()
@@ -1132,6 +1303,7 @@ def main(argv=None):
                "original_c256_parity_before": c256_before,
                "original_c256_parity_after": c256_after,
                "test_untouched": True,
+               "ablation": model.upgrades.hierarchy.ablation,
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
     hierarchy = model.upgrades.hierarchy
     receipt["parameter_count"] = model.count_parameters()

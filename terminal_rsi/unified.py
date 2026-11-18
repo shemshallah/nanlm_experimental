@@ -14,6 +14,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from .hierarchical_bus import CausalHierarchy, hierarchy_parameter_count
+from .low_rank_moe import SparseRankOneMoE, moe_parameter_count
+from .fast_weights import FastWeightHead, fast_weight_parameter_count
 from .norm import RMSNorm
 
 
@@ -44,6 +46,11 @@ PRESETS = {
 ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 
 
+def moe_layer_count(cfg: Preset) -> int:
+    """Layers that receive the 256-expert low-rank MoE (indices 1,4,7,10)."""
+    return sum(1 for index in range(cfg.layers) if index % 3 == 1)
+
+
 def static_upgrade_parameter_count(cfg: Preset) -> int:
     """Exact TerminalRSI new-parameter count without allocating Blackwell weights."""
     d = cfg.width
@@ -59,6 +66,9 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         d + d * (d // 4) + (d // 4) +          # critic norm + hidden
         (d // 4) + 1 +                        # critic scalar output
         2 * d + 1 +                           # feedback and refine scale
+        d + 1 +                               # adaptive-depth head
+        fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
+        moe_layer_count(cfg) * moe_parameter_count(d) +  # 256-expert rank-1 MoE
         hierarchy_parameter_count(d)          # causal subword/word/sentence bus
     )
 
@@ -148,19 +158,18 @@ class CausalConv(nn.Module):
 
 
 class CausalBlock(nn.Module):
-    def __init__(self, width: int, heads: int):
+    def __init__(self, width: int, heads: int, *, use_moe: bool = False):
         super().__init__()
         self.heads = heads
         self.norm_attn = RMSNorm(width)
         self.qkv = nn.Linear(width, 3 * width, bias=False)
         self.project = nn.Linear(width, width, bias=False)
         self.norm_ff = RMSNorm(width)
-        # Split the 8x GLU into two 4x projections.  The concatenated 8x
-        # intermediate is 22 GiB at Blackwell batch 8192; two 4x tensors plus
-        # an in-place product cut the peak without changing the math.
-        self.gate = nn.Linear(width, 4 * width, bias=False)
-        self.value = nn.Linear(width, 4 * width, bias=False)
+        # Fused 8x GLU: one matmul instead of separate gate/value launches.
+        # The split pair is kept in checkpoint migration for v4 compatibility.
+        self.gate_value = nn.Linear(width, 8 * width, bias=False)
         self.down = nn.Linear(4 * width, width, bias=False)
+        self.moe = SparseRankOneMoE(width) if use_moe else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, t, d = x.shape
@@ -169,9 +178,11 @@ class CausalBlock(nn.Module):
         a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.project(a.transpose(1, 2).contiguous().reshape(b, t, d))
         normed = self.norm_ff(x)
-        gate = self.gate(normed)
-        value = self.value(normed)
-        return x + self.down(F.silu(gate, inplace=True).mul_(value))
+        gate, value = self.gate_value(normed).chunk(2, dim=-1)
+        x = x + self.down(F.silu(gate, inplace=True).mul_(value))
+        if self.moe is not None:
+            x = self.moe(x)
+        return x
 
 
 class TerminalRSI(nn.Module):
@@ -193,12 +204,16 @@ class TerminalRSI(nn.Module):
         self.position = nn.Embedding(cfg.context + 4, d)
         self.specialists = nn.ModuleList([CausalConv(d, k) for k in (4, 16, 64)])
         self.router = nn.Linear(d, 4)
-        self.backbone = nn.ModuleList([CausalBlock(d, cfg.heads) for _ in range(cfg.layers)])
+        self.backbone = nn.ModuleList([
+            CausalBlock(d, cfg.heads, use_moe=(index % 3 == 1))
+            for index in range(cfg.layers)])
         self.norm = RMSNorm(d)
         self.output = nn.ModuleList([nn.Linear(d, 256, bias=False) for _ in range(3)])
         self.critic = nn.Sequential(RMSNorm(d), nn.Linear(d, d // 4), nn.SiLU(), nn.Linear(d // 4, 1))
         self.feedback = nn.Linear(2, d, bias=False)
         self.refine_scale = nn.Parameter(torch.tensor(-3.0))
+        self.fast_weight = FastWeightHead(d)
+        self.depth_head = nn.Linear(d, 1)
         self.hierarchy = CausalHierarchy(d)
         # RSI-v4 intervention target.  This is deliberately a plain Python
         # attribute, not a buffer, so old v103 checkpoints load unchanged.
@@ -206,11 +221,43 @@ class TerminalRSI(nn.Module):
         with torch.no_grad():
             self.router.bias.copy_(torch.tensor([2.0, 0.0, 0.0, 0.0]))
             self.feedback.weight.zero_()
+            self.depth_head.bias.fill_(4.0)  # start close to the two-pass path
             # Start the upgrade branch uniform (8 bits/byte), not with large
             # random logits.  Gate 0 still returns exact v103; direct aux CE
             # now starts at 8 instead of ~65 and trains immediately.
             for head in self.output:
                 head.weight.zero_()
+
+    @staticmethod
+    def migrate_state_dict(state_dict: dict) -> dict:
+        """Migrate v4 split-GLU keys to the fused v5 GLU without data loss."""
+        migrated = dict(state_dict)
+        for key in list(migrated):
+            if (key.startswith("upgrades.backbone.")
+                    and key.endswith(".gate.weight")):
+                prefix = key[:-len("gate.weight")]
+                value_key = prefix + "value.weight"
+                if value_key in migrated:
+                    migrated[prefix + "gate_value.weight"] = torch.cat(
+                        (migrated.pop(key), migrated.pop(value_key)), dim=0)
+        return migrated
+
+    def load_state_dict(self, state_dict, strict: bool = True,
+                        assign: bool = False):
+        migrated = self.migrate_state_dict(dict(state_dict))
+        missing, unexpected = super().load_state_dict(
+            migrated, strict=False, assign=assign)
+        allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
+                   "upgrades.hierarchy.pair_memory.",
+                   "upgrades.hierarchy.unit_heads.")
+        bad_missing = [
+            key for key in missing
+            if not key.startswith(allowed) and ".moe." not in key]
+        if strict and (unexpected or bad_missing):
+            raise RuntimeError(
+                f"Checkpoint mismatch: missing={bad_missing[:4]} "
+                f"unexpected={unexpected[:4]}")
+        return torch.nn.modules.module._IncompatibleKeys(missing, unexpected)
 
     def _backbone_forward(self, h: torch.Tensor) -> torch.Tensor:
         for layer in self.backbone:
@@ -236,6 +283,7 @@ class TerminalRSI(nn.Module):
         past_surprise = torch.zeros((b, t), dtype=h.dtype, device=x.device)
         predicted_surprise = torch.zeros_like(past_surprise)
         route_entropies = []
+        h_first = None
         for r in range(rounds):
             basis = self.norm(h)
             temperature = float(getattr(self, "router_temperature", 1.0))
@@ -254,6 +302,8 @@ class TerminalRSI(nn.Module):
                         use_reentrant=True)
             else:
                 h = self._backbone_forward(h)
+            if r == 0:
+                h_first = h
             if r + 1 < rounds:
                 # At offset i, token x[i] is already known. The previous prediction
                 # at i-1 can be scored; predicting x[i+1] may use that error.
@@ -268,14 +318,24 @@ class TerminalRSI(nn.Module):
                     past_surprise = F.pad(previous_error, (1, 0))
                 signal = torch.stack([past_surprise.clamp_max(16), predicted_surprise], dim=-1)
                 h = h + torch.sigmoid(self.refine_scale) * self.feedback(signal.to(h.dtype))
+        if rounds > 1 and h_first is not None:
+            depth_prob = torch.sigmoid(self.depth_head(self.norm(h_first)))
+            h = h_first + depth_prob * (h - h_first)
+        else:
+            depth_prob = torch.ones((b, t, 1), dtype=h.dtype, device=h.device)
         # Final causal sweep: byte -> subword -> word -> sentence, then the
         # top-down and lateral priors.  Every hierarchy edge is zero-gated, so
         # at initialization this is exactly the previous byte-state path.
         final_state = self.norm(h)
         bus = self.hierarchy(final_state)
         enhanced = bus.state
-        raw_next = self.output[0](enhanced) + bus.byte_prior
+        fast = self.fast_weight(enhanced)
+        raw_next = self.output[0](enhanced) + bus.byte_prior + fast
         predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
+        moe_stats = [block.moe.last_load_balance.to(enhanced.device)
+                     for block in self.backbone if block.moe is not None]
+        moe_entropies = [block.moe.last_entropy.to(enhanced.device)
+                         for block in self.backbone if block.moe is not None]
         return {
             "logits": torch.stack(
                 [raw_next, self.output[1](enhanced), self.output[2](enhanced)],
@@ -284,7 +344,16 @@ class TerminalRSI(nn.Module):
             "past_surprise": past_surprise,
             "route_entropy": torch.stack(route_entropies).mean(),
             "boundary_logits": bus.boundary_logits,
+            "boundary_probs": bus.boundary_probs,
             "hierarchy_gates": bus.gates,
+            "unit_logits": bus.unit_logits,
+            "pair_entropy": bus.pair_entropy,
+            "pair_gate": bus.pair_gate,
+            "depth_prob": depth_prob.mean(),
+            "moe_load_balance": (torch.stack(moe_stats).mean()
+                                 if moe_stats else torch.zeros((), device=enhanced.device)),
+            "moe_entropy": (torch.stack(moe_entropies).mean()
+                            if moe_entropies else torch.zeros((), device=enhanced.device)),
         }
 
     def parameter_count(self) -> int:
