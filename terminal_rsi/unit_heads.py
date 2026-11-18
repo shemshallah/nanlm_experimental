@@ -24,7 +24,7 @@ from torch.nn import functional as F
 from .legacy_v103_reference import read_bpe_ranks
 
 TOKEN_VOCAB_SIZE = 1024
-WORD_VOCAB_SIZE = 2048
+WORD_VOCAB_SIZE = 4096
 SENTENCE_VOCAB_SIZE = 512
 UNK_ID = 0
 IGNORE_ID = -100
