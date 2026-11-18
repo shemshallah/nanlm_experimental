@@ -153,6 +153,18 @@ class V5ModuleTests(unittest.TestCase):
         self.assertLess(float((prefill["current"] - full).abs().max()), 2e-4)
         self.assertLess(float((cached["current"] - full_next).abs().max()), 2e-4)
 
+    def test_full_parent_distillation_is_per_sample(self):
+        from terminal_rsi.train_verbatim import _full_parent_log_probs
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            history = torch.randint(0, 256, (2, 32))
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            with torch.no_grad():
+                logp = _full_parent_log_probs(model, history, aux, 2)
+            self.assertEqual(logp.shape, (2, 256))
+            self.assertTrue(torch.allclose(
+                logp.logsumexp(-1), torch.ones(2), atol=1e-5))
+
     def test_ablation_switches_are_wired(self):
         bus = CausalHierarchy(
             32, ablation={"units": False, "pair": False,
