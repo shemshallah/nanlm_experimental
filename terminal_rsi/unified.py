@@ -15,7 +15,10 @@ from torch.nn import functional as F
 
 from .hierarchical_bus import CausalHierarchy, hierarchy_parameter_count
 from .low_rank_moe import SparseRankOneMoE, moe_parameter_count
-from .fast_weights import FastWeightHead, fast_weight_parameter_count
+from .fast_weights import (
+    FastWeightHead, RankAdapter, fast_weight_parameter_count,
+    rank_adapter_parameter_count,
+)
 from .norm import RMSNorm
 
 
@@ -46,6 +49,10 @@ PRESETS = {
 ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 
 
+def fast_adapter_input_width(cfg: Preset) -> int:
+    return cfg.width + 3 * max(16, cfg.width // 4)
+
+
 def moe_layer_count(cfg: Preset) -> int:
     """Layers that receive the 256-expert low-rank MoE (indices 1,4,7,10)."""
     return sum(1 for index in range(cfg.layers) if index % 3 == 1)
@@ -68,6 +75,8 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         2 * d + 1 +                           # feedback and refine scale
         d + 1 +                               # adaptive-depth head
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
+        rank_adapter_parameter_count(
+            fast_adapter_input_width(cfg)) +   # fast RSI byte side head
         moe_layer_count(cfg) * moe_parameter_count(d) +  # 256-expert rank-1 MoE
         hierarchy_parameter_count(d)          # causal subword/word/sentence bus
     )
@@ -224,6 +233,9 @@ class TerminalRSI(nn.Module):
         self.fast_weight = FastWeightHead(d)
         self.depth_head = nn.Linear(d, 1)
         self.hierarchy = CausalHierarchy(d)
+        self.fast_adapter = RankAdapter(
+            d + 3 * self.hierarchy.bus_width, rank=8)
+        self.fast_adapter.requires_grad_(False)
         # RSI-v4 intervention target.  This is deliberately a plain Python
         # attribute, not a buffer, so old v103 checkpoints load unchanged.
         self.router_temperature = 1.0
@@ -257,7 +269,7 @@ class TerminalRSI(nn.Module):
         migrated = self.migrate_state_dict(dict(state_dict))
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
-        allowed = ("fast_weight.", "depth_head.",
+        allowed = ("fast_weight.", "depth_head.", "fast_adapter.",
                    "hierarchy.pair_memory.", "hierarchy.unit_heads.",
                    "upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.hierarchy.pair_memory.",
@@ -362,6 +374,9 @@ class TerminalRSI(nn.Module):
             "unit_logits": bus.unit_logits,
             "unit_byte_raw": bus.unit_byte_raw,
             "unit_byte_logits": bus.unit_byte_logits,
+            "adapter_input": torch.cat(
+                (enhanced[:, -1], bus.subword[:, -1], bus.word[:, -1],
+                 bus.sentence[:, -1]), dim=-1),
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),

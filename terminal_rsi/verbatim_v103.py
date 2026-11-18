@@ -63,7 +63,8 @@ class VerbatimV103RSI(nn.Module):
                 aux: torch.Tensor | None = None,
                 local: torch.Tensor | None = None,
                 return_aux: bool = False,
-                return_hierarchy: bool = False):
+                return_hierarchy: bool = False,
+                use_fast_adapter: bool = True):
         if previous.ndim != 2 or previous.shape[1] < 32:
             raise ValueError("Exact v103 needs >=32 observed bytes; legacy uses LAST 32")
         # The archived v103 model always receives exactly its original 32
@@ -109,6 +110,13 @@ class VerbatimV103RSI(nn.Module):
         if unit_byte is not None:
             unit_bits = self._byte_to_conditional_bit_logits(unit_byte, target)
             final_logits = final_logits + unit_bits.to(final_logits.dtype)
+        if use_fast_adapter:
+            adapter_input = upgrade_out.get("adapter_input")
+            if adapter_input is not None:
+                adapter_logits = self.upgrades.fast_adapter(adapter_input)
+                adapter_bits = self._byte_to_conditional_bit_logits(
+                    adapter_logits, target)
+                final_logits = final_logits + adapter_bits.to(final_logits.dtype)
         if return_hierarchy:
             return final_logits, bits, current, upgrade_out
         if return_aux:
@@ -127,6 +135,7 @@ class VerbatimV103RSI(nn.Module):
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
+                   "upgrades.fast_adapter.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [
@@ -162,7 +171,7 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
     parent = list(model.original.named_parameters())
     base = [p for name, p in parent if not name.startswith("v103_")]
     specialists = [p for name, p in parent if name.startswith("v103_")]
-    added = [*model.upgrades.parameters()]
+    added = [p for p in model.upgrades.parameters() if p.requires_grad]
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)
     else:

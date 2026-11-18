@@ -153,6 +153,44 @@ class V5ModuleTests(unittest.TestCase):
         self.assertLess(float((prefill["current"] - full).abs().max()), 2e-4)
         self.assertLess(float((cached["current"] - full_next).abs().max()), 2e-4)
 
+    def test_fast_adapter_is_zero_and_can_change_final_logits(self):
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            history = torch.randint(0, 256, (2, 32))
+            target = torch.randint(0, 256, (2,))
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            with torch.no_grad():
+                base, _ = model.original(history, target, aux)
+                exact, _ = model(history, target, aux)
+                adapter = model.upgrades.fast_adapter
+                adapter.A.normal_(0.0, 0.02)
+                adapter.B.normal_(0.0, 0.02)
+                opened, _ = model(history, target, aux)
+                adapter.A.zero_(); adapter.B.zero_(); adapter.bias.zero_()
+                closed, _ = model(history, target, aux)
+            self.assertLess(float((exact - base).abs().max()), 1e-5)
+            self.assertLess(float((closed - base).abs().max()), 1e-5)
+            self.assertGreater(float((opened - base).abs().max()), 1e-4)
+
+    def test_fast_adapter_population_runs_on_cached_states(self):
+        from terminal_rsi.fast_rsi import FastCache, run_fast_adapter_rsi
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            targets = torch.randint(0, 256, (32,))
+            cache = FastCache(
+                inputs=torch.randn(32, model.upgrades.fast_adapter.input_dim),
+                base_bits=torch.zeros(32, 8),
+                bits=((targets[:, None] >> torch.arange(7, -1, -1)) & 1).float(),
+                targets=targets,
+            )
+            stats = run_fast_adapter_rsi(
+                model, cache, cache, candidates=8, rounds=2, steps=2,
+                lr=0.05, rank=8, min_gain=0.0001, z_score=1.0, shards=4,
+                seed=3)
+            self.assertEqual(stats["proposals"], 16)
+            self.assertGreaterEqual(stats["accepted"], 0)
+            self.assertTrue(torch.isfinite(torch.tensor(stats["noop_probe_bpb"])))
+
     def test_unit_decoder_is_zero_gated_and_changes_final_logits(self):
         with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
             model = VerbatimV103RSI("cpu")

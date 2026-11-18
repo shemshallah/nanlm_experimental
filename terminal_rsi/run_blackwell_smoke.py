@@ -102,6 +102,15 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-v4-branch-batch", type=int, default=64)
     p.add_argument("--rsi-v4-cycles-per-tick", type=int, default=16)
     p.add_argument("--rsi-v4-parallel-replicas", type=int, default=2)
+    p.add_argument("--rsi-fast-adapters", type=int, default=0)
+    p.add_argument("--rsi-fast-rounds", type=int, default=4)
+    p.add_argument("--rsi-fast-steps", type=int, default=2)
+    p.add_argument("--rsi-fast-lr", type=float, default=0.05)
+    p.add_argument("--rsi-fast-rank", type=int, default=8)
+    p.add_argument("--rsi-fast-cycle-updates", type=int, default=4)
+    p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
+    p.add_argument("--rsi-fast-z", type=float, default=1.5)
+    p.add_argument("--rsi-fast-shards", type=int, default=8)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
@@ -193,7 +202,7 @@ def main(argv=None) -> int:
         "--progress-every", str(args.progress_every),
         "--smoke",
     ]
-    if args.rsi_version == "v4":
+    if args.rsi_version == "v4" or args.rsi_fast_adapters > 0:
         command += [
             "--rsi-holdout-stream", str(output / "rsi_holdout.bin"),
             "--rsi-v4-cycle-updates", str(args.rsi_v4_cycle_updates),
@@ -209,6 +218,18 @@ def main(argv=None) -> int:
             "--rsi-v4-branch-batch", str(args.rsi_v4_branch_batch),
             "--rsi-v4-cycles-per-tick", str(args.rsi_v4_cycles_per_tick),
             "--rsi-v4-parallel-replicas", str(args.rsi_v4_parallel_replicas),
+        ]
+    if args.rsi_fast_adapters > 0:
+        command += [
+            "--rsi-fast-adapters", str(args.rsi_fast_adapters),
+            "--rsi-fast-rounds", str(args.rsi_fast_rounds),
+            "--rsi-fast-steps", str(args.rsi_fast_steps),
+            "--rsi-fast-lr", str(args.rsi_fast_lr),
+            "--rsi-fast-rank", str(args.rsi_fast_rank),
+            "--rsi-fast-cycle-updates", str(args.rsi_fast_cycle_updates),
+            "--rsi-fast-min-gain", str(args.rsi_fast_min_gain),
+            "--rsi-fast-z", str(args.rsi_fast_z),
+            "--rsi-fast-shards", str(args.rsi_fast_shards),
         ]
     if args.no_gradient_checkpointing:
         command.append("--no-gradient-checkpointing")

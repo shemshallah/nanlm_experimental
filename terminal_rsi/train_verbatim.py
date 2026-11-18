@@ -37,6 +37,7 @@ from .hierarchical_bus import (
     boundary_loss, boundary_targets, bit_logits_to_byte_log_probs,
 )
 from .unit_heads import build_unit_labels, unit_head_loss
+from .fast_rsi import build_fast_cache, run_fast_adapter_rsi
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
 from .rsi_v4 import (
@@ -537,6 +538,16 @@ def main(argv=None):
                    help="Minimum paired BPB gain for a v4 branch to be accepted")
     p.add_argument("--rsi-v4-z", type=float, default=2.0,
                    help="Paired standard-error multiplier for v4 acceptance")
+    p.add_argument("--rsi-fast-adapters", type=int, default=0,
+                   help="Cached rank-r adapter proposals per fast RSI round")
+    p.add_argument("--rsi-fast-rounds", type=int, default=4)
+    p.add_argument("--rsi-fast-steps", type=int, default=2)
+    p.add_argument("--rsi-fast-lr", type=float, default=0.05)
+    p.add_argument("--rsi-fast-rank", type=int, default=8)
+    p.add_argument("--rsi-fast-cycle-updates", type=int, default=4)
+    p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
+    p.add_argument("--rsi-fast-z", type=float, default=1.5)
+    p.add_argument("--rsi-fast-shards", type=int, default=8)
     p.add_argument("--rsi-v4-meta", type=Path,
                    help="Optional v4 meta/replay JSON from a previous run")
     p.add_argument("--rsi-v4-critic-steps", type=int, default=32)
@@ -952,6 +963,26 @@ def main(argv=None):
     if c256_before is not None:
         print("Original C full256 numerical parity BEFORE:", c256_before)
 
+    fast_probe = None
+    if args.rsi_fast_adapters > 0:
+        fast_raw = raw_tensor
+        fast_aux = aux_data
+        fast_source = "TRAIN slice (no --rsi-holdout-stream)"
+        if args.rsi_holdout_stream:
+            holdout_raw = args.rsi_holdout_stream.read_bytes()
+            if len(holdout_raw) < (4 * 64 + upgrade_context + 2):
+                raise ValueError("RSI holdout stream is too short for fast probes")
+            holdout_features, _ = build_train_features(holdout_raw, ranks)
+            fast_raw = torch.frombuffer(bytearray(holdout_raw), dtype=torch.uint8)
+            fast_aux = torch.from_numpy(
+                holdout_features[PARITY_CONTEXT:].copy()).to(dtype=torch.int32)
+            fast_source = str(args.rsi_holdout_stream)
+        fast_probe = ProbeShards.build(
+            fast_raw, fast_aux, n_shards=4, positions_per_shard=64,
+            history=upgrade_context, seed=args.seed + 17)
+        print("Fast-adapter RSI probe:", fast_source,
+              "positions", len(fast_probe.positions), flush=True)
+
     window_cache = None
     if (device.type == "cuda" and args.mode == "blackwell"
             and not args.no_gpu_window_cache):
@@ -1090,6 +1121,48 @@ def main(argv=None):
             reports.append(report)
         return reports
 
+    fast_stats: list[dict] = []
+
+    def fast_tick() -> None:
+        if fast_probe is None:
+            return
+        indices = coverage_indices(
+            sampler["cursor"], 256, len(train_data),
+            sampler["stride"], torch.device("cpu"))
+        if window_cache is not None:
+            gpu_indices = indices.to(device, non_blocking=True)
+            positions = gpu_indices + PARITY_CONTEXT
+            cache_windows, cache_targets, cache_aux = window_cache
+            sample = torch.cat(
+                (cache_windows[positions], cache_targets[positions, None]),
+                dim=1).long()
+            sample_aux = cache_aux[gpu_indices]
+        else:
+            sample = build_causal_contexts(
+                raw_tensor, indices + PARITY_CONTEXT,
+                upgrade_context).to(device)
+            sample_aux = aux_data[indices].to(device=device)
+        branch = build_fast_cache(
+            model, sample[:, :-1], sample[:, -1], sample_aux)
+        windows = torch.cat(fast_probe.windows, dim=0)
+        probe_aux = torch.cat(fast_probe.auxiliary, dim=0)
+        probe = build_fast_cache(
+            model, windows[:, :-1], windows[:, -1], probe_aux)
+        stats = run_fast_adapter_rsi(
+            model, branch, probe,
+            candidates=args.rsi_fast_adapters,
+            rounds=args.rsi_fast_rounds,
+            steps=args.rsi_fast_steps,
+            lr=args.rsi_fast_lr,
+            rank=args.rsi_fast_rank,
+            min_gain=args.rsi_fast_min_gain,
+            z_score=args.rsi_fast_z,
+            shards=args.rsi_fast_shards,
+            seed=args.seed + 1000 + len(fast_stats),
+        )
+        fast_stats.append(stats)
+        print("FAST-RSI", json.dumps(stats), flush=True)
+
     def evaluate_v4_branch() -> list[float]:
         if v4_controller is None:
             return []
@@ -1205,6 +1278,10 @@ def main(argv=None):
     report = {}
     while ((update_count < args.updates) if args.updates is not None
            else (time.monotonic() - clock < args.seconds)):
+        if (args.rsi_fast_adapters > 0 and fast_probe is not None
+                and update_count > 0
+                and update_count % args.rsi_fast_cycle_updates == 0):
+            fast_tick()
         if v4_controller is not None:
             remaining = ((args.updates - update_count)
                          if args.updates is not None else 10 ** 9)
@@ -1320,6 +1397,34 @@ def main(argv=None):
         "definition": "held-out BPB with unit->byte decoder on minus off; "
                       "positive delta means the unit heads lower BPB",
     }
+    fast_adapter_delta = None
+    fast_adapter = model.upgrades.fast_adapter
+    saved_adapter = (
+        fast_adapter.A.detach().clone(),
+        fast_adapter.B.detach().clone(),
+        fast_adapter.bias.detach().clone(),
+    )
+    try:
+        with torch.no_grad():
+            fast_adapter.A.zero_()
+            fast_adapter.B.zero_()
+            fast_adapter.bias.zero_()
+        after_no_fast = byte_metrics_wrapped(
+            model, probes, n=None,
+            topk_n=min(args.topk_probes, len(probes)),
+            auxiliary=probe_aux, local=probe_local)
+    finally:
+        with torch.no_grad():
+            fast_adapter.A.copy_(saved_adapter[0])
+            fast_adapter.B.copy_(saved_adapter[1])
+            fast_adapter.bias.copy_(saved_adapter[2])
+    fast_adapter_delta = {
+        "on_bpb": after["bpb"],
+        "off_bpb": after_no_fast["bpb"],
+        "delta_bpb": float(after_no_fast["bpb"] - after["bpb"]),
+        "definition": "held-out BPB with fast adapter on minus off; "
+                      "positive delta means the fast RSI adapter lowers BPB",
+    }
     after_bit_logits = _bit_logit_snapshot()
     bit_logit_delta = {
         "mean_abs": float((after_bit_logits - before_bit_logits).abs().mean()),
@@ -1370,6 +1475,7 @@ def main(argv=None):
                "before": before, "after": after,
                "bit_logit_delta": bit_logit_delta,
                "unit_decoder": unit_decoder,
+               "fast_adapter": fast_adapter_delta,
                "after_upgrade_gate_1": after_upgrade_gate_1,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
@@ -1384,6 +1490,12 @@ def main(argv=None):
                                            else v4_controller.accepted
                                            if v4_controller else 0)),
                "rsi_version": args.rsi_version,
+               "rsi_fast": ({
+                   "ticks": len(fast_stats),
+                   "proposals": sum(item["proposals"] for item in fast_stats),
+                   "accepted": sum(item["accepted"] for item in fast_stats),
+                   "stats": fast_stats,
+               } if fast_stats else None),
                "rsi_v4": ({"cycles": v4_controller.cycles,
                            "proposals": v4_controller.proposals,
                            "accepted": v4_controller.accepted,
