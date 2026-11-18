@@ -17,12 +17,21 @@ still schedules the session on the standard CPU image (`COLAB_IMAGE_TYPE=cpu`,
 no `/dev/vfio`), leaving the 20-hour TPU quota at `0s` used.
 
 The kernel metadata is now correct: `machineShape = TpuV5E8` and the stale
-CPU `dockerImage` pin is cleared (`dockerImage = ""`).  The remaining blocker
-is Kaggle's one-time **Persona identity verification**, which Kaggle requires
-for TPUs (GPUs only need phone verification).  Complete it at
-<https://www.kaggle.com/settings>, then rerun
-[`kaggle_tpu_115m.ipynb`](kaggle_tpu_115m.ipynb).  See
-[`TPU_115M.md`](TPU_115M.md) for the push details.
+CPU `dockerImage` pin is cleared (`dockerImage = ""`).  After Persona
+identity verification, version 10 ran on a real **TPU v5e-8** (8 XLA
+devices, `torch_xla 2.8.0`).
+
+The first run was compile-dominated: the 600-second cap covered the first
+XLA graph compilation, so only **2 steps / 4,096 tokens** ran.  Validation
+after step 2 was 11.1155 loss / **3.6063 BPB**, essentially the random
+initialization baseline because the LR was still in the 30-step warmup.
+The test evaluation hit an XLA `inference_mode` bug
+(`Cannot set version_counter for inference tensor`); `eval_v3.py` now uses
+`torch.no_grad()` on XLA and the notebook retries the test eval on CPU.
+Version 11 with that fix is queued.  No test BPB is claimed yet.
+
+This is a bring-up smoke, not a quality comparison.  See
+[`TPU_115M.md`](TPU_115M.md) for the push details and queue notes.
 
 ## Run
 

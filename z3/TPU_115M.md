@@ -47,6 +47,25 @@ POST https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel
 CPU image pin in place.  `GetKernel` must show `machineShape: "TpuV5E8"` and
 no `dockerImage` before the run.
 
+## First TPU run (2026-11-18)
+
+- Kernel version 10, TPU v5e-8, 8 XLA devices (`xla:0` … `xla:7`)
+- Image stack: `torch 2.8.0+cpu`, `torch_xla 2.8.0`, `/dev/vfio` present
+- Parameters: 115,238,237 (`kaggle10m_nomtp`, MTP compute skipped)
+- 600-second cap: 2 steps / 4,096 tokens; wall 1,265.9 s including the
+  first-step XLA compile and the validation pass
+- Validation after step 2: loss 11.1155, **3.6063 BPB** (2 batches,
+  4,088 target bytes/tokens).  With the 30-step warmup the LR was still
+  ~1e-5, so this is essentially the random-initialization baseline
+  (`log2(64060) / 4.49 ≈ 3.56 BPB`), not evidence about the architecture.
+- Test evaluation initially failed with
+  `RuntimeError: Cannot set version_counter for inference tensor` because
+  `torch.inference_mode()` produces inference tensors that the lazy XLA
+  linear cannot materialize.  `eval_v3.py` now uses `torch.no_grad()` on
+  XLA; the notebook also falls back to CPU for the test eval.
+- Version 11 with the fix is queued.  The test BPB will be recorded only
+  after that run completes.
+
 The trainer has a maintained TPU path:
 
 ```sh
