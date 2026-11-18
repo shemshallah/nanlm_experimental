@@ -1,5 +1,117 @@
 {
-  "status": "incomplete",
+  "status": "DEV-only R70 candidate, no promotion",
+  "checkpoint_step": 4465,
+  "checkpoint_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
+  "dev_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
+  "dev_positions_per_book": 128,
+  "warmup": 128,
+  "context": 64,
+  "chunk": 16,
+  "history": 32768,
+  "dev_books": 12,
+  "seconds": 197.19551472700005,
+  "comparison": {
+    "ce_1": {
+      "r69": 3.2814895858367286,
+      "r70": 3.2814895858367286,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "ce_2": {
+      "r69": 3.7526383275787034,
+      "r70": 3.75118695696195,
+      "mean_gain": 0.001451370616753896,
+      "ci95": [
+        -0.0038144164408246673,
+        0.006584970094263551
+      ],
+      "books_improved": 7
+    },
+    "ce_3": {
+      "r69": 3.863865375518799,
+      "r70": 3.866663778821627,
+      "mean_gain": -0.0027984033028284707,
+      "ci95": [
+        -0.009540769892434279,
+        0.004671465170880158
+      ],
+      "books_improved": 3
+    },
+    "acc_1": {
+      "r69": 0.2630208333333333,
+      "r70": 0.2630208333333333,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "acc_2": {
+      "r69": 0.17122395833333334,
+      "r70": 0.17317708333333334,
+      "mean_gain": 0.001953125,
+      "ci95": [
+        -0.006510416666666667,
+        0.011067708333333334
+      ],
+      "books_improved": 6
+    },
+    "acc_3": {
+      "r69": 0.16861979166666666,
+      "r70": 0.16861979166666666,
+      "mean_gain": 0.0,
+      "ci95": [
+        -0.0032552083333333335,
+        0.0026041666666666665
+      ],
+      "books_improved": 2
+    },
+    "top5_1": {
+      "r69": 0.5208333333333334,
+      "r70": 0.5208333333333334,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "top5_2": {
+      "r69": 0.4147135416666667,
+      "r70": 0.416015625,
+      "mean_gain": 0.0013020833333333333,
+      "ci95": [
+        -0.0032552083333333335,
+        0.006510416666666667
+      ],
+      "books_improved": 2
+    },
+    "top5_3": {
+      "r69": 0.3776041666666667,
+      "r70": 0.373046875,
+      "mean_gain": -0.004557291666666667,
+      "ci95": [
+        -0.009114583333333334,
+        0.0
+      ],
+      "books_improved": 1
+    },
+    "bits_per_raw_byte": {
+      "r69": 4.734188752215427,
+      "r70": 4.734188752215427,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    }
+  },
   "per_book": [
     {
       "book_id": "dev/11406.txt",
@@ -750,14 +862,159 @@
         "score_end_exclusive": 256,
         "evaluated_tokens_per_second": 20.956707318034386
       }
+    },
+    {
+      "book_id": "dev/9205.txt",
+      "r69": {
+        "ce_1": 2.5076300501823425,
+        "ce_2": 2.9773078858852386,
+        "ce_3": 3.113227367401123,
+        "acc_1": 0.34375,
+        "acc_2": 0.21875,
+        "acc_3": 0.1875,
+        "top5_1": 0.6328125,
+        "top5_2": 0.5078125,
+        "top5_3": 0.4609375,
+        "ce_nonspace_1": 2.8726159077064666,
+        "acc_nonspace_1": 0.18627450980392157,
+        "top5_nonspace_1": 0.5392156862745098,
+        "ce_space_1": 1.0757628581844842,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.617745437782208,
+        "bits_per_byte_or_eos_target": 3.617745437782208,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 10.295152490025679
+      },
+      "r70": {
+        "ce_1": 2.5076300501823425,
+        "ce_2": 2.975130558013916,
+        "ce_3": 3.123429626226425,
+        "acc_1": 0.34375,
+        "acc_2": 0.1953125,
+        "acc_3": 0.1875,
+        "top5_1": 0.6328125,
+        "top5_2": 0.5078125,
+        "top5_3": 0.453125,
+        "ce_nonspace_1": 2.8726159077064666,
+        "acc_nonspace_1": 0.18627450980392157,
+        "top5_nonspace_1": 0.5392156862745098,
+        "ce_space_1": 1.0757628581844842,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.617745437782208,
+        "bits_per_byte_or_eos_target": 3.617745437782208,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 10.075095553542297
+      },
+      "neutral": {
+        "ce_1": 2.422714591026306,
+        "ce_2": 2.9819490909576416,
+        "ce_3": 3.1007807552814484,
+        "acc_1": 0.3671875,
+        "acc_2": 0.1953125,
+        "acc_3": 0.1875,
+        "top5_1": 0.6640625,
+        "top5_2": 0.4921875,
+        "top5_3": 0.453125,
+        "ce_nonspace_1": 2.766055275412167,
+        "acc_nonspace_1": 0.21568627450980393,
+        "top5_nonspace_1": 0.5882352941176471,
+        "ce_space_1": 1.0757628192122166,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 0.9615384615384616,
+        "bits_per_raw_byte": 3.495238325962985,
+        "bits_per_byte_or_eos_target": 3.495238325962985,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 10.295152490025679
+      }
+    },
+    {
+      "book_id": "dev/970.txt",
+      "r69": {
+        "ce_1": 2.1552874147892,
+        "ce_2": 2.705904543399811,
+        "ce_3": 2.85847070813179,
+        "acc_1": 0.4453125,
+        "acc_2": 0.28125,
+        "acc_3": 0.1953125,
+        "top5_1": 0.734375,
+        "top5_2": 0.59375,
+        "top5_3": 0.5078125,
+        "ce_nonspace_1": 2.4290188663410692,
+        "acc_nonspace_1": 0.3490566037735849,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.8363997069272128,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.109422465006773,
+        "bits_per_byte_or_eos_target": 3.109422465006773,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 20.39207144345658
+      },
+      "r70": {
+        "ce_1": 2.1552874147892,
+        "ce_2": 2.710578143596649,
+        "ce_3": 2.8723160326480865,
+        "acc_1": 0.4453125,
+        "acc_2": 0.2734375,
+        "acc_3": 0.203125,
+        "top5_1": 0.734375,
+        "top5_2": 0.578125,
+        "top5_3": 0.5,
+        "ce_nonspace_1": 2.4290188663410692,
+        "acc_nonspace_1": 0.3490566037735849,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.8363997069272128,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.109422465006773,
+        "bits_per_byte_or_eos_target": 3.109422465006773,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 20.003844695192626
+      },
+      "neutral": {
+        "ce_1": 2.1270558536052704,
+        "ce_2": 2.6960757970809937,
+        "ce_3": 2.922476828098297,
+        "acc_1": 0.3984375,
+        "acc_2": 0.2734375,
+        "acc_3": 0.203125,
+        "top5_1": 0.734375,
+        "top5_2": 0.578125,
+        "top5_3": 0.484375,
+        "ce_nonspace_1": 2.3949277985770747,
+        "acc_nonspace_1": 0.29245283018867924,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.836399720473723,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.0686929316901645,
+        "bits_per_byte_or_eos_target": 3.0686929316901645,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 20.39207144345658
+      }
     }
   ],
-  "checkpoint_step": 4465,
-  "checkpoint_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
-  "dev_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
-  "dev_positions_per_book": 128,
-  "warmup": 128,
-  "context": 64,
-  "chunk": 16,
-  "history": 32768
+  "test_opened": false,
+  "gate_pass": false
 }
+
