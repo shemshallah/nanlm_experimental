@@ -244,6 +244,9 @@ class TerminalRSI(nn.Module):
         self.refine_scale = nn.Parameter(torch.tensor(-3.0))
         self.fast_weight = FastWeightHead(d)
         self.depth_head = nn.Linear(d, 1)
+        # Per-token parent/upgrade mixing gate.  Zero-initialized so the
+        # inherited v103 logits stay exact until this head learns.
+        self.upgrade_gate = nn.Linear(d, 1)
         self.hierarchy = CausalHierarchy(d)
         adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
                        + 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
@@ -269,6 +272,8 @@ class TerminalRSI(nn.Module):
             # now starts at 8 instead of ~65 and trains immediately.
             for head in self.output:
                 head.weight.zero_()
+            nn.init.zeros_(self.upgrade_gate.weight)
+            nn.init.zeros_(self.upgrade_gate.bias)
 
     @staticmethod
     def migrate_state_dict(state_dict: dict) -> dict:
@@ -427,6 +432,7 @@ class TerminalRSI(nn.Module):
             "adapter_input": adapter_input,
             "last_base_logits": base_last_logits,
             "last_refined_logits": refined_last,
+            "gate_features": enhanced[:, -1],
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),
@@ -465,6 +471,7 @@ class TerminalRSI(nn.Module):
             "basis": basis,
             "states": states,
             "bus": bus,
+            "gate_features": states[:, -1],
         }
 
     def forward_token(self, x_new: torch.Tensor, position: int,
@@ -499,6 +506,7 @@ class TerminalRSI(nn.Module):
             "bus": bus,
             "basis_buffer": basis_buffer,
             "state_buffer": state_buffer,
+            "gate_features": enhanced[:, 0],
         }
 
     def parameter_count(self) -> int:

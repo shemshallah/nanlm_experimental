@@ -127,7 +127,16 @@ class VerbatimV103RSI(nn.Module):
         # a learned nonzero gate adapts continuously to verified RSI feedback.
         trust = 1.0 + 0.25 * torch.tanh(
             self.original.feedback_state.detach().float().mean())
-        gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
+        gate_features = upgrade_out.get("gate_features")
+        if gate_features is not None:
+            # Per-token gate: residual_gate is the global RSI knob, while the
+            # head learns which positions trust the 100M branch.
+            token_gate = torch.tanh(
+                self.residual_gate + self.upgrades.upgrade_gate(
+                    gate_features).squeeze(-1))
+            gate = (token_gate * trust.to(old_logits.dtype))[:, None]
+        else:
+            gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
         final_logits = old_logits + gate * (proposed - old_logits)
         # Milestone M1: the unit heads' byte decoder is a separate predictor.
         # It lives outside the residual gate, so it can lower held-out BPB even
@@ -185,7 +194,8 @@ class VerbatimV103RSI(nn.Module):
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
-                   "upgrades.fast_adapter.", "word_prior_gate.",
+                   "upgrades.upgrade_gate.", "upgrades.fast_adapter.",
+                   "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [

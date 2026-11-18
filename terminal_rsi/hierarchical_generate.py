@@ -94,6 +94,7 @@ def generate_bytes(
             "caches": prefill["caches"],
             "basis": prefill["basis"],
             "states": prefill["states"],
+            "gate_features": prefill.get("gate_features"),
         }
 
     for step_index in range(steps):
@@ -110,6 +111,7 @@ def generate_bytes(
                 "boundary_logits": cached["bus"].boundary_logits,
                 "unit_logits": cached["bus"].unit_logits,
                 "hierarchy_gates": cached["bus"].gates,
+                "gate_features": cached.get("gate_features"),
             }
         elif device.type == "cuda" and model.cfg.name == "blackwell":
             if not torch.cuda.is_bf16_supported():
@@ -125,7 +127,14 @@ def generate_bytes(
 
         trust = 1.0 + 0.25 * torch.tanh(
             model.original.feedback_state.detach().float().mean())
-        gate = torch.tanh(model.residual_gate) * trust.to(old_logits.dtype)
+        gate_features = upgrade_out.get("gate_features")
+        if gate_features is not None:
+            token_gate = torch.tanh(
+                model.residual_gate + model.upgrades.upgrade_gate(
+                    gate_features).squeeze(-1))
+            gate = (token_gate * trust.to(old_logits.dtype))[:, None]
+        else:
+            gate = torch.tanh(model.residual_gate) * trust.to(old_logits.dtype)
         final_bits = old_logits + gate * (proposed - old_logits)
 
         # Row i is the eight-bit factorization for candidate byte i.  The

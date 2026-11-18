@@ -83,6 +83,16 @@ class V5ModuleTests(unittest.TestCase):
         (scale * prior.detach()).sum().backward()
         self.assertTrue(bool(torch.isfinite(gate.grad).all()))
 
+    def test_per_token_upgrade_gate_starts_zero(self):
+        model = TerminalRSI(TINY)
+        self.assertIsNotNone(model.upgrade_gate)
+        self.assertEqual(float(model.upgrade_gate.weight.abs().max()), 0.0)
+        self.assertEqual(float(model.upgrade_gate.bias.abs().max()), 0.0)
+        state = torch.randn(2, 9, TINY.width)
+        out = model(state)
+        self.assertIn("gate_features", out)
+        self.assertEqual(tuple(out["gate_features"].shape), (2, TINY.width))
+
     def test_moe_zero_gate_is_identity(self):
         moe = SparseRankOneMoE(32, experts=256)
         x = torch.randn(2, 7, 32)
