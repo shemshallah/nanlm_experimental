@@ -34,3 +34,27 @@ class FastWeightHead(nn.Module):
 def fast_weight_parameter_count(width: int, vocab: int = 256,
                                 rank: int = 8) -> int:
     return width * rank + rank * vocab + 1
+
+
+class RankAdapter(nn.Module):
+    """Zero-initialized rank-r byte-logit side head for fast RSI proposals."""
+
+    def __init__(self, input_dim: int, vocab: int = 256, rank: int = 8):
+        super().__init__()
+        self.input_dim = input_dim
+        self.vocab = vocab
+        self.rank = rank
+        self.A = nn.Parameter(torch.zeros(input_dim, rank))
+        self.B = nn.Parameter(torch.zeros(rank, vocab))
+        self.bias = nn.Parameter(torch.zeros(vocab))
+
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        return (state @ self.A) @ self.B + self.bias
+
+    def parameter_count(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+
+def rank_adapter_parameter_count(input_dim: int, vocab: int = 256,
+                                 rank: int = 8) -> int:
+    return input_dim * rank + rank * vocab + vocab

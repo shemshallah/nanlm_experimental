@@ -444,3 +444,24 @@ def test_controller_rejects_worse_branch():
     assert result.action.is_noop()
     assert controller.accepted == 0
     assert controller.rejected >= 1
+
+
+def test_world_model_learns_probe_bpb_not_training_bpb():
+    torch.manual_seed(7)
+    world = WorldModel()
+    optimizer = torch.optim.Adam(world.parameters(), lr=1e-2)
+    states = torch.randn(64, STATE_DIM)
+    actions = torch.stack([Action.neutral().vector()] * 64)
+    probe_bpb = 2.0 + 0.05 * torch.randn(64)
+    grad = torch.ones(64)
+    accuracy = torch.full((64,), 0.9)
+    for _ in range(200):
+        optimizer.zero_grad(set_to_none=True)
+        loss = world.loss(states, actions, probe_bpb, grad, accuracy)
+        loss.backward()
+        optimizer.step()
+    with torch.no_grad():
+        predicted = world(states, actions)[:, 0] * 10.0
+    assert abs(float(predicted.mean()) - 2.0) < 0.25
+    assert float(predicted.min()) >= 0.0
+    assert float(predicted.max()) <= 16.0

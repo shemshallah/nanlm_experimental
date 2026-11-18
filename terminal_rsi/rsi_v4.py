@@ -455,7 +455,12 @@ class EnsembleCritic(nn.Module):
 
 
 class WorldModel(nn.Module):
-    """Predicts short-horizon training telemetry for imagined branch ranking."""
+    """Predicts the branch's PROBE BPB and training telemetry.
+
+    The BPB target is the internal RSI probe BPB after the branch, not the
+    training-batch bit BPB (which is ~16 early in training).  Training on the
+    latter produced impossible predictions such as -29 BPB.
+    """
 
     def __init__(self, state_dim: int = STATE_DIM, action_dim: int = ACTION_DIM,
                  hidden: int = 64):
@@ -467,6 +472,9 @@ class WorldModel(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden, 3),
         )
+        with torch.no_grad():
+            # BPB/10, log1p(grad)/5, bit accuracy priors.
+            self.body[-1].bias.copy_(torch.tensor([0.2, 0.0, 0.8]))
 
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         if state.ndim == 1:
@@ -931,22 +939,29 @@ class RSIv4Controller:
             pool_actions = torch.stack([action.vector() for action in pool]).to(self.device)
             with torch.no_grad():
                 mean, variance = self.critic.predict(pool_states, pool_actions)
-                # The critic predicts probe utility (BPB gain).  The world
-                # model predicts the *training-batch* BPB, which is a
-                # different quantity; using it here produced impossible
-                # predicted BPB values (-29) and selected nonsense actions.
-                rank_score = mean + 0.25 * torch.sqrt(variance.clamp_min(0.0))
+                world = self.world_model(pool_states, pool_actions)
+                # The world model is now trained on probe BPB.  Clamp it to a
+                # physically plausible range and use it only as a small
+                # auxiliary term behind the probe-utility critic.
+                predicted_bpb = (world[:, 0].float() * 10.0).clamp(0.0, 16.0)
+                last_noop = (float(self.events[-1].get("noop_bpb", 0.0))
+                             if self.events else None)
+                if last_noop is None or len(self.replay) < 32:
+                    rank_score = mean + 0.25 * torch.sqrt(
+                        variance.clamp_min(0.0))
+                else:
+                    predicted_gain = last_noop - predicted_bpb
+                    rank_score = (mean + 0.25 * torch.sqrt(
+                        variance.clamp_min(0.0)) + 0.05 * predicted_gain)
             order = torch.argsort(rank_score, descending=True).tolist()
             selected = [pool[index] for index in order[:self.config.candidates]]
-            last_noop = (float(self.events[-1].get("noop_bpb", 0.0))
-                         if self.events else None)
             for index, action in enumerate(pool):
-                predicted = (None if last_noop is None
-                             else last_noop - float(mean[index]))
                 proposal_scores[action.as_tuple()] = {
                     "critic_mean": float(mean[index]),
                     "critic_std": float(torch.sqrt(variance[index].clamp_min(0.0))),
-                    "predicted_bpb": predicted,
+                    "predicted_bpb": float(predicted_bpb[index]),
+                    "predicted_gain": (None if last_noop is None
+                                       else float(last_noop - predicted_bpb[index])),
                     "rank_score": float(rank_score[index]),
                 }
         else:
@@ -1060,8 +1075,9 @@ class RSIv4Controller:
         # branch is the counterfactual; its utility is exactly zero.
         for result in results:
             utility = 0.0 if result is noop else result.utility
-            next_bpb = (statistics.mean(float(r.get("bpb", 0.0)) for r in result.reports)
-                        if result.reports else 0.0)
+            # The world model must learn the probe outcome RSI optimizes.
+            # ``result.mean_bpb`` is the post-branch internal probe BPB.
+            next_bpb = float(result.mean_bpb)
             next_grad = (statistics.mean(float(r.get("grad_norm", 0.0)) for r in result.reports)
                          if result.reports else 0.0)
             next_acc = (statistics.mean(float(r.get("bit_accuracy", 0.0)) for r in result.reports)
