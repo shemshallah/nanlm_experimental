@@ -17,6 +17,11 @@ GATE 556–559; DEV 560–571; sealed independent TEST 572–595. Do not
 read the reserved TEST for tuning. This source adds an experimental feedback
 path and continuity tests, **not** a trained or promoted R34 checkpoint.
 
+The CPU workflow `m3-r34-cpu-train-dev.yml` trains only the four new
+coefficients (up to 768 new Adam updates) on FIT 540–555 and runs aligned
+GATE 556–559 and DEV 560–571. It exports one full 36-group candidate plus
+JSON metrics; R32 remains the default whatever the outcome.
+
 The next training gate is whether new feedback reduces DEV BPB relative to
 certified R32, while its true anchor continues to outperform wrong-value
 and unrelated-document controls; include top-1/top-5, nonspace BPB and
