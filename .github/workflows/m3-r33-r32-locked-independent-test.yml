@@ -1,0 +1,64 @@
+name: M3 R32 prelocked independent TEST on 24 new books
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r33/**'
+      - '.github/workflows/m3-r33-r32-locked-independent-test.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  m3-r32-independent-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Check frozen TEST criterion and inherited parity
+        run: |
+          python -m compileall -q m3_default m3_r32 m3_r33
+          python -m unittest discover -s m3_r32 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r33 -p 'test_*.py' -v
+      - name: Recover and SHA-lock complete R32 trained checkpoint and DEV report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r33_parent
+          gh run download 44233287739 -R shemshallah/nanlm_experimental \
+            -n m3-r32-32-group-checkpoint-with-anchor-and-dev -D /tmp/m3_r33_parent
+          printf '%s  %s\n' \
+            67e7417fb38c8d914714cee243fb080da6e63cf5f9e9c9737e28a5b168c1da1a \
+            /tmp/m3_r33_parent/R32_full_adam_checkpoint.npz | sha256sum -c -
+          printf '%s  %s\n' \
+            bf0f2d5a17863b78c7925e037901521e543a315d66c5865eefb0678d248f92c2 \
+            /tmp/m3_r33_parent/R32_DEV.json | sha256sum -c -
+      - name: Download and SHA-verify NaNROUTER Release corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r33_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER \
+            --dir /tmp/m3_r33_corpus
+          cd /tmp/m3_r33_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Score TEST 516..539 once against prelocked controls
+        run: |
+          python -m m3_r33.locked_test \
+            --corpus-root /tmp/m3_r33_corpus \
+            --checkpoint /tmp/m3_r33_parent/R32_full_adam_checkpoint.npz \
+            --training-report /tmp/m3_r33_parent/R32_DEV.json \
+            --output m3_r33/results/R32_INDEPENDENT_TEST.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r32-independent-24-book-locked-test
+          path: m3_r33/results/
+          if-no-files-found: warn

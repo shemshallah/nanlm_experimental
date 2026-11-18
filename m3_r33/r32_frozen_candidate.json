@@ -1,0 +1,35 @@
+{
+  "candidate": "M3 R32 frozen TRAIN-only anchor on inherited R31",
+  "selection_source": "R32 GATE 500..503 and DEV 504..515 only",
+  "selection_commit": "11e5098a8164357cf65d8fa59a9339ba4849127b",
+  "source_training_run": 44233287739,
+  "source_artifact_name": "m3-r32-32-group-checkpoint-with-anchor-and-dev",
+  "checkpoint_sha256": "67e7417fb38c8d914714cee243fb080da6e63cf5f9e9c9737e28a5b168c1da1a",
+  "training_dev_report_sha256": "bf0f2d5a17863b78c7925e037901521e543a315d66c5865eefb0678d248f92c2",
+  "parent_r31_checkpoint_sha256": "dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff",
+  "coefficients": [
+    0.5927959113137101,
+    -1.5,
+    -0.20722426183204995,
+    0.294518336989888
+  ],
+  "optimizer_groups": 32,
+  "inherited_optimizer_groups_unchanged": 28,
+  "new_adam_updates": 768,
+  "anchor_train_indices": [468, 484],
+  "gradient_train_indices": [484, 500],
+  "gate_indices": [500, 504],
+  "dev_indices": [504, 516],
+  "sealed_test_indices": [516, 540],
+  "test_unread_at_lock": true,
+  "test_acceptance": {
+    "test_books": 24,
+    "min_books_improved_over_r31": 18,
+    "require_bpb_better_than": ["r29", "r31", "wrong_anchor", "unrelated_matched", "unrelated_full"],
+    "nonspace_bpb_not_worse_than": "r31",
+    "top1_not_worse_than": ["r29", "r31"],
+    "top5_not_worse_than": "r31",
+    "whole_book_bootstrap_95pct_lower_gain_bits_strictly_positive": true
+  },
+  "result_policy": "No hyperparameter, checkpoint, score threshold, or test book will be changed after opening TEST"
+}
