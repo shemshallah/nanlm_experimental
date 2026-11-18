@@ -702,10 +702,11 @@ def main(argv=None):
 
     def _bit_logit_snapshot() -> torch.Tensor:
         """Per-probe bit logits, so before/after changes cannot look stale."""
-        windows = probes.reshape(-1, probes.shape[-1]).long()
-        aux_flat = (probe_aux.reshape(-1, 6).long()
+        model_device = next(model.parameters()).device
+        windows = probes.reshape(-1, probes.shape[-1]).long().to(model_device)
+        aux_flat = (probe_aux.reshape(-1, 6).long().to(model_device)
                     if probe_aux is not None else None)
-        local_flat = (probe_local.reshape(-1, 4).long()
+        local_flat = (probe_local.reshape(-1, 4).long().to(model_device)
                       if probe_local is not None else None)
         rows = []
         was_training = model.training
