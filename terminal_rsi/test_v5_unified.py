@@ -25,7 +25,7 @@ from terminal_rsi.unified import (
     PRESETS, Preset, TerminalRSI, static_upgrade_parameter_count,
 )
 from terminal_rsi.verbatim_v103 import VerbatimV103RSI, build_v103_optimizer
-from terminal_rsi.train_verbatim import train_one_batch
+from terminal_rsi.train_verbatim import top5_byte_loss, train_one_batch
 
 TINY = Preset("cpu", 32, 2, 4, 64, 1, 2, 3e-4, 1)
 BPE = Path(__file__).parent / "reference" / "nancm_v103_bpe.txt"
@@ -82,6 +82,14 @@ class V5ModuleTests(unittest.TestCase):
         scale = 0.05 * torch.tanh(gate)
         (scale * prior.detach()).sum().backward()
         self.assertTrue(bool(torch.isfinite(gate.grad).all()))
+
+    def test_top5_byte_loss_is_finite_and_ranked(self):
+        bit_logits = torch.randn(4, 8, requires_grad=True)
+        target = torch.randint(0, 256, (4,))
+        loss = top5_byte_loss(bit_logits, target)
+        self.assertTrue(torch.isfinite(loss))
+        loss.backward()
+        self.assertTrue(bool(torch.isfinite(bit_logits.grad).all()))
 
     def test_per_token_upgrade_gate_starts_zero(self):
         model = TerminalRSI(TINY)

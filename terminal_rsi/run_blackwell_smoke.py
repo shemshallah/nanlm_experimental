@@ -67,6 +67,7 @@ def main(argv=None) -> int:
     p.add_argument("--moe-loss-weight", type=float, default=0.01)
     p.add_argument("--unit-byte-loss-weight", type=float, default=0.1)
     p.add_argument("--unit-byte-distill-weight", type=float, default=0.5)
+    p.add_argument("--top5-byte-loss-weight", type=float, default=0.0)
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full")
@@ -188,6 +189,7 @@ def main(argv=None) -> int:
         "--moe-loss-weight", str(args.moe_loss_weight),
         "--unit-byte-loss-weight", str(args.unit_byte_loss_weight),
         "--unit-byte-distill-weight", str(args.unit_byte_distill_weight),
+        "--top5-byte-loss-weight", str(args.top5_byte_loss_weight),
         "--ablation", args.ablation,
         *(["--compile-upgrade"] if args.compile_upgrade else []),
         "--upgrade-context", str(args.context),

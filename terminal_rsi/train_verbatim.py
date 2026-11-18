@@ -64,6 +64,29 @@ def score_byte_observations(logits: torch.Tensor, bits: torch.Tensor):
     return loss, bpb, accuracy
 
 
+def top5_byte_loss(bit_logits: torch.Tensor, target: torch.Tensor,
+                   candidates: int = 20) -> torch.Tensor:
+    """Listwise CE over the union of the model's top candidates and the target.
+
+    Top-5 is a ranking metric, so a plain bit-BCE can improve calibration while
+    leaving the ranking unchanged.  This focuses gradient on the bytes that can
+    actually enter the top five.
+    """
+    byte_logp = bit_logits_to_byte_log_probs(bit_logits)
+    target = target.long().to(byte_logp.device)
+    k = max(1, min(int(candidates), byte_logp.shape[-1] - 1))
+    with torch.no_grad():
+        cand = byte_logp.detach().topk(k, dim=-1).indices
+        hit = (cand == target[:, None]).any(-1)
+        filled = torch.cat((cand[:, :-1], target[:, None]), dim=1)
+        cand = torch.where(hit[:, None], cand, filled)
+    cand_logp = byte_logp.gather(1, cand)
+    index = (cand == target[:, None]).float().argmax(-1, keepdim=True)
+    target_logp = cand_logp.gather(1, index)
+    return (torch.logsumexp(cand_logp, dim=-1, keepdim=True)
+            - target_logp).mean()
+
+
 def _full_parent_log_probs(model: VerbatimV103RSI, history: torch.Tensor,
                             aux: torch.Tensor, samples: int):
     """Exact full 256-way teacher distribution from the inherited v103 core."""
@@ -161,6 +184,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             loss_sum = F.binary_cross_entropy_with_logits(
                 logits, bits, reduction="sum")
             objective = loss_sum
+            if top5_byte_loss_weight > 0:
+                top5_value = top5_byte_loss(logits, part_target)
+                objective = objective + (
+                    top5_byte_loss_weight * top5_value * (end - start))
             if aux_sum is not None:
                 objective = objective + upgrade_loss_weight * aux_sum
             if upgrade_out is not None and boundary_loss_weight > 0:
@@ -193,8 +220,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             if upgrade_out is not None and moe_loss_weight > 0:
                 moe_value = upgrade_out.get("moe_load_balance")
                 if moe_value is not None:
-                    objective = objective + moe_loss_weight * float(
-                        moe_value.detach()) * (end - start)
+                    objective = objective + (
+                        moe_loss_weight * moe_value.float() * (end - start))
                     moe_total += float(moe_value.detach()) * (end - start)
                     moe_count += end - start
             if (upgrade_out is not None and unit_byte_loss_weight > 0
@@ -266,6 +293,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         loss, bpb, accuracy = score_byte_observations(logits, bits)
         aux_loss = F.cross_entropy(current, target)
         objective = loss + upgrade_loss_weight * aux_loss
+        top5_value = None
+        if top5_byte_loss_weight > 0:
+            top5_value = top5_byte_loss(logits, target)
+            objective = objective + top5_byte_loss_weight * top5_value
         b_loss = None
         if upgrade_out is not None and boundary_loss_weight > 0:
             b_loss = boundary_loss(
@@ -342,6 +373,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
     if b_loss is not None:
         report["boundary_bce"] = float(b_loss.detach())
     report.update(u_stats)
+    if top5_value is not None:
+        report["top5_byte_loss"] = float(top5_value.detach())
     if moe_value is not None:
         report["moe_load_balance"] = float(moe_value.detach())
     if u_byte_value is not None:
@@ -1137,6 +1170,7 @@ def main(argv=None):
                     moe_loss_weight=args.moe_loss_weight,
                     unit_byte_loss_weight=args.unit_byte_loss_weight,
                     unit_byte_distill_weight=args.unit_byte_distill_weight,
+                    top5_byte_loss_weight=args.top5_byte_loss_weight,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0))
             sampler["cursor"] += batch
             step += 1
@@ -1259,6 +1293,7 @@ def main(argv=None):
                         moe_loss_weight=args.moe_loss_weight,
                         unit_byte_loss_weight=args.unit_byte_loss_weight,
                     unit_byte_distill_weight=args.unit_byte_distill_weight,
+                    top5_byte_loss_weight=args.top5_byte_loss_weight,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0)))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
