@@ -1490,7 +1490,7 @@ class MirrorLM(nn.Module):
         return logits, h, metrics
 
     def future_logits(self, h, disable_temporal=False,
-                      future_memory_override=None):
+                      future_memory_override=None, future_winner_guard=False):
         """Predict t+2 and t+3 from the SAME causal NOW representation.
 
         offset: original, constant horizon vectors (v24 compatibility).
@@ -1520,7 +1520,10 @@ class MirrorLM(nn.Module):
         if future_memory_override is not None:
             if self.pair_successor is None or not self.cfg.pair_successor_future:
                 raise ValueError('Future memory provided before R69 migration')
-            return self.pair_successor.future_forward(pair,future_memory_override)
+            return self.pair_successor.future_forward(
+                pair,future_memory_override,protect_winner=future_winner_guard)
+        if future_winner_guard:
+            raise ValueError('Future winner guard requires causal future-memory evidence')
         return pair
 
     def loss_with_future(self, ids, nonspace_weight=1.0, return_next_logits=False):

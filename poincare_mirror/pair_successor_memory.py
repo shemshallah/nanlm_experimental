@@ -6,7 +6,7 @@ input byte at u+1<=t. No target label or future token enters the memory.
 import math
 
 import torch
-from rank_safe_fusion import protect_parent_space_rank
+from rank_safe_fusion import protect_parent_space_rank, protect_parent_winner_rank
 from torch import nn
 
 
@@ -191,7 +191,7 @@ class PairSuccessorTrust(nn.Module):
                                                     dtype=self.joint_weight.dtype))
         return self.future_weight
 
-    def future_forward(self,future_logits,history):
+    def future_forward(self,future_logits,history,*,protect_winner=False):
         """Causal +2/+3 conditional byte correction with protected mass.
 
         history=(hist2,cov2,hits2,hist3,cov3,hits3); each histogram only
@@ -231,7 +231,8 @@ class PairSuccessorTrust(nn.Module):
                     torch.logsumexp(before.float(),-1,keepdim=True))
             output=base.clone()
             output[...,mask]=proposed-offset.to(base.dtype)
-            corrected.append(output)
+            corrected.append(protect_parent_winner_rank(base,output)
+                             if protect_winner else output)
         return tuple(corrected)
 
     def _read_features(self, pairs, observed, vocab, query_map, value_control,
