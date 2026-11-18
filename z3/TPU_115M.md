@@ -63,12 +63,19 @@ measured `kaggle10m_nomtp` profile with `TPU_MODE = "single"` or `"multi"`.
 It retries the single-device path if the multi-core launch fails.
 
 **Pin a matching torch/torch_xla pair.**  The Kaggle TPU image currently
-ships **torch 2.11 (CPU)**, while the public libtpu wheel index exposes
-`torch_xla` 2.8.0/2.8.1/2.9.0.  Installing `torch_xla` without a matching
-torch fails with `_XLAC ... undefined symbol`.  The notebook tries
-**torch 2.9.0 + torch_xla 2.9.0**, then **2.8.1 + 2.8.1**, and runs all
-training/eval in child processes so the notebook process never imports the
-old torch 2.11 ABI.  For a manual environment use the same pairing.
+ships **torch 2.11**, while the libtpu wheel index exposes `torch_xla`
+2.8.0/2.8.1/2.9.0.  `torch_xla` 2.9.0 also pins the missing
+`libtpu==0.0.21`; the index has `0.0.21.1`.  The notebook installs:
+
+```sh
+pip install torch==2.9.0
+pip install --no-deps torch_xla==2.9.0   -f https://storage.googleapis.com/libtpu-releases/index.html
+pip install libtpu==0.0.21.1   -f https://storage.googleapis.com/libtpu-releases/index.html
+```
+
+and runs all training/eval in child processes, so the notebook never imports
+the old torch 2.11 ABI.  Do not use the `+cpu` torch wheel here: the
+`torch_xla` wheel is built against the default PyPI torch ABI.
 
 ## Caveats
 
