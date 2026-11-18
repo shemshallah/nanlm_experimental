@@ -931,17 +931,22 @@ class RSIv4Controller:
             pool_actions = torch.stack([action.vector() for action in pool]).to(self.device)
             with torch.no_grad():
                 mean, variance = self.critic.predict(pool_states, pool_actions)
-                world = self.world_model(pool_states, pool_actions)
-                # Utility is higher-is-better; predicted next BPB is lower-is-better.
-                rank_score = (mean + 0.25 * torch.sqrt(variance.clamp_min(0.0))
-                              - 0.05 * world[:, 0] * 10.0)
+                # The critic predicts probe utility (BPB gain).  The world
+                # model predicts the *training-batch* BPB, which is a
+                # different quantity; using it here produced impossible
+                # predicted BPB values (-29) and selected nonsense actions.
+                rank_score = mean + 0.25 * torch.sqrt(variance.clamp_min(0.0))
             order = torch.argsort(rank_score, descending=True).tolist()
             selected = [pool[index] for index in order[:self.config.candidates]]
+            last_noop = (float(self.events[-1].get("noop_bpb", 0.0))
+                         if self.events else None)
             for index, action in enumerate(pool):
+                predicted = (None if last_noop is None
+                             else last_noop - float(mean[index]))
                 proposal_scores[action.as_tuple()] = {
                     "critic_mean": float(mean[index]),
                     "critic_std": float(torch.sqrt(variance[index].clamp_min(0.0))),
-                    "predicted_bpb": float(world[index, 0] * 10.0),
+                    "predicted_bpb": predicted,
                     "rank_score": float(rank_score[index]),
                 }
         else:
