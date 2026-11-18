@@ -58,13 +58,20 @@ no `dockerImage` before the run.
   4,088 target bytes/tokens).  With the 30-step warmup the LR was still
   ~1e-5, so this is essentially the random-initialization baseline
   (`log2(64060) / 4.49 ≈ 3.56 BPB`), not evidence about the architecture.
+- The 3.6063 BPB is **not** a regression.  It is the near-uniform
+  random-init baseline (`log2(64060) / 4.49 ≈ 3.59 BPB`) after two steps
+  with the LR still in warmup.  The T4 1.5981 result used 900 steps and
+  1.84M tokens; this run saw 4,096 tokens.  The 600-second budget was
+  nearly all first-step XLA compilation.
 - Test evaluation initially failed with
   `RuntimeError: Cannot set version_counter for inference tensor` because
   `torch.inference_mode()` produces inference tensors that the lazy XLA
   linear cannot materialize.  `eval_v3.py` now uses `torch.no_grad()` on
   XLA; the notebook also falls back to CPU for the test eval.
-- Version 11 with the fix is queued.  The test BPB will be recorded only
-  after that run completes.
+- A replacement run now uses `--max-seconds 1200` and a 3600-second
+  subprocess timeout, so roughly ten minutes of actual training remain
+  after the first compile.  It was requeued after deleting the queued
+  two-step version.  The test BPB will be recorded only after it completes.
 
 The trainer has a maintained TPU path:
 

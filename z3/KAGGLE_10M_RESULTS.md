@@ -23,12 +23,17 @@ devices, `torch_xla 2.8.0`).
 
 The first run was compile-dominated: the 600-second cap covered the first
 XLA graph compilation, so only **2 steps / 4,096 tokens** ran.  Validation
-after step 2 was 11.1155 loss / **3.6063 BPB**, essentially the random
-initialization baseline because the LR was still in the 30-step warmup.
+after step 2 was 11.1155 loss / **3.6063 BPB**.  That is essentially the
+random-initialization baseline: uniform over the 64,060-token vocabulary is
+already ~3.59 BPB, and the LR was still in the 30-step warmup.  The T4
+1.5981 result used 900 steps and 1.84M tokens, so this is not a regression
+or a quality result.
 The test evaluation hit an XLA `inference_mode` bug
 (`Cannot set version_counter for inference tensor`); `eval_v3.py` now uses
 `torch.no_grad()` on XLA and the notebook retries the test eval on CPU.
-Version 11 with that fix is queued.  No test BPB is claimed yet.
+A replacement run with a 1200-second wall cap is queued, intended to leave
+roughly ten minutes of training after compilation.  No test BPB is claimed
+yet.
 
 This is a bring-up smoke, not a quality comparison.  See
 [`TPU_115M.md`](TPU_115M.md) for the push details and queue notes.
