@@ -760,6 +760,10 @@ def main(argv=None):
     p.add_argument("--max-dev-positions", type=int, default=16)
     p.add_argument("--topk-probes", type=int, default=8,
                    help="Bound exact 256-way byte top1/top5 probes to avoid 256x CPU evaluations")
+    p.add_argument("--unit-eval-books", type=int, default=8,
+                   help="Books for the fast unit-head classifier eval")
+    p.add_argument("--unit-eval-positions", type=int, default=512,
+                   help="Positions per book for the unit-head classifier eval")
     p.add_argument("--hierarchical-eval-books", type=int, default=0,
                    help="Evaluate contiguous DEV excerpts and report byte/BPE/word/sentence metrics")
     p.add_argument("--hierarchical-eval-corpus-dir", type=Path,
@@ -1816,12 +1820,14 @@ def main(argv=None):
                 dev_manifest=args.dev_manifest,
                 bpe_merges=args.bpe_merges,
                 context=upgrade_context,
-                books=min(8, args.hierarchical_eval_books),
-                max_positions=min(512, args.hierarchical_eval_max_positions
-                                  or 512),
+                books=min(args.unit_eval_books,
+                          len(json.loads(Path(args.dev_manifest).read_text())
+                              .get("selected_books", []))),
+                max_positions=args.unit_eval_positions,
                 device=device,
                 vocabulary=unit_labels,
                 ngram_weight=args.word_ngram_weight,
+                eval_batch=args.hierarchical_eval_batch,
             )
             print("UNIT-HEAD HELD-OUT METRICS:",
                   json.dumps(receipt["unit_heads_dev"], indent=2), flush=True)

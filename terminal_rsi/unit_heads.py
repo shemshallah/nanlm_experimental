@@ -417,7 +417,8 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                            bpe_merges: Path, context: int, books: int,
                            max_positions: int, device: torch.device,
                            vocabulary: UnitLabels,
-                           ngram_weight: float = 0.0) -> dict:
+                           ngram_weight: float = 0.0,
+                           eval_batch: int = 128) -> dict:
     """Score the real token/word/sentence heads on held-out DEV excerpts."""
     manifest = json.loads(Path(dev_manifest).read_text())
     selected = manifest.get("selected_books") or []
@@ -453,10 +454,19 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                     dtype=torch.uint8).long()
                 for pos in positions
             ]).to(device)
-            upgrade = model.upgrades(windows)
-            logits = upgrade.get("unit_logits") or {}
-            if not logits:
-                return {"schema": "terminal-rsi-unit-heads-v1", "levels": {}}
+            chunked: dict[str, list[torch.Tensor]] = {
+                name: [] for name in ("token", "word", "sentence")}
+            for start_index in range(0, len(windows), max(1, eval_batch)):
+                upgrade = model.upgrades(
+                    windows[start_index:start_index + max(1, eval_batch)])
+                part = upgrade.get("unit_logits") or {}
+                if not part:
+                    return {"schema": "terminal-rsi-unit-heads-v1",
+                            "levels": {}}
+                for name in chunked:
+                    chunked[name].append(part[name])
+            logits = {name: torch.cat(values, dim=0)
+                      for name, values in chunked.items()}
             observed = torch.tensor(
                 sorted(set(vocabulary.word_vocab.values())),
                 dtype=torch.long, device=device)
