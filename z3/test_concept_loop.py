@@ -226,11 +226,8 @@ class ConceptLoopTests(unittest.TestCase):
             ]
         )
         gathered, counts = _segment_pool(x, ids)
-        valid = ids > 0
-        unique, inverse = torch.unique(ids[valid], return_inverse=True)
-        compact = torch.zeros_like(ids)
-        compact[valid] = inverse + 1
-        buckets = int(unique.numel()) + 1
+        compact = _fixed_segment_ids(ids)
+        buckets = ids.shape[1] + 1
         expected = torch.zeros(3, buckets, 5)
         expected_counts = torch.zeros(3, buckets)
         for row in range(3):
