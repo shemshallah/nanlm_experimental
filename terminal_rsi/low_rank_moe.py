@@ -31,6 +31,8 @@ class SparseRankOneMoE(nn.Module):
         # Detached telemetry; never part of state_dict.
         self.last_load_balance = torch.zeros(())
         self.last_entropy = torch.zeros(())
+        # Differentiable router-balance term consumed by the training loss.
+        self.load_balance_loss = torch.zeros(())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim != 3 or x.shape[-1] != self.width:
@@ -55,15 +57,18 @@ class SparseRankOneMoE(nn.Module):
                 part_output = part_output + (
                     part_weights[:, slot:slot + 1] * magnitude * value)
             output[start:end] = part_output
+        probabilities = F.softmax(scores.float(), dim=-1).mean(0)
         with torch.no_grad():
-            probabilities = F.softmax(scores.float(), dim=-1).mean(0)
             counts = torch.bincount(
                 top_indices[:, 0].reshape(-1), minlength=self.experts).float()
             fraction = counts / counts.sum().clamp_min(1)
             self.last_load_balance = (
-                self.experts * (probabilities * fraction).sum()).detach()
-            entropy = -(probabilities * probabilities.clamp_min(1e-9).log()).sum()
+                self.experts * (probabilities.detach() * fraction).sum()).detach()
+            entropy = -(probabilities.detach()
+                        * probabilities.detach().clamp_min(1e-9).log()).sum()
             self.last_entropy = entropy.detach()
+        # fraction is a constant; probabilities carries router gradients.
+        self.load_balance_loss = self.experts * (probabilities * fraction).sum()
         return x + torch.tanh(self.gate) * self.out(output).reshape(
             batch, time, width)
 

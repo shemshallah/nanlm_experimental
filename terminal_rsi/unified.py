@@ -403,6 +403,11 @@ class TerminalRSI(nn.Module):
         predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
         moe_stats = [block.moe.last_load_balance.to(enhanced.device)
                      for block in self.backbone if block.moe is not None]
+        moe_losses = [block.moe.load_balance_loss.to(enhanced.device)
+                      for block in self.backbone if block.moe is not None]
+        moe_losses.extend((bus.top_moe.load_balance_loss.to(enhanced.device),
+                           bus.bottom_extensions.load_balance_loss.to(
+                               enhanced.device)))
         moe_entropies = [block.moe.last_entropy.to(enhanced.device)
                          for block in self.backbone if block.moe is not None]
         return {
@@ -424,8 +429,10 @@ class TerminalRSI(nn.Module):
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),
-            "moe_load_balance": (torch.stack(moe_stats).mean()
-                                 if moe_stats else torch.zeros((), device=enhanced.device)),
+            "moe_load_balance": (torch.stack(moe_losses).mean()
+                                 if moe_losses else torch.zeros((), device=enhanced.device)),
+            "moe_load_balance_telemetry": (torch.stack(moe_stats).mean()
+                                           if moe_stats else torch.zeros((), device=enhanced.device)),
             "moe_entropy": (torch.stack(moe_entropies).mean()
                             if moe_entropies else torch.zeros((), device=enhanced.device)),
         }

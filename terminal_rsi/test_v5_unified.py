@@ -90,6 +90,15 @@ class V5ModuleTests(unittest.TestCase):
         self.assertEqual(moe_parameter_count(32),
                          sum(p.numel() for p in moe.parameters()))
 
+    def test_moe_load_balance_carries_gradient(self):
+        moe = SparseRankOneMoE(32, experts=8)
+        x = torch.randn(2, 5, 32)
+        moe(x)
+        self.assertTrue(moe.load_balance_loss.requires_grad)
+        moe.load_balance_loss.backward()
+        self.assertIsNotNone(moe.router.weight.grad)
+        self.assertTrue(bool(torch.isfinite(moe.router.weight.grad).all()))
+
     def test_fast_weight_zero_init(self):
         head = FastWeightHead(32)
         state = torch.randn(2, 7, 32)
