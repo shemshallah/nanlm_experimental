@@ -1,0 +1,32 @@
+name: FA1 R7.63 temporal cross-rail CPU source regression
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'fa1r7.12/source/fa1_r763_temporal_cross.py'
+      - 'fa1r7.12/source/fa1_r763_cpu_pilot.py'
+      - 'fa1r7.12/source/test_fa1_r763_temporal_cross.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - '.github/workflows/fa1-r763-temporal-cross.yml'
+  workflow_dispatch:
+
+jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Assert causal temporal crossings and unchanged inheritance
+        run: |
+          export PYTHONPATH=fa1r7.12/source
+          python -m unittest -q test_fa1_r763_temporal_cross
+          python -m unittest -q test_fa1_r762_selective_intersection
+          python -m unittest -q test_fa1_r761_two_rail_geometry
+          python -m unittest -q test_fa1_r760_geometric_calibration
