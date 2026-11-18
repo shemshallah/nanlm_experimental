@@ -75,8 +75,8 @@ def _full_parent_log_probs(model: VerbatimV103RSI, history: torch.Tensor,
     teacher_bits, _ = model.original(
         previous[:, -32:], candidates, repeated_aux)
     logp = bit_logits_to_byte_log_probs(teacher_bits)
-    diagonal = logp.diagonal().reshape(n, 256)
-    return F.log_softmax(diagonal, dim=-1)
+    diagonal = logp.reshape(n, 256, 256).diagonal(dim1=1, dim2=2)
+    return F.softmax(diagonal, dim=-1).clamp_min(1e-12).log()
 
 
 def _accumulate_stats(total: dict, stats: dict, weight: int) -> None:
