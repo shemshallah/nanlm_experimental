@@ -137,6 +137,24 @@ def _(
         base = Path.home() / "z4_blackwell"
         base.mkdir(parents=True, exist_ok=True)
 
+    def run_checked(cmd, cwd=None):
+        completed = subprocess.run(
+            cmd, cwd=cwd, capture_output=True, text=True
+        )
+        if completed.stdout:
+            print(completed.stdout, end="", flush=True)
+        if completed.stderr:
+            print(completed.stderr, end="", flush=True)
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "command failed with exit {}: {}\n{}".format(
+                    completed.returncode,
+                    " ".join(cmd),
+                    (completed.stderr or "")[-3000:],
+                )
+            )
+        return completed
+
     def find_repo():
         try:
             here = Path(__file__).resolve()
@@ -147,14 +165,11 @@ def _(
             pass
         repo = base / "nanlm_experimental"
         if not (repo / "z3" / "train_v3.py").is_file():
-            subprocess.run(
-                ["git", "clone", "--depth", "1", REPO_URL, str(repo)],
-                check=True,
+            run_checked(
+                ["git", "clone", "--depth", "1", REPO_URL, str(repo)]
             )
         else:
-            subprocess.run(
-                ["git", "-C", str(repo), "pull", "--ff-only"], check=True
-            )
+            run_checked(["git", "-C", str(repo), "pull", "--ff-only"])
         return repo
 
     repo = find_repo()
@@ -163,9 +178,8 @@ def _(
             __import__(module)
         except ImportError:
             print(f"installing {module}...", flush=True)
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-q", module],
-                check=True,
+            run_checked(
+                [sys.executable, "-m", "pip", "install", "-q", module]
             )
     data = repo / "data"
     bins = data / "wikitext_bins"
@@ -183,7 +197,7 @@ def _(
             "\n\n".join(parts), encoding="utf-8"
         )
         print("building WikiText-2 bins...", flush=True)
-        subprocess.run(
+        run_checked(
             [
                 sys.executable,
                 "z3/build_domain_bins.py",
@@ -199,7 +213,6 @@ def _(
                 "0.01",
             ],
             cwd=repo,
-            check=True,
         )
 
     out = (repo / "runs" / "z4_115m_blackwell").resolve()
