@@ -37,6 +37,20 @@ A fresh 300-second run on shuffled word lists + TinyStories + WikiText-103
 This is a real generalization improvement, but not under 1.0 BPB.  See
 [`MIXED_300S_2026_11_18.md`](MIXED_300S_2026_11_18.md).
 
+## Non-WikiText 1-hour zero-shot
+
+Fresh weights trained only on word lists + TinyStories + AG News
+(54,067,200 tokens, no WikiText text):
+
+- Official WikiText-2 test: **1.5355 BPB** (52.74% top-1)
+- Official WikiText-103 test: **0.8551 BPB** (64.00% top-1)
+- OOD Tiny Shakespeare: **1.1198 BPB** (55.52% top-1)
+
+Shakespeare is the strict OOD check and is close to, but not under, 1.0.
+The subword tokenizer is WikiText-2-derived, so this is model-weight
+zero-shot, not strict tokenizer-level zero-shot.  See
+[`NONWIKI_HOUR_2026_11_18.md`](NONWIKI_HOUR_2026_11_18.md).
+
 ## Requirements
 
 - A CUDA GPU.  Blackwell (`sm_100`/`sm_120`) needs a PyTorch build with
