@@ -19,7 +19,9 @@ from .fast_weights import (
     FastWeightHead, RankAdapter, fast_weight_parameter_count,
     rank_adapter_parameter_count,
 )
-from .unit_heads import TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE
+from .unit_heads import (
+    SENTENCE_VOCAB_SIZE, TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE,
+)
 from .norm import RMSNorm
 
 
@@ -53,12 +55,13 @@ ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 def fast_adapter_input_width(cfg: Preset) -> int:
     bus = max(16, cfg.width // 4)
     return (cfg.width + 3 * bus + 256 + 256
-            + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+            + 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+            + SENTENCE_VOCAB_SIZE)
 
 
 def symbiotic_parameter_count(cfg: Preset, hidden: int = 64) -> int:
     adapter = fast_adapter_input_width(cfg)
-    return (adapter + 256) * hidden + hidden + hidden * cfg.width + cfg.width + 1
+    return (adapter + 256) * hidden + hidden + hidden * cfg.width + cfg.width + 2
 
 
 def moe_layer_count(cfg: Preset) -> int:
@@ -243,7 +246,8 @@ class TerminalRSI(nn.Module):
         self.depth_head = nn.Linear(d, 1)
         self.hierarchy = CausalHierarchy(d)
         adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
-                       + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+                       + 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+                       + SENTENCE_VOCAB_SIZE)
         self.fast_adapter = RankAdapter(adapter_dim, rank=16)
         self.fast_adapter.requires_grad_(False)
         self.symbiotic_feedback = nn.Sequential(
@@ -252,6 +256,7 @@ class TerminalRSI(nn.Module):
             nn.Linear(64, d),
         )
         self.symbiosis_gate = nn.Parameter(torch.zeros(()))
+        self.symbiosis_output_gate = nn.Parameter(torch.zeros(()))
         # RSI-v4 intervention target.  This is deliberately a plain Python
         # attribute, not a buffer, so old v103 checkpoints load unchanged.
         self.router_temperature = 1.0
@@ -371,18 +376,21 @@ class TerminalRSI(nn.Module):
         bus = self.hierarchy(final_state)
         enhanced = bus.state
         fast = self.fast_weight(enhanced)
-        token_logits = bus.unit_logits.get(
-            "current_token",
-            torch.zeros((enhanced.shape[0], TOKEN_VOCAB_SIZE),
-                        device=enhanced.device, dtype=enhanced.dtype))
-        word_logits = bus.unit_logits.get(
-            "current_word",
-            torch.zeros((enhanced.shape[0], WORD_VOCAB_SIZE),
-                        device=enhanced.device, dtype=enhanced.dtype))
+        zeros_t = torch.zeros((enhanced.shape[0], TOKEN_VOCAB_SIZE),
+                              device=enhanced.device, dtype=enhanced.dtype)
+        zeros_w = torch.zeros((enhanced.shape[0], WORD_VOCAB_SIZE),
+                              device=enhanced.device, dtype=enhanced.dtype)
+        zeros_s = torch.zeros((enhanced.shape[0], SENTENCE_VOCAB_SIZE),
+                              device=enhanced.device, dtype=enhanced.dtype)
+        cu_tok = bus.unit_logits.get("current_token", zeros_t)
+        cu_word = bus.unit_logits.get("current_word", zeros_w)
+        nx_tok = bus.unit_logits.get("token", zeros_t)
+        nx_word = bus.unit_logits.get("word", zeros_w)
+        nx_sent = bus.unit_logits.get("sentence", zeros_s)
         adapter_input = torch.cat(
             (enhanced[:, -1], bus.subword[:, -1], bus.word[:, -1],
              bus.sentence[:, -1], bus.unit_byte_raw, fast[:, -1],
-             token_logits, word_logits), dim=-1)
+             cu_tok, cu_word, nx_tok, nx_word, nx_sent), dim=-1)
         adapter_logits = self.fast_adapter(adapter_input)
         feedback = torch.tanh(self.symbiosis_gate) * self.symbiotic_feedback(
             torch.cat((adapter_input, adapter_logits), dim=-1))
@@ -391,6 +399,7 @@ class TerminalRSI(nn.Module):
         refined_last = (self.output[0](refined) + bus.byte_prior[:, -1]
                         + fast[:, -1])
         raw_next = torch.cat((raw_next[:, :-1], refined_last[:, None]), dim=1)
+        base_last_logits = self.output[0](enhanced)[:, -1]
         predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
         moe_stats = [block.moe.last_load_balance.to(enhanced.device)
                      for block in self.backbone if block.moe is not None]
@@ -410,6 +419,8 @@ class TerminalRSI(nn.Module):
             "unit_byte_raw": bus.unit_byte_raw,
             "unit_byte_logits": bus.unit_byte_logits,
             "adapter_input": adapter_input,
+            "last_base_logits": base_last_logits,
+            "last_refined_logits": refined_last,
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),

@@ -117,6 +117,16 @@ class VerbatimV103RSI(nn.Module):
                 adapter_bits = self._byte_to_conditional_bit_logits(
                     adapter_logits, target)
                 final_logits = final_logits + adapter_bits.to(final_logits.dtype)
+        base_last = upgrade_out.get("last_base_logits")
+        refined_last = upgrade_out.get("last_refined_logits")
+        if base_last is not None and refined_last is not None:
+            base_bits = self._byte_to_conditional_bit_logits(base_last, target)
+            refined_bits = self._byte_to_conditional_bit_logits(
+                refined_last, target)
+            feedback_gate = torch.tanh(
+                self.upgrades.symbiosis_output_gate).to(final_logits.dtype)
+            final_logits = final_logits + feedback_gate * (
+                refined_bits - base_bits).to(final_logits.dtype)
         if return_hierarchy:
             return final_logits, bits, current, upgrade_out
         if return_aux:

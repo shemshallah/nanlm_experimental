@@ -26,7 +26,8 @@ from torch.nn import functional as F
 from .norm import RMSNorm
 from .pair_memory import PairConceptMemory, pair_parameter_count
 from .unit_heads import (
-    TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE, UnitHeads, unit_parameter_count,
+    SENTENCE_VOCAB_SIZE, TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE,
+    UnitHeads, unit_parameter_count,
 )
 
 
@@ -55,7 +56,7 @@ def hierarchy_parameter_count(width: int) -> int:
 
 def unit_decoder_parameter_count(width: int, hidden: int = 256) -> int:
     bw = hierarchy_bus_width(width)
-    input_dim = TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + width + 3 * bw
+    input_dim = 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE) + SENTENCE_VOCAB_SIZE + width + 3 * bw
     return (input_dim * hidden + hidden + 2 * hidden
             + hidden * 256 + 256 + 1)
 
@@ -169,7 +170,8 @@ class CausalHierarchy(nn.Module):
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
         self.unit_heads = (UnitHeads(bw, width)
                            if enable_units else None)
-        decoder_input_dim = TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + width + 3 * bw
+        decoder_input_dim = (2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+                             + SENTENCE_VOCAB_SIZE + width + 3 * bw)
         self.unit_to_byte = nn.Sequential(
             nn.Linear(decoder_input_dim, 256, bias=True),
             nn.GELU(),
