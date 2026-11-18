@@ -116,6 +116,8 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-fast-z", type=float, default=3.0)
     p.add_argument("--rsi-fast-shards", type=int, default=8)
     p.add_argument("--rsi-fast-top-k", type=int, default=8)
+    p.add_argument("--unit-eval-books", type=int, default=8)
+    p.add_argument("--unit-eval-positions", type=int, default=512)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,
                    help="Contiguous DEV books for byte/BPE/word/sentence metrics; 0=off")
     p.add_argument("--hierarchical-eval-max-positions", type=int, default=512,
@@ -245,7 +247,9 @@ def main(argv=None) -> int:
         command.append("--no-gradient-checkpointing")
     if args.hierarchical_eval_books:
         command += [
-            "--hierarchical-eval-books", str(args.hierarchical_eval_books),
+            "--unit-eval-books", str(args.unit_eval_books),
+        "--unit-eval-positions", str(args.unit_eval_positions),
+        "--hierarchical-eval-books", str(args.hierarchical_eval_books),
             "--hierarchical-eval-corpus-dir", str(corpus),
             "--hierarchical-eval-max-positions",
             str(args.hierarchical_eval_max_positions),
