@@ -97,7 +97,7 @@ def test_apply_action_and_limits():
         0,  # refine_scale_delta -0.08
         2,  # router_temperature 1.25
         2,  # batch_size 8
-    ))
+    ) + NEUTRAL_CHOICES[8:])
     apply_action(model, optimizer, base_lrs, action)
     assert abs(optimizer.param_groups[0]["lr"] - 1.6e-3) < 1e-12
     assert abs(optimizer.param_groups[1]["lr"] - 4.0e-4) < 1e-12
@@ -117,7 +117,7 @@ def test_policy_and_critic_shapes():
     assert torch.isfinite(log_prob)
     assert torch.isfinite(entropy)
     batch_state = torch.randn(3, STATE_DIM)
-    actions = [Action.neutral(), action, Action.from_tuple((1, 1, 1, 1, 1, 1, 1, 1))]
+    actions = [Action.neutral(), action, Action.from_tuple((1, 1, 1, 1, 1, 1, 1, 1) + NEUTRAL_CHOICES[8:])]
     log_probs = policy.log_prob(batch_state, actions)
     assert log_probs.shape == (3,)
     assert torch.isfinite(log_probs).all()
@@ -209,7 +209,7 @@ def test_controller_accepts_statistically_better_branch():
         torch.zeros(4096 - 32, 6, dtype=torch.int32),
         n_shards=4, positions_per_shard=4, history=32, seed=3)
     controller = RSIv4Controller(model, optimizer, probe, config)
-    chosen_action = Action.from_tuple((1, 1, 1, 1, 4, 4, 1, 1))
+    chosen_action = Action.from_tuple((1, 1, 1, 1, 4, 4, 1, 1) + NEUTRAL_CHOICES[8:])
     # Force a deterministic non-neutral proposal.
     controller.policy.sample = lambda state, **kwargs: (
         chosen_action, torch.tensor(0.0), torch.tensor(0.0))
@@ -346,9 +346,9 @@ def test_controller_uses_critic_and_world_model_ranking():
             next_bit_accuracy=0.5,
         ))
     candidates = [
-        Action.from_tuple((0, 0, 0, 0, 0, 0, 0, 0)),
-        Action.from_tuple((1, 1, 1, 1, 1, 1, 1, 1)),
-        Action.from_tuple((2, 2, 2, 2, 2, 2, 2, 2)),
+        Action.from_tuple((0, 0, 0, 0, 0, 0, 0, 0) + NEUTRAL_CHOICES[8:]),
+        Action.from_tuple((1, 1, 1, 1, 1, 1, 1, 1) + NEUTRAL_CHOICES[8:]),
+        Action.from_tuple((2, 2, 2, 2, 2, 2, 2, 2) + NEUTRAL_CHOICES[8:]),
     ]
     iterator = itertools.cycle(candidates)
     controller.policy.sample = lambda state, **kwargs: (
@@ -425,7 +425,7 @@ def test_controller_rejects_worse_branch():
         torch.zeros(4096 - 32, 6, dtype=torch.int32),
         n_shards=4, positions_per_shard=4, history=32, seed=3)
     controller = RSIv4Controller(model, optimizer, probe, config)
-    chosen_action = Action.from_tuple((0, 0, 0, 0, 0, 0, 0, 0))
+    chosen_action = Action.from_tuple((0, 0, 0, 0, 0, 0, 0, 0) + NEUTRAL_CHOICES[8:])
     controller.policy.sample = lambda state, **kwargs: (
         chosen_action, torch.tensor(0.0), torch.tensor(0.0))
 
