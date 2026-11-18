@@ -2976,19 +2976,33 @@ def main(argv: list[str] | None = None) -> int:
         p for p in model.parameters()
         if p.requires_grad and id(p) in mtp_param_ids
     ]
-    optimizer = torch.optim.AdamW(
-        [
-            {"params": trunk_params, "lr": args.lr, "lr_scale": 1.0},
-            {
-                "params": mtp_params,
-                "lr": args.lr * args.mtp_lr_scale,
-                "lr_scale": args.mtp_lr_scale,
-            },
-        ],
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        fused=(device.type == "cuda"),
-    )
+    param_groups = [
+        {"params": trunk_params, "lr": args.lr, "lr_scale": 1.0},
+        {
+            "params": mtp_params,
+            "lr": args.lr * args.mtp_lr_scale,
+            "lr_scale": args.mtp_lr_scale,
+        },
+    ]
+    try:
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            fused=(device.type == "cuda"),
+        )
+        print(
+            f"[optim] fused_adamw={device.type == 'cuda'}",
+            flush=True,
+        )
+    except (TypeError, RuntimeError, ValueError) as exc:
+        print(f"[optim] fused AdamW unavailable ({exc}); using default", flush=True)
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            fused=False,
+        )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
         if amp and device.type == "cuda" and cuda_amp_dtype == torch.float16
