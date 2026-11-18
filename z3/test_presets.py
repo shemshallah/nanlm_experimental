@@ -151,6 +151,25 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(args.compute_concept)
         self.assertFalse(args.compute_mtp)
 
+    def test_small_no_mtp_preset_removes_parameters(self):
+        parser = build_parser()
+        argv = ["--preset", "kaggle10m_small", "--corpus", "x"]
+        args = parser.parse_args(argv)
+        apply_preset(args, argv)
+        self.assertEqual(args.mtp, 1)
+        self.assertFalse(args.mtp_block)
+        self.assertFalse(args.compute_mtp)
+        self.assertTrue(args.compute_concept)
+        cfg = make_config(args, 64060)
+        model = V3LM(cfg)
+        self.assertLess(model.parameter_count(), 100_000_000)
+        self.assertGreater(model.parameter_count(), 80_000_000)
+        self.assertIsNone(model.mtp_output)
+        self.assertEqual(len(model.mtp_blocks), 0)
+        self.assertEqual(len(model.mtp_heads), 0)
+        self.assertIsNone(model.mtp_position_embed)
+        self.assertEqual(len(model.mtp_aux_norms), 0)
+
     def test_explicit_flag_beats_preset(self):
         parser = build_parser()
         argv = [

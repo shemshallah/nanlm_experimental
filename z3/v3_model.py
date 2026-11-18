@@ -899,6 +899,7 @@ class V3LM(nn.Module):
         # projections or, for 64k vocabularies, tied to the main token
         # geometry through project_logits().
         self.mtp_tie_heads = bool(cfg.mtp_tie_heads)
+        n_mtp = max(0, cfg.mtp - 1)
         self.mtp_output_rank = int(
             cfg.mtp_output_rank or self.embedding_rank
         )
@@ -927,7 +928,11 @@ class V3LM(nn.Module):
             nn.Parameter(
                 torch.empty(cfg.vocab_size, self.mtp_output_rank)
             )
-            if self.mtp_tie_heads and self.factorized_embedding else None
+            if (
+                n_mtp > 0
+                and self.mtp_tie_heads
+                and self.factorized_embedding
+            ) else None
         )
         self.mtp_adapters = nn.ModuleList(
             [MTPAdapter(cfg.d_model, cfg.mtp_adapter_rank)

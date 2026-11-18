@@ -283,6 +283,24 @@ PRESETS["kaggle10m_trunk"] = {
 for _name in ("kaggle10m_nomtp", "kaggle10m_noconcept", "kaggle10m_trunk"):
     PRESET_PARAM_COUNTS[_name] = PRESET_PARAM_COUNTS["115m"]
 
+# True parameter removal, not just skipped compute.  The MTP branch, output
+# basis, position/HD rails, adapters and gates are not constructed.  The
+# concept loop and feedback bus stay.  This is intentionally not a 115M model.
+PRESETS["kaggle10m_small"] = {
+    **PRESETS["kaggle10m_nomtp"],
+    "mtp": 1,
+    "mtp_block": False,
+    "mtp_adapter_rank": 0,
+    "mtp_aux_layers": "",
+    "mtp_aux_weight": 0.0,
+    "mtp_position_embed": False,
+    "mtp_hd_time": False,
+    "mtp_gate": False,
+    "mtp_weight": 0.0,
+    "compute_mtp": False,
+    "out": "runs/z3_115m_kaggle10m_small",
+}
+
 
 def get_preset(name: str) -> dict[str, Any]:
     key = str(name).strip().lower()
