@@ -31,16 +31,17 @@ def _(mo):
         r"""
         # Z4 115M on Blackwell
 
-        This is the measured `kaggle10m_nomtp` profile, ported from the
-        Kaggle T4 notebook.  It keeps the 115,238,237-parameter model, the
-        concept loop, the feedback bus, and the WikiText-2 600-second
-        protocol.
+        The measured `kaggle10m_nomtp` profile, ported from the T4 notebook:
 
-        On Blackwell (`sm_100`/`sm_120`) the default CUDA autocast dtype is
-        **bf16**, and the GradScaler is disabled.  T4 keeps fp16.
+        - 115,238,237 parameters
+        - WikiText-2, ctx 512, batch 4
+        - 600-second training cap
+        - concept loop + feedback bus, MTP compute skipped
+        - **bf16 autocast on Blackwell**, fp16 on T4
 
-        Press **Run training** below.  The first run also clones the repo,
-        downloads WikiText-2, and builds the token bins.
+        Press **Run training**.  The first run also clones the repo,
+        downloads WikiText-2, and builds the token bins.  The test evaluation
+        runs in the same cell after training.
         """
     )
     return
@@ -69,9 +70,6 @@ def _(mo):
         value=True, label="Disable gradient checkpointing"
     )
     run = mo.ui.run_button(label="Run training")
-    out = None
-    result = None
-    test = None
 
     mo.vstack(
         [
@@ -79,18 +77,7 @@ def _(mo):
             mo.hstack([no_ckpt, run]),
         ]
     )
-    return (
-        amp_dtype,
-        batch,
-        ctx,
-        max_seconds,
-        no_ckpt,
-        out,
-        preset,
-        result,
-        run,
-        test,
-    )
+    return amp_dtype, batch, ctx, max_seconds, no_ckpt, preset, run
 
 
 @app.cell
@@ -111,11 +98,11 @@ def _(mo, subprocess, sys):
     for command in commands:
         lines.append("$ " + " ".join(command))
         try:
-            result = subprocess.run(
+            completed = subprocess.run(
                 command, capture_output=True, text=True, timeout=90
             )
-            output = (result.stdout or "") + (result.stderr or "")
-            lines.append(output.strip() or f"(exit {result.returncode})")
+            output = (completed.stdout or "") + (completed.stderr or "")
+            lines.append(output.strip() or f"(exit {completed.returncode})")
         except Exception as exc:
             lines.append(f"{type(exc).__name__}: {exc}")
     mo.md("```\n" + "\n".join(lines) + "\n```")
@@ -254,6 +241,7 @@ def _(
 
     result = json.loads((out / "result.json").read_text())
     best = (result.get("best") or {}).get("metrics") or {}
+    final = result.get("final") or {}
     print(
         "\n[done] steps={} tokens={} best_bpb={:.4f} status={}".format(
             result.get("steps_completed"),
@@ -263,16 +251,11 @@ def _(
         ),
         flush=True,
     )
-    return out, repo, result
 
-
-@app.cell
-def _(batch, ctx, json, mo, out, repo, subprocess, sys):
-    mo.stop(out is None, mo.md("Run training first."))
     ckpt = out / "best.pt"
     if not ckpt.is_file():
         ckpt = out / "final.pt"
-    cmd = [
+    eval_cmd = [
         sys.executable,
         "z3/eval_domains.py",
         "--checkpoint",
@@ -295,34 +278,23 @@ def _(batch, ctx, json, mo, out, repo, subprocess, sys):
         "--out",
         str(out / "test_domains.json"),
     ]
-    print("$ " + " ".join(cmd), flush=True)
-    process = subprocess.Popen(
-        cmd,
+    print("$ " + " ".join(eval_cmd), flush=True)
+    eval_process = subprocess.Popen(
+        eval_cmd,
         cwd=repo,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
     )
-    assert process.stdout is not None
-    for line in process.stdout:
+    assert eval_process.stdout is not None
+    for line in eval_process.stdout:
         print(line, end="", flush=True)
-    code = process.wait()
-    if code != 0:
-        raise RuntimeError(f"test evaluation failed with exit code {code}")
+    eval_code = eval_process.wait()
+    if eval_code != 0:
+        raise RuntimeError(f"test evaluation failed with exit code {eval_code}")
+
     test = json.loads((out / "test_domains.json").read_text())
-    print(
-        "\n[test] macro_bpb={}".format(test.get("macro_bits_per_byte")),
-        flush=True,
-    )
-    return (test,)
-
-
-@app.cell
-def _(mo, result, test):
-    mo.stop(result is None, mo.md("No result yet."))
-    best = (result.get("best") or {}).get("metrics") or {}
-    final = result.get("final") or {}
     rows = {
         "parameters": result.get("params"),
         "steps": result.get("steps_completed"),
@@ -331,13 +303,10 @@ def _(mo, result, test):
         "best_step": (result.get("best") or {}).get("step"),
         "best_val_bpb": best.get("bits_per_byte"),
         "final_val_bpb": final.get("bits_per_byte"),
-        "test_bpb": (test or {}).get("macro_bits_per_byte"),
+        "test_bpb": test.get("macro_bits_per_byte"),
         "nonfinite_skips": result.get("nonfinite_skips"),
     }
-    mo.md(
-        "| Metric | Value |\n|---|---:|\n"
-        + "\n".join(f"| {key} | {value} |" for key, value in rows.items())
-    )
+    print("\n" + "\n".join(f"{key}: {value}" for key, value in rows.items()))
     return
 
 
