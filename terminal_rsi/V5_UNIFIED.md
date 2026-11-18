@@ -93,18 +93,26 @@ runs short parent-warm-start variants and writes `ABLATION.md` +
 | `--rsi-v4-shard-positions 128` | precise RSI signal |
 | `--rsi-v4-min-gain 0.001` | accept measured gains |
 
-## Tests
+## Test results (short probes)
 
-CPU tests passing before the Molab token expired:
+- `test_v5_unified.py`: **11/11 pass**, including per-sample 256-way parent
+  distillation normalization and KV-cache equivalence against a one-pass full
+  sequence.
+- `test_blackwell_preflight.py`: 10/10 pass.
+- `test_rsi_v4.py`: 13/13 pass.
+- `test_hierarchical_bus.py`: 9/9 pass.
 
-- `test_hierarchical_bus.py`: gate-zero identity, causality, boundary loss,
-  bit factorization, generation smoke.
-- `test_v5_unified.py`: pair geometry, MoE identity, fast weights, unit labels,
-  fused-GLU migration, distillation step, ablation switches, KV-cache
-  equivalence, parameter counts.
-- `test_blackwell_preflight.py`: 100M graph, gate-zero parity, CUDA window
-  cache, upgrade training at gate 0.
-- `test_rsi_v4.py`: action space, hierarchy gate application, controller.
+GPU short probes:
 
-The pending GPU smoke is a 60 s parent warm-start with the v5 flags; the
-Molab session returned HTTP 401 before it could run.
+- 60 s full-v5 smoke: 5 updates, **72.78 GiB allocated / 93.89 GiB reserved**,
+  fast cached generation `"social\nmit chair"`.
+- 45 s hierarchical + unit eval: **1.808 BPB**, byte top1 60.9%, top5 88.3%.
+- `torch.compile`: succeeds; reserved VRAM **67.3 GiB**; no short-horizon
+  speedup yet.
+- ablation `full` / `no_loops` / `no_pair`: identical within 2e-5 BPB after
+  four updates because the hierarchy gates are still ~10^-3. A meaningful
+  ablation needs a longer distillation run or a gate-warmup schedule.
+- unit-head DEV metrics are still near random after five updates
+  (token top5 9.4%, word 1.6%); the 4k-way heads need a real training budget.
+
+Full receipt: `terminal_rsi/reports/blackwell_v5_short_tests/RUN_SUMMARY.md`.
