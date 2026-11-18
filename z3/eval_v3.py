@@ -59,6 +59,19 @@ from typing import Any, Callable, Iterable, Sequence
 import torch
 import torch.nn.functional as F
 
+
+def _inference_context(device: torch.device):
+    """XLA cannot run module forwards under inference_mode.
+
+    Lazy XLA tensors from inference_mode are inference tensors; the first
+    materialized linear tries to bump a version counter and raises
+    ``RuntimeError: Cannot set version_counter for inference tensor``.
+    ``no_grad`` has the same memory semantics for evaluation and works on XLA.
+    """
+    if device.type == "xla":
+        return torch.no_grad()
+    return torch.inference_mode()
+
 try:  # imported as ``z3.eval_v3``
     from .v3_model import V3Config, V3LM
     from .text_documents import iter_documents
@@ -1011,7 +1024,7 @@ def evaluate_ids(
     started = time.time()
     model.eval()
     try:
-        with torch.inference_mode():
+        with _inference_context(torch_device):
             for start in range(0, len(positions), batch_size):
                 batch_positions = positions[start : start + batch_size]
                 b = len(batch_positions)
@@ -1202,7 +1215,7 @@ def evaluate_ids_full(
     windows = 0
     model.eval()
     try:
-        with torch.inference_mode():
+        with _inference_context(torch_device):
             for start in range(0, len(ids) - 1, ctx):
                 end = min(len(ids), start + ctx + 1)
                 window_ids = ids[start:end]
@@ -1415,7 +1428,7 @@ def _evaluate_ids_full_batched(
 
     model.eval()
     try:
-        with torch.inference_mode():
+        with _inference_context(torch_device):
             for group in groups:
                 lengths = {end - start for start, end in group}
                 if len(lengths) != 1:
