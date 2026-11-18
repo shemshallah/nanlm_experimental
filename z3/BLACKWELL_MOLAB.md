@@ -24,6 +24,19 @@ protocol.  It is not the Kaggle TPU path.
 See [`BLACKWELL_600S_2026_11_18.md`](BLACKWELL_600S_2026_11_18.md) for the
 full tables, overlap checks, and reproduction commands.
 
+## Mixed word-list / sentence probe
+
+A fresh 300-second run on shuffled word lists + TinyStories + WikiText-103
+(4,603,904 tokens, 0.57 epoch) reached:
+
+- mixed held-out test: **1.6313 BPB**
+- OOD Tiny Shakespeare: **3.1724 BPB** (down from 4.4842; below the ~3.59
+  uniform baseline)
+- official WikiText-103 test transfer: 2.0843 BPB
+
+This is a real generalization improvement, but not under 1.0 BPB.  See
+[`MIXED_300S_2026_11_18.md`](MIXED_300S_2026_11_18.md).
+
 ## Requirements
 
 - A CUDA GPU.  Blackwell (`sm_100`/`sm_120`) needs a PyTorch build with

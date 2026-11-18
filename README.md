@@ -19,7 +19,8 @@ T4 result (WikiText-2 **1.5981 BPB** after 900 steps with the no-MTP short-run p
 [`z3/kaggle_10m_115m.ipynb`](z3/kaggle_10m_115m.ipynb).  For the CUDA/Blackwell
 port (bf16 autocast, marimo/Molab app), see
 [`z3/BLACKWELL_MOLAB.md`](z3/BLACKWELL_MOLAB.md),
-[`z3/BLACKWELL_600S_2026_11_18.md`](z3/BLACKWELL_600S_2026_11_18.md), and
+[`z3/BLACKWELL_600S_2026_11_18.md`](z3/BLACKWELL_600S_2026_11_18.md),
+[`z3/MIXED_300S_2026_11_18.md`](z3/MIXED_300S_2026_11_18.md), and
 [`z3/blackwell_marimo.py`](z3/blackwell_marimo.py).  For the TPU/XLA path see
 [`z3/TPU_115M.md`](z3/TPU_115M.md) and
 [`z3/kaggle_tpu_115m.ipynb`](z3/kaggle_tpu_115m.ipynb).
