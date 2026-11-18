@@ -175,6 +175,8 @@ def _is_data_parallel(model: torch.nn.Module) -> bool:
 
 
 def _model_core(model: torch.nn.Module) -> torch.nn.Module:
+    if hasattr(model, "_orig_mod"):
+        model = model._orig_mod
     return model.module if _is_data_parallel(model) else model
 
 
@@ -2028,6 +2030,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="bf16 autocast on XLA/TPU; fp16/bf16 on CUDA; CPU fp32")
     system.add_argument("--amp-dtype", choices=("auto", "fp16", "bf16"), default="auto",
                         help="CUDA autocast dtype; auto uses bf16 on Ampere+ and fp16 on T4")
+    system.add_argument("--torch-compile", choices=("none", "default", "reduce-overhead", "max-autotune"),
+                        default="none", help="wrap the model in torch.compile on CUDA")
     system.add_argument("--data-parallel", action="store_true",
                         help="wrap the model in nn.DataParallel when multiple CUDA GPUs exist")
     system.add_argument("--amp-init-scale", type=float, default=1024.0)
@@ -2983,7 +2987,7 @@ def main(argv: list[str] | None = None) -> int:
         ],
         lr=args.lr,
         weight_decay=args.weight_decay,
-        fused=(device.type == "cuda" and not amp),
+        fused=(device.type == "cuda"),
     )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
@@ -3082,6 +3086,10 @@ def main(argv: list[str] | None = None) -> int:
     _write_json(out / "history.json", history)
 
     ema_start_step = int(args.steps * args.ema_start_frac)
+    if args.torch_compile != "none" and device.type == "cuda":
+        print(f"[compile] torch.compile mode={args.torch_compile}", flush=True)
+        model = torch.compile(model, mode=args.torch_compile)
+
     t0 = time.time() - elapsed_before
     run_start = time.time()
     total_start = time.time()
@@ -3783,7 +3791,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"step {step_done:6d}/{args.steps} loss={loss_value:.4f} "
                 f"ce={float(parts['ce']):.4f} mtp={float(parts['mtp']):.4f} "
                 f"lb={float(load_balance.detach()) if load_balance is not None else 0.0:.3f} "
-                f"lr={lr:.2e}",
+                f"lr={lr:.2e} elapsed={run_elapsed:.1f}s",
                 flush=True,
             )
 
