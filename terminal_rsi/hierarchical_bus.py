@@ -261,6 +261,8 @@ class CausalHierarchy(nn.Module):
                 decoder_input = torch.cat(
                     (unit_logits["current_token"],
                      unit_logits["current_word"],
+                     unit_logits["token"], unit_logits["word"],
+                     unit_logits["sentence"],
                      state[:, -1], subword[:, -1], word[:, -1],
                      sentence[:, -1]), dim=-1)
                 unit_byte_raw = self.unit_to_byte(decoder_input)
