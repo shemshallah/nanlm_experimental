@@ -946,7 +946,10 @@ class RSIv4Controller:
                 }
         else:
             selected = pool[:self.config.candidates]
-        candidates = [Action.neutral()] + selected
+        # The counterfactual baseline must be the CURRENT policy, not neutral.
+        # Using neutral here silently reset every accepted LR/gate/hierarchy
+        # intervention on every tick, so RSI could never accumulate progress.
+        candidates = [self.current_action] + selected
         propose_seconds = time.monotonic() - cycle_start - base_seconds
 
         if branch_runner is not None:
