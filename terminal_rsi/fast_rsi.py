@@ -107,7 +107,7 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                          candidates: int = 128, rounds: int = 4,
                          steps: int = 2, lr: float = 0.05, rank: int = 8,
                          min_gain: float = 0.0005, z_score: float = 1.5,
-                         shards: int = 8, noise: float = 0.02,
+                         shards: int = 8, noise: float = 0.005,
                          seed: int | None = None) -> dict:
     """Train/evaluate cached rank-r adapters and persist the best accepted one."""
     if candidates < 1 or rounds < 1 or steps < 1:
@@ -162,21 +162,22 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
             standard_error = float(se[index].item())
             threshold = max(float(min_gain), float(z_score) * standard_error)
             proposals += candidates
+            if delta > best_delta:
+                best_delta = delta
+                best_se = standard_error
             if delta > threshold:
                 accepted += 1
                 adapter.A.copy_(population.A[index].detach())
                 adapter.B.copy_(population.B[index].detach())
                 adapter.bias.copy_(population.bias[index].detach())
-                best_delta = max(best_delta, delta)
-                best_se = min(best_se, standard_error)
     noop_bpb = float(
         _noop_loss(model, adapter, probe).item() * 8 / math.log(2))
     return {
         "proposals": proposals,
         "accepted": accepted,
         "rounds": rounds,
-        "best_delta": best_delta if math.isfinite(best_delta) else 0.0,
-        "best_standard_error": best_se if math.isfinite(best_se) else None,
+        "best_delta": best_delta,
+        "best_standard_error": (best_se if math.isfinite(best_se) else None),
         "noop_probe_bpb": noop_bpb,
         "adapter_gate": float(adapter.A.abs().sum().item()),
     }

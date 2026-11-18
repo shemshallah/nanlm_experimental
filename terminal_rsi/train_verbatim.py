@@ -541,8 +541,8 @@ def main(argv=None):
     p.add_argument("--rsi-fast-adapters", type=int, default=0,
                    help="Cached rank-r adapter proposals per fast RSI round")
     p.add_argument("--rsi-fast-rounds", type=int, default=4)
-    p.add_argument("--rsi-fast-steps", type=int, default=2)
-    p.add_argument("--rsi-fast-lr", type=float, default=0.05)
+    p.add_argument("--rsi-fast-steps", type=int, default=3)
+    p.add_argument("--rsi-fast-lr", type=float, default=0.02)
     p.add_argument("--rsi-fast-rank", type=int, default=8)
     p.add_argument("--rsi-fast-cycle-updates", type=int, default=4)
     p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
@@ -978,7 +978,7 @@ def main(argv=None):
                 holdout_features[PARITY_CONTEXT:].copy()).to(dtype=torch.int32)
             fast_source = str(args.rsi_holdout_stream)
         fast_probe = ProbeShards.build(
-            fast_raw, fast_aux, n_shards=4, positions_per_shard=64,
+            fast_raw, fast_aux, n_shards=8, positions_per_shard=64,
             history=upgrade_context, seed=args.seed + 17)
         print("Fast-adapter RSI probe:", fast_source,
               "positions", len(fast_probe.positions), flush=True)
@@ -1126,28 +1126,17 @@ def main(argv=None):
     def fast_tick() -> None:
         if fast_probe is None:
             return
-        indices = coverage_indices(
-            sampler["cursor"], 256, len(train_data),
-            sampler["stride"], torch.device("cpu"))
-        if window_cache is not None:
-            gpu_indices = indices.to(device, non_blocking=True)
-            positions = gpu_indices + PARITY_CONTEXT
-            cache_windows, cache_targets, cache_aux = window_cache
-            sample = torch.cat(
-                (cache_windows[positions], cache_targets[positions, None]),
-                dim=1).long()
-            sample_aux = cache_aux[gpu_indices]
-        else:
-            sample = build_causal_contexts(
-                raw_tensor, indices + PARITY_CONTEXT,
-                upgrade_context).to(device)
-            sample_aux = aux_data[indices].to(device=device)
+        # Train and validate on the same book-disjoint holdout.  Training on
+        # the main stream and validating on the holdout created a distribution
+        # mismatch that made every fast adapter look worse than no-op.
+        branch_windows = torch.cat(fast_probe.windows[:4], dim=0)
+        branch_aux = torch.cat(fast_probe.auxiliary[:4], dim=0)
+        probe_windows = torch.cat(fast_probe.windows[4:], dim=0)
+        probe_aux = torch.cat(fast_probe.auxiliary[4:], dim=0)
         branch = build_fast_cache(
-            model, sample[:, :-1], sample[:, -1], sample_aux)
-        windows = torch.cat(fast_probe.windows, dim=0)
-        probe_aux = torch.cat(fast_probe.auxiliary, dim=0)
+            model, branch_windows[:, :-1], branch_windows[:, -1], branch_aux)
         probe = build_fast_cache(
-            model, windows[:, :-1], windows[:, -1], probe_aux)
+            model, probe_windows[:, :-1], probe_windows[:, -1], probe_aux)
         stats = run_fast_adapter_rsi(
             model, branch, probe,
             candidates=args.rsi_fast_adapters,
@@ -1342,6 +1331,11 @@ def main(argv=None):
                     f"action=[{v4_controller.action_label()}]")
             elif rsi_builder is not None:
                 rsi_text = rsi_builder.progress_line()
+            elif fast_stats:
+                rsi_text = (
+                    f"Fast-RSI ticks={len(fast_stats)} "
+                    f"proposals={sum(item['proposals'] for item in fast_stats)} "
+                    f"accepted={sum(item['accepted'] for item in fast_stats)}")
             else:
                 rsi_text = "RSI disabled"
             aux_text = (f" upgrade_byte_bpb={report['upgrade_bpb']:.4f}"
