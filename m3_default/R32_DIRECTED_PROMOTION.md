@@ -1,4 +1,4 @@
-# M3 R32 directed promotion — exact checkpoint and provenance
+# M3 R32 certified promotion — exact checkpoint and provenance
 
 Date: 2026-11-18. Branch: `master` only. Lineage: M3, separate from FA1,
 FA2, NaNLMind and Terminal-RSI.
@@ -10,11 +10,10 @@ architecture upgrades. `M3DefaultPredictor(prior)` therefore selects `r32`.
 The former default `mode="r31"` and exact `r30`, `r29`, `r26`, `r24` and
 R20/legacy modes remain available through the same causal state machine.
 
-This is a user-directed engineering promotion. The independent 24-book TEST
-has a separate prelocked criterion and must not be represented as passing
-until its actual result has been observed. R26 previously passed its own
-independent TEST. R29 and R31 remain user-directed, not independently
-TEST-certified.
+The initial promotion was user-directed. Subsequently, the prelocked
+independent 24-book TEST **passed all seven prespecified criteria**, so R32
+is now independently TEST-certified. R26 previously passed its own TEST;
+R29 and R31 remain directed promotions, not independent certifications.
 
 ## Source-of-truth integrity
 
@@ -48,7 +47,31 @@ optimizer histories retained. No train/test cross-document leakage.
 R32 improved 12/12 DEV books and 4/4 GATE books. On DEV, matched unrelated
 history scored 3.292148 BPB, full unrelated 3.280915 BPB, and wrong
 successor values 3.524173 BPB. This supports the lexical anchor's value
-within the tested distribution, but is not yet independent TEST proof.
+within the tested distribution, now corroborated by independent TEST.
+
+## Independently verified TEST — all seven acceptance criteria passed
+
+Source: [GitHub Actions run 44375790318](https://github.com/shemshallah/nanlm_experimental/actions/runs/44375790318).
+Frozen test indices 516–539; 24 untouched NaNROUTER short-story books,
+73,728 scored byte positions. No weights or criteria were changed after lock.
+
+| Measure | R29 | R31 | R32 |
+| --- | ---: | ---: | ---: |
+| BPB ↓ | 3.430948 | 3.420187 | **3.212654** |
+| Nonspace BPB ↓ | 4.026989 | 3.876766 | **3.704590** |
+| Byte top-1 ↑ | 39.5684% | 39.7244% | **41.8443%** |
+| Byte top-5 ↑ | 70.5702% | 70.6706% | **74.2961%** |
+
+R32 improved **24/24** TEST books over R31, a gain of **0.207533 BPB**
+(6.07% relative). The descriptive whole-book bootstrap interval is
+**[+0.183534,+0.229933] bits/byte**. R32 defeated wrong successor values
+(3.658268 BPB), unrelated matched history (3.412642 BPB), and unrelated
+full history (3.400951 BPB). Every precommitted test condition is true,
+including nonspace loss, top-1, top-5 and positive book-bootstrap lower
+bound.
+
+Complete frozen report: [`m3_r33/results/R32_INDEPENDENT_TEST.json`](../m3_r33/results/R32_INDEPENDENT_TEST.json),
+SHA-256 `047f4c4a44fea7c5056fa058339c78166b7e922eaca35b5c07fa6831337762f6`.
 
 ## Independent TEST transport and non-peeking policy
 
@@ -58,6 +81,11 @@ egress over account limit. The subsequent transport repair embeds the exact
 hash-matched checkpoint and DEV report directly in GitHub `master`. It does
 not alter coefficients, precommitted TEST indices, or acceptance thresholds.
 The NaNROUTER corpus is still the source for all new TEST data.
+The second TEST workflow run `44356262187` scored all 24 books but failed
+*after* inference on a NumPy Boolean JSON serialization bug. The reporting
+fix (`a1201ba`) changed no weights, splits, criteria, or comparisons;
+run `44375790318` replayed the exact locked evaluation and wrote the
+successful report. The replay is disclosed for reproducibility.
 
 ## Regression and recoverability
 

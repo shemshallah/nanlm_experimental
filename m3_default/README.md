@@ -4,9 +4,9 @@ M3 now defaults to the combined R21/R24/R26/R29/R30/R31/R32 architecture: signed
 pair/triangle successors, causal prefix copy, R26's near/lifetime context
 tree, R29's trained word-conditioned lexical successor feedback, R30's trained
 three-scalar correction, R31's class-selective calibration, and the R32
-immutable TRAIN-only lexical anchor with four trained gains. **R26 is the
-latest independently TEST-certified checkpoint until R32's locked independent
-TEST completes.** Both R29 and R31 were made
+immutable TRAIN-only lexical anchor with four trained gains. **R32 is now
+independently TEST-certified:** all seven precommitted conditions passed on
+24 disjoint books. Both R29 and R31 were made
 defaults at the user's explicit direction despite unrelated-history controls
 outperforming them on GATE/DEV. Do not call R31 a TEST certification.
 This remains separate from FA1, FA2, NaNLMind and Terminal-RSI.
@@ -57,7 +57,7 @@ inherited predictions;
 construct `M3DefaultPredictor(prior, mode="r26")` or `mode="r24"` to omit the
 newer auxiliary memory when not needed.
 
-## R32 user-directed default and frozen evaluation
+## R32 independent TEST-certified default
 
 R32 adds an immutable background lexical memory fitted exclusively on 16
 NaNROUTER TRAIN books, not on DEV, GATE or TEST. Its four gains are
@@ -71,13 +71,20 @@ top-1 rose **42.483% → 45.185%**, top-5 **71.806% → 75.319%**, and all
 The exact checkpoint and DEV JSON are now tracked in source as immutable
 recovery assets. The independent 24-book TEST indices 516–539 and criteria
 were committed in `m3_r33/r32_frozen_candidate.json` **before** any TEST
-reading. The user authorized default promotion. This does not independently
-certify R32's generalization until that locked TEST has run successfully.
-R31 and all inherited modes remain callable without alterations.
+reading. The user authorized default promotion, and the frozen independent
+TEST **passed all acceptance conditions**: 73,728 positions, 24/24 books
+improved, R31 3.420187 → R32 **3.212654 BPB** (−6.07%), nonspace 3.876766
+→ **3.704590 BPB**, top-1 39.7244% → **41.8443%**, and top-5 70.6706% →
+**74.2961%**. The descriptive whole-book bootstrap 95% interval for BPB
+improvement was [+0.183534,+0.229933]. Correct TRAIN history beat unrelated
+matched (3.412642 BPB), unrelated full (3.400951 BPB), and wrong successor
+values (3.658268 BPB). R31 and all inherited modes remain available.
 
 - [R32 CPU TRAIN / GATE / DEV](https://github.com/shemshallah/nanlm_experimental/actions/runs/44233287739)
 - [Prelocked R32 independent TEST](../m3_r33/r32_frozen_candidate.json)
-- [R32 user-directed promotion and provenance](R32_DIRECTED_PROMOTION.md)
+- [Successful R32 independent TEST run](https://github.com/shemshallah/nanlm_experimental/actions/runs/44375790318)
+- [Complete TEST metrics](../m3_r33/results/R32_INDEPENDENT_TEST.json)
+- [R32 certified promotion and provenance](R32_DIRECTED_PROMOTION.md)
 
 ## R31 directed engineering promotion
 
