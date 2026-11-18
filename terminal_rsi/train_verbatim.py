@@ -217,12 +217,14 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     objective = objective + (
                         unit_byte_distill_weight * kl * (n / k))
             (objective / n).backward()
-            if not all(torch.isfinite(p.grad).all()
-                       for p in model.parameters() if p.grad is not None):
+            bad = [name for name, p in model.named_parameters()
+                   if p.grad is not None and not torch.isfinite(p.grad).all()]
+            if bad:
                 optimizer.zero_grad(set_to_none=True)
                 return {"bpb": 0.0, "bit_accuracy": 0.0,
                         "grad_norm": 0.0, "grad_clip": grad_clip,
-                        "nonfinite_skip": True}
+                        "nonfinite_skip": True,
+                        "nonfinite_params": bad[:12]}
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
             total_hits += int(((logits.detach() > 0) == (bits > 0.5)).sum())
@@ -308,12 +310,14 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     teacher, log_target=True, reduction="batchmean")
         optimizer.zero_grad(set_to_none=True)
         objective.backward()
-        if not all(torch.isfinite(p.grad).all()
-                   for p in model.parameters() if p.grad is not None):
+        bad = [name for name, p in model.named_parameters()
+               if p.grad is not None and not torch.isfinite(p.grad).all()]
+        if bad:
             optimizer.zero_grad(set_to_none=True)
             return {"bpb": 0.0, "bit_accuracy": 0.0,
                     "grad_norm": 0.0, "grad_clip": grad_clip,
-                    "nonfinite_skip": True}
+                    "nonfinite_skip": True,
+                    "nonfinite_params": bad[:12]}
         upgrade_bpb = float(aux_loss.detach() / math.log(2))
     else:
         logits, bits = model(history, target, aux)
