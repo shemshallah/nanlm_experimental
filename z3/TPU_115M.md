@@ -74,14 +74,22 @@ ships **torch 2.11**, while the libtpu wheel index exposes `torch_xla`
 `libtpu==0.0.21`; the index has `0.0.21.1`.  The notebook installs:
 
 ```sh
-pip install torch==2.9.0
-pip install --no-deps torch_xla==2.9.0   -f https://storage.googleapis.com/libtpu-releases/index.html
-pip install libtpu==0.0.21.1   -f https://storage.googleapis.com/libtpu-releases/index.html
+pip install torch==2.9.0 \
+  --index-url https://download.pytorch.org/whl/cpu
+pip install --no-deps torch_xla==2.9.0 \
+  -f https://storage.googleapis.com/libtpu-releases/index.html
+pip install libtpu==0.0.21.1 \
+  -f https://storage.googleapis.com/libtpu-releases/index.html
 ```
 
 and runs all training/eval in child processes, so the notebook never imports
-the old torch 2.11 ABI.  Do not use the `+cpu` torch wheel here: the
-`torch_xla` wheel is built against the default PyPI torch ABI.
+the old torch 2.11 ABI.  The CPU wheel is used because the plain PyPI wheel
+pulls several GB of CUDA dependencies that a TPU VM never uses; the libtorch
+ABI is the same.  Do not install torch 2.11 with a 2.9 `torch_xla`: the
+`_XLAC` import fails on removed `TensorImpl` symbols.
+
+On TPU, pass `--no-grad-checkpoint`.  The 115M activations fit, and
+recomputation makes the XLA graph much larger and slower to compile.
 
 ## Caveats
 
