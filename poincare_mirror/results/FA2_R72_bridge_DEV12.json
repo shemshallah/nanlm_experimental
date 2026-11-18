@@ -1,5 +1,5 @@
 {
-  "status": "incomplete",
+  "status": "R72 DEV-only opt-in candidate, not promoted",
   "checkpoint_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
   "dev_sha256": "0314f5cb62b0e06581a17ad98f3f3e93b7d0f8d285a65253adfc128b481f54cb",
   "bridge_strength": 0.75,
@@ -9,6 +9,111 @@
   "chunk": 16,
   "history": 32768,
   "test_opened": false,
+  "dev_books": 12,
+  "total_dev_books": 12,
+  "comparison": {
+    "ce_1": {
+      "r69": 3.2814895659685135,
+      "r72": 3.2814895659685135,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "ce_2": {
+      "r69": 3.7526383300622306,
+      "r72": 3.7526383300622306,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "ce_3": {
+      "r69": 3.863865410288175,
+      "r72": 3.8653101275364556,
+      "mean_gain": -0.001444717248280843,
+      "ci95": [
+        -0.007158759236335755,
+        0.004458266807099182
+      ],
+      "books_improved": 4
+    },
+    "acc_1": {
+      "r69": 0.2630208333333333,
+      "r72": 0.2630208333333333,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "acc_2": {
+      "r69": 0.17122395833333334,
+      "r72": 0.17122395833333334,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "acc_3": {
+      "r69": 0.16861979166666666,
+      "r72": 0.16861979166666666,
+      "mean_gain": 0.0,
+      "ci95": [
+        -0.001953125,
+        0.001953125
+      ],
+      "books_improved": 1
+    },
+    "top5_1": {
+      "r69": 0.5208333333333334,
+      "r72": 0.5208333333333334,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "top5_2": {
+      "r69": 0.4147135416666667,
+      "r72": 0.4147135416666667,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    },
+    "top5_3": {
+      "r69": 0.3776041666666667,
+      "r72": 0.3763020833333333,
+      "mean_gain": -0.0013020833333333333,
+      "ci95": [
+        -0.009114583333333334,
+        0.005208333333333333
+      ],
+      "books_improved": 5
+    },
+    "bits_per_raw_byte": {
+      "r69": 4.734188723551652,
+      "r72": 4.734188723551652,
+      "mean_gain": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "books_improved": 0
+    }
+  },
+  "seconds": 185.80265969700008,
   "per_book": [
     {
       "book_id": "dev/11406.txt",
@@ -684,6 +789,234 @@
         "score_end_exclusive": 256,
         "evaluated_tokens_per_second": 17.629361826850815
       }
+    },
+    {
+      "book_id": "dev/866.txt",
+      "r69": {
+        "ce_1": 2.575494885444641,
+        "ce_2": 3.102401316165924,
+        "ce_3": 3.19144406914711,
+        "acc_1": 0.3203125,
+        "acc_2": 0.140625,
+        "acc_3": 0.15625,
+        "top5_1": 0.6484375,
+        "top5_2": 0.4296875,
+        "top5_3": 0.4296875,
+        "ce_nonspace_1": 2.8781586724358634,
+        "acc_nonspace_1": 0.23423423423423423,
+        "top5_nonspace_1": 0.5945945945945946,
+        "ce_space_1": 0.5992776541148915,
+        "acc_space_1": 0.8823529411764706,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.715653699065873,
+        "bits_per_byte_or_eos_target": 3.715653699065873,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 16.930109469156815
+      },
+      "r72": {
+        "ce_1": 2.575494885444641,
+        "ce_2": 3.102401316165924,
+        "ce_3": 3.198086589574814,
+        "acc_1": 0.3203125,
+        "acc_2": 0.140625,
+        "acc_3": 0.1640625,
+        "top5_1": 0.6484375,
+        "top5_2": 0.4296875,
+        "top5_3": 0.4140625,
+        "ce_nonspace_1": 2.8781586724358634,
+        "acc_nonspace_1": 0.23423423423423423,
+        "top5_nonspace_1": 0.5945945945945946,
+        "ce_space_1": 0.5992776541148915,
+        "acc_space_1": 0.8823529411764706,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.715653699065873,
+        "bits_per_byte_or_eos_target": 3.715653699065873,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 17.576214361762542
+      },
+      "neutral": {
+        "ce_1": 2.5220504999160767,
+        "ce_2": 3.084425449371338,
+        "ce_3": 3.209267169237137,
+        "acc_1": 0.28125,
+        "acc_2": 0.15625,
+        "acc_3": 0.15625,
+        "top5_1": 0.640625,
+        "top5_2": 0.421875,
+        "top5_3": 0.4296875,
+        "ce_nonspace_1": 2.8165291451119088,
+        "acc_nonspace_1": 0.1891891891891892,
+        "top5_nonspace_1": 0.5855855855855856,
+        "ce_space_1": 0.5992776891764473,
+        "acc_space_1": 0.8823529411764706,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.638549749100455,
+        "bits_per_byte_or_eos_target": 3.638549749100455,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 16.930109469156815
+      }
+    },
+    {
+      "book_id": "dev/9205.txt",
+      "r69": {
+        "ce_1": 2.507630079984665,
+        "ce_2": 2.9773080348968506,
+        "ce_3": 3.1132273077964783,
+        "acc_1": 0.34375,
+        "acc_2": 0.21875,
+        "acc_3": 0.1875,
+        "top5_1": 0.6328125,
+        "top5_2": 0.5078125,
+        "top5_3": 0.4609375,
+        "ce_nonspace_1": 2.8726159264059627,
+        "acc_nonspace_1": 0.18627450980392157,
+        "top5_nonspace_1": 0.5392156862745098,
+        "ce_space_1": 1.0757627458526537,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.617745480777871,
+        "bits_per_byte_or_eos_target": 3.617745480777871,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 7.853030755672978
+      },
+      "r72": {
+        "ce_1": 2.507630079984665,
+        "ce_2": 2.9773080348968506,
+        "ce_3": 3.1057013273239136,
+        "acc_1": 0.34375,
+        "acc_2": 0.21875,
+        "acc_3": 0.1875,
+        "top5_1": 0.6328125,
+        "top5_2": 0.5078125,
+        "top5_3": 0.453125,
+        "ce_nonspace_1": 2.8726159264059627,
+        "acc_nonspace_1": 0.18627450980392157,
+        "top5_nonspace_1": 0.5392156862745098,
+        "ce_space_1": 1.0757627458526537,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.617745480777871,
+        "bits_per_byte_or_eos_target": 3.617745480777871,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 7.250984404972398
+      },
+      "neutral": {
+        "ce_1": 2.422714591026306,
+        "ce_2": 2.9819491803646088,
+        "ce_3": 3.100780665874481,
+        "acc_1": 0.3671875,
+        "acc_2": 0.1953125,
+        "acc_3": 0.1875,
+        "top5_1": 0.6640625,
+        "top5_2": 0.4921875,
+        "top5_3": 0.453125,
+        "ce_nonspace_1": 2.76605531281116,
+        "acc_nonspace_1": 0.21568627450980393,
+        "top5_nonspace_1": 0.5882352941176471,
+        "ce_space_1": 1.0757627475720186,
+        "acc_space_1": 0.9615384615384616,
+        "top5_space_1": 0.9615384615384616,
+        "bits_per_raw_byte": 3.495238325962985,
+        "bits_per_byte_or_eos_target": 3.495238325962985,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 7.853030755672978
+      }
+    },
+    {
+      "book_id": "dev/970.txt",
+      "r69": {
+        "ce_1": 2.1552873700857162,
+        "ce_2": 2.705904573202133,
+        "ce_3": 2.8584706783294678,
+        "acc_1": 0.4453125,
+        "acc_2": 0.28125,
+        "acc_3": 0.1953125,
+        "top5_1": 0.734375,
+        "top5_2": 0.59375,
+        "top5_3": 0.5078125,
+        "ce_nonspace_1": 2.429018812359504,
+        "acc_nonspace_1": 0.3490566037735849,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.8363996554504741,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.109422400513279,
+        "bits_per_byte_or_eos_target": 3.109422400513279,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 18.674619683364437
+      },
+      "r72": {
+        "ce_1": 2.1552873700857162,
+        "ce_2": 2.705904573202133,
+        "ce_3": 2.8641203939914703,
+        "acc_1": 0.4453125,
+        "acc_2": 0.28125,
+        "acc_3": 0.1953125,
+        "top5_1": 0.734375,
+        "top5_2": 0.59375,
+        "top5_3": 0.515625,
+        "ce_nonspace_1": 2.429018812359504,
+        "acc_nonspace_1": 0.3490566037735849,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.8363996554504741,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.109422400513279,
+        "bits_per_byte_or_eos_target": 3.109422400513279,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 18.02208517187641
+      },
+      "neutral": {
+        "ce_1": 2.127055808901787,
+        "ce_2": 2.6960757076740265,
+        "ce_3": 2.9224767088890076,
+        "acc_1": 0.3984375,
+        "acc_2": 0.2734375,
+        "acc_3": 0.203125,
+        "top5_1": 0.734375,
+        "top5_2": 0.578125,
+        "top5_3": 0.484375,
+        "ce_nonspace_1": 2.3949277985770747,
+        "acc_nonspace_1": 0.29245283018867924,
+        "top5_nonspace_1": 0.6792452830188679,
+        "ce_space_1": 0.8363996689969843,
+        "acc_space_1": 0.9090909090909091,
+        "top5_space_1": 1.0,
+        "bits_per_raw_byte": 3.0686928671966704,
+        "bits_per_byte_or_eos_target": 3.0686928671966704,
+        "positions_scored": 128,
+        "raw_target_bytes": 128,
+        "score_start": 128,
+        "score_end_exclusive": 256,
+        "evaluated_tokens_per_second": 18.674619683364437
+      }
     }
-  ]
+  ],
+  "gate_pass": false,
+  "promoted": false,
+  "unchanged_optimizer_state_count": 198
 }
