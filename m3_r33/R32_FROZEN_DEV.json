@@ -1,0 +1,562 @@
+{
+  "architecture": "M3 R32 train-only immutable anchor lexical memory",
+  "background_indices": [
+    468,
+    484
+  ],
+  "background_sha256": [
+    "3cddfc5030db8eef5376186aa69b8d3f32ef32b4b1fb2ef7562426c7bd3e996a",
+    "604340432b346c2dd1bda19177d8ba99aeed6d0418b180dd91b2346dde7abb15",
+    "32f75b2f1f7f01c84803b62b86f7d2f4733a2b327a4097157096f306b42bfb75",
+    "0b9a43a17dae8d6900f9faac434c0ec90bd934c569a71e47fd8d693dedba0e24",
+    "45146adf4836f0be2c46691d547e0ebe4027b3c8ecc7c48bbf2cf45a168f10dc",
+    "a4b316dce14b01f9f3c55df59e5b04ba7868f53ca8f81ef66c73e7e37eb729ad",
+    "fce4d826050b028a6cd97787acc0f7f865d185bc11034be067cd8294e8cb41a7",
+    "3890ea2eb3a5bac66ebbff434e64e6aad312bd9b4bc557a7800d4604f872e796",
+    "e8ec20f28c3aaa44a8fa42212ddce25a3fd3938e6c966663f90fd7901e80391d",
+    "1a6b42de535a45b5e9c02011f6ccf96f03fc00480762f78328fc8c749b67dea9",
+    "442051a0f5dc9d35cebd635aaaa0f1e01a3a6fa705b226b5318235a9bf294c3b",
+    "2b2adf7147ee35a4182133c4b0319bb76cb8c210817e8e053f83e6c5313e5970",
+    "41efcdcaa7563b6ee50dd95d7ae674413480446fd5f33f2c59ccfe72a8b4c089",
+    "0c7e3343dcb216c4de112d395df6b828b7b265a26c3db4beae85a4860ab9f64c",
+    "8f97c36dea60f6365d914a6ed504de34fc947e05f7f11f8374ee1a2161d8da3d",
+    "873e51b9120c600725c9fe68a813067a36f21dba9eb2052e9b791e96b8f9a222"
+  ],
+  "dev": {
+    "anchor_is_fit_only": true,
+    "arms": {
+      "r29": {
+        "bpb": 3.31596653968932,
+        "bpc": 3.355288459676852,
+        "nonspace_bpb": 4.1146751125984435,
+        "positions": 36862,
+        "top1": 0.42707937713634636,
+        "top5": 0.7169985350767728
+      },
+      "r31": {
+        "bpb": 3.3031479146607863,
+        "bpc": 3.342317826797307,
+        "nonspace_bpb": 3.956602127561335,
+        "positions": 36862,
+        "top1": 0.4248277358797678,
+        "top5": 0.7180565351852857
+      },
+      "r32": {
+        "books_improved": 12,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.097358612559017,
+        "bpc": 3.1340882013766262,
+        "gain_bpb_vs_r31": 0.20578930210176916,
+        "nonspace_bpb": 3.7775657090205668,
+        "per_book_gain_bits": [
+          0.27840916010897326,
+          0.13532445705149956,
+          0.2701257071874199,
+          0.13126759225867338,
+          0.253807700297873,
+          0.22231492602230854,
+          0.23913623439365173,
+          0.15962140860511598,
+          0.1458548981342104,
+          0.2104385704654886,
+          0.16312609815073603,
+          0.26001709702183934
+        ],
+        "positions": 36862,
+        "top1": 0.4518474309587109,
+        "top5": 0.7531875644294937,
+        "whole_book_bootstrap_95pct_bits": [
+          0.1759980526627273,
+          0.23482331964294084
+        ]
+      },
+      "unrelated_full": {
+        "books_improved": 10,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.280914655943858,
+        "bpc": 3.3198209181279847,
+        "gain_bpb_vs_r31": 0.022233258716928272,
+        "nonspace_bpb": 3.9894388486712673,
+        "per_book_gain_bits": [
+          0.008980253941530644,
+          0.026656780275204656,
+          0.02756713522552634,
+          0.03810825616367213,
+          0.04159410293963756,
+          0.04476612902340608,
+          0.026746612170452114,
+          0.017349024159747862,
+          -0.008786251254207844,
+          -0.038396121629009274,
+          0.049165813308612014,
+          0.03306490449359753
+        ],
+        "positions": 36862,
+        "top1": 0.4307416852042754,
+        "top5": 0.7228039715696382,
+        "whole_book_bootstrap_95pct_bits": [
+          0.007598308939596139,
+          0.03446217467756319
+        ]
+      },
+      "unrelated_matched": {
+        "books_improved": 10,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.2921480100454388,
+        "bpc": 3.331187481369612,
+        "gain_bpb_vs_r31": 0.0109999046153475,
+        "nonspace_bpb": 4.001172854745432,
+        "per_book_gain_bits": [
+          0.0005565559411897977,
+          0.017367598968690844,
+          0.009991965765588499,
+          0.031163161009688214,
+          0.027662922770487125,
+          0.027974060153242667,
+          0.020370998596486837,
+          0.00589476427424547,
+          -0.01303267567282268,
+          -0.04970526458848284,
+          0.039110626335141126,
+          0.014662443081988124
+        ],
+        "positions": 36862,
+        "top1": 0.42954804405620967,
+        "top5": 0.7207693559763442,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.003266479910916843,
+          0.022662882453950255
+        ]
+      },
+      "wrong_anchor": {
+        "books_improved": 0,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.5241732259390806,
+        "bpc": 3.565964135453373,
+        "gain_bpb_vs_r31": -0.22102531127829428,
+        "nonspace_bpb": 4.2372971692711126,
+        "per_book_gain_bits": [
+          -0.2267218786945138,
+          -0.1887900516982903,
+          -0.24865892920433086,
+          -0.2373458715645885,
+          -0.23790850115913334,
+          -0.23242233816509392,
+          -0.2144763879625262,
+          -0.12588021790572987,
+          -0.20598285991385637,
+          -0.2286393726864162,
+          -0.24191480085631104,
+          -0.2635761254571853
+        ],
+        "positions": 36862,
+        "top1": 0.37537301285877056,
+        "top5": 0.6957842764906951,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.23783094842379543,
+          -0.20009011072427813
+        ]
+      }
+    },
+    "books": 12,
+    "characters": 36430,
+    "elapsed_s": 97.524801077,
+    "per_book": [
+      {
+        "filename": "76009--burnett-frances-hodgson-1849-1924-birch-reginald-b-reginald-bathurst-1856-1943-i--piccino-and-other-child-stories.txt",
+        "gain_vs_r31": 0.2784091601089731,
+        "positions": 3072,
+        "r29_bpb": 3.1262101068075814,
+        "r31_bpb": 3.10080616535553,
+        "r32_bpb": 2.822397005246557,
+        "sha256": "ba881fefb8e6be8058dad615fb3ee21eb4baa5f86bf827cf8389a4f83b49bf16",
+        "unrelated_full_bpb": 3.091825911414,
+        "unrelated_matched_bpb": 3.100249609414341,
+        "wrong_anchor_bpb": 3.327528044050044
+      },
+      {
+        "filename": "76622--suffling-ernest-r-ernest-richard-1855-1911-hardy-paul-1862-1942-illustrator--the-story-hunter.txt",
+        "gain_vs_r31": 0.13532445705149954,
+        "positions": 3072,
+        "r29_bpb": 3.4827375315414546,
+        "r31_bpb": 3.476893655265755,
+        "r32_bpb": 3.3415691982142555,
+        "sha256": "4d3d7daf559fb319141d439273f8e4966baa0df562ea9cfcee1adf35d4238a28",
+        "unrelated_full_bpb": 3.450236874990551,
+        "unrelated_matched_bpb": 3.4595260562970647,
+        "wrong_anchor_bpb": 3.6656837069640456
+      },
+      {
+        "filename": "76977--alcott-louisa-may-1832-1888-pollock-e-illustrator-walcott-jessie-mcdermott-1857--little-button-rose.txt",
+        "gain_vs_r31": 0.27012570718742035,
+        "positions": 3072,
+        "r29_bpb": 3.491124511724918,
+        "r31_bpb": 3.478514156481843,
+        "r32_bpb": 3.208388449294423,
+        "sha256": "52b855c3194b15c849f3d9bcb2abc096fe15bddcaed5941b8ec7b6c1ebeb4677",
+        "unrelated_full_bpb": 3.4509470212563165,
+        "unrelated_matched_bpb": 3.468522190716255,
+        "wrong_anchor_bpb": 3.727173085686174
+      },
+      {
+        "filename": "67476--mclandburgh-florence-1850-1934--the-automaton-ear-and-other-sketches.txt",
+        "gain_vs_r31": 0.13126759225867346,
+        "positions": 3072,
+        "r29_bpb": 3.422376456515593,
+        "r31_bpb": 3.3892484905446465,
+        "r32_bpb": 3.257980898285973,
+        "sha256": "385def15a030bf90b1ebb256254065dfd8de5d370674e714e8e0cf4b528bfe89",
+        "unrelated_full_bpb": 3.351140234380974,
+        "unrelated_matched_bpb": 3.358085329534958,
+        "wrong_anchor_bpb": 3.6265943621092345
+      },
+      {
+        "filename": "65838--sheckley-robert-1928-2005--final-examination.txt",
+        "gain_vs_r31": 0.25380770029787314,
+        "positions": 3072,
+        "r29_bpb": 3.3972199250032076,
+        "r31_bpb": 3.400065600112113,
+        "r32_bpb": 3.14625789981424,
+        "sha256": "e9b88c34aae7c2bc8954fef59573e27b2170e8da06f0ca9eaa3567f3acd27bc5",
+        "unrelated_full_bpb": 3.358471497172476,
+        "unrelated_matched_bpb": 3.3724026773416256,
+        "wrong_anchor_bpb": 3.6379741012712468
+      },
+      {
+        "filename": "73938--sharkey-jack-1931-1992-summers-leo-1925-1985-illustrator--the-man-who-was-pale.txt",
+        "gain_vs_r31": 0.22231492602230762,
+        "positions": 3072,
+        "r29_bpb": 3.392516737749484,
+        "r31_bpb": 3.3903338438098047,
+        "r32_bpb": 3.168018917787497,
+        "sha256": "95cb5f51623b2d0592ae86842ef3c5730af503c82b2b91160541a01067fb7f5a",
+        "unrelated_full_bpb": 3.3455677147863994,
+        "unrelated_matched_bpb": 3.362359783656562,
+        "wrong_anchor_bpb": 3.6227561819748986
+      },
+      {
+        "filename": "68340--james-henry-1843-1916-mordell-albert-1885-1965-author-of-introduction-etc--a-landscape-painter.txt",
+        "gain_vs_r31": 0.23913623439365184,
+        "positions": 3072,
+        "r29_bpb": 3.2232035627195827,
+        "r31_bpb": 3.242978121515616,
+        "r32_bpb": 3.0038418871219643,
+        "sha256": "2fdc3c29a46776b7114541be6a34ca83a837983fa370be870164d6f9dd297ad0",
+        "unrelated_full_bpb": 3.216231509345164,
+        "unrelated_matched_bpb": 3.2226071229191287,
+        "wrong_anchor_bpb": 3.457454509478142
+      },
+      {
+        "filename": "64636--irving-washington-1783-1859-merrill-frank-t-1848-1923-illustrator--rip-van-winkle.txt",
+        "gain_vs_r31": 0.15962140860511598,
+        "positions": 3072,
+        "r29_bpb": 2.23322771204672,
+        "r31_bpb": 2.211345050294748,
+        "r32_bpb": 2.051723641689632,
+        "sha256": "32125b4cf76603d5b060c0e19bdedcd4e552b16f07d96204dacfe2e6518af0e0",
+        "unrelated_full_bpb": 2.1939960261350007,
+        "unrelated_matched_bpb": 2.2054502860205027,
+        "wrong_anchor_bpb": 2.3372252682004784
+      },
+      {
+        "filename": "75466--underwood-edna-worthley-1873-1961-translator--famous-stories-from-foreign-countries.txt",
+        "gain_vs_r31": 0.1458548981342105,
+        "positions": 3072,
+        "r29_bpb": 3.3487143139128044,
+        "r31_bpb": 3.2996535957029174,
+        "r32_bpb": 3.153798697568707,
+        "sha256": "3deb627a54e8b1b72452ec9e34e35284864b2e9cd47321c73735dfc94e8bb745",
+        "unrelated_full_bpb": 3.308439846957125,
+        "unrelated_matched_bpb": 3.3126862713757403,
+        "wrong_anchor_bpb": 3.5056364556167736
+      },
+      {
+        "filename": "66968--bridges-victor-1878-1972--the-cruise-of-the-scandal-and-other-stories.txt",
+        "gain_vs_r31": 0.21043857046548808,
+        "positions": 3072,
+        "r29_bpb": 3.659213612618982,
+        "r31_bpb": 3.656325678412037,
+        "r32_bpb": 3.445887107946549,
+        "sha256": "38b44b1e7bde6f112bf41d98ae8fbc743f3d8a8199bac20ede8fd675df8aaf05",
+        "unrelated_full_bpb": 3.6947218000410462,
+        "unrelated_matched_bpb": 3.70603094300052,
+        "wrong_anchor_bpb": 3.8849650510984532
+      },
+      {
+        "filename": "66881--james-m-r-montague-rhodes-1862-1936--a-warning-to-the-curious-and-other-ghost-stories.txt",
+        "gain_vs_r31": 0.1631260981507352,
+        "positions": 3070,
+        "r29_bpb": 3.480853652341069,
+        "r31_bpb": 3.469023133955255,
+        "r32_bpb": 3.3058970358045197,
+        "sha256": "d3fb9e35c82a80dd4c0cd4e83d8f66c04ea167cdfbf6c919a717fdd4a55e18d1",
+        "unrelated_full_bpb": 3.419857320646643,
+        "unrelated_matched_bpb": 3.429912507620114,
+        "wrong_anchor_bpb": 3.7109379348115663
+      },
+      {
+        "filename": "73233--lovecraft-h-p-howard-phillips-1890-1937--the-haunter-of-the-dark.txt",
+        "gain_vs_r31": 0.26001709702183895,
+        "positions": 3072,
+        "r29_bpb": 3.5343077016708038,
+        "r31_bpb": 3.522695476158127,
+        "r32_bpb": 3.262678379136288,
+        "sha256": "f37775fa89c7c970d4e4b69cf3365f24068a0efd8b3a47c185c9e477f8a8e822",
+        "unrelated_full_bpb": 3.4896305716645295,
+        "unrelated_matched_bpb": 3.508033033076139,
+        "wrong_anchor_bpb": 3.786271601615313
+      }
+    ],
+    "positions": 36862
+  },
+  "dev_gate_pass": true,
+  "dev_indices": [
+    504,
+    516
+  ],
+  "dev_sha256": [
+    "ba881fefb8e6be8058dad615fb3ee21eb4baa5f86bf827cf8389a4f83b49bf16",
+    "4d3d7daf559fb319141d439273f8e4966baa0df562ea9cfcee1adf35d4238a28",
+    "52b855c3194b15c849f3d9bcb2abc096fe15bddcaed5941b8ec7b6c1ebeb4677",
+    "385def15a030bf90b1ebb256254065dfd8de5d370674e714e8e0cf4b528bfe89",
+    "e9b88c34aae7c2bc8954fef59573e27b2170e8da06f0ca9eaa3567f3acd27bc5",
+    "95cb5f51623b2d0592ae86842ef3c5730af503c82b2b91160541a01067fb7f5a",
+    "2fdc3c29a46776b7114541be6a34ca83a837983fa370be870164d6f9dd297ad0",
+    "32125b4cf76603d5b060c0e19bdedcd4e552b16f07d96204dacfe2e6518af0e0",
+    "3deb627a54e8b1b72452ec9e34e35284864b2e9cd47321c73735dfc94e8bb745",
+    "38b44b1e7bde6f112bf41d98ae8fbc743f3d8a8199bac20ede8fd675df8aaf05",
+    "d3fb9e35c82a80dd4c0cd4e83d8f66c04ea167cdfbf6c919a717fdd4a55e18d1",
+    "f37775fa89c7c970d4e4b69cf3365f24068a0efd8b3a47c185c9e477f8a8e822"
+  ],
+  "fit": {
+    "adam_m": [
+      -0.07985666501595244,
+      0.012051491301919088,
+      -0.00026119253742108673,
+      -0.022725036021331226
+    ],
+    "adam_v": [
+      0.030549533782716548,
+      0.0004343984796772179,
+      0.001245532586392565,
+      0.000654015551536816
+    ],
+    "elapsed_s": 112.78007637300001,
+    "inherited_optimizer_groups": 28,
+    "new_optimizer_groups": 4,
+    "online_bpb": 3.247072551209151,
+    "positions": 49150,
+    "theta": [
+      0.5927959113137101,
+      -1.5,
+      -0.20722426183204995,
+      0.294518336989888
+    ],
+    "updates": 768
+  },
+  "fit_indices": [
+    484,
+    500
+  ],
+  "fit_sha256": [
+    "2a523d5b46fb78c59c549afa753b4fdbf482274f10a66208d6081ff982d7b18f",
+    "8409539bbbf10715bb7b1dadc2ff47b403c3eeaff4c226ce4a4cbb49b4052cb5",
+    "42f7a7015d4e32d8acef96eebbd0eedc5356c2590dd30edad4b37a48b18728b0",
+    "1ad792b4dafb977a7e4c6dda253cbfce2b75c38da55d07a4ee89c97c01d5096c",
+    "c1ac72a841e7d49588d45daa26c33b39dfe1b6352bcd95cac76fa39fe3b0445a",
+    "9bdb85a0afef0187a98e81a3ac349f8de11197e142281722a3fb08259394eb36",
+    "91977d49faa24835eed9f2cf6fdbe33313bc771752a47006b0eddd38e763ecef",
+    "3784cf0c4cff48b083fef40dc3314f96c018d562aa7969b33ffa46599d5e69ec",
+    "3d570d51e0395f4e127ee761e6421eca85a6ba4120e696047e550066de4d7a72",
+    "1ae783f164f3a4b7ff11a4c75c418543b5c6a16e7ef0840bb70785059bc03fdc",
+    "9ff1319f790dce36427b35aeb2d1136f90e3e1bebc0ad56bce9c0858be672670",
+    "43ad26da7f46d59743e8a90ddd34008c90e69b83d91ca9357f5c61758286e8ad",
+    "11b9f45499f3d13fb813391abeecd74baac958d7c562cbf12422297f99efe596",
+    "2c6bc9aacd0b0f1c22c63c0319ba5ab1d099beecfa61c6b93e08e6a007734396",
+    "13c4cf9d313ec17c284d0f46d3c2c095089e3a17b12f5834f694e42181e4da8c",
+    "fb6611e2772f50c871e40b6d1a580d99828486b722d84d1d4d0352b9b9382da5"
+  ],
+  "gate": {
+    "anchor_is_fit_only": true,
+    "arms": {
+      "r29": {
+        "bpb": 3.2211073062261755,
+        "bpc": 3.2749523638112206,
+        "nonspace_bpb": 3.6252970039618977,
+        "positions": 12286,
+        "top1": 0.4237343317597265,
+        "top5": 0.7248901188344458
+      },
+      "r31": {
+        "bpb": 3.221449896293485,
+        "bpc": 3.2753006807234155,
+        "nonspace_bpb": 3.502605011016867,
+        "positions": 12286,
+        "top1": 0.4169786749145369,
+        "top5": 0.7257040533941072
+      },
+      "r32": {
+        "books_improved": 4,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.0324940329035464,
+        "bpc": 3.0831861708253037,
+        "gain_bpb_vs_r31": 0.18895586338993864,
+        "nonspace_bpb": 3.350237053028729,
+        "per_book_gain_bits": [
+          0.11631466931903699,
+          0.17793847838433516,
+          0.2243598506747461,
+          0.23716316273762753
+        ],
+        "positions": 12286,
+        "top1": 0.436187530522546,
+        "top5": 0.761028813283412,
+        "whole_book_bootstrap_95pct_bits": [
+          0.14333916021015722,
+          0.23076150670618686
+        ]
+      },
+      "unrelated_full": {
+        "books_improved": 3,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.195865166773974,
+        "bpc": 3.249288268701179,
+        "gain_bpb_vs_r31": 0.02558472951951085,
+        "nonspace_bpb": 3.5236574581941174,
+        "per_book_gain_bits": [
+          -0.051563193346057315,
+          0.05907747383614272,
+          0.04994604271092118,
+          0.044828368364813576
+        ],
+        "positions": 12286,
+        "top1": 0.4195832655054534,
+        "top5": 0.7295295458245157,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.026173487014267874,
+          0.055515197468310434
+        ]
+      },
+      "unrelated_matched": {
+        "books_improved": 3,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.211111747246096,
+        "bpc": 3.264789715877651,
+        "gain_bpb_vs_r31": 0.010338149047389056,
+        "nonspace_bpb": 3.539568593825869,
+        "per_book_gain_bits": [
+          -0.06290198937917779,
+          0.034690536760495536,
+          0.036118628220361174,
+          0.033397738206120915
+        ],
+        "positions": 12286,
+        "top1": 0.4198274458733518,
+        "top5": 0.7270063486895654,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.03849193887428637,
+          0.03543840571680111
+        ]
+      },
+      "wrong_anchor": {
+        "books_improved": 0,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.448203748050513,
+        "bpc": 3.505845022223486,
+        "gain_bpb_vs_r31": -0.226753851757028,
+        "nonspace_bpb": 3.7601691396607415,
+        "per_book_gain_bits": [
+          -0.22353984841844293,
+          -0.25020054364883376,
+          -0.2190387500530103,
+          -0.214234172457645
+        ],
+        "positions": 12286,
+        "top1": 0.3581312062510174,
+        "top5": 0.7013674100602312,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.2424100952498779,
+          -0.21655945531615467
+        ]
+      }
+    },
+    "books": 4,
+    "characters": 12084,
+    "elapsed_s": 34.66307605799997,
+    "per_book": [
+      {
+        "filename": "68685--gouraud-aim-e-crocker-1864-1941--moon-madness-and-other-fantasies.txt",
+        "gain_vs_r31": 0.11631466931903667,
+        "positions": 3070,
+        "r29_bpb": 2.712740654196709,
+        "r31_bpb": 2.699922573651324,
+        "r32_bpb": 2.5836079043322875,
+        "sha256": "99509cc772be405ee074548eb28fc5dbf549715eebc1379c9c5562d96ff7557d",
+        "unrelated_full_bpb": 2.751485766997382,
+        "unrelated_matched_bpb": 2.762824563030502,
+        "wrong_anchor_bpb": 2.923462422069767
+      },
+      {
+        "filename": "74737--phillips-ethel-calvert-1882-1947-macdonald-a-k-alastair-kenneth-1879-1948-illust--the-santa-claus-brownies.txt",
+        "gain_vs_r31": 0.1779384783843354,
+        "positions": 3072,
+        "r29_bpb": 3.334718859166241,
+        "r31_bpb": 3.3307104105456133,
+        "r32_bpb": 3.152771932161278,
+        "sha256": "5cdfda2a92fc31ad074bd3972ed3eeaad9c97da75df2445f818a7c9a1761d4b3",
+        "unrelated_full_bpb": 3.27163293670947,
+        "unrelated_matched_bpb": 3.296019873785117,
+        "wrong_anchor_bpb": 3.580910954194447
+      },
+      {
+        "filename": "68553--lovecraft-h-p-howard-phillips-1890-1937-brosnatch-andrew-1896-1965-illustrator--the-festival.txt",
+        "gain_vs_r31": 0.22435985067474595,
+        "positions": 3072,
+        "r29_bpb": 3.3484981597650925,
+        "r31_bpb": 3.3591760428030137,
+        "r32_bpb": 3.134816192128268,
+        "sha256": "f453d06a3bd3e9356d54e928893c2a607fb9a31f8b2302cbc874abd8fc903a20",
+        "unrelated_full_bpb": 3.3092300000920924,
+        "unrelated_matched_bpb": 3.323057414582653,
+        "wrong_anchor_bpb": 3.5782147928560235
+      },
+      {
+        "filename": "74150--phillips-michael-j-1877-1932--gun-play.txt",
+        "gain_vs_r31": 0.23716316273762805,
+        "positions": 3072,
+        "r29_bpb": 3.4881405839042308,
+        "r31_bpb": 3.4956510221566837,
+        "r32_bpb": 3.2584878594190556,
+        "sha256": "230221d03dd3e28a686d8a58fab33a5599428d3c1fce6089b9e721ec30158b0a",
+        "unrelated_full_bpb": 3.4508226537918696,
+        "unrelated_matched_bpb": 3.4622532839505626,
+        "wrong_anchor_bpb": 3.7098851946143285
+      }
+    ],
+    "positions": 12286
+  },
+  "gate_indices": [
+    500,
+    504
+  ],
+  "gate_pass": true,
+  "gate_sha256": [
+    "99509cc772be405ee074548eb28fc5dbf549715eebc1379c9c5562d96ff7557d",
+    "5cdfda2a92fc31ad074bd3972ed3eeaad9c97da75df2445f818a7c9a1761d4b3",
+    "f453d06a3bd3e9356d54e928893c2a607fb9a31f8b2302cbc874abd8fc903a20",
+    "230221d03dd3e28a686d8a58fab33a5599428d3c1fce6089b9e721ec30158b0a"
+  ],
+  "inherited_28_optimizer_groups_unchanged": true,
+  "parent_checkpoint_sha256": "dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff",
+  "promotion": "none; R31 remains the directed default until independent TEST",
+  "r31_sealed_test_indices": [
+    444,
+    468
+  ],
+  "r31_sealed_test_read": false,
+  "sealed_test_indices": [
+    516,
+    540
+  ],
+  "sealed_test_read": false
+}

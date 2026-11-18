@@ -7,7 +7,9 @@ from m3_default.predictor import (M3DefaultPredictor, M3R21Predictor,
                                   DEFAULT_MODE, R24_COPY_GAIN, R26_THETA,
                                   R29_THETA, R29_TRAINING_CHECKPOINT_SHA256,
                                   R30_DELTA, R31_THETA, R31_TRAINING_CHECKPOINT_SHA256,
-                                  R26_TRAINING_CHECKPOINT_SHA256)
+                                  R26_TRAINING_CHECKPOINT_SHA256,
+                                  R32_THETA, R32_TRAINING_CHECKPOINT_SHA256,
+                                  R32_CHECKPOINT, load_accepted_r32_anchor)
 from m3_r23.apex import M3R23Predictor
 from m3_r24.locked_test import load_locked_candidate
 from m3_r14.predictive_probe import train_unigram_prior
@@ -19,9 +21,9 @@ from m3_r20.successor_dev import combined_logp
 
 
 class M3StreamingParity(unittest.TestCase):
-    def test_default_is_r31_and_reset_is_reproducible(self):
+    def test_default_is_r32_and_reset_is_reproducible(self):
         p = M3DefaultPredictor(np.ones(256))
-        self.assertEqual(DEFAULT_MODE, "r31")
+        self.assertEqual(DEFAULT_MODE, "r32")
         with self.assertRaises(ValueError):
             p.predict_proba()
         p.observe(65)
@@ -165,7 +167,7 @@ class M3StreamingParity(unittest.TestCase):
         self.assertEqual(R31_TRAINING_CHECKPOINT_SHA256,
                          "dd8fbaa93a17e5568bf2dc774b5599e5761824dee74db8f71242039f743a12ff")
         prior = np.arange(1, 257, dtype=np.float64)
-        canonical = M3DefaultPredictor(prior)
+        canonical = M3DefaultPredictor(prior, mode="r31")
         r31 = M3R31Predictor(prior, theta=R31_THETA)
         r30 = M3R30Predictor(prior, delta=R30_DELTA)
         r29 = M3R29Predictor(prior, theta=R29_THETA)
@@ -182,6 +184,32 @@ class M3StreamingParity(unittest.TestCase):
             predictor.observe(65)
         np.testing.assert_array_equal(canonical.predict_logp(), r31.predict_logp())
         np.testing.assert_array_equal(canonical.predict_logp("r29"), previous.predict_logp())
+
+    def test_r32_default_exactly_matches_frozen_research_and_older_modes(self):
+        from m3_r32.anchor import M3R32Predictor
+        import hashlib
+        self.assertEqual(hashlib.sha256(R32_CHECKPOINT.read_bytes()).hexdigest(),
+                         R32_TRAINING_CHECKPOINT_SHA256)
+        frozen_checkpoint = load_accepted_r32_anchor()
+        np.testing.assert_array_equal(frozen_checkpoint.anchor_theta, R32_THETA)
+        prior = np.arange(1, 257, dtype=np.float64)
+        canonical = M3DefaultPredictor(prior)
+        research = M3R32Predictor(prior, frozen_checkpoint.anchor, R32_THETA)
+        r31 = M3DefaultPredictor(prior, mode="r31")
+        r30 = M3DefaultPredictor(prior, mode="r30")
+        for byte in b"the red fox went home. the red fox returned. " * 3:
+            canonical.observe(byte)
+            research.observe(byte)
+            r31.observe(byte)
+            r30.observe(byte)
+            np.testing.assert_array_equal(canonical.predict_logp(), research.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r31"),r31.predict_logp())
+            np.testing.assert_array_equal(canonical.predict_logp("r30"),r30.predict_logp())
+        for predictor in (canonical,research,r31,r30):
+            predictor.reset()
+            predictor.observe(65)
+        np.testing.assert_array_equal(canonical.predict_logp(), research.predict_logp())
+        np.testing.assert_array_equal(canonical.predict_logp("r31"), r31.predict_logp())
 
 
 if __name__ == "__main__":

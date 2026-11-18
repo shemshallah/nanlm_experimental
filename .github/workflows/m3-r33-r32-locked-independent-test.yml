@@ -4,6 +4,7 @@ on:
     branches: [master]
     paths:
       - 'm3_r33/**'
+      - 'm3_default/r32_accepted_checkpoint.npz'
       - '.github/workflows/m3-r33-r32-locked-independent-test.yml'
   workflow_dispatch:
 permissions:
@@ -24,21 +25,17 @@ jobs:
       - name: Check frozen TEST criterion and inherited parity
         run: |
           python -m compileall -q m3_default m3_r32 m3_r33
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
           python -m unittest discover -s m3_r32 -p 'test_*.py' -v
           python -m unittest discover -s m3_r33 -p 'test_*.py' -v
       - name: Recover and SHA-lock complete R32 trained checkpoint and DEV report
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p /tmp/m3_r33_parent
-          gh run download 44233287739 -R shemshallah/nanlm_experimental \
-            -n m3-r32-32-group-checkpoint-with-anchor-and-dev -D /tmp/m3_r33_parent
           printf '%s  %s\n' \
             67e7417fb38c8d914714cee243fb080da6e63cf5f9e9c9737e28a5b168c1da1a \
-            /tmp/m3_r33_parent/R32_full_adam_checkpoint.npz | sha256sum -c -
+            m3_default/r32_accepted_checkpoint.npz | sha256sum -c -
           printf '%s  %s\n' \
             bf0f2d5a17863b78c7925e037901521e543a315d66c5865eefb0678d248f92c2 \
-            /tmp/m3_r33_parent/R32_DEV.json | sha256sum -c -
+            m3_r33/R32_FROZEN_DEV.json | sha256sum -c -
       - name: Download and SHA-verify NaNROUTER Release corpus
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,8 +50,8 @@ jobs:
         run: |
           python -m m3_r33.locked_test \
             --corpus-root /tmp/m3_r33_corpus \
-            --checkpoint /tmp/m3_r33_parent/R32_full_adam_checkpoint.npz \
-            --training-report /tmp/m3_r33_parent/R32_DEV.json \
+            --checkpoint m3_default/r32_accepted_checkpoint.npz \
+            --training-report m3_r33/R32_FROZEN_DEV.json \
             --output m3_r33/results/R32_INDEPENDENT_TEST.json
       - uses: actions/upload-artifact@v4
         if: always()
