@@ -405,9 +405,10 @@ class TerminalRSI(nn.Module):
                      for block in self.backbone if block.moe is not None]
         moe_losses = [block.moe.load_balance_loss.to(enhanced.device)
                       for block in self.backbone if block.moe is not None]
-        moe_losses.extend((bus.top_moe.load_balance_loss.to(enhanced.device),
-                           bus.bottom_extensions.load_balance_loss.to(
-                               enhanced.device)))
+        moe_losses.extend((
+            self.hierarchy.top_moe.load_balance_loss.to(enhanced.device),
+            self.hierarchy.bottom_extensions.load_balance_loss.to(
+                enhanced.device)))
         moe_entropies = [block.moe.last_entropy.to(enhanced.device)
                          for block in self.backbone if block.moe is not None]
         return {
