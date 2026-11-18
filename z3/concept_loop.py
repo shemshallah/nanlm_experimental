@@ -382,26 +382,45 @@ class SpanSidecar:
         return cls.from_encoding(encoding)
 
 
-def _fixed_segment_ids(ids: torch.Tensor) -> torch.Tensor:
-    """Compact segment ids with a fixed output shape.
+class _RMSNorm(nn.Module):
+    """RMSNorm that keeps the autocast dtype instead of promoting to fp32."""
 
-    ``torch.unique`` returns tensors whose size depends on the batch data, and
-    XLA recompiles whenever that size changes.  Sorting preserves the exact
-    grouping while keeping every intermediate shape static: equal ids receive
-    the same 1-based rank and ``0`` (no segment) stays ``0``.
-    """
-    flat = ids.reshape(-1)
-    sorted_ids, order = torch.sort(flat)
-    new_segment = torch.ones_like(sorted_ids)
-    if flat.numel() > 1:
-        new_segment[1:] = (sorted_ids[1:] != sorted_ids[:-1]).to(
-            dtype=sorted_ids.dtype
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+
+    def forward(self, x):
+        weight = self.weight.to(dtype=x.dtype)
+        if hasattr(F, "rms_norm"):
+            return F.rms_norm(
+                x, (self.weight.numel(),), weight, self.eps
+            )
+        return weight * x * torch.rsqrt(
+            x.pow(2).mean(-1, keepdim=True) + self.eps
         )
-    ranks = torch.cumsum(new_segment, dim=0)
+
+
+def _fixed_segment_ids(ids: torch.Tensor) -> torch.Tensor:
+    """Compact segment ids row-wise with a fixed output shape.
+
+    ``torch.unique`` returns data-dependent shapes and forces a CUDA/XLA sync
+    before every pool.  Sorting is exact, static-shape, and row-local: equal
+    ids in the same window receive the same 1-based rank and ``0`` (no
+    segment) stays ``0``.  Cross-row equality is irrelevant because the pool
+    uses per-row bucket offsets.
+    """
+    sorted_ids, order = torch.sort(ids, dim=-1)
+    new_segment = torch.ones_like(sorted_ids)
+    if ids.shape[-1] > 1:
+        new_segment[..., 1:] = (
+            sorted_ids[..., 1:] != sorted_ids[..., :-1]
+        ).to(dtype=sorted_ids.dtype)
+    ranks = torch.cumsum(new_segment, dim=-1)
     ranks = torch.where(sorted_ids > 0, ranks, torch.zeros_like(ranks))
-    compact = torch.zeros_like(flat)
-    compact.scatter_(0, order, ranks)
-    return compact.view_as(ids)
+    compact = torch.zeros_like(ids)
+    compact.scatter_(-1, order, ranks)
+    return compact
 
 
 def _segment_pool(
@@ -416,34 +435,13 @@ def _segment_pool(
     (batch, segment) table into one ``index_add_`` keeps the same semantics
     while issuing a single scatter per call.
     """
-    b, _t, d = x.shape
+    b, t, d = x.shape
     device = x.device
-    is_xla = device.type == "xla"
-    if ids.numel():
-        valid_ids = ids > 0
-        if is_xla:
-            # Fixed-shape compaction: the segment count varies per batch, so
-            # unique() would force an XLA recompile on every step.
-            compact = _fixed_segment_ids(ids)
-            max_segments = ids.numel()
-        elif bool(valid_ids.any()):
-            # Byte-aligned sidecars carry global word/sentence IDs.  Remap
-            # them to compact per-batch IDs before allocating the segment
-            # table; otherwise max(id) can create tens of gigabytes of zeros.
-            unique, inverse = torch.unique(
-                ids[valid_ids], return_inverse=True
-            )
-            compact = torch.zeros_like(ids)
-            compact[valid_ids] = inverse + 1
-            max_segments = max(1, int(unique.numel()))
-        else:
-            compact = torch.zeros_like(ids)
-            valid_ids = torch.zeros_like(ids, dtype=torch.bool)
-            max_segments = 1
-    else:
-        compact = ids
-        valid_ids = torch.zeros_like(ids, dtype=torch.bool)
-        max_segments = 1
+    valid_ids = ids > 0
+    # Static-shape, exact compaction.  This removes the per-layer
+    # torch.unique + bool(any()) CUDA syncs that dominated the concept path.
+    compact = _fixed_segment_ids(ids)
+    max_segments = max(1, int(t))
 
     bucket_count = max_segments + 1
     out = torch.zeros(
@@ -452,7 +450,7 @@ def _segment_pool(
     counts = torch.zeros(
         b * bucket_count, device=device, dtype=x.dtype
     )
-    if is_xla or bool(valid_ids.any()):
+    if ids.numel():
         offsets = (
             torch.arange(b, device=device, dtype=torch.long).unsqueeze(1)
             * bucket_count
@@ -497,7 +495,7 @@ class ConceptEncoder(nn.Module):
         self.event_embed = nn.Embedding(n_events, d_model)
         out_mult = 5 if self.subword_embed is not None else 4
         self.out = nn.Linear(out_mult * d_model, d_model, bias=False)
-        self.norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
+        self.norm = _RMSNorm(d_model)
 
     def forward(
         self, x: torch.Tensor, sidecar: SpanSidecar | None = None
@@ -911,7 +909,7 @@ class ConceptLoop(nn.Module):
         self.depth_carry_gate = (
             nn.Parameter(torch.zeros(())) if self.depth_carry else None
         )
-        self.state_norm = nn.RMSNorm(d_model) if hasattr(nn, "RMSNorm") else nn.Identity()
+        self.state_norm = _RMSNorm(d_model)
 
     def counts(self) -> dict[str, int]:
         return {
@@ -950,6 +948,7 @@ class ConceptLoop(nn.Module):
         triple_ids: torch.Tensor | None,
         pointer_soft: torch.Tensor,
         triple_soft: torch.Tensor,
+        compute_histograms: bool = True,
     ) -> dict[str, torch.Tensor]:
         """Cheap, detached diagnostics for the latent object address space.
 
@@ -958,17 +957,26 @@ class ConceptLoop(nn.Module):
         object memory look healthy in the loss curve.
         """
         with torch.no_grad():
-            pair_entropy, pair_unique, pair_top = self._histogram_stats(
-                pair_ids, binomial(self.vertices, 2)
-            )
-            if triple_ids is not None:
-                triple_entropy, triple_unique, triple_top = self._histogram_stats(
-                    triple_ids, binomial(self.vertices, 3)
+            if compute_histograms:
+                pair_entropy, pair_unique, pair_top = self._histogram_stats(
+                    pair_ids, binomial(self.vertices, 2)
                 )
+                if triple_ids is not None:
+                    triple_entropy, triple_unique, triple_top = self._histogram_stats(
+                        triple_ids, binomial(self.vertices, 3)
+                    )
+                else:
+                    zero = torch.zeros(
+                        (), device=pair_ids.device, dtype=torch.float32
+                    )
+                    triple_entropy = triple_unique = triple_top = zero
             else:
+                # Training does not consume these detached histograms; the
+                # unique()/numel() path syncs the GPU once per layer.
                 zero = torch.zeros(
                     (), device=pair_ids.device, dtype=torch.float32
                 )
+                pair_entropy = pair_unique = pair_top = zero
                 triple_entropy = triple_unique = triple_top = zero
             pointer_conf = pointer_soft.max(dim=-1).values.mean()
             pointer_prob = pointer_soft.mean(dim=(0, 1))
@@ -1034,6 +1042,7 @@ class ConceptLoop(nn.Module):
         carry: torch.Tensor | None = None,
         object_carry: torch.Tensor | None = None,
         feedback_scale: float | torch.Tensor = 1.0,
+        compute_histograms: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Route/attention/MoE context conditions the concept abstraction and
         # the object query.  Without this the loop was one-way: concept fed
@@ -1197,6 +1206,7 @@ class ConceptLoop(nn.Module):
             self.last_triple_ids,
             pointer_soft,
             triple_soft,
+            compute_histograms=compute_histograms,
         )
         # Return only the concept/object contribution.  The block adds the
         # route context separately; including it here double-counted the

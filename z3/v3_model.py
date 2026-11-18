@@ -278,7 +278,17 @@ class RMSNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        return self.weight * x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        # Match the autocast activation dtype.  Multiplying a bf16 activation
+        # by an fp32 weight promotes the whole residual stream back to fp32
+        # and prevents the fused RMSNorm kernel from firing on Blackwell.
+        weight = self.weight.to(dtype=x.dtype)
+        if hasattr(F, "rms_norm"):
+            return F.rms_norm(
+                x, (self.weight.numel(),), weight, self.eps
+            )
+        return weight * x * torch.rsqrt(
+            x.pow(2).mean(-1, keepdim=True) + self.eps
+        )
 
 
 class Attention(nn.Module):
@@ -1332,6 +1342,7 @@ class V3LM(nn.Module):
                     concept_carry,
                     object_carry,
                     feedback_scale,
+                    compute_histograms=bool(return_diagnostics),
                 )
                 concept_carry = self.concept_loop.last_carry
                 object_carry = object_ctx

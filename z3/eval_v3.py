@@ -1040,7 +1040,7 @@ def evaluate_ids(
                 )
 
                 sidecar = _build_sidecar_batch(sidecar_builder, xb)
-                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar, return_diagnostics=True)
                 logits = logits[:, -1, :]
                 loss = F.cross_entropy(logits, yb, reduction="sum")
                 loss_sum += float(loss.detach().cpu())
@@ -1225,7 +1225,7 @@ def evaluate_ids_full(
                     [window_ids], dtype=torch.long, device=torch_device
                 )
                 sidecar = _build_sidecar_batch(sidecar_builder, xb)
-                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar, return_diagnostics=True)
                 predictions = logits[:, :-1].float()
                 targets = xb[:, 1:]
                 rows = predictions.reshape(-1, predictions.size(-1))
@@ -1441,7 +1441,7 @@ def _evaluate_ids_full_batched(
                 starts = [start for start, _end in group]
                 b, length = xb.shape
                 sidecar = _build_sidecar_batch(sidecar_builder, xb)
-                logits, mtp_logits, aux = model(xb, sidecar=sidecar)
+                logits, mtp_logits, aux = model(xb, sidecar=sidecar, return_diagnostics=True)
                 predictions = logits[:, :-1].float()
                 targets = xb[:, 1:]
                 loss_matrix = F.cross_entropy(

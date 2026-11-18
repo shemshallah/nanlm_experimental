@@ -37,19 +37,21 @@ class ConceptLoopTests(unittest.TestCase):
             ids = torch.randint(0, 64, (2, 97))
             ids[:, ::5] = 0
             compact = _fixed_segment_ids(ids)
-            self.assertTrue(
-                torch.equal(
-                    ids.unsqueeze(-1) == ids.unsqueeze(-2),
-                    compact.unsqueeze(-1) == compact.unsqueeze(-2),
+            for row in range(ids.shape[0]):
+                self.assertTrue(
+                    torch.equal(
+                        ids[row].unsqueeze(0) == ids[row].unsqueeze(1),
+                        compact[row].unsqueeze(0)
+                        == compact[row].unsqueeze(1),
+                    )
                 )
-            )
             self.assertTrue(
                 torch.equal(
                     compact[ids == 0],
                     torch.zeros_like(compact[ids == 0]),
                 )
             )
-            self.assertLessEqual(int(compact.max()), ids.numel())
+            self.assertLessEqual(int(compact.max()), ids.shape[-1])
 
     @classmethod
     def setUpClass(cls):

@@ -2491,6 +2491,27 @@ def main(argv: list[str] | None = None) -> int:
         device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise SystemExit("--device cuda requested but CUDA is unavailable")
+    if device.type == "cuda":
+        index = device.index if device.index is not None else 0
+        major, minor = torch.cuda.get_device_capability(index)
+        print(
+            f"[cuda] {torch.cuda.get_device_name(index)} "
+            f"capability={major}.{minor}",
+            flush=True,
+        )
+        if major >= 8:
+            # bf16 autocast covers the matmuls; TF32 keeps any residual fp32
+            # work on tensor cores instead of falling back to fp32 SIMT.
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+            except Exception:
+                pass
+            try:
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
+            print("[cuda] tf32 enabled", flush=True)
     if args.amp is None:
         amp = device.type in ("cuda", "xla")
     else:
