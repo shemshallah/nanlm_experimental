@@ -163,7 +163,7 @@ class V5ModuleTests(unittest.TestCase):
                 logp = _full_parent_log_probs(model, history, aux, 2)
             self.assertEqual(logp.shape, (2, 256))
             self.assertTrue(torch.allclose(
-                logp.logsumexp(-1), torch.ones(2), atol=1e-5))
+                logp.logsumexp(-1), torch.zeros(2), atol=1e-5))
 
     def test_ablation_switches_are_wired(self):
         bus = CausalHierarchy(
