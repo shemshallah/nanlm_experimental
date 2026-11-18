@@ -40,7 +40,7 @@ def bootstrap(before,after,*,larger_better,seed=70,repetitions=2000):
 
 
 def run(checkpoint,data_dir,*,books=None,warmup=128,positions=128,
-        context=64,chunk=16,history=32768,threads=2):
+        context=64,chunk=16,history=32768,threads=2,output_path=None):
     if min(warmup,positions,context,chunk,history,threads)<1:
         raise ValueError('All R70 DEV experiment quantities must be positive')
     torch.set_num_threads(threads)
@@ -62,12 +62,39 @@ def run(checkpoint,data_dir,*,books=None,warmup=128,positions=128,
     model,_,saved=load_active_fa2(checkpoint)
     if saved['step']!=4465 or not model.cfg.pair_successor_future:
         raise ValueError('R70 requires the verified R69 step-4465 model')
+    identity={'checkpoint_step':saved['step'],
+              'checkpoint_sha256':checksum(checkpoint),
+              'dev_sha256':meta['valid_sha256'],
+              'dev_positions_per_book':positions,'warmup':warmup,
+              'context':context,'chunk':chunk,'history':history}
+    output_path=Path(output_path) if output_path is not None else None
+    selected_count=len(names) if books is None else min(len(names),books)
+    if selected_count<2:
+        raise ValueError('At least two DEV books are required for bootstrapping')
     rows=[]
+    if output_path is not None and output_path.is_file():
+        prior=json.loads(output_path.read_text())
+        if any(prior.get(k)!=v for k,v in identity.items()):
+            raise ValueError('Refuse to reuse book results from another run')
+        rows=prior['per_book']
+        if len(rows)>selected_count or any(row['book_id']!=names[i]
+                                           for i,row in enumerate(rows)):
+            raise ValueError('Stored DEV book order does not match checked corpus')
+        print(f'R70 safely resumed {len(rows)} verified DEV books',flush=True)
+    def save(payload):
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True,exist_ok=True)
+            temporary=output_path.with_name(output_path.name+'.incomplete')
+            temporary.write_text(json.dumps(payload,indent=2)+'\n')
+            temporary.replace(output_path)
     started=perf_counter()
     offset=0
     for index,(name,length) in enumerate(zip(names,lengths)):
         if books is not None and index>=books:
             break
+        if index<len(rows):
+            offset+=length
+            continue
         token_bytes=np.asarray(mem[offset:offset+length],dtype=np.int64)
         offset+=length
         tokens=torch.tensor(token_bytes,dtype=torch.long)
@@ -87,6 +114,7 @@ def run(checkpoint,data_dir,*,books=None,warmup=128,positions=128,
             raise AssertionError('R70 winner rank not preserved')
         rows.append({'book_id':name,'r69':r69['exact'],'r70':r70['exact'],
                      'neutral':r69['neutral']})
+        save({'status':'incomplete','per_book':rows,**identity})
         print(f'R70 DEV book {index+1}/{books or len(names)} '+
               f'+2 CE {r69["exact"]["ce_2"]:.5f}->{r70["exact"]["ce_2"]:.5f} '+
               f'+3 CE {r69["exact"]["ce_3"]:.5f}->{r70["exact"]["ce_3"]:.5f}',
@@ -99,16 +127,16 @@ def run(checkpoint,data_dir,*,books=None,warmup=128,positions=128,
         new=[x['r70'][metric] for x in rows]
         comparison[metric]={'r69':float(np.mean(old)),'r70':float(np.mean(new)),
             **bootstrap(old,new,larger_better=metric.startswith(('acc_','top5_')))}
-    return {'status':'DEV-only R70 candidate, no promotion',
-            'checkpoint_step':saved['step'],'checkpoint_sha256':checksum(checkpoint),
-            'dev_sha256':meta['valid_sha256'],'dev_books':len(rows),
-            'dev_positions_per_book':positions,'warmup':warmup,
+    report={'status':'DEV-only R70 candidate, no promotion',
+            **identity,'dev_books':len(rows),
             'seconds':perf_counter()-started,'comparison':comparison,
             'per_book':rows,'test_opened':False,
             'gate_pass':bool(comparison['ce_2']['ci95'][0]>0 and
                              comparison['ce_3']['ci95'][0]>0 and
                              comparison['acc_2']['mean_gain']>=0 and
                              comparison['acc_3']['mean_gain']>=0)}
+    save(report)
+    return report
 
 
 def main():
@@ -122,9 +150,8 @@ def main():
     parser.add_argument('--threads',type=int,default=2)
     args=parser.parse_args()
     results=run(args.checkpoint,args.data_dir,books=args.books,
-                warmup=args.warmup,positions=args.positions,threads=args.threads)
-    args.output.parent.mkdir(parents=True,exist_ok=True)
-    args.output.write_text(json.dumps(results,indent=2)+'\n')
+                warmup=args.warmup,positions=args.positions,threads=args.threads,
+                output_path=args.output)
     print('R70 comparison '+json.dumps({'books':results['dev_books'],
           'gate_pass':results['gate_pass'], 'metrics':results['comparison']}),flush=True)
 
