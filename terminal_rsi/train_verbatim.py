@@ -693,6 +693,14 @@ def main(argv=None):
                    help="Direct CE on the current-unit -> byte decoder")
     p.add_argument("--unit-byte-distill-weight", type=float, default=0.5,
                    help="256-way parent KL into the unit -> byte decoder")
+    p.add_argument("--top5-byte-loss-weight", type=float, default=0.0,
+                   help="Listwise top-5 ranking loss on the final byte logits")
+    p.add_argument("--word-boundary-loss-weight", type=float, default=0.0,
+                   help="Train word heads on every boundary in the window")
+    p.add_argument("--word-top5-loss-weight", type=float, default=0.0,
+                   help="Top-5 hinge on word heads")
+    p.add_argument("--word-ngram-weight", type=float, default=0.0,
+                   help="Bigram prior strength for next-word logits")
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full",
