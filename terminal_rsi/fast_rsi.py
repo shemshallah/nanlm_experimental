@@ -72,8 +72,10 @@ def _adapter_loss(model, A: torch.Tensor, B: torch.Tensor,
     z = torch.einsum("nd,kdr->knr", cache.inputs, A)
     logits = torch.einsum("knr,krv->knv", z, B) + bias[:, None, :]
     bits = _adapter_bits(model, logits, cache.targets)
+    target_bits = cache.bits[None].expand(
+        logits.shape[0], -1, -1)
     loss = F.binary_cross_entropy_with_logits(
-        cache.base_bits[None] + bits, cache.bits[None], reduction="none")
+        cache.base_bits[None] + bits, target_bits, reduction="none")
     if per_sample:
         return loss.mean(dim=-1)
     return loss.mean(dim=(1, 2))
