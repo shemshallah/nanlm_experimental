@@ -130,7 +130,7 @@ class V5ModuleTests(unittest.TestCase):
         self.assertIsNotNone(model.upgrade_gate)
         self.assertEqual(float(model.upgrade_gate.weight.abs().max()), 0.0)
         self.assertEqual(float(model.upgrade_gate.bias.abs().max()), 0.0)
-        state = torch.randn(2, 9, TINY.width)
+        state = torch.randint(0, 256, (2, 9))
         out = model(state)
         self.assertIn("gate_features", out)
         self.assertEqual(tuple(out["gate_features"].shape), (2, TINY.width))

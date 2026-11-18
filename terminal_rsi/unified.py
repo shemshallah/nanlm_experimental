@@ -85,6 +85,7 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         (d // 4) + 1 +                        # critic scalar output
         2 * d + 1 +                           # feedback and refine scale
         d + 1 +                               # adaptive-depth head
+        d + 1 +                               # per-token upgrade gate
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
         rank_adapter_parameter_count(
             fast_adapter_input_width(cfg), rank=16) +  # fast RSI byte side head
