@@ -144,7 +144,8 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
             bias = bias0[None] + 0.01 * torch.randn(
                 candidates, bias0.shape[0], device=device)
         population = AdapterPopulation(A, B, bias).to(device)
-        optimizer = torch.optim.Adam(population.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(
+            population.parameters(), lr=lr, weight_decay=1e-4)
         for _step in range(steps):
             optimizer.zero_grad(set_to_none=True)
             loss = population.loss(model, branch).sum()
@@ -178,10 +179,19 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                 best_delta = delta
                 best_se = standard_error
             if delta > threshold:
-                accepted += 1
-                adapter.A.copy_(A_ens[0].detach())
-                adapter.B.copy_(B_ens[0].detach())
-                adapter.bias.copy_(bias_ens[0].detach())
+                # Final guard: the ensemble must improve the FULL probe, not
+                # only its confirmation half.  Without this, selection noise
+                # accepted an adapter that made the actual probe worse.
+                current_full = _noop_loss(model, adapter, probe)
+                candidate_full = _adapter_loss(
+                    model, A_ens, B_ens, bias_ens, probe)[0]
+                full_delta = float(current_full.item() - candidate_full.item())
+                if full_delta > 0:
+                    accepted += 1
+                    adapter.A.copy_(A_ens[0].detach())
+                    adapter.B.copy_(B_ens[0].detach())
+                    adapter.bias.copy_(bias_ens[0].detach())
+                    best_delta = max(best_delta, full_delta)
     noop_bpb = float(
         _noop_loss(model, adapter, probe).item() * 8 / math.log(2))
     return {
