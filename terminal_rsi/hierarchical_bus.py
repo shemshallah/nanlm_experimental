@@ -24,6 +24,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .norm import RMSNorm
+from .low_rank_moe import SparseRankOneMoE, moe_parameter_count
 from .pair_memory import PairConceptMemory, pair_parameter_count
 from .unit_heads import (
     SENTENCE_VOCAB_SIZE, TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE,
@@ -49,6 +50,7 @@ def hierarchy_parameter_count(width: int) -> int:
         + 3 * 256 + 1                           # boundary -> byte prior
         + width + 3 * bw                        # input + three level RMSNorm
         + pair_parameter_count(bw)              # 65,536 paired concepts
+        + 2 * moe_parameter_count(bw)           # top MoE + bottom extensions
         + unit_parameter_count(bw, width)       # real token/word/sentence heads
         + unit_decoder_parameter_count(width)  # unit+hierarchy -> byte MLP
     )
@@ -167,6 +169,8 @@ class CausalHierarchy(nn.Module):
         self.boundary = nn.Linear(width, 3)
         self.boundary_to_byte = nn.Linear(3, 256, bias=False)
         self.boundary_gate = nn.Parameter(torch.zeros(()))
+        self.top_moe = SparseRankOneMoE(bw, experts=256)
+        self.bottom_extensions = SparseRankOneMoE(bw, experts=256)
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
         self.unit_heads = (UnitHeads(bw, width)
                            if enable_units else None)
@@ -199,6 +203,7 @@ class CausalHierarchy(nn.Module):
         if state.ndim != 3 or state.shape[-1] != self.width:
             raise ValueError("Hierarchy expects [batch,time,width]")
         bus = self.down(self.input_norm(state))
+        bus = self.bottom_extensions(bus)
         gates_bu = torch.tanh(self.bottom_up_gates)
         gates_td = torch.tanh(self.top_down_gates)
         gates_lat = torch.tanh(self.lateral_gates)
@@ -223,6 +228,7 @@ class CausalHierarchy(nn.Module):
             levels.append(pooled + gates_bu[level] * self.level_up[level](pooled))
             current = levels[-1]
         subword, word, sentence = levels
+        sentence = self.top_moe(sentence)
 
         pair_entropy = torch.zeros((), device=state.device)
         pair_gate = torch.zeros((), device=state.device)

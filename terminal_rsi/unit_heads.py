@@ -445,3 +445,49 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
         "levels": levels,
         "definition": "next-unit classification head; not byte exactness",
     }
+
+
+def word_prefix_byte_log_probs(word_logits: torch.Tensor,
+                               history: torch.Tensor,
+                               word_bytes: torch.Tensor,
+                               word_lengths: torch.Tensor,
+                               top_k: int = 8) -> torch.Tensor:
+    """Top-k current-word candidates consistent with the observed prefix.
+
+    ``word_bytes`` is [vocab,maxlen]; ``history`` is [batch,time]; the last
+    observed byte is history[:, -1].  The returned [batch,256] log-probabilities
+    are the next-byte prior from words whose prefix matches the bytes after the
+    last whitespace.
+    """
+    if word_logits.ndim != 2 or word_logits.shape[-1] != word_bytes.shape[0]:
+        raise ValueError("word_logits and word_bytes vocabulary mismatch")
+    device = word_logits.device
+    history = history.to(device).long()
+    table_all = word_bytes.to(device).long()
+    lengths_all = word_lengths.to(device).long()
+    batch, time = history.shape
+    maxlen = table_all.shape[1]
+    whitespace = torch.isin(
+        history, torch.tensor([9, 10, 13, 32], device=device))
+    positions = torch.arange(time, device=device).expand(batch, -1)
+    last_space = torch.where(whitespace, positions,
+                             torch.full_like(positions, -1)).cummax(-1).values[:, -1]
+    prefix_length = (time - 1 - last_space).clamp(0, maxlen)
+    suffix = history.flip(1)[:, :maxlen]
+    prefix_mask = torch.arange(maxlen, device=device)[None, :] < prefix_length[:, None]
+    logp = torch.log_softmax(word_logits.float(), dim=-1)
+    keep = min(int(top_k), logp.shape[-1])
+    top_values, top_indices = logp.topk(keep, dim=-1)
+    table = table_all[top_indices]              # [B,K,maxlen]
+    lengths = lengths_all[top_indices]          # [B,K]
+    match = ((table == suffix[:, None, :]) | ~prefix_mask[:, None, :]).all(-1)
+    match = match & (prefix_length[:, None] <= lengths)
+    next_index = prefix_length[:, None].clamp(0, maxlen - 1)
+    next_byte = table.gather(
+        2, next_index[..., None].expand(-1, keep, 1)).squeeze(-1)
+    valid = match & (prefix_length[:, None] < lengths)
+    probabilities = torch.zeros((batch, 256), device=device)
+    probabilities.scatter_add_(
+        1, next_byte.clamp(0, 255), torch.exp(top_values) * valid)
+    return torch.where(probabilities > 0, probabilities.log(),
+                       torch.full_like(probabilities, -30.0))

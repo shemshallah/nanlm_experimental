@@ -24,6 +24,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .legacy_v103_reference import V103ParityGPUFullSystem, PARITY_SCHEMA
+from .unit_heads import word_prefix_byte_log_probs
 from .unified import PRESETS, TerminalRSI, device_for
 
 
@@ -36,6 +37,23 @@ class VerbatimV103RSI(nn.Module):
         self.original = V103ParityGPUFullSystem()
         self.upgrades = TerminalRSI(self.cfg)
         self.residual_gate = nn.Parameter(torch.zeros(()))
+        self.word_prior_gate = nn.Parameter(torch.zeros(()))
+        self.register_buffer("word_bytes", torch.zeros(1, 1, dtype=torch.long),
+                             persistent=False)
+        self.register_buffer("word_lengths", torch.zeros(1, dtype=torch.long),
+                             persistent=False)
+
+    @torch.no_grad()
+    def set_word_vocab(self, vocabulary: dict[bytes, int], maxlen: int = 24):
+        size = max(vocabulary.values(), default=0) + 1
+        table = torch.zeros((size, maxlen), dtype=torch.long)
+        lengths = torch.zeros(size, dtype=torch.long)
+        for word, index in vocabulary.items():
+            piece = torch.tensor(list(word[:maxlen]), dtype=torch.long)
+            table[index, :len(piece)] = piece
+            lengths[index] = min(len(word), maxlen)
+        self.word_bytes = table
+        self.word_lengths = lengths
 
     @staticmethod
     def _byte_to_conditional_bit_logits(byte_logits: torch.Tensor,
@@ -110,6 +128,15 @@ class VerbatimV103RSI(nn.Module):
         if unit_byte is not None:
             unit_bits = self._byte_to_conditional_bit_logits(unit_byte, target)
             final_logits = final_logits + unit_bits.to(final_logits.dtype)
+        word_logits = upgrade_out.get("unit_logits", {}).get("current_word")
+        if word_logits is not None and self.word_bytes.numel() > 1:
+            prior = word_prefix_byte_log_probs(
+                word_logits, previous, self.word_bytes, self.word_lengths,
+                top_k=8)
+            prior_bits = self._byte_to_conditional_bit_logits(prior, target)
+            final_logits = final_logits + torch.tanh(
+                self.word_prior_gate).to(final_logits.dtype) * prior_bits.to(
+                    final_logits.dtype)
         if use_fast_adapter:
             adapter_input = upgrade_out.get("adapter_input")
             if adapter_input is not None:
@@ -145,7 +172,7 @@ class VerbatimV103RSI(nn.Module):
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
-                   "upgrades.fast_adapter.",
+                   "upgrades.fast_adapter.", "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [

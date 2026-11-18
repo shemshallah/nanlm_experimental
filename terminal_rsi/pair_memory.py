@@ -63,8 +63,18 @@ class PairConceptMemory(nn.Module):
         top_values, top_indices = scores.topk(self.top_k, dim=-1)
         left = top_indices[..., 0]
         right = top_indices[..., 1]
-        # Ordered pair address in the full 256x256 object.
-        pair_index = left * self.slots + right
+        # 128+128 special-point split:
+        # bottom = 32,640 triangular pairs + 128 diagonal points
+        # top    = 32,640 mirrored pairs + the other 128 diagonal points
+        lo = torch.minimum(left, right)
+        hi = torch.maximum(left, right)
+        triangular = (lo * self.slots - lo * (lo + 1) // 2
+                      + (hi - lo - 1).clamp_min(0))
+        pair_index = torch.where(
+            left < right, triangular,
+            torch.where(left > right, 32768 + triangular,
+                        torch.where(left < 128, 32640 + left,
+                                    32768 + (left - 128))))
         concept = self.bank(pair_index) + self.write(bottom)
         prior = self.read(concept)
         gate = torch.tanh(self.gate)

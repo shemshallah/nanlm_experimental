@@ -725,6 +725,8 @@ def main(argv=None):
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
     model = VerbatimV103RSI(args.mode).to(device)
+    if unit_labels is not None:
+        model.set_word_vocab(unit_labels.word_vocab)
     ablation_flags = {
         "bottom_up": True, "top_down": True, "lateral": True,
         "pair": True, "units": True, "boundary_pooling": True,
@@ -1426,6 +1428,23 @@ def main(argv=None):
         "definition": "held-out BPB with fast adapter on minus off; "
                       "positive delta means the fast RSI adapter lowers BPB",
     }
+    saved_word_gate = model.word_prior_gate.detach().clone()
+    try:
+        with torch.no_grad():
+            model.word_prior_gate.zero_()
+        after_no_word = byte_metrics_wrapped(
+            model, probes, n=None,
+            topk_n=min(args.topk_probes, len(probes)),
+            auxiliary=probe_aux, local=probe_local)
+    finally:
+        with torch.no_grad():
+            model.word_prior_gate.copy_(saved_word_gate)
+    word_prior_delta = {
+        "on_bpb": after["bpb"],
+        "off_bpb": after_no_word["bpb"],
+        "delta_bpb": float(after_no_word["bpb"] - after["bpb"]),
+        "gate": float(torch.tanh(saved_word_gate)),
+    }
     after_bit_logits = _bit_logit_snapshot()
     bit_logit_delta = {
         "mean_abs": float((after_bit_logits - before_bit_logits).abs().mean()),
@@ -1477,6 +1496,7 @@ def main(argv=None):
                "bit_logit_delta": bit_logit_delta,
                "unit_decoder": unit_decoder,
                "fast_adapter": fast_adapter_delta,
+               "word_prior": word_prior_delta,
                "after_upgrade_gate_1": after_upgrade_gate_1,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,
