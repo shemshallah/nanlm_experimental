@@ -133,3 +133,59 @@ GPU short probes:
   (token top5 9.4%, word 1.6%); the 4k-way heads need a real training budget.
 
 Full receipt: `terminal_rsi/reports/blackwell_v5_short_tests/RUN_SUMMARY.md`.
+
+## Reliability fixes and five-minute receipts (2026-11-18)
+
+Root causes found by tracing the full backward graph and RSI branch path:
+
+- **Word-prefix prior `log(0)` backward**: `torch.where(mask, probabilities.log(), -30)`
+  evaluated `log(0)` in the unselected branch. With a zero gate the upstream
+  gradient is `0`, and `LogBackward0` produced `0/0 = NaN`, poisoning every
+  upgrade parameter. The prior now logs a strictly positive tensor.
+- **Prior calibration**: the raw scatter counts were unnormalized and used a
+  `-30` floor, producing ±30 logits. A tiny gate (0.054) then cost **0.217 BPB**
+  after RSI-v4 branch training. The prior is now normalized, mixed with 5%
+  uniform, and saturates at a **0.05 trust region**.
+- **Pair lattice address collision**: the top 128 special points used
+  `32768 + (left - 128)`, overlapping 128 mirrored-pair rows. They now start at
+  `65408`; `pair_addresses()` covers all 65,536 rows exactly once
+  (`test_pair_addresses_cover_entire_bank`).
+- **Detached MoE load balance**: `last_load_balance` was computed under
+  `no_grad`, so `--moe-loss-weight` had no gradient. The router-balance term is
+  now differentiable and includes the top/bottom hierarchy MoEs.
+- **RSI deepcopy crash**: the live MoE balance tensor broke
+  `copy.deepcopy(model)` in branch capture. `SparseRankOneMoE.__getstate__`
+  drops it; clones rebuild it on the next forward.
+- Fast-adapter output is NaN-guarded, clamped to ±10, and reset when its
+  weights become non-finite.
+
+### Five-minute full-v5 smoke (RSI off, parent frozen)
+
+`terminal_rsi_v5_final5c`, 2M pilot, batch 1024 / microbatch 256:
+
+| Metric | Value |
+|---|---:|
+| Updates / non-finite skips | **41 / 0** |
+| Parent DEV BPB | 2.453140 → **2.450072** (**−0.003067**) |
+| Unit→byte decoder on/off | **+0.000442** (helps) |
+| Word-prefix prior on/off | **+0.000114** (helps) |
+| Byte top-5 / token top-5 / word top-5 | 87.1% / 89.0% / 40.4% |
+| Unit-head DEV word top-1 / top-5 | 21.7% / 37.0% |
+| Peak VRAM | **27.38 GiB allocated / 36.37 GiB reserved** |
+| Byte-driven generation, prompt `"The "` | `"tone in the hoof"` |
+
+### RSI-v4 branch fit
+
+`terminal_rsi_v5_v4fit2`, short probe (120 s training, 4 cycles/tick):
+
+| Metric | Value |
+|---|---:|
+| Updates / cycles / branch updates | 3 / 12 / **120** |
+| Accepted interventions | 1 |
+| DEV BPB | 2.497848 → **2.497619** (**−0.000229**) |
+| Unit→byte decoder on/off | −0.000592 |
+| Word-prefix prior on/off | **+0.000021** (bounded; was −0.217) |
+| Peak VRAM | 29.62 GiB allocated / 51.85 GiB reserved |
+
+The v4 run shares the GPU with another training job; the low-memory recipe
+(batch 1024 / microbatch 256) is the default for concurrent smokes.
