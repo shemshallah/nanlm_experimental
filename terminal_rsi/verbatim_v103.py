@@ -46,9 +46,10 @@ class VerbatimV103RSI(nn.Module):
 
     @torch.no_grad()
     def set_word_vocab(self, vocabulary: dict[bytes, int], maxlen: int = 24):
-        # Must cover every class the word head emits, even on a tiny corpus.
-        size = max(WORD_VOCAB_SIZE,
-                   max(vocabulary.values(), default=0) + 1)
+        # Match the actual head width, not a module constant.
+        size = int(self.upgrades.hierarchy.unit_heads.word.out_features)
+        if max(vocabulary.values(), default=0) >= size:
+            raise ValueError("word vocabulary exceeds the word head width")
         table = torch.zeros((size, maxlen), dtype=torch.long)
         lengths = torch.zeros(size, dtype=torch.long)
         for word, index in vocabulary.items():
