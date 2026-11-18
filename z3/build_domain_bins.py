@@ -42,6 +42,11 @@ try:
     from .layered_tokenizer import LayeredTokenizer, load_artifact
     from .text_documents import iter_documents, write_documents
 except ImportError:  # script execution from z3/
+    import sys
+
+    _HERE = Path(__file__).resolve().parent
+    if str(_HERE) not in sys.path:
+        sys.path.insert(0, str(_HERE))
     from layered_tokenizer import LayeredTokenizer, load_artifact
     from text_documents import iter_documents, write_documents
 
