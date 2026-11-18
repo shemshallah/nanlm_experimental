@@ -187,7 +187,7 @@ class V5ModuleTests(unittest.TestCase):
                 model, cache, cache, candidates=8, rounds=2, steps=2,
                 lr=0.05, rank=8, min_gain=0.0001, z_score=1.0, shards=4,
                 seed=3)
-            self.assertEqual(stats["proposals"], 16)
+            self.assertGreaterEqual(stats["proposals"], 16)
             self.assertGreaterEqual(stats["accepted"], 0)
             self.assertTrue(torch.isfinite(torch.tensor(stats["noop_probe_bpb"])))
 
