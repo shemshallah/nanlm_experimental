@@ -38,7 +38,6 @@ class VerbatimV103RSI(nn.Module):
         self.upgrades = TerminalRSI(self.cfg)
         self.residual_gate = nn.Parameter(torch.zeros(()))
         self.word_prior_gate = nn.Parameter(torch.zeros(()))
-        self.word_prior_gate.requires_grad_(False)
         self.register_buffer("word_bytes", torch.zeros(1, 1, dtype=torch.long),
                              persistent=False)
         self.register_buffer("word_lengths", torch.zeros(1, dtype=torch.long),
@@ -227,6 +226,8 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
             side.append(parameter)
         else:
             added.append(parameter)
+    # The word-prefix prior is a side head: train it with the unit heads.
+    side.append(model.word_prior_gate)
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)
     else:
