@@ -1,17 +1,37 @@
 {
   "architecture": "FA2_UNIFIED",
-  "active_round": "R68",
-  "active_step": 4209,
-  "checkpoint_filename": "FA2_ACTIVE.pt",
-  "checkpoint_sha256": "c377659754cb0d7e2a4583c04d816571ba60547f4e0939124613e7bbb6dd1580",
+  "active_round": "R69",
+  "active_step": 4465,
+  "checkpoint_filename": "FA2_R69_STEP4465_CANDIDATE.pt",
+  "checkpoint_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
   "promotion": "explicit_user_override",
   "strict_three_depth_gate_pass": false,
   "test_opened": false,
-  "source_lineage": "R58 -> R66 -> R67 -> R68",
+  "source_lineage": "R58 -> R66 -> R67 -> R68 -> R69",
   "single_model": true,
   "single_optimizer": true,
-  "inherited_adam_states": 196,
-  "promoted_dev_metrics": {
+  "inherited_adam_states": 197,
+  "total_adam_states": 198,
+  "parent_R68_checkpoint_sha256": "c377659754cb0d7e2a4583c04d816571ba60547f4e0939124613e7bbb6dd1580",
+  "r69_dev_128_warmup_128_positions": {
+    "dev_books": 12,
+    "scored_positions": 1536,
+    "neutral_next_ce": 3.4574142396450043,
+    "exact_next_ce": 3.2814895858367286,
+    "neutral_plus2_ce": 3.842267376681169,
+    "exact_plus2_ce": 3.750476025044918,
+    "neutral_plus3_ce": 3.950678033133348,
+    "exact_plus3_ce": 3.873201342920462,
+    "neutral_plus2_top1": 0.17317708333333334,
+    "exact_plus2_top1": 0.15885416666666666,
+    "neutral_plus3_top1": 0.16861979166666666,
+    "exact_plus3_top1": 0.14453125,
+    "plus2_corrected_neutral_CI95_lower": -0.016351017293830712,
+    "plus3_corrected_neutral_CI95_lower": -0.009464709305514893,
+    "strict_DEV_gate_pass": false,
+    "evidence_note": "12 DEV books were tested before user-directed promotion. Full per-book JSON is not present in the original R69 training archive."
+  },
+  "previous_R68_dev_metrics": {
     "0": {
       "strict_dev_gate_pass": false,
       "neutral_next_bpb": 4.976113974859637,
@@ -41,8 +61,9 @@
     }
   },
   "limitations": [
-    "warmup0 and warmup512 strict gates fail",
-    "small warmup0 and warmup512 top1 regressions",
-    "+2/+3 heads unaffected by the joint-memory specialist"
+    "R69 promoted by explicit user override despite failed corrected +2/+3 DEV gates",
+    "R69 +2 and +3 top1 accuracy regressed against neutral on 128-warmup DEV",
+    "R69 +2/+3 future memory requires further robustness training",
+    "R68 remains an independently recoverable rollback checkpoint"
   ]
 }

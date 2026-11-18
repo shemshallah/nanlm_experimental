@@ -20,6 +20,7 @@ class ActiveRecoveryTests(unittest.TestCase):
             path.write_bytes(payload)
             manifest=root/'FA2_ACTIVE.json'
             manifest.write_text(json.dumps({'architecture':'FA2_UNIFIED',
+                'active_round':'R68',
                 'active_step':4209,'checkpoint_filename':path.name,
                 'checkpoint_sha256':hashlib.sha256(payload).hexdigest()}))
             chosen,record=resolve_active_checkpoint(path,manifest)
@@ -34,6 +35,7 @@ class ActiveRecoveryTests(unittest.TestCase):
             root=Path(directory)
             manifest=root/'FA2_ACTIVE.json'
             manifest.write_text(json.dumps({'architecture':'FA2_UNIFIED',
+                'active_round':'R68',
                 'active_step':4209,'checkpoint_filename':'does_not_exist.pt',
                 'checkpoint_sha256':'0'*64}))
             with self.assertRaises(FileNotFoundError):
