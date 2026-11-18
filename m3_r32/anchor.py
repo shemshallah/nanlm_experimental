@@ -2,13 +2,16 @@
 
 Unlike the R31 null diagnostic, the anchor contains no DEV or TEST document.
 The anchor is immutable; prediction keys come exclusively from the current
-document's *already observed* bytes. A zero gain preserves frozen R29 exactly.
+document's *already observed* bytes. Zero gains preserve trained R31 exactly.
 """
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 import numpy as np
 
-from m3_default.predictor import R29_THETA, R31_THETA
+from m3_default.predictor import R26_THETA, R29_THETA, R30_DELTA, R31_THETA
 from m3_r29.lexical import WordSuccessorMemory, lexical_readout, pack_lexical
 from m3_r30.router import support
 from m3_r31.calibration import M3R31Predictor, class_features, calibrated_readout
@@ -85,3 +88,45 @@ class M3R32Predictor(M3R31Predictor):
             return super().predict_logp(mode)
         base, feat = self.r31_base_and_anchor_features()
         return anchored_readout(base,feat,self.anchor_theta)
+
+
+def load_r32_checkpoint(path: Path) -> M3R32Predictor:
+    """Restart inference from the self-contained 32-group NPZ, no corpus needed.
+
+    The embedded TRAIN-only anchor is hash-checked and the whole recovered
+    optimizer state remains in the same checkpoint for further training.
+    """
+    with np.load(path,allow_pickle=False) as x:
+        theta=np.asarray(x["theta"],dtype=np.float64)
+        moments=np.asarray(x["adam_m"],dtype=np.float64)
+        variance=np.asarray(x["adam_v"],dtype=np.float64)
+        ages=np.asarray(x["adam_steps"],dtype=np.int64)
+        prior=np.asarray(x["prior"],dtype=np.float64)
+        payload=np.asarray(x["background_bytes"],dtype=np.uint8)
+        lengths=np.asarray(x["background_lengths"],dtype=np.int64)
+        hashes=np.asarray(x["background_sha256"])
+        background_indices=np.asarray(x["background_indices"],dtype=np.int64)
+    if (theta.shape!=(32,) or moments.shape!=(32,) or variance.shape!=(32,)
+            or ages.shape!=(32,) or prior.shape!=(256,)
+            or not np.isfinite(theta).all() or not np.isfinite(moments).all()
+            or not np.isfinite(variance).all() or np.any(variance<0)
+            or np.any(prior<=0) or not np.isfinite(prior).all()
+            or not np.array_equal(theta[:14],R26_THETA)
+            or not np.array_equal(theta[14:22],R29_THETA)
+            or not np.array_equal(theta[22:25],R30_DELTA)
+            or not np.array_equal(theta[25:28],R31_THETA)
+            or ages.tolist()!=[1536]*3+[768]*29
+            or not np.array_equal(background_indices,[468,484])
+            or lengths.shape!=(16,) or np.any(lengths<=0)
+            or int(lengths.sum())!=len(payload) or hashes.shape!=(16,)):
+        raise ValueError("invalid or incomplete 32-group R32 checkpoint")
+    background=[]
+    raw=payload.tobytes()
+    offset=0
+    for n,expected in zip(lengths,hashes):
+        book=raw[offset:offset+int(n)]
+        offset+=int(n)
+        if hashlib.sha256(book).hexdigest()!=str(expected):
+            raise ValueError("R32 embedded anchor hash mismatch")
+        background.append(book)
+    return M3R32Predictor(prior,make_anchor(background),theta=theta[-GAIN_COUNT:])

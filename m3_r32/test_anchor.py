@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 import numpy as np
 
-from m3_default.predictor import R31_THETA
+from m3_default.predictor import R26_THETA,R29_THETA,R30_DELTA,R31_THETA
 from m3_r31.calibration import M3R31Predictor
 from m3_r32.anchor import (M3R32Predictor, anchor_features,
+                            load_r32_checkpoint,
                             anchored_readout, make_anchor)
 from m3_r32.train_dev import (BACKGROUND, FIT, GATE, DEV, SEALED_TEST,
                                FrozenR31Adam, gate_pass, selective_books)
@@ -71,6 +72,34 @@ class AnchorTests(unittest.TestCase):
             self.assertEqual(len(paths),9)
             self.assertEqual(set(loaded),{0,1,8})
             self.assertTrue(all(len(v)==4 for v in loaded.values()))
+
+    def test_recover_self_contained_anchor_and_detect_corruption(self):
+        import hashlib
+        books=[f"blue tree blue cloud book {i}. ".encode()*2 for i in range(16)]
+        prior=np.arange(1,257,dtype=np.float64)
+        theta=np.concatenate((R26_THETA,R29_THETA,R30_DELTA,R31_THETA,
+                              np.array([.1,.2,.05,-.03])))
+        metadata={"theta":theta,"prior":prior,
+                  "adam_m":np.zeros(32),"adam_v":np.zeros(32),
+                  "adam_steps":np.asarray([1536]*3+[768]*29),
+                  "background_indices":np.asarray([468,484]),
+                  "background_lengths":np.asarray(list(map(len,books))),
+                  "background_bytes":np.frombuffer(b"".join(books),dtype=np.uint8).copy(),
+                  "background_sha256":np.asarray([hashlib.sha256(b).hexdigest()
+                                                   for b in books])}
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/"checkpoint.npz"
+            np.savez(path,**metadata)
+            restored=load_r32_checkpoint(path)
+            direct=M3R32Predictor(prior,make_anchor(books),theta[-4:])
+            for b in b"blue tree blue cloud blue tree b":
+                restored.observe(b)
+                direct.observe(b)
+                np.testing.assert_array_equal(restored.predict_logp(),direct.predict_logp())
+            metadata["background_bytes"][0] ^= 1
+            np.savez(path,**metadata)
+            with self.assertRaisesRegex(ValueError,"hash"):
+                load_r32_checkpoint(path)
 
     def test_gate_rejects_unrelated_advantage_and_accuracy_loss(self):
         a={"r29":{"bpb":3.5,"top1":.4},

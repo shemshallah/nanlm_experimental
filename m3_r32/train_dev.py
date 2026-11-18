@@ -252,7 +252,7 @@ def main()->None:
     args=p.parse_args()
     opt=FrozenR31Adam(args.parent_checkpoint)
     manifest=json.loads(MANIFEST.read_text(encoding="utf-8"))
-    needed=(set(range(TRAIN_BOOKS))|set(range(132,156))|
+    needed=(set(range(52))|set(range(132,156))|
             set(range(BACKGROUND[0],DEV[1])))
     paths,loaded=selective_books(args.corpus_root,DEV[1],needed)
     hashes=[hashlib.sha256(loaded[i]).hexdigest() if i in loaded else "UNREAD"
