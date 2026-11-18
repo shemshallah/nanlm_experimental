@@ -109,6 +109,7 @@ def main(argv=None) -> int:
     p.add_argument("--generation-prompt", default="The ")
     p.add_argument("--generation-temperature", type=float, default=0.9)
     p.add_argument("--generation-top-k", type=int, default=0)
+    p.add_argument("--generation-word-onset-weight", type=float, default=0.3)
     args = p.parse_args(argv)
     if (args.seconds <= 0 or args.batch < 1 or args.microbatch < 0
             or not args.upgrade_loss_weight >= 0
@@ -216,6 +217,8 @@ def main(argv=None) -> int:
             "--generation-prompt", args.generation_prompt,
             "--generation-temperature", str(args.generation_temperature),
             "--generation-top-k", str(args.generation_top_k),
+            "--generation-word-onset-weight",
+            str(args.generation_word_onset_weight),
         ]
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     status = _run_tee(command, Path.cwd(), console)

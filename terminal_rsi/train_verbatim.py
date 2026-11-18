@@ -516,6 +516,7 @@ def main(argv=None):
     p.add_argument("--generation-prompt", default="The ")
     p.add_argument("--generation-temperature", type=float, default=0.9)
     p.add_argument("--generation-top-k", type=int, default=0)
+    p.add_argument("--generation-word-onset-weight", type=float, default=0.3)
     p.add_argument("--upgrade-context", type=int, default=None,
                    help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
@@ -1329,7 +1330,10 @@ def main(argv=None):
             model, args.generation_prompt.encode("utf-8"),
             args.generation_steps,
             temperature=args.generation_temperature,
-            top_k=args.generation_top_k, seed=103, device=device)
+            top_k=args.generation_top_k, seed=103, device=device,
+            word_vocab=(unit_labels.word_vocab if unit_labels is not None
+                        else None),
+            word_onset_weight=args.generation_word_onset_weight)
         records = generation["records"]
         receipt["generation"] = {
             "prompt": args.generation_prompt,
@@ -1368,6 +1372,22 @@ def main(argv=None):
         )
         print("HIERARCHICAL HELD-OUT METRICS:",
               json.dumps(receipt["hierarchical"], indent=2), flush=True)
+        if unit_labels is not None and args.unit_loss_weight > 0:
+            from .unit_heads import evaluate_unit_head_dev
+            receipt["unit_heads_dev"] = evaluate_unit_head_dev(
+                model,
+                corpus_dir=args.hierarchical_eval_corpus_dir,
+                dev_manifest=args.dev_manifest,
+                bpe_merges=args.bpe_merges,
+                context=upgrade_context,
+                books=min(2, args.hierarchical_eval_books),
+                max_positions=min(128, args.hierarchical_eval_max_positions
+                                  or 128),
+                device=device,
+                vocabulary=unit_labels,
+            )
+            print("UNIT-HEAD HELD-OUT METRICS:",
+                  json.dumps(receipt["unit_heads_dev"], indent=2), flush=True)
     provenance["sampler"] = sampler
     if args.smoke:
         if device.type == "cuda":

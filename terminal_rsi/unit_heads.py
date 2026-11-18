@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import heapq
+import json
 from pathlib import Path
 
 import torch
@@ -158,8 +159,11 @@ class UnitLabels:
         }
 
 
-def build_unit_labels(raw: bytes, bpe_merges: Path) -> UnitLabels:
-    """Build causal next-unit labels and vocabularies for the whole stream."""
+def build_unit_labels(raw: bytes, bpe_merges: Path, *,
+                      token_vocab: dict[int, int] | None = None,
+                      word_vocab: dict[bytes, int] | None = None,
+                      sentence_vocab: dict[int, int] | None = None) -> UnitLabels:
+    """Build causal next-unit labels; optionally reuse a training vocabulary."""
     ranks = read_bpe_ranks(Path(bpe_merges))
     if not ranks:
         raise ValueError("BPE merge ranks required for unit labels")
@@ -167,13 +171,14 @@ def build_unit_labels(raw: bytes, bpe_merges: Path) -> UnitLabels:
     token_pairs = bpe_tokens(raw, ranks)
     token_starts = [start for start, _ in token_pairs]
     token_ids_raw = [token for _, token in token_pairs]
-    token_vocab = _top_vocab(token_ids_raw, TOKEN_VOCAB_SIZE - 1)
+    token_vocab = token_vocab or _top_vocab(
+        token_ids_raw, TOKEN_VOCAB_SIZE - 1)
     token_values = [token_vocab.get(token, UNK_ID) for token in token_ids_raw]
 
     word_pairs = _word_tokens(raw)
     word_starts = [start for start, _end, _word in word_pairs]
-    word_vocab = _top_vocab([word for _start, _end, word in word_pairs],
-                            WORD_VOCAB_SIZE - 1)
+    word_vocab = word_vocab or _top_vocab(
+        [word for _start, _end, word in word_pairs], WORD_VOCAB_SIZE - 1)
     word_values = [word_vocab.get(word, UNK_ID)
                    for _start, _end, word in word_pairs]
 
@@ -189,8 +194,8 @@ def build_unit_labels(raw: bytes, bpe_merges: Path) -> UnitLabels:
             first_word_for_sentence.append(word_values[word_cursor])
         else:
             first_word_for_sentence.append(UNK_ID)
-    sentence_vocab = _top_vocab(first_word_for_sentence,
-                                SENTENCE_VOCAB_SIZE - 1)
+    sentence_vocab = sentence_vocab or _top_vocab(
+        first_word_for_sentence, SENTENCE_VOCAB_SIZE - 1)
     sentence_values = [sentence_vocab.get(value, UNK_ID)
                        for value in first_word_for_sentence]
 
@@ -273,3 +278,77 @@ def unit_head_loss(logits: dict[str, torch.Tensor],
 
 def unit_parameter_count(bus_width: int) -> int:
     return bus_width * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + SENTENCE_VOCAB_SIZE)
+
+
+@torch.no_grad()
+def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
+                           bpe_merges: Path, context: int, books: int,
+                           max_positions: int, device: torch.device,
+                           vocabulary: UnitLabels) -> dict:
+    """Score the real token/word/sentence heads on held-out DEV excerpts."""
+    manifest = json.loads(Path(dev_manifest).read_text())
+    selected = manifest.get("selected_books") or []
+    if not selected:
+        raise ValueError("DEV manifest has no selected_books")
+    totals = {name: {"units": 0, "top1": 0, "top5": 0}
+              for name in ("token", "word", "sentence")}
+    used = []
+    was_training = model.training
+    model.eval()
+    try:
+        for book in selected[:max(1, books)]:
+            path = Path(corpus_dir) / book["relative_path"]
+            raw = path.read_bytes()
+            start = int(book.get("excerpt_start", 0))
+            length = int(book.get("length", 1536))
+            excerpt = raw[start:start + length]
+            if len(excerpt) < context + 32:
+                continue
+            labels = build_unit_labels(
+                excerpt, bpe_merges,
+                token_vocab=vocabulary.token_vocab,
+                word_vocab=vocabulary.word_vocab,
+                sentence_vocab=vocabulary.sentence_vocab)
+            positions = torch.arange(context, len(excerpt), dtype=torch.long)
+            if max_positions > 0:
+                positions = positions[:max_positions]
+            if not len(positions):
+                continue
+            windows = torch.stack([
+                torch.frombuffer(
+                    bytearray(excerpt[int(pos) - context:int(pos)]),
+                    dtype=torch.uint8).long()
+                for pos in positions
+            ]).to(device)
+            upgrade = model.upgrades(windows)
+            logits = upgrade.get("unit_logits") or {}
+            if not logits:
+                return {"schema": "terminal-rsi-unit-heads-v1", "levels": {}}
+            for name in ("token", "word", "sentence"):
+                target = getattr(labels, f"next_{name}")[positions - 1].to(device)
+                valid = target != IGNORE_ID
+                if not bool(valid.any()):
+                    continue
+                prediction = logits[name][valid].topk(5, dim=-1).indices
+                totals[name]["units"] += int(valid.sum())
+                totals[name]["top1"] += int(
+                    (prediction[:, 0] == target[valid]).sum())
+                totals[name]["top5"] += int(
+                    (prediction == target[valid, None]).any(-1).sum())
+            used.append(book.get("gutenberg_id"))
+    finally:
+        model.train(was_training)
+    levels = {}
+    for name, total in totals.items():
+        if total["units"]:
+            levels[name] = {
+                "units": total["units"],
+                "top1": total["top1"] / total["units"],
+                "top5": total["top5"] / total["units"],
+            }
+    return {
+        "schema": "terminal-rsi-unit-heads-v1",
+        "books": used,
+        "levels": levels,
+        "definition": "next-unit classification head; not byte exactness",
+    }

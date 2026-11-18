@@ -29,6 +29,22 @@ def _default_aux(model: VerbatimV103RSI, previous: torch.Tensor) -> torch.Tensor
 
 
 @torch.no_grad()
+def _word_onset_logits(word_logits: torch.Tensor,
+                       word_vocab: dict[bytes, int]) -> torch.Tensor:
+    """Log-sum-exp of word probabilities grouped by their first byte."""
+    ids_by_byte: list[list[int]] = [[] for _ in range(256)]
+    for word, index in word_vocab.items():
+        if word and 0 <= index < word_logits.shape[-1]:
+            ids_by_byte[word[0]].append(index)
+    logp = torch.log_softmax(word_logits.float(), dim=-1)[0]
+    onset = torch.full((256,), -float("inf"), device=word_logits.device)
+    for byte, ids in enumerate(ids_by_byte):
+        if ids:
+            onset[byte] = torch.logsumexp(logp[torch.tensor(
+                ids, device=logp.device)], dim=0)
+    return onset
+
+
 def generate_bytes(
     model: VerbatimV103RSI,
     prompt: bytes,
@@ -38,6 +54,9 @@ def generate_bytes(
     top_k: int = 0,
     seed: int | None = None,
     device: torch.device | None = None,
+    word_vocab: dict[bytes, int] | None = None,
+    word_onset_weight: float = 0.0,
+    boundary_threshold: float = 0.5,
 ) -> dict:
     """Generate ``steps`` bytes and expose the latent hierarchical state.
 
@@ -91,6 +110,14 @@ def generate_bytes(
         byte_logp = bit_logits_to_byte_log_probs(final_bits)
         candidate_logp = torch.nan_to_num(
             byte_logp.diagonal(), nan=-1e9, posinf=0.0, neginf=-1e9)
+        boundary = torch.sigmoid(
+            upgrade_out["boundary_logits"][0, -1].float()).tolist()
+        word_boundary = bool(boundary[1] > boundary_threshold)
+        if (word_vocab is not None and word_onset_weight > 0
+                and word_boundary and upgrade_out.get("unit_logits")):
+            onset = _word_onset_logits(
+                upgrade_out["unit_logits"]["word"], word_vocab)
+            candidate_logp = candidate_logp + word_onset_weight * onset
         scaled = candidate_logp / float(temperature)
         if top_k and 0 < top_k < 256:
             threshold = torch.topk(scaled, top_k).values[-1]
@@ -102,8 +129,6 @@ def generate_bytes(
         generated.append(next_byte)
         history.append(next_byte)
 
-        boundary = torch.sigmoid(
-            upgrade_out["boundary_logits"][0, -1].float()).tolist()
         records.append({
             "byte": next_byte,
             "boundary_subword": float(boundary[0]),
