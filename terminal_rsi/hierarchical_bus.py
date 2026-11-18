@@ -49,8 +49,15 @@ def hierarchy_parameter_count(width: int) -> int:
         + width + 3 * bw                        # input + three level RMSNorm
         + pair_parameter_count(bw)              # 65,536 paired concepts
         + unit_parameter_count(bw, width)       # real token/word/sentence heads
-        + (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE) * 256 + 256 + 1  # unit->byte decoder
+        + unit_decoder_parameter_count(width)  # unit+hierarchy -> byte MLP
     )
+
+
+def unit_decoder_parameter_count(width: int, hidden: int = 256) -> int:
+    bw = hierarchy_bus_width(width)
+    input_dim = TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + width + 3 * bw
+    return (input_dim * hidden + hidden + 2 * hidden
+            + hidden * 256 + 256 + 1)
 
 
 def causal_mean(x: torch.Tensor, window: int) -> torch.Tensor:
@@ -162,8 +169,13 @@ class CausalHierarchy(nn.Module):
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
         self.unit_heads = (UnitHeads(bw, width)
                            if enable_units else None)
-        self.unit_to_byte = nn.Linear(
-            TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE, 256, bias=True)
+        decoder_input_dim = TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + width + 3 * bw
+        self.unit_to_byte = nn.Sequential(
+            nn.Linear(decoder_input_dim, 256, bias=True),
+            nn.GELU(),
+            nn.LayerNorm(256),
+            nn.Linear(256, 256, bias=True),
+        )
         self.unit_byte_gate = nn.Parameter(torch.zeros(()))
 
         # Small, nonzero lateral projections so a gate that opens can learn.
@@ -174,8 +186,10 @@ class CausalHierarchy(nn.Module):
         for projection in self.top_down:
             nn.init.normal_(projection.weight, std=0.02)
         nn.init.normal_(self.boundary_to_byte.weight, std=0.02)
-        nn.init.normal_(self.unit_to_byte.weight, std=0.02)
-        nn.init.zeros_(self.unit_to_byte.bias)
+        for layer in self.unit_to_byte:
+            if isinstance(layer, nn.Linear):
+                nn.init.normal_(layer.weight, std=0.02)
+                nn.init.zeros_(layer.bias)
         with torch.no_grad():
             self.boundary.bias.copy_(torch.tensor([0.0, -1.0, -2.0]))
 
@@ -244,7 +258,9 @@ class CausalHierarchy(nn.Module):
             if self.ablation.get("unit_decoder", True):
                 decoder_input = torch.cat(
                     (unit_logits["current_token"],
-                     unit_logits["current_word"]), dim=-1)
+                     unit_logits["current_word"],
+                     state[:, -1], subword[:, -1], word[:, -1],
+                     sentence[:, -1]), dim=-1)
                 unit_byte_raw = self.unit_to_byte(decoder_input)
                 unit_byte_logits = (
                     torch.tanh(self.unit_byte_gate) * unit_byte_raw)
