@@ -62,6 +62,11 @@ single-device path.
 measured `kaggle10m_nomtp` profile with `TPU_MODE = "single"` or `"multi"`.
 It retries the single-device path if the multi-core launch fails.
 
+**Pin torch_xla to the installed torch version.**  The latest
+`torch_xla[tpu]` wheel can be built against a newer torch and fail with an
+`_XLAC ... undefined symbol` import error.  The notebook uses
+`torch_xla[tpu]==<torch base version>`; do the same in a manual environment.
+
 ## Caveats
 
 - XLA compilation is counted inside the 600-second cap; the first step is
