@@ -219,6 +219,7 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
             side.append(parameter)
         else:
             added.append(parameter)
+    added.append(model.word_prior_gate)
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)
     else:
