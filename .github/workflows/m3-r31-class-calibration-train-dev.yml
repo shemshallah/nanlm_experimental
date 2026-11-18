@@ -1,0 +1,63 @@
+name: M3 R31 class-selective calibration CPU TRAIN GATE DEV
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r31/**'
+      - '.github/workflows/m3-r31-class-calibration-train-dev.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  m3-r31-class-calibration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Verify unified R29, R30 and new R31 causal paths
+        run: |
+          python -m compileall -q m3_default m3_r29 m3_r30 m3_r31
+          python -m unittest discover -s m3_default -p 'test_*.py' -v
+          python -m unittest discover -s m3_r29 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r30 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r31 -p 'test_*.py' -v
+      - name: Recover and verify the complete R30 25-group Adam checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r31_parent
+          gh run download 44218221694 -R shemshallah/nanlm_experimental \
+            -n m3-r30-25-group-optimizer-and-matched-history-dev -D /tmp/m3_r31_parent
+          printf '%s  %s\n' \
+            a757433f6b72b4b444763de2f3158eea960a530c94fe613af58de247647b3421 \
+            /tmp/m3_r31_parent/R30_full_adam_checkpoint.npz | sha256sum -c -
+      - name: Download SHA-checked public-domain books from NaNROUTER Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r31_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER \
+            --dir /tmp/m3_r31_corpus
+          cd /tmp/m3_r31_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Train three class gains and benchmark independent book controls
+        run: |
+          python -m m3_r31.train_dev \
+            --corpus-root /tmp/m3_r31_corpus \
+            --parent-checkpoint /tmp/m3_r31_parent/R30_full_adam_checkpoint.npz \
+            --output m3_r31/results/R31_DEV.json \
+            --checkpoint m3_r31/results/R31_full_adam_checkpoint.npz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r31-28-group-optimizer-and-class-dev
+          path: m3_r31/results/
+          if-no-files-found: warn
