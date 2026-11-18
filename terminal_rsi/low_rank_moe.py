@@ -64,7 +64,7 @@ class SparseRankOneMoE(nn.Module):
                 self.experts * (probabilities * fraction).sum()).detach()
             entropy = -(probabilities * probabilities.clamp_min(1e-9).log()).sum()
             self.last_entropy = entropy.detach()
-        return flat + torch.tanh(self.gate) * self.out(output).reshape(
+        return x + torch.tanh(self.gate) * self.out(output).reshape(
             batch, time, width)
 
     def parameter_count(self) -> int:

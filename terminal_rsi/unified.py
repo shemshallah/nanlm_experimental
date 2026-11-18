@@ -179,7 +179,7 @@ class CausalBlock(nn.Module):
         x = x + self.project(a.transpose(1, 2).contiguous().reshape(b, t, d))
         normed = self.norm_ff(x)
         gate, value = self.gate_value(normed).chunk(2, dim=-1)
-        x = x + self.down(F.silu(gate, inplace=True).mul_(value))
+        x = x + self.down(F.silu(gate).mul_(value))
         if self.moe is not None:
             x = self.moe(x)
         return x
