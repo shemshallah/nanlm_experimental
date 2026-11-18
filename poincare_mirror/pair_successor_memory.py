@@ -154,6 +154,8 @@ class PairSuccessorTrust(nn.Module):
                                 nn.Parameter(torch.zeros(4)) if joint_content else None)
         self.register_parameter('future_weight',
                                 nn.Parameter(torch.zeros(2,4)) if future_content else None)
+        # R74 optional counterfactual readout; accepted R69 is unchanged.
+        self.register_parameter('counterfactual_weight',None)
         self.horizon = horizon
         self.smoothing = smoothing
         self.query_map = None
@@ -190,6 +192,59 @@ class PairSuccessorTrust(nn.Module):
         self.future_weight=nn.Parameter(torch.zeros(2,4,device=self.joint_weight.device,
                                                     dtype=self.joint_weight.dtype))
         return self.future_weight
+
+    def enable_counterfactual_content(self):
+        if self.joint_weight is None or self.counterfactual_weight is not None:
+            raise ValueError('R74 needs the inherited joint rail')
+        self.counterfactual_weight=nn.Parameter(torch.zeros(
+            4,device=self.joint_weight.device,dtype=self.joint_weight.dtype))
+        return self.counterfactual_weight
+
+    def counterfactual_forward(self,base,exact,negative):
+        """Learn a contrast between matching causal factual and corrupt reads.
+
+        The caller must independently construct both histories from the
+        observed prefix, never the next-byte target or another book.
+        """
+        if self.counterfactual_weight is None:
+            raise ValueError('R74 counterfactual readout is disabled')
+        if base.ndim!=3 or base.shape[-1]!=257 or len(exact)!=3 or len(negative)!=3:
+            raise ValueError('R74 requires aligned B,T,257 logits and triples')
+        eh,ec,ep=exact
+        nh,nc,np=negative
+        for h,c,p in (exact,negative):
+            if (h.shape!=base.shape or c.shape!=base.shape[:2] or
+                    p.shape!=base.shape[:2] or not torch.isfinite(h).all() or
+                    not torch.isfinite(c).all() or not torch.isfinite(p).all() or
+                    torch.any(h<0) or torch.any(h.sum(-1)>1.00001) or
+                    torch.any(c<0) or torch.any(c>1) or torch.any(p<0)):
+                raise ValueError('Invalid R74 causal evidence')
+        if (not torch.allclose(ec,nc,atol=1e-6,rtol=0) or
+                not torch.allclose(ep,np,atol=1e-6,rtol=0)):
+            raise ValueError('R74 requires matching control locations')
+        with torch.no_grad():
+            smooth_e=(eh.float()*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
+            smooth_n=(nh.float()*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
+            log_ratio=(smooth_e.log()-smooth_n.log()).clamp(-3.,3.)
+            tv=(eh.float()-nh.float()).abs().sum(-1)*.5
+            baseline=base.detach().float().softmax(-1)
+            advantage=((eh.float()-nh.float())*baseline).sum(-1)
+            entropy=-(eh.float()*eh.float().clamp_min(1e-12).log()).sum(-1)/math.log(257)
+            features=torch.stack((ec.float(),tv,advantage,1-entropy),-1)
+        strength=(torch.tanh((features.to(self.counterfactual_weight.dtype)*
+                             self.counterfactual_weight).sum(-1))*
+                  ec.to(self.counterfactual_weight.dtype)*tv.to(
+                      self.counterfactual_weight.dtype))
+        mask=torch.ones(257,device=base.device,dtype=torch.bool)
+        mask[32]=False
+        mask[256]=False
+        before=base[...,mask]
+        proposed=before+(strength[...,None]*log_ratio[...,mask]).to(base.dtype)
+        offset=torch.logsumexp(proposed.float(),-1,keepdim=True)-torch.logsumexp(
+            before.float(),-1,keepdim=True)
+        out=base.clone()
+        out[...,mask]=proposed-offset.to(base.dtype)
+        return out
 
     def future_forward(self,future_logits,history,*,protect_winner=False,
                        horizon_bridge=0.0):

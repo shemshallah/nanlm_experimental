@@ -43,7 +43,7 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                          history=32768,key_mode="hierarchical",
                          score_start=0,score_positions=None,
                          space_rank_guard=False,future_winner_guard=False,
-                         future_horizon_bridge=0.0):
+                         future_horizon_bridge=0.0,counterfactual_readout=False):
     """Matched causal result per arm on one independent book's input prefix.
 
     Args:
@@ -84,6 +84,9 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
     active_future=bool(model.cfg.pair_successor_future)
     if (future_winner_guard or future_horizon_bridge) and not active_future:
         raise ValueError('Future winner guard requires an R69 memory model')
+    if (counterfactual_readout and
+            model.pair_successor.counterfactual_weight is None):
+        raise ValueError('Enable R74 counterfactual readout before scoring')
     for arm in ARMS:
         kw=dict(horizon=history,key_mode=key_mode)
         if arm=="wrong_address":
@@ -133,6 +136,7 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
         lo=query_start-left
         hi=stop-left
         arm_values={}
+        arm_histories={}
         future_values={}
         for arm,stream in streams.items():
             hist=torch.zeros_like(raw_logits)
@@ -153,6 +157,7 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                     f"coverage_max={coverage.max().item()}, "
                     f"coverage_min={coverage.min().item()}, "
                     f"hits_min={hits.min().item()}")
+            arm_histories[arm]=(hist[:,lo:hi],coverage[:,lo:hi],hits[:,lo:hi])
             # Preserve inherited R55/R58 rails exactly in each matched arm.
             corrected,_=model.pair_successor(
                 raw_logits,pairs,ids,
@@ -176,6 +181,12 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                     (plus2,plus3),tuple(evidence),
                     protect_winner=future_winner_guard,
                     horizon_bridge=future_horizon_bridge)
+        if counterfactual_readout:
+            old=arm_values['exact']
+            candidate=model.pair_successor.counterfactual_forward(
+                old.unsqueeze(0),arm_histories['exact'],
+                arm_histories['wrong_successor'])[0]
+            arm_values['exact']=protect_parent_space_rank(old,candidate)
         if space_rank_guard:
             for arm in ARMS:
                 if arm!="neutral":
