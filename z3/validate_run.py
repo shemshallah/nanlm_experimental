@@ -27,6 +27,7 @@ from typing import Any
 
 EXPECTED_115M = 115_238_237
 EXPECTED_KAGGLE10M_MTP64 = 111_097_437
+EXPECTED_KAGGLE10M_SMALL = 84_455_112
 
 
 def _finite(value: Any) -> bool:
@@ -101,6 +102,8 @@ def validate_payload(
         target = EXPECTED_115M
     elif target is None and preset == "kaggle10m_mtp64":
         target = EXPECTED_KAGGLE10M_MTP64
+    elif target is None and preset == "kaggle10m_small":
+        target = EXPECTED_KAGGLE10M_SMALL
     if target is not None:
         check(
             "parameter_count",

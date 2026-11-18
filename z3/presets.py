@@ -300,6 +300,7 @@ PRESETS["kaggle10m_small"] = {
     "compute_mtp": False,
     "out": "runs/z3_115m_kaggle10m_small",
 }
+PRESET_PARAM_COUNTS["kaggle10m_small"] = 84_455_112
 
 
 def get_preset(name: str) -> dict[str, Any]:

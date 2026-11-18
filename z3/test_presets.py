@@ -162,8 +162,10 @@ class PresetTests(unittest.TestCase):
         self.assertTrue(args.compute_concept)
         cfg = make_config(args, 64060)
         model = V3LM(cfg)
-        self.assertLess(model.parameter_count(), 100_000_000)
-        self.assertGreater(model.parameter_count(), 80_000_000)
+        self.assertEqual(
+            model.parameter_count(),
+            PRESET_PARAM_COUNTS["kaggle10m_small"],
+        )
         self.assertIsNone(model.mtp_output)
         self.assertEqual(len(model.mtp_blocks), 0)
         self.assertEqual(len(model.mtp_heads), 0)
