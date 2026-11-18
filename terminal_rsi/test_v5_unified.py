@@ -66,7 +66,7 @@ class V5ModuleTests(unittest.TestCase):
         self.assertTrue(labels.token_vocab)
         self.assertTrue(labels.sentence_vocab)
         # Position 4 is the last byte of "Hello"; the next word is "world".
-        world = labels.word_vocab[b"world"]
+        world = labels.word_vocab[b"world."]
         self.assertEqual(int(labels.next_word[4]), world)
         # Changing a future byte cannot change an earlier next-unit label.
         changed = bytearray(raw)
