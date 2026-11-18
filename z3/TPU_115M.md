@@ -62,10 +62,13 @@ single-device path.
 measured `kaggle10m_nomtp` profile with `TPU_MODE = "single"` or `"multi"`.
 It retries the single-device path if the multi-core launch fails.
 
-**Pin torch_xla to the installed torch version.**  The latest
-`torch_xla[tpu]` wheel can be built against a newer torch and fail with an
-`_XLAC ... undefined symbol` import error.  The notebook uses
-`torch_xla[tpu]==<torch base version>`; do the same in a manual environment.
+**Pin a matching torch/torch_xla pair.**  The Kaggle TPU image currently
+ships **torch 2.11 (CPU)**, while the public libtpu wheel index exposes
+`torch_xla` 2.8.0/2.8.1/2.9.0.  Installing `torch_xla` without a matching
+torch fails with `_XLAC ... undefined symbol`.  The notebook tries
+**torch 2.9.0 + torch_xla 2.9.0**, then **2.8.1 + 2.8.1**, and runs all
+training/eval in child processes so the notebook process never imports the
+old torch 2.11 ABI.  For a manual environment use the same pairing.
 
 ## Caveats
 
