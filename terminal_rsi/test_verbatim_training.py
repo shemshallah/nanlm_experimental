@@ -45,7 +45,7 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertFalse(torch.equal(before, self.model.original.v103_slot_counts))
         self.assertNotEqual(self.model.residual_gate.item(), 0.0)
         self.assertGreater(len(self.optimizer.state), 0)
-        self.assertEqual(len(self.optimizer.param_groups), 3)
+        self.assertEqual(len(self.optimizer.param_groups), 4)
 
     def test_verified_rsi_feedback_controls_the_same_neural_upgrade_path(self):
         """A bounded RSI trust change alters learned residuals, never the gate-zero parent."""
@@ -83,7 +83,7 @@ class VerbatimTrainingCPU(unittest.TestCase):
         self.assertEqual(int(self.model.original.verified_events),
                          initial_events + 2)
         self.assertGreater(len(self.optimizer.state), 0)
-        self.assertEqual(len(self.optimizer.param_groups), 3)
+        self.assertEqual(len(self.optimizer.param_groups), 4)
 
     def test_exact_256_way_dev_scorer_passes_aux_and_local_every_time(self):
         class Spy:

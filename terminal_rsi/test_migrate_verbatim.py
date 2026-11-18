@@ -28,7 +28,7 @@ class HistoricToBlackwellCPUTests(unittest.TestCase):
                       "optimizer": opt.state_dict()}
             grown, migrated, report = migrate_checkpoint(source, "t4")
             self.assertEqual(report["new_mode"], "t4")
-            self.assertEqual(len(migrated.param_groups), 3)
+            self.assertEqual(len(migrated.param_groups), 4)
             self.assertFalse(report["function_preserving"])
             for key, tensor in original.original.state_dict().items():
                 self.assertTrue(torch.equal(tensor,

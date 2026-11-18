@@ -132,37 +132,57 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
         noop_conf_shards = _noop_loss(
             model, adapter, probe_conf, per_sample=True).reshape(
                 conf_shards, -1).mean(-1)
+    grad_steps = (0.01, 0.03, 0.1, 0.3, 1.0)
+    branch_shards = max(1, min(4, len(branch.targets)))
     for _round in range(rounds):
         with torch.no_grad():
             A0 = adapter.A.detach()
             B0 = adapter.B.detach()
             bias0 = adapter.bias.detach()
-            A = A0[None] + noise * torch.randn(
-                candidates, A0.shape[0], A0.shape[1], device=device)
-            B = B0[None] + noise * torch.randn(
-                candidates, B0.shape[0], B0.shape[1], device=device)
-            bias = bias0[None] + 0.01 * torch.randn(
-                candidates, bias0.shape[0], device=device)
-        population = AdapterPopulation(A, B, bias).to(device)
-        optimizer = torch.optim.Adam(
-            population.parameters(), lr=lr, weight_decay=1e-4)
-        for _step in range(steps):
-            optimizer.zero_grad(set_to_none=True)
-            loss = population.loss(model, branch).sum()
+            # Nonzero probe point breaks the A=B=0 saddle.
+            A_ref = A0 + noise * torch.randn(
+                A0.shape, device=device)
+            B_ref = B0 + noise * torch.randn(
+                B0.shape, device=device)
+            bias_ref = bias0 + 0.01 * torch.randn(
+                bias0.shape, device=device)
+        candidate_A = [A0[None], A_ref[None]]
+        candidate_B = [B0[None], B_ref[None]]
+        candidate_bias = [bias0[None], bias_ref[None]]
+        branch_size = max(1, len(branch.targets) // branch_shards)
+        for shard_index in range(branch_shards):
+            lo = shard_index * branch_size
+            hi = len(branch.targets) if shard_index + 1 == branch_shards else (shard_index + 1) * branch_size
+            part = FastCache(
+                branch.inputs[lo:hi], branch.base_bits[lo:hi],
+                branch.bits[lo:hi], branch.targets[lo:hi])
+            A = A_ref[None].clone().requires_grad_(True)
+            B = B_ref[None].clone().requires_grad_(True)
+            bias = bias_ref[None].clone().requires_grad_(True)
+            loss = _adapter_loss(model, A, B, bias, part).sum()
             if not torch.isfinite(loss):
-                break
-            loss.backward()
-            nn.utils.clip_grad_norm_(population.parameters(), 1.0)
-            optimizer.step()
+                continue
+            gA, gB, gb = torch.autograd.grad(loss, [A, B, bias])
+            gA = gA / gA.norm().clamp_min(1e-8)
+            gB = gB / gB.norm().clamp_min(1e-8)
+            gb = gb / gb.norm().clamp_min(1e-8)
+            for step in grad_steps:
+                candidate_A.append((A_ref[None] - step * gA).detach())
+                candidate_B.append((B_ref[None] - step * gB).detach())
+                candidate_bias.append((bias_ref[None] - step * gb).detach())
+        A_pop = torch.cat(candidate_A, dim=0)
+        B_pop = torch.cat(candidate_B, dim=0)
+        bias_pop = torch.cat(candidate_bias, dim=0)
         with torch.no_grad():
-            selection_loss = population.loss(
-                model, probe_sel, per_sample=True).mean(-1)
-            keep = min(max(1, int(top_k)), candidates)
+            selection_loss = _adapter_loss(
+                model, A_pop, B_pop, bias_pop, probe_sel,
+                per_sample=True).mean(-1)
+            keep = min(max(1, int(top_k)), len(selection_loss))
             top = torch.argsort(selection_loss)[:keep]
             weights = torch.softmax(-selection_loss[top], dim=0)
-            A_ens = (population.A[top] * weights[:, None, None]).sum(0)[None]
-            B_ens = (population.B[top] * weights[:, None, None]).sum(0)[None]
-            bias_ens = (population.bias[top] * weights[:, None]).sum(0)[None]
+            A_ens = (A_pop[top] * weights[:, None, None]).sum(0)[None]
+            B_ens = (B_pop[top] * weights[:, None, None]).sum(0)[None]
+            bias_ens = (bias_pop[top] * weights[:, None]).sum(0)[None]
             ensemble_loss = _adapter_loss(
                 model, A_ens, B_ens, bias_ens, probe_conf,
                 per_sample=True)[0]
@@ -174,14 +194,11 @@ def run_fast_adapter_rsi(model, branch: FastCache, probe: FastCache, *,
                                     / math.sqrt(conf_shards))
                               if conf_shards > 1 else float("inf"))
             threshold = max(float(min_gain), float(z_score) * standard_error)
-            proposals += candidates
+            proposals += max(0, len(selection_loss) - 1)
             if delta > best_delta:
                 best_delta = delta
                 best_se = standard_error
             if delta > threshold:
-                # Final guard: the ensemble must improve the FULL probe, not
-                # only its confirmation half.  Without this, selection noise
-                # accepted an adapter that made the actual probe worse.
                 current_full = _noop_loss(model, adapter, probe)
                 candidate_full = _adapter_loss(
                     model, A_ens, B_ens, bias_ens, probe)[0]

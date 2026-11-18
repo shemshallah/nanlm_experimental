@@ -57,7 +57,7 @@ class FreshOneUpdateEndToEnd(unittest.TestCase):
             self.assertEqual(report["actual_byte_updates_this_round"], 1)
             self.assertEqual(report["cpu_threads"], 1)
             self.assertTrue(report["fresh_start_untrained_v103"])
-            self.assertEqual(len(saved["optimizer"]["param_groups"]), 3)
+            self.assertEqual(len(saved["optimizer"]["param_groups"]), 4)
             self.assertTrue(saved["optimizer"]["state"])
             self.assertEqual(report["terminal_events"], [])
             self.assertEqual(report["terminal_reward_mode"], "predictive_dual_train_bpb")

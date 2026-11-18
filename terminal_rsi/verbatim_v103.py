@@ -171,7 +171,17 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
     parent = list(model.original.named_parameters())
     base = [p for name, p in parent if not name.startswith("v103_")]
     specialists = [p for name, p in parent if name.startswith("v103_")]
-    added = [p for p in model.upgrades.parameters() if p.requires_grad]
+    side = []
+    added = []
+    for name, parameter in model.upgrades.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        if (name.startswith("hierarchy.unit_heads.")
+                or name.startswith("hierarchy.unit_to_byte.")
+                or name == "hierarchy.unit_byte_gate"):
+            side.append(parameter)
+        else:
+            added.append(parameter)
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)
     else:
@@ -182,6 +192,7 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
         {"params": base, "lr": 2e-3, "name": "original_base"},
         {"params": specialists, "lr": 5e-4, "name": "original_v103"},
         {"params": added, "lr": model.cfg.lr, "name": "recursive_upgrades"},
+        {"params": side, "lr": 1e-3, "name": "unit_side_heads"},
     ])
 
 
@@ -238,8 +249,8 @@ def restore_v103_parent(original_path: Path, model: VerbatimV103RSI, optimizer):
     if len(current["state"]) != len(original_adam):
         raise ValueError("Failed to map all original Adam moments by parameter name")
     if len(old_groups) == 2:
-        if len(optimizer.param_groups) != 3:
-            raise ValueError("Historical v103 needs TWO original Adam groups + upgrade group; use build_v103_optimizer")
+        if len(optimizer.param_groups) not in (3, 4):
+            raise ValueError("Historical v103 needs TWO original Adam groups + upgrade/side groups; use build_v103_optimizer")
         for idx, group in enumerate(old_groups):
             target = current["param_groups"][idx]
             for key, value in group.items():

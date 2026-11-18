@@ -166,7 +166,7 @@ class VerbatimGPUParityCPUTests(unittest.TestCase):
             combined = build_v103_optimizer(model)
             summary = restore_v103_parent(file, model, combined)
             self.assertEqual(summary["legacy_adam_states"], len(opt.state))
-            self.assertEqual(len(combined.param_groups), 3)
+            self.assertEqual(len(combined.param_groups), 4)
             self.assertEqual([g["lr"] for g in combined.param_groups[:2]],
                              [2e-3, 5e-4])
             self.assertEqual(model.original.causal_copy_enabled, True)
