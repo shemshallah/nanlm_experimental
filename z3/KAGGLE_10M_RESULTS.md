@@ -103,9 +103,11 @@ The 4e-4 arm was close but 0.0075 test BPB worse.  Keep `kaggle10m_lr3e4`.
 
 The true no-MTP parameter removal is implemented as `kaggle10m_small`:
 **84,455,112 parameters**, no MTP branch/output/position/HD/adapter modules,
-concept loop and feedback bus retained.  Its 2-step CPU smoke passes
-(`[model] params=84,455,112`, `mtp_heads=0`).  It has **not** been measured on
-the T4 yet.
+concept loop and feedback bus retained.  A 300-step CPU smoke passes:
+`params=84,455,112`, `mtp_heads=0`, 300 steps, 0 non-finite, feedback token
+gate **-0.00261**, object gate **0.01805**, validation `ok=true` with only the
+object-gate warning.  The synthetic CI BPB (0.3382) is not a quality result.
+The small model has **not** been measured on the T4 yet.
 
 The six-arm T4 sweep was prepared but the Kaggle account hit its **weekly GPU
 quota** (`Maximum weekly GPU quota of 30.00 hours reached`) before it could be
