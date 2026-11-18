@@ -5,7 +5,12 @@ on:
     paths:
       - 'fa1r7.12/source/fa1_r764_multiresolution.py'
       - 'fa1r7.12/source/fa1_r764_cpu_pilot.py'
+      - 'fa1r7.12/source/fa1_r764_continue_cpu.py'
+      - 'fa1r7.12/source/fa1_r764_replication.py'
+      - 'fa1r7.12/source/fa1_r764_promotion.py'
+      - 'fa1r7.12/source/fa1_default.py'
       - 'fa1r7.12/source/test_fa1_r764_multiresolution.py'
+      - 'fa1r7.12/source/test_fa1_r764_promotion.py'
       - 'fa1r7.12/source/fa1_r727_checkpoint.py'
       - '.github/workflows/fa1-r764-multiresolution.yml'
   workflow_dispatch:
@@ -34,4 +39,5 @@ jobs:
             test_fa1_r761_two_rail_geometry \
             test_fa1_r762_selective_intersection \
             test_fa1_r763_temporal_cross \
-            test_fa1_r764_multiresolution
+            test_fa1_r764_multiresolution \
+            test_fa1_r764_promotion

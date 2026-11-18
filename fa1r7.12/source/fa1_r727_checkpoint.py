@@ -92,8 +92,21 @@ def save_unpromoted(path, model, optimizer, root, source_path, source_metadata=N
 def load_unified(path, root, threads=2):
     torch.set_num_threads(threads)
     obj = torch.load(path, map_location='cpu', weights_only=False)
-    if obj.get('format') != FORMAT or obj.get('promoted') is not False or obj.get('accepted_step') != 14416:
-        raise ValueError('invalid or promoted R7.27 checkpoint')
+    if (obj.get('format') != FORMAT or obj.get('promoted') not in (True, False)
+            or obj.get('accepted_step') != 14416):
+        raise ValueError('invalid unified R7.27 checkpoint')
+    if obj['promoted']:
+        # R7.64 is the first DEV-verified successor explicitly promoted by
+        # the user.  Do not silently accept arbitrary previously promoted
+        # experiments or mistake DEV promotion for an independent TEST pass.
+        if (obj.get('architecture_round') !=
+                'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'
+                or obj.get('development_gate_passed') is not True
+                or not obj.get('promotion_source_checkpoint_sha256')
+                or not obj.get('promotion_dev_report_sha256')
+                or not obj.get('promotion_replication_report_sha256')
+                or obj.get('independent_test_opened') is not False):
+            raise ValueError('unverified or TEST-ambiguous FA1 promotion')
     if obj.get('corpus_metadata_sha256') != corpus_digests(root):
         raise ValueError('R7.27 tokenizer/tree identity mismatch')
     serialized_architecture = obj.get('architecture_round')

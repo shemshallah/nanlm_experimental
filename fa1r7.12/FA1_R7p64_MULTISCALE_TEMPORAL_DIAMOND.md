@@ -57,3 +57,31 @@ continuation eligible for consideration. TEST must remain sealed until the
 architecture and training decision are frozen.
 
 This is word-level NLL, not measured byte BPB or full vocabulary top-5.
+
+## User-authorized DEV promotion
+
+R7.64 completed the 1,000-update CPU DEV gate with positive 15-book
+bootstrap lower bounds against all four competitors. The promotion script
+requires an additional fresh-position DEV replication before it marks the
+same trained 37-group checkpoint as the FA1 default.
+
+**Reproducibility finding, 2026-11-18:** The original 1,000-update result
+reproduced on the same deterministic samples and passed all four gates.
+However, the separate 4,096-position, 15-book DEV sample produced a
+positive mean hierarchy advantage (+0.00074046 nats/word) and positive
+geometry-versus-lexical advantage (+0.00079175 nats/word), **but both
+book-bootstrap lower bounds were negative** (-0.00051495 and -0.00035131).
+The candidate therefore failed this stronger replication and must **not**
+be promoted on that evidence. Historical positive results are retained;
+independent TEST remains sealed. A same-architecture continuation resumes
+the full R7.64 state and sixth-tensor AdamW history while freezing all
+36 inherited parameter groups. Candidate selection uses original DEV
+samples; any later replication must declare its own sample/seed and
+acknowledge that DEV has been consulted repeatedly.
+
+The default entrypoint is `source/fa1_default.py:load_default` and its
+immutable checkpoint filename is `FA1_R764_PROMOTED_DEV_GATE.pt`. This
+changes FA1's default route only. R7.63 and older explicit checkpoint
+paths still load unchanged. The promoted metadata states
+`DEV_verified_default_TEST_unopened`; this is not a claim of independent
+TEST or frontier superiority.
