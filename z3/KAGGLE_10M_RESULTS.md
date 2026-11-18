@@ -9,6 +9,21 @@ frontier claim.
 feedback bus but skips the MTP branch and full-vocab MTP heads.  The original
 2e-4 result and the 3e-4/MTP-on result are kept as historical references.
 
+## TPU status
+
+The TPU/XLA code path is implemented and CPU/CI-tested, but **no TPU result
+exists yet**.  Kaggle's push API accepts `enableTpu`/`machineShape` and then
+still schedules the session on the standard CPU image (`COLAB_IMAGE_TYPE=cpu`,
+no `/dev/vfio`), leaving the 20-hour TPU quota at `0s` used.
+
+The kernel metadata is now correct: `machineShape = TpuV5E8` and the stale
+CPU `dockerImage` pin is cleared (`dockerImage = ""`).  The remaining blocker
+is Kaggle's one-time **Persona identity verification**, which Kaggle requires
+for TPUs (GPUs only need phone verification).  Complete it at
+<https://www.kaggle.com/settings>, then rerun
+[`kaggle_tpu_115m.ipynb`](kaggle_tpu_115m.ipynb).  See
+[`TPU_115M.md`](TPU_115M.md) for the push details.
+
 ## Run
 
 - Kaggle kernel: <https://www.kaggle.com/code/shem42/z4-115m-kaggle-10m>

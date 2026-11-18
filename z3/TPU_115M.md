@@ -1,6 +1,32 @@
 # Z4 115M on TPU/XLA
 
-The trainer now has a maintained TPU path:
+## Status: code ready, TPU blocked by Kaggle account verification
+
+No TPU result exists yet.  The 20-hour TPU quota is untouched (`0s` used).
+Every pushed "TPU" kernel still runs on the standard CPU image
+(`COLAB_IMAGE_TYPE=cpu`, no `/dev/vfio`), so `xm.get_xla_supported_devices()`
+times out.
+
+Two separate Kaggle issues had to be fixed to even request a TPU:
+
+1. **Machine shape must be explicit.**  `enableTpu: true` alone is not enough.
+   The saved kernel needs `machineShape: "TpuV5E8"` (or the legacy
+   `"Tpu1VmV38"`, which Kaggle substitutes with the default TPU).
+2. **A stale CPU image pin overrides the TPU VM.**  The kernel may carry
+   `dockerImage: "gcr.io/kaggle-images/python@sha256:..."`, and the server then
+   runs the TPU request in that CPU image.  Push with
+   `dockerImage: ""` and `dockerImagePinningType: "latest"` to clear it.
+   Verify with `GetKernel` that `machineShape` shows `TpuV5E8` and
+   `dockerImage` is absent.
+
+The `z4-115m-tpu` kernel now has the correct metadata.  With the image pin
+cleared, a TPU push still lands on CPU and the quota stays at zero, which
+points at Kaggle's one-time **Persona identity verification** gate for TPUs
+(GPUs only require phone verification).  Complete it at
+<https://www.kaggle.com/settings>; after that, rerun the notebook.  Do not
+record a TPU result until the log shows a TPU device.
+
+The trainer has a maintained TPU path:
 
 ```sh
 python z3/train_v3.py --preset kaggle10m_nomtp \
