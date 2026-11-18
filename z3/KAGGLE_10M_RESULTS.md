@@ -99,6 +99,29 @@ Same WikiText-2 bins, batch 4, 600-second cap.
 Early decay and 4e-4 did **not** beat the plain 3e-4 / 1,000-step horizon.
 The 4e-4 arm was close but 0.0075 test BPB worse.  Keep `kaggle10m_lr3e4`.
 
+## Small model and pending sweep
+
+The true no-MTP parameter removal is implemented as `kaggle10m_small`:
+**84,455,112 parameters**, no MTP branch/output/position/HD/adapter modules,
+concept loop and feedback bus retained.  Its 2-step CPU smoke passes
+(`[model] params=84,455,112`, `mtp_heads=0`).  It has **not** been measured on
+the T4 yet.
+
+The six-arm T4 sweep was prepared but the Kaggle account hit its **weekly GPU
+quota** (`Maximum weekly GPU quota of 30.00 hours reached`) before it could be
+pushed:
+
+- `small_b4`, `small_b6`
+- `nomtp_b5`
+- `nomtp_lr35` (3.5e-4)
+- `nomtp_warm10`
+- `nomtp_drop0`
+
+Notebook: [`kaggle_small_sweep.ipynb`](kaggle_small_sweep.ipynb).  Do not treat
+the small model as a measured improvement until that sweep runs.  The current
+measured best remains `kaggle10m_nomtp` at **1.5981 test BPB / 1.6425
+validation BPB**.
+
 ## Active-compute ablation
 
 Run: <https://www.kaggle.com/code/shem42/z4-115m-compute-ablation>  

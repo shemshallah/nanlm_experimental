@@ -2,8 +2,10 @@
 
 This is a static parameter/compute audit of the fixed `115m` preset plus the
 short-run changes used by the `kaggle10m` preset.  The T4 measurements are in
-[`KAGGLE_10M_RESULTS.md`](KAGGLE_10M_RESULTS.md).  The current best short-run
-profile is **`kaggle10m_nomtp`**: 115,238,237 parameters, 900 steps, **1.5981
+[`KAGGLE_10M_RESULTS.md`](KAGGLE_10M_RESULTS.md).  A true no-MTP parameter
+removal (`kaggle10m_small`, 84,455,112 parameters) is implemented and
+CPU-smoke-tested; its T4 sweep is pending the Kaggle weekly GPU quota.  The
+current measured best short-run profile is **`kaggle10m_nomtp`**: 115,238,237 parameters, 900 steps, **1.5981
 WikiText-2 BPB** at a 600-second cap.  It keeps the concept loop and feedback
 bus but skips the MTP branch/head compute; the MTP parameters remain in the
 checkpoint but are not executed.  The 3e-4/MTP-on profile is 1.7489; the
