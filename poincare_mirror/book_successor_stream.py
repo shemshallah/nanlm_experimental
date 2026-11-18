@@ -5,6 +5,7 @@ only after its successor byte has been OBSERVED at the next input position.
 Supports independently replayable snapshots and chunk-boundary continuity.
 """
 from collections import defaultdict,deque
+import math
 import torch
 
 
@@ -12,12 +13,17 @@ class CausalBookSuccessor:
     VALID_MODES=("pair","pair_byte","pair_bigram","head_byte","hierarchical")
 
     def __init__(self,horizon=32768,vocab=257,key_mode="hierarchical",
-                 value_control="exact",query_map=None,query_byte_map=None):
+                 value_control="exact",query_map=None,query_byte_map=None,
+                 recency_half_life=0.0):
         if horizon<1 or vocab<2 or key_mode not in self.VALID_MODES:
             raise ValueError("Invalid book-memory horizon/vocab/key mode")
         if value_control not in ("exact","rotated"):
             raise ValueError("Invalid successor control")
+        if (not isinstance(recency_half_life,(int,float)) or
+                not math.isfinite(recency_half_life) or recency_half_life<0):
+            raise ValueError('Invalid causal recency half-life')
         self.horizon,self.vocab,self.key_mode=horizon,vocab,key_mode
+        self.recency_half_life=float(recency_half_life)
         self.value_control=value_control
         self.query_map=self._check_map(query_map,32640,"pair")
         self.query_byte_map=self._check_map(query_byte_map,vocab,"byte")
@@ -151,13 +157,22 @@ class CausalBookSuccessor:
         if matched:
             coverage=sum(confidence for _,confidence in matched)/len(pairs)
             for hits,_ in matched:
-                amount=1.0/(len(matched)*len(hits))
-                for rec in hits:
+                if self.recency_half_life:
+                    # Stable normalization: only observed, already installed
+                    # episodes contribute, and the newest hit has weight 1.
+                    newest=max(rec['u'] for rec in hits)
+                    weights=[2.0**(-(newest-rec['u'])/self.recency_half_life)
+                             for rec in hits]
+                    total_weight=sum(weights)
+                else:
+                    weights=[1.0]*len(hits)
+                    total_weight=float(len(hits))
+                for rec,w in zip(hits,weights):
                     # R54 wrong-value oracle rotates the observed prefix:
                     # earliest u receives x[t], later u receives x[u].
                     value=(observed_byte if rec["u"]==earliest else rec["byte"]) if (
                         self.value_control=="rotated") else rec["successor"]
-                    hist[value]+=amount
+                    hist[value]+=w/(len(matched)*total_weight)
             hist/=hist.sum()
         hist=hist.to(torch.float32)
         return hist,coverage,float(len(positions))
@@ -184,6 +199,7 @@ class CausalBookSuccessor:
         return {"book_id":self.book_id,"position":self.position,
                 "horizon":self.horizon,"vocab":self.vocab,
                 "key_mode":self.key_mode,"value_control":self.value_control,
+                "recency_half_life":self.recency_half_life,
                 "pending":self.pending,"last_input":self.last_input,
                 "first_position":(self.scheduled[0][0]
                                   if self.scheduled else self.position),
@@ -193,6 +209,8 @@ class CausalBookSuccessor:
         for field in ("horizon","vocab","key_mode","value_control"):
             if state[field]!=getattr(self,field):
                 raise ValueError("Incompatible stream snapshot "+field)
+        if state.get('recency_half_life',0.0)!=self.recency_half_life:
+            raise ValueError('Incompatible stream snapshot recency_half_life')
         if state["position"]<0:
             raise ValueError("Invalid stream position")
         self.begin_book(state["book_id"])

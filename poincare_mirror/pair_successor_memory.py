@@ -156,6 +156,7 @@ class PairSuccessorTrust(nn.Module):
                                 nn.Parameter(torch.zeros(2,4)) if future_content else None)
         # R74 optional counterfactual readout; accepted R69 is unchanged.
         self.register_parameter('counterfactual_weight',None)
+        self.register_parameter('recency_weight',None)
         self.horizon = horizon
         self.smoothing = smoothing
         self.query_map = None
@@ -199,6 +200,61 @@ class PairSuccessorTrust(nn.Module):
         self.counterfactual_weight=nn.Parameter(torch.zeros(
             4,device=self.joint_weight.device,dtype=self.joint_weight.dtype))
         return self.counterfactual_weight
+
+    def enable_recency_content(self):
+        """R75: append a causal recent-vs-uniform retrieval rail to R69."""
+        if self.joint_weight is None or self.recency_weight is not None:
+            raise ValueError('R75 needs the inherited joint rail')
+        self.recency_weight=nn.Parameter(torch.zeros(
+            4,device=self.joint_weight.device,dtype=self.joint_weight.dtype))
+        return self.recency_weight
+
+    def recency_forward(self,base,uniform,recent):
+        """Learn only how much to prefer recent, mature matched episodes.
+
+        Both distributions query identical addresses at the same step with
+        the same coverage/hits; only historical episode age weights differ.
+        Exactly zero new weight is an identity map of the accepted R69 logits.
+        """
+        if self.recency_weight is None:
+            raise ValueError('R75 recency readout is disabled')
+        if base.ndim!=3 or base.shape[-1]!=257 or len(uniform)!=3 or len(recent)!=3:
+            raise ValueError('R75 requires aligned causal B,T,257 evidence')
+        old,oc,op=uniform
+        new,nc,np=recent
+        for h,c,p in (uniform,recent):
+            if (h.shape!=base.shape or c.shape!=base.shape[:2] or
+                    p.shape!=base.shape[:2] or not torch.isfinite(h).all() or
+                    not torch.isfinite(c).all() or not torch.isfinite(p).all() or
+                    torch.any(h<0) or torch.any(h.sum(-1)>1.00001) or
+                    torch.any(c<0) or torch.any(c>1) or torch.any(p<0)):
+                raise ValueError('Invalid R75 causal history')
+        if (not torch.allclose(oc,nc,atol=1e-6,rtol=0) or
+                not torch.allclose(op,np,atol=1e-6,rtol=0)):
+            raise ValueError('R75 must preserve matched episode identities')
+        with torch.no_grad():
+            smooth_old=(old.float()*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
+            smooth_new=(new.float()*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
+            log_ratio=(smooth_new.log()-smooth_old.log()).clamp(-3,3)
+            difference=(new.float()-old.float()).abs().sum(-1)*.5
+            parent=base.detach().float().softmax(-1)
+            alignment=((new.float()-old.float())*parent).sum(-1)
+            features=torch.stack((oc.float(),difference,alignment,
+                torch.log1p(op.float())/math.log1p(self.horizon)),dim=-1)
+        strength=(torch.tanh((features.to(self.recency_weight.dtype)*
+                             self.recency_weight).sum(-1))*
+                  oc.to(self.recency_weight.dtype)*difference.to(
+                      self.recency_weight.dtype))
+        mask=torch.ones(257,device=base.device,dtype=torch.bool)
+        mask[32]=False
+        mask[256]=False
+        before=base[...,mask]
+        proposed=before+(strength[...,None]*log_ratio[...,mask]).to(base.dtype)
+        offset=torch.logsumexp(proposed.float(),-1,keepdim=True)-torch.logsumexp(
+            before.float(),-1,keepdim=True)
+        output=base.clone()
+        output[...,mask]=proposed-offset.to(base.dtype)
+        return output
 
     def counterfactual_forward(self,base,exact,negative):
         """Learn a contrast between matching causal factual and corrupt reads.

@@ -43,7 +43,8 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                          history=32768,key_mode="hierarchical",
                          score_start=0,score_positions=None,
                          space_rank_guard=False,future_winner_guard=False,
-                         future_horizon_bridge=0.0,counterfactual_readout=False):
+                         future_horizon_bridge=0.0,counterfactual_readout=False,
+                         recency_readout=False,recency_half_life=256.0):
     """Matched causal result per arm on one independent book's input prefix.
 
     Args:
@@ -87,6 +88,15 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
     if (counterfactual_readout and
             model.pair_successor.counterfactual_weight is None):
         raise ValueError('Enable R74 counterfactual readout before scoring')
+    if counterfactual_readout and recency_readout:
+        raise ValueError('R74 and R75 candidate rails must be isolated')
+    if recency_readout and model.pair_successor.recency_weight is None:
+        raise ValueError('Enable R75 recency readout before scoring')
+    recency_stream=None
+    if recency_readout:
+        recency_stream=CausalBookSuccessor(horizon=history,key_mode=key_mode,
+                         recency_half_life=recency_half_life)
+        recency_stream.begin_book(book_id)
     for arm in ARMS:
         kw=dict(horizon=history,key_mode=key_mode)
         if arm=="wrong_address":
@@ -128,6 +138,10 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                     if active_future:
                         for future in future_streams[arm]:
                             future.step(book_id,int(book_tokens[t]),
+                                        pairs[0,t-left].tolist())
+            if recency_stream is not None:
+                for t in range(start,stop):
+                    recency_stream.step(book_id,int(book_tokens[t]),
                                         pairs[0,t-left].tolist())
             continue
         raw_logits=model.head(hidden).detach()
@@ -186,6 +200,21 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
             candidate=model.pair_successor.counterfactual_forward(
                 old.unsqueeze(0),arm_histories['exact'],
                 arm_histories['wrong_successor'])[0]
+            arm_values['exact']=protect_parent_space_rank(old,candidate)
+        if recency_stream is not None:
+            recent_hist=torch.zeros_like(raw_logits)
+            recent_cov=torch.zeros_like(ids,dtype=torch.float32)
+            recent_hits=torch.zeros_like(recent_cov)
+            for t in range(start,stop):
+                dist,cov,count=recency_stream.step(book_id,int(book_tokens[t]),
+                                                   pairs[0,t-left].tolist())
+                recent_hist[0,t-left]=dist
+                recent_cov[0,t-left]=cov
+                recent_hits[0,t-left]=count
+            old=arm_values['exact']
+            candidate=model.pair_successor.recency_forward(old.unsqueeze(0),
+                arm_histories['exact'],(recent_hist[:,lo:hi],
+                        recent_cov[:,lo:hi],recent_hits[:,lo:hi]))[0]
             arm_values['exact']=protect_parent_space_rank(old,candidate)
         if space_rank_guard:
             for arm in ARMS:

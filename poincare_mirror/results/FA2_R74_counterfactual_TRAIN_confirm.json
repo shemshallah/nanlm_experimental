@@ -1,0 +1,54 @@
+{
+  "round": "FA2_R74_COUNTERFACTUAL",
+  "status": "TRAIN confirmation, not promoted",
+  "parent_sha256": "b5e366bf2e81f8376660477aaba0d57ddcb7b31836e8203e7b959ff65f17c498",
+  "parent_step": 4465,
+  "train_sha256": "7e368e4a8b4260400b859146404673f1013293794f79f0af9386c6f5312e703f",
+  "fit_books": 8,
+  "confirmation_books": 4,
+  "fit_positions": 1024,
+  "confirmation_positions": 512,
+  "warmup": 128,
+  "seconds": 39.68754253099996,
+  "learning": {
+    "updates": 96,
+    "first_batch_ce": 4.764517784118652,
+    "last_batch_ce": 3.2151763439178467,
+    "weights": [
+      -0.025081411004066467,
+      -0.03372697904706001,
+      -0.09759422391653061,
+      -0.026547914370894432
+    ]
+  },
+  "before": {
+    "positions": 512,
+    "parent_ce": 4.461067631840706,
+    "candidate_ce": 4.461067631840706,
+    "parent_top1": 0.138671875,
+    "candidate_top1": 0.138671875,
+    "parent_top5": 0.283203125,
+    "candidate_top5": 0.283203125,
+    "parent_bpb": 6.435960149526858,
+    "candidate_bpb": 6.435960149526858
+  },
+  "after": {
+    "positions": 512,
+    "parent_ce": 4.461067631840706,
+    "candidate_ce": 4.479546867311001,
+    "parent_top1": 0.138671875,
+    "candidate_top1": 0.134765625,
+    "parent_top5": 0.283203125,
+    "candidate_top5": 0.265625,
+    "parent_bpb": 6.435960149526858,
+    "candidate_bpb": 6.462620050899273
+  },
+  "ce_gain": -0.018479235470294952,
+  "top1_gain": -0.00390625,
+  "top5_gain": -0.017578125,
+  "preserved_adam_states": 198,
+  "total_adam_states": 199,
+  "dev_opened": false,
+  "test_opened": false,
+  "promoted": false
+}

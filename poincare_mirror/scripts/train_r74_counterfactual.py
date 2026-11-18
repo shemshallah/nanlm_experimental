@@ -24,12 +24,16 @@ from train_r55_pair_successor import checked_corpus
 
 @torch.no_grad()
 def cache_book(model,tokens,identity,*,warmup=128,positions=128,chunk=16,
-               context=64,history=32768):
+               context=64,history=32768,alternative='rotated',
+               recency_half_life=256.0):
     if len(tokens)<warmup+positions+2:
         raise ValueError('R74 TRAIN book too short')
     exact=CausalBookSuccessor(horizon=history,key_mode='hierarchical')
+    if alternative not in ('rotated','recency'):
+        raise ValueError('Unrecognized causal training control')
     negative=CausalBookSuccessor(horizon=history,key_mode='hierarchical',
-                                  value_control='rotated')
+              value_control='rotated' if alternative=='rotated' else 'exact',
+              recency_half_life=recency_half_life if alternative=='recency' else 0.)
     for stream in (exact,negative): stream.begin_book(identity)
     records=[]
     for start in range(0,warmup+positions,chunk):
@@ -69,12 +73,12 @@ def cache_book(model,tokens,identity,*,warmup=128,positions=128,chunk=16,
 
 
 @torch.no_grad()
-def metrics(model,records):
+def metrics(model,records,*,rail='counterfactual'):
     sums={'parent_ce':0.,'candidate_ce':0.,'parent_top1':0.,
           'candidate_top1':0.,'parent_top5':0.,'candidate_top5':0.}
     n=0
     for base,exact,negative,y in records:
-        candidate=model.pair_successor.counterfactual_forward(base,exact,negative)
+        candidate=getattr(model.pair_successor,rail+'_forward')(base,exact,negative)
         candidate=protect_parent_space_rank(base,candidate)
         for name,logits in (('parent',base),('candidate',candidate)):
             logits=logits.flatten(0,1)
@@ -87,10 +91,11 @@ def metrics(model,records):
             'candidate_bpb':sums['candidate_ce']/(n*np.log(2))}
 
 
-def train(model,optimizer,records,*,updates=96,lr=.003,seed=74):
+def train(model,optimizer,records,*,updates=96,lr=.003,seed=74,
+          rail='counterfactual'):
     if updates<1 or not 0<lr<.1 or not records:
         raise ValueError('Invalid R74 training budget')
-    target=model.pair_successor.counterfactual_weight
+    target=getattr(model.pair_successor,rail+'_weight')
     old_lr=optimizer.param_groups[0]['lr']
     old_decay=optimizer.param_groups[0]['weight_decay']
     for p in model.parameters(): p.requires_grad_(p is target)
@@ -108,7 +113,7 @@ def train(model,optimizer,records,*,updates=96,lr=.003,seed=74):
             base,exact,negative,y=records[int(order[cursor])]
             cursor+=1
             optimizer.zero_grad(set_to_none=True)
-            pred=model.pair_successor.counterfactual_forward(base,exact,negative)
+            pred=getattr(model.pair_successor,rail+'_forward')(base,exact,negative)
             pred=protect_parent_space_rank(base,pred)
             loss=F.cross_entropy(pred.flatten(0,1),y)
             if not torch.isfinite(loss):
