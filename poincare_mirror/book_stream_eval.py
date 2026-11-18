@@ -42,7 +42,8 @@ def _append_stats(sums,counts,predictions,targets,horizon):
 def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                          history=32768,key_mode="hierarchical",
                          score_start=0,score_positions=None,
-                         space_rank_guard=False,future_winner_guard=False):
+                         space_rank_guard=False,future_winner_guard=False,
+                         future_horizon_bridge=0.0):
     """Matched causal result per arm on one independent book's input prefix.
 
     Args:
@@ -81,7 +82,7 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
     streams={}
     future_streams={}
     active_future=bool(model.cfg.pair_successor_future)
-    if future_winner_guard and not active_future:
+    if (future_winner_guard or future_horizon_bridge) and not active_future:
         raise ValueError('Future winner guard requires an R69 memory model')
     for arm in ARMS:
         kw=dict(horizon=history,key_mode=key_mode)
@@ -173,7 +174,8 @@ def evaluate_causal_book(model,book_tokens,book_id,context=64,chunk=16,
                     evidence.extend((f_hist,f_cov,f_hits))
                 future_values[arm]=model.pair_successor.future_forward(
                     (plus2,plus3),tuple(evidence),
-                    protect_winner=future_winner_guard)
+                    protect_winner=future_winner_guard,
+                    horizon_bridge=future_horizon_bridge)
         if space_rank_guard:
             for arm in ARMS:
                 if arm!="neutral":

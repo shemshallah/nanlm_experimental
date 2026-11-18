@@ -191,7 +191,8 @@ class PairSuccessorTrust(nn.Module):
                                                     dtype=self.joint_weight.dtype))
         return self.future_weight
 
-    def future_forward(self,future_logits,history,*,protect_winner=False):
+    def future_forward(self,future_logits,history,*,protect_winner=False,
+                       horizon_bridge=0.0):
         """Causal +2/+3 conditional byte correction with protected mass.
 
         history=(hist2,cov2,hits2,hist3,cov3,hits3); each histogram only
@@ -202,6 +203,8 @@ class PairSuccessorTrust(nn.Module):
             raise ValueError('R69 future memory is not enabled')
         if len(history)!=6 or len(future_logits)!=2:
             raise ValueError('Require both future logits and two causal histories')
+        if not isinstance(horizon_bridge,(float,int)) or not 0.0<=horizon_bridge<=1.0:
+            raise ValueError('R72 horizon bridge must be between zero and one')
         corrected=[]
         for index,base in enumerate(future_logits):
             hist,cov,hits=history[3*index:3*index+3]
@@ -213,6 +216,26 @@ class PairSuccessorTrust(nn.Module):
                     torch.any(hist.sum(-1)>1.00001) or torch.any(cov<0) or
                     torch.any(cov>1) or torch.any(hits<0)):
                 raise ValueError('Invalid causal future memory distribution')
+            if index==1 and horizon_bridge:
+                # R72: causal +2-to-+3 fallback only when the +3 geometric
+                # successor history is sparse. These are HISTORICAL observed
+                # successors, never either current future target label.
+                prior_hist,prior_cov,prior_hits=history[:3]
+                if (prior_hist.shape!=hist.shape or prior_cov.shape!=cov.shape or
+                        prior_hits.shape!=hits.shape or
+                        not torch.isfinite(prior_hist).all() or
+                        not torch.isfinite(prior_cov).all() or
+                        not torch.isfinite(prior_hits).all() or
+                        torch.any(prior_hist<0) or
+                        torch.any(prior_hist.sum(-1)>1.00001) or
+                        torch.any(prior_cov<0) or torch.any(prior_cov>1) or
+                        torch.any(prior_hits<0)):
+                    raise ValueError('Invalid R72 causal bridge evidence')
+                # The bridge is small when +3 has its own reliable evidence.
+                fallback=horizon_bridge*prior_cov*(1-cov)
+                hist=(1-fallback[...,None])*hist+fallback[...,None]*prior_hist
+                cov=cov+fallback*(1-cov)
+                hits=hits+fallback*prior_hits
             with torch.no_grad():
                 smooth=(hist*(1-self.smoothing)+self.smoothing/257).clamp_min(1e-12)
                 evidence=smooth.log()+math.log(257)
