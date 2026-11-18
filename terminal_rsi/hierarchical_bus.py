@@ -25,7 +25,9 @@ from torch.nn import functional as F
 
 from .norm import RMSNorm
 from .pair_memory import PairConceptMemory, pair_parameter_count
-from .unit_heads import UnitHeads, unit_parameter_count
+from .unit_heads import (
+    TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE, UnitHeads, unit_parameter_count,
+)
 
 
 def hierarchy_bus_width(width: int) -> int:
@@ -43,9 +45,11 @@ def hierarchy_parameter_count(width: int) -> int:
         + 9                                     # nine zero gates
         + 3 * bw * 256                          # lateral byte-logit priors
         + 3 * width + 3                         # boundary heads + biases
+        + 3 * 256 + 1                           # boundary -> byte prior
         + width + 3 * bw                        # input + three level RMSNorm
         + pair_parameter_count(bw)              # 65,536 paired concepts
-        + unit_parameter_count(bw)              # real token/word/sentence heads
+        + unit_parameter_count(bw, width)       # real token/word/sentence heads
+        + (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE) * 256 + 256 + 1  # unit->byte decoder
     )
 
 
@@ -115,6 +119,8 @@ class HierarchyState:
     unit_logits: dict[str, torch.Tensor]
     pair_entropy: torch.Tensor
     pair_gate: torch.Tensor
+    unit_byte_raw: torch.Tensor
+    unit_byte_logits: torch.Tensor
     gates: dict[str, torch.Tensor]
 
 
@@ -151,8 +157,14 @@ class CausalHierarchy(nn.Module):
         self.byte_priors = nn.ModuleList(
             [nn.Linear(bw, 256, bias=False) for _ in windows])
         self.boundary = nn.Linear(width, 3)
+        self.boundary_to_byte = nn.Linear(3, 256, bias=False)
+        self.boundary_gate = nn.Parameter(torch.zeros(()))
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
-        self.unit_heads = UnitHeads(bw) if enable_units else None
+        self.unit_heads = (UnitHeads(bw, width)
+                           if enable_units else None)
+        self.unit_to_byte = nn.Linear(
+            TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE, 256, bias=True)
+        self.unit_byte_gate = nn.Parameter(torch.zeros(()))
 
         # Small, nonzero lateral projections so a gate that opens can learn.
         # The gates themselves are exact zero, which is what preserves parity.
@@ -161,6 +173,9 @@ class CausalHierarchy(nn.Module):
         nn.init.normal_(self.up.weight, std=0.02)
         for projection in self.top_down:
             nn.init.normal_(projection.weight, std=0.02)
+        nn.init.normal_(self.boundary_to_byte.weight, std=0.02)
+        nn.init.normal_(self.unit_to_byte.weight, std=0.02)
+        nn.init.zeros_(self.unit_to_byte.bias)
         with torch.no_grad():
             self.boundary.bias.copy_(torch.tensor([0.0, -1.0, -2.0]))
 
@@ -216,11 +231,23 @@ class CausalHierarchy(nn.Module):
             gates_lat[0] * self.byte_priors[0](subword)
             + gates_lat[1] * self.byte_priors[1](word)
             + gates_lat[2] * self.byte_priors[2](sentence)
+            + torch.tanh(self.boundary_gate)
+            * self.boundary_to_byte(boundary_probs)
         )
         unit_logits = {}
+        unit_byte_raw = torch.zeros(
+            (state.shape[0], 256), device=state.device, dtype=state.dtype)
+        unit_byte_logits = torch.zeros_like(unit_byte_raw)
         if (self.unit_heads is not None
                 and self.ablation.get("units", True)):
-            unit_logits = self.unit_heads(subword, word, sentence)
+            unit_logits = self.unit_heads(subword, word, sentence, state)
+            if self.ablation.get("unit_decoder", True):
+                decoder_input = torch.cat(
+                    (unit_logits["current_token"],
+                     unit_logits["current_word"]), dim=-1)
+                unit_byte_raw = self.unit_to_byte(decoder_input)
+                unit_byte_logits = (
+                    torch.tanh(self.unit_byte_gate) * unit_byte_raw)
         return HierarchyState(
             state=enhanced,
             byte_prior=byte_prior,
@@ -232,10 +259,14 @@ class CausalHierarchy(nn.Module):
             unit_logits=unit_logits,
             pair_entropy=pair_entropy,
             pair_gate=pair_gate,
+            unit_byte_raw=unit_byte_raw,
+            unit_byte_logits=unit_byte_logits,
             gates={
                 "bottom_up": gates_bu.detach(),
                 "top_down": gates_td.detach(),
                 "lateral": gates_lat.detach(),
+                "boundary": torch.tanh(self.boundary_gate).detach(),
+                "unit_byte": torch.tanh(self.unit_byte_gate).detach(),
             },
         )
 

@@ -96,7 +96,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     unit_loss_weight: float = 0.0,
                     distill_weight: float = 0.0,
                     distill_samples: int = 8,
-                    moe_loss_weight: float = 0.01):
+                    moe_loss_weight: float = 0.01,
+                    unit_byte_loss_weight: float = 0.0):
     """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
@@ -106,7 +107,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                         ("boundary", boundary_loss_weight),
                         ("unit", unit_loss_weight),
                         ("distill", distill_weight),
-                        ("moe", moe_loss_weight)):
+                        ("moe", moe_loss_weight),
+                        ("unit_byte", unit_byte_loss_weight)):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
@@ -124,6 +126,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         distill_count = 0
         moe_total = 0.0
         moe_count = 0
+        unit_byte_total = 0.0
+        unit_byte_count = 0
         unit_total: dict = {}
         unit_weight_total = 0
         total_hits = 0
@@ -189,6 +193,13 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                         moe_value.detach()) * (end - start)
                     moe_total += float(moe_value.detach()) * (end - start)
                     moe_count += end - start
+            if (upgrade_out is not None and unit_byte_loss_weight > 0
+                    and upgrade_out.get("unit_byte_raw") is not None):
+                u_byte = F.cross_entropy(
+                    upgrade_out["unit_byte_raw"].float(), part_target)
+                objective = objective + unit_byte_loss_weight * u_byte * (end - start)
+                unit_byte_total += float(u_byte.detach()) * (end - start)
+                unit_byte_count += end - start
             (objective / n).backward()
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
@@ -215,6 +226,9 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             report["distill_kl"] = distill_total / distill_count
         if moe_count:
             report["moe_load_balance"] = moe_total / moe_count
+        if unit_byte_count:
+            report["unit_byte_bpb"] = float(
+                (unit_byte_total / unit_byte_count) / math.log(2))
         return report
     if use_aux:
         if use_hierarchy:
@@ -253,6 +267,12 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                      if upgrade_out is not None else None)
         if moe_value is not None and moe_loss_weight > 0:
             objective = objective + moe_loss_weight * moe_value.float()
+        u_byte_value = None
+        if (upgrade_out is not None and unit_byte_loss_weight > 0
+                and upgrade_out.get("unit_byte_raw") is not None):
+            u_byte_value = F.cross_entropy(
+                upgrade_out["unit_byte_raw"].float(), target)
+            objective = objective + unit_byte_loss_weight * u_byte_value
         optimizer.zero_grad(set_to_none=True)
         objective.backward()
         upgrade_bpb = float(aux_loss.detach() / math.log(2))
@@ -265,6 +285,7 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         b_loss = None
         u_stats = {}
         moe_value = None
+        u_byte_value = None
         upgrade_out = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
@@ -279,6 +300,9 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
     report.update(u_stats)
     if moe_value is not None:
         report["moe_load_balance"] = float(moe_value.detach())
+    if u_byte_value is not None:
+        report["unit_byte_bpb"] = float(
+            u_byte_value.detach() / math.log(2))
     if upgrade_out is not None and distill_weight > 0:
         teacher = _full_parent_log_probs(
             model, history, aux, distill_samples)
@@ -457,6 +481,8 @@ def main(argv=None):
                    help="Samples per microbatch used for the 256-way teacher distribution")
     p.add_argument("--moe-loss-weight", type=float, default=0.01,
                    help="Load-balancing regularizer for the 256-expert MoE")
+    p.add_argument("--unit-byte-loss-weight", type=float, default=0.1,
+                   help="Direct CE on the current-unit -> byte decoder")
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full",
@@ -548,7 +574,8 @@ def main(argv=None):
         p.error("Parent warm-start LR scale must be positive")
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
-                        ("moe", args.moe_loss_weight)):
+                        ("moe", args.moe_loss_weight),
+                        ("unit_byte", args.unit_byte_loss_weight)):
         if value < 0:
             p.error(f"{name} loss weight must be nonnegative")
     if args.distill_samples < 0:
@@ -1027,7 +1054,8 @@ def main(argv=None):
                     unit_loss_weight=args.unit_loss_weight,
                     distill_weight=args.distill_weight,
                     distill_samples=args.distill_samples,
-                    moe_loss_weight=args.moe_loss_weight)
+                    moe_loss_weight=args.moe_loss_weight,
+                    unit_byte_loss_weight=args.unit_byte_loss_weight)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -1114,7 +1142,8 @@ def main(argv=None):
                         unit_loss_weight=args.unit_loss_weight,
                         distill_weight=args.distill_weight,
                         distill_samples=args.distill_samples,
-                        moe_loss_weight=args.moe_loss_weight))
+                        moe_loss_weight=args.moe_loss_weight,
+                        unit_byte_loss_weight=args.unit_byte_loss_weight))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
                 clone_model.train()
@@ -1240,6 +1269,27 @@ def main(argv=None):
     after = byte_metrics_wrapped(model, probes, n=None,
                                  topk_n=min(args.topk_probes, len(probes)), auxiliary=probe_aux,
                                  local=probe_local)
+    unit_decoder = None
+    unit_gate_param = model.upgrades.hierarchy.unit_byte_gate
+    saved_unit_gate = unit_gate_param.detach().clone()
+    try:
+        with torch.no_grad():
+            unit_gate_param.zero_()
+        after_no_unit = byte_metrics_wrapped(
+            model, probes, n=None,
+            topk_n=min(args.topk_probes, len(probes)),
+            auxiliary=probe_aux, local=probe_local)
+    finally:
+        with torch.no_grad():
+            unit_gate_param.copy_(saved_unit_gate)
+    unit_decoder = {
+        "gate": float(torch.tanh(saved_unit_gate)),
+        "on_bpb": after["bpb"],
+        "off_bpb": after_no_unit["bpb"],
+        "delta_bpb": float(after_no_unit["bpb"] - after["bpb"]),
+        "definition": "held-out BPB with unit->byte decoder on minus off; "
+                      "positive delta means the unit heads lower BPB",
+    }
     after_bit_logits = _bit_logit_snapshot()
     bit_logit_delta = {
         "mean_abs": float((after_bit_logits - before_bit_logits).abs().mean()),
@@ -1289,6 +1339,7 @@ def main(argv=None):
                "fresh_start_untrained_v103": provenance.get("fresh_start_untrained_v103", False),
                "before": before, "after": after,
                "bit_logit_delta": bit_logit_delta,
+               "unit_decoder": unit_decoder,
                "after_upgrade_gate_1": after_upgrade_gate_1,
                "sampler": sampler, "feature_digest": manifest["feature_sha256"],
                "terminal_events": events,

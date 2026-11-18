@@ -35,6 +35,23 @@ bottom 32^3 = 32,640 pairs + 128 diagonal points
 top    32^3 = 32,640 mirrors + the other 128 diagonal points
 ```
 
+## Milestone M1 (current): unit heads must lower held-out BPB
+
+Unit heads are not allowed to remain standalone classifiers.  The current
+milestone is:
+
+1. **current-token / current-word heads** trained on the prefix (the unit
+   containing the next byte, not only the next unit)
+2. a **zero-gated unit→byte decoder** from those heads into the final byte
+   logits
+3. a direct unit-byte CE that trains the decoder even while the mixing gate is
+   closed
+4. held-out BPB reported with the unit decoder **on and off**, plus the unit
+   gate value; success means `BPB_on < BPB_off`
+5. `no_unit_decoder` ablation and a receipt field with the delta
+
+Standalone unit top-k remains a diagnostic, not the milestone.
+
 ## RSI v5
 
 - parallel replicas: neutral + K candidate clones, one CUDA stream per clone

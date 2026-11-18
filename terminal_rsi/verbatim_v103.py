@@ -102,6 +102,13 @@ class VerbatimV103RSI(nn.Module):
             self.original.feedback_state.detach().float().mean())
         gate = torch.tanh(self.residual_gate) * trust.to(old_logits.dtype)
         final_logits = old_logits + gate * (proposed - old_logits)
+        # Milestone M1: the unit heads' byte decoder is a separate predictor.
+        # It lives outside the residual gate, so it can lower held-out BPB even
+        # while the 100M upgrade branch is still gated off.
+        unit_byte = upgrade_out.get("unit_byte_logits")
+        if unit_byte is not None:
+            unit_bits = self._byte_to_conditional_bit_logits(unit_byte, target)
+            final_logits = final_logits + unit_bits.to(final_logits.dtype)
         if return_hierarchy:
             return final_logits, bits, current, upgrade_out
         if return_aux:

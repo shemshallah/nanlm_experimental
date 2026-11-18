@@ -153,6 +153,24 @@ class V5ModuleTests(unittest.TestCase):
         self.assertLess(float((prefill["current"] - full).abs().max()), 2e-4)
         self.assertLess(float((cached["current"] - full_next).abs().max()), 2e-4)
 
+    def test_unit_decoder_is_zero_gated_and_changes_final_logits(self):
+        with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):
+            model = VerbatimV103RSI("cpu")
+            history = torch.randint(0, 256, (2, 32))
+            target = torch.randint(0, 256, (2,))
+            aux = torch.randint(0, 256, (2, 6), dtype=torch.int32)
+            with torch.no_grad():
+                base, _ = model.original(history, target, aux)
+                exact, _ = model(history, target, aux)
+                gate = model.upgrades.hierarchy.unit_byte_gate
+                gate.fill_(1.0)
+                opened, _ = model(history, target, aux)
+                gate.zero_()
+                closed, _ = model(history, target, aux)
+            self.assertLess(float((exact - base).abs().max()), 1e-5)
+            self.assertLess(float((closed - base).abs().max()), 1e-5)
+            self.assertGreater(float((opened - base).abs().max()), 1e-4)
+
     def test_full_parent_distillation_is_per_sample(self):
         from terminal_rsi.train_verbatim import _full_parent_log_probs
         with patch.dict(PRESETS, {"cpu": TINY, "t4": TINY, "blackwell": TINY}):

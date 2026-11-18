@@ -157,7 +157,7 @@ def _unit_metrics(parts: list[tuple[bytes, torch.Tensor, torch.Tensor, torch.Ten
     }
 
 
-def _beam_unit_metrics(parts, span_fn, *, beam: int = 5) -> dict[str, Any]:
+def _beam_unit_metrics(parts, span_fn, *, beam: int = 16) -> dict[str, Any]:
     """True unit top-k by beam-ranking the unit's byte sequence.
 
     At each byte position expand with the model's top-``beam`` bytes, retain
@@ -262,7 +262,10 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
     total_loss = float(-all_target_logp.sum())
 
     bpe_strict = _unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
-    bpe_beam = _beam_unit_metrics(parts, lambda text: _bpe_spans(text, ranks))
+    bpe_beam = _beam_unit_metrics(
+        parts, lambda text: _bpe_spans(text, ranks), beam=16)
+    bpe_beam5 = _beam_unit_metrics(
+        parts, lambda text: _bpe_spans(text, ranks), beam=5)
     token_metrics = dict(bpe_beam)
     if bpe_beam.get("units"):
         token_metrics.update({
@@ -270,17 +273,24 @@ def evaluate_dev_excerpts(model, *, corpus_dir: Path, dev_manifest: Path,
             "exact_top5": bpe_strict.get("top5", 0.0),
             "byte_top1": bpe_strict.get("byte_top1", 0.0),
             "byte_top5": bpe_strict.get("byte_top5", 0.0),
-            "definition": "beam-ranked BPE token top-k",
+            "beam5_top1": bpe_beam5.get("top1", 0.0),
+            "beam5_top5": bpe_beam5.get("top5", 0.0),
+            "beam_width": 16,
+            "definition": "beam-16 BPE token top-k; beam5 fields for comparison",
         })
     word_strict = _unit_metrics(parts, _word_spans)
-    word_metrics = _beam_unit_metrics(parts, _word_spans)
+    word_metrics = _beam_unit_metrics(parts, _word_spans, beam=16)
+    word_beam5 = _beam_unit_metrics(parts, _word_spans, beam=5)
     if word_metrics.get("units"):
         word_metrics.update({
             "exact_top1": word_strict.get("top1", 0.0),
             "exact_top5": word_strict.get("top5", 0.0),
             "byte_top1": word_strict.get("byte_top1", 0.0),
             "byte_top5": word_strict.get("byte_top5", 0.0),
-            "definition": "beam-ranked word top-k",
+            "beam5_top1": word_beam5.get("top1", 0.0),
+            "beam5_top5": word_beam5.get("top5", 0.0),
+            "beam_width": 16,
+            "definition": "beam-16 word top-k; beam5 fields for comparison",
         })
     sentence_mean = _unit_metrics(parts, _sentence_spans)
     sentence_beam = _beam_unit_metrics(parts, _sentence_spans)

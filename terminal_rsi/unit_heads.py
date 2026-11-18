@@ -23,9 +23,9 @@ from torch.nn import functional as F
 
 from .legacy_v103_reference import read_bpe_ranks
 
-TOKEN_VOCAB_SIZE = 4096
-WORD_VOCAB_SIZE = 4096
-SENTENCE_VOCAB_SIZE = 1024
+TOKEN_VOCAB_SIZE = 1024
+WORD_VOCAB_SIZE = 2048
+SENTENCE_VOCAB_SIZE = 512
 UNK_ID = 0
 IGNORE_ID = -100
 WHITESPACE = {9, 10, 13, 32}
@@ -143,16 +143,32 @@ class UnitLabels:
     next_token: torch.Tensor
     next_word: torch.Tensor
     next_sentence: torch.Tensor
+    next_token_start: torch.Tensor
+    next_word_start: torch.Tensor
+    next_sentence_start: torch.Tensor
+    current_token: torch.Tensor
+    current_word: torch.Tensor
     token_start: torch.Tensor
     word_start: torch.Tensor
     sentence_start: torch.Tensor
 
-    def gather(self, positions: torch.Tensor) -> dict[str, torch.Tensor]:
+    def gather(self, positions: torch.Tensor,
+               target_positions: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         positions = positions.long().cpu().clamp(0, len(self.next_word) - 1)
+        if target_positions is None:
+            target_positions = (positions + 1).clamp(
+                max=len(self.current_word) - 1)
+        target_positions = target_positions.long().cpu().clamp(
+            0, len(self.current_word) - 1)
         return {
             "next_token": self.next_token[positions].long(),
             "next_word": self.next_word[positions].long(),
             "next_sentence": self.next_sentence[positions].long(),
+            "next_token_start": self.next_token_start[positions].bool(),
+            "next_word_start": self.next_word_start[positions].bool(),
+            "next_sentence_start": self.next_sentence_start[positions].bool(),
+            "current_token": self.current_token[target_positions].long(),
+            "current_word": self.current_word[target_positions].long(),
             "token_start": self.token_start[positions].bool(),
             "word_start": self.word_start[positions].bool(),
             "sentence_start": self.sentence_start[positions].bool(),
@@ -212,6 +228,43 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
         word_start[start] = True
     for start in sentence_starts:
         sentence_start[start] = True
+
+    def _next_start(starts: torch.Tensor) -> torch.Tensor:
+        result = torch.zeros(length, dtype=torch.bool)
+        if length > 1:
+            result[:-1] = starts[1:]
+        return result
+
+    if token_starts:
+        token_lengths = [token_starts[i + 1] - token_starts[i]
+                         for i in range(len(token_starts) - 1)]
+        token_lengths.append(length - token_starts[-1])
+        current_token = torch.repeat_interleave(
+            torch.tensor(token_values, dtype=torch.int32),
+            torch.tensor(token_lengths, dtype=torch.long))
+    else:
+        current_token = torch.full((length,), IGNORE_ID, dtype=torch.int32)
+    word_values_list: list[int] = []
+    word_lengths_list: list[int] = []
+    cursor = 0
+    for start, end, word in word_pairs:
+        if start > cursor:
+            word_values_list.append(IGNORE_ID)
+            word_lengths_list.append(start - cursor)
+        word_values_list.append(word_vocab.get(word, UNK_ID))
+        word_lengths_list.append(end - start)
+        cursor = end
+    if cursor < length:
+        word_values_list.append(IGNORE_ID)
+        word_lengths_list.append(length - cursor)
+    current_word = (torch.repeat_interleave(
+        torch.tensor(word_values_list, dtype=torch.int32),
+        torch.tensor(word_lengths_list, dtype=torch.long))
+        if word_values_list else
+        torch.full((length,), IGNORE_ID, dtype=torch.int32))
+    if len(current_word) != length:
+        raise AssertionError("current-word label length mismatch")
+
     return UnitLabels(
         token_vocab=token_vocab,
         word_vocab=word_vocab,
@@ -219,6 +272,11 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
         next_token=torch.tensor(next_token, dtype=torch.int32),
         next_word=torch.tensor(next_word, dtype=torch.int32),
         next_sentence=torch.tensor(next_sentence, dtype=torch.int32),
+        next_token_start=_next_start(token_start),
+        next_word_start=_next_start(word_start),
+        next_sentence_start=_next_start(sentence_start),
+        current_token=current_token,
+        current_word=current_word,
         token_start=token_start,
         word_start=word_start,
         sentence_start=sentence_start,
@@ -226,38 +284,68 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
 
 
 class UnitHeads(nn.Module):
-    """Three classification heads over the hierarchy bus states."""
+    """Three classification heads over bus states plus the byte hidden state."""
 
-    def __init__(self, bus_width: int):
+    def __init__(self, bus_width: int, byte_width: int | None = None):
         super().__init__()
-        self.token = nn.Linear(bus_width, TOKEN_VOCAB_SIZE, bias=False)
-        self.word = nn.Linear(bus_width, WORD_VOCAB_SIZE, bias=False)
-        self.sentence = nn.Linear(bus_width, SENTENCE_VOCAB_SIZE, bias=False)
-        for head in (self.token, self.word, self.sentence):
+        byte_width = bus_width if byte_width is None else byte_width
+        self.byte_proj = nn.Linear(byte_width, bus_width, bias=False)
+        width = 2 * bus_width
+        self.token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
+        self.word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        self.sentence = nn.Linear(width, SENTENCE_VOCAB_SIZE, bias=False)
+        self.current_token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
+        self.current_word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        nn.init.normal_(self.byte_proj.weight, std=0.02)
+        for head in (self.token, self.word, self.sentence,
+                     self.current_token, self.current_word):
             nn.init.normal_(head.weight, std=0.02)
 
     def forward(self, subword: torch.Tensor, word: torch.Tensor,
-                sentence: torch.Tensor) -> dict[str, torch.Tensor]:
+                sentence: torch.Tensor,
+                byte_state: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         # [B,T,D] -> last causal position only; unit prediction is one step.
+        if byte_state is None:
+            byte_proj = torch.zeros_like(subword)
+        else:
+            byte_proj = self.byte_proj(byte_state)
+        token_input = torch.cat((subword[:, -1], byte_proj[:, -1]), dim=-1)
+        word_input = torch.cat((word[:, -1], byte_proj[:, -1]), dim=-1)
+        sentence_input = torch.cat((sentence[:, -1], byte_proj[:, -1]), dim=-1)
         return {
-            "token": self.token(subword[:, -1]),
-            "word": self.word(word[:, -1]),
-            "sentence": self.sentence(sentence[:, -1]),
+            "token": self.token(token_input),
+            "word": self.word(word_input),
+            "sentence": self.sentence(sentence_input),
+            "current_token": self.current_token(token_input),
+            "current_word": self.current_word(word_input),
         }
 
 
 def unit_head_loss(logits: dict[str, torch.Tensor],
                    targets: dict[str, torch.Tensor],
-                   *, weights: dict[str, float] | None = None) -> tuple[torch.Tensor, dict]:
-    weights = weights or {"token": 1.0, "word": 1.0, "sentence": 0.5}
+                   *, weights: dict[str, float] | None = None,
+                   boundary_only: bool = True) -> tuple[torch.Tensor, dict]:
+    weights = weights or {
+        "token": 1.0, "word": 1.0, "sentence": 0.5,
+        "current_token": 0.5, "current_word": 0.5,
+    }
     total = None
     stats = {}
     for name, weight in weights.items():
-        target = targets.get(f"next_{name}")
-        if target is None or weight <= 0:
+        if name.startswith("current_"):
+            target = targets.get(name)
+            boundary = False
+        else:
+            target = targets.get(f"next_{name}")
+            boundary = True
+        if target is None or weight <= 0 or name not in logits:
             continue
         target = target.to(logits[name].device).long()
         valid = target != IGNORE_ID
+        start_key = f"next_{name}_start"
+        if boundary_only and boundary and start_key in targets:
+            valid = valid & targets[start_key].to(
+                logits[name].device).bool()
         if not bool(valid.any()):
             continue
         loss = F.cross_entropy(logits[name][valid], target[valid])
@@ -276,8 +364,11 @@ def unit_head_loss(logits: dict[str, torch.Tensor],
     return total, stats
 
 
-def unit_parameter_count(bus_width: int) -> int:
-    return bus_width * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + SENTENCE_VOCAB_SIZE)
+def unit_parameter_count(bus_width: int, byte_width: int | None = None) -> int:
+    byte_width = bus_width if byte_width is None else byte_width
+    return (byte_width * bus_width + 2 * bus_width * (
+        TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + SENTENCE_VOCAB_SIZE
+        + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE))
 
 
 @torch.no_grad()
@@ -326,7 +417,9 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                 return {"schema": "terminal-rsi-unit-heads-v1", "levels": {}}
             for name in ("token", "word", "sentence"):
                 target = getattr(labels, f"next_{name}")[positions - 1].to(device)
-                valid = target != IGNORE_ID
+                starts = getattr(
+                    labels, f"next_{name}_start")[positions - 1].to(device)
+                valid = (target != IGNORE_ID) & starts
                 if not bool(valid.any()):
                     continue
                 prediction = logits[name][valid].topk(5, dim=-1).indices
