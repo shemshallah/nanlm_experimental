@@ -20,6 +20,15 @@ from m3_r32.train_dev import DEV, SEALED_TEST, evaluate, selective_books
 LOCK_PATH = Path(__file__).with_name("r32_frozen_candidate.json")
 
 
+def report_json(data:dict)->str:
+    """Export NumPy metric scalars without modifying evaluation results."""
+    def normalize(value):
+        if isinstance(value,np.generic):
+            return value.item()
+        raise TypeError(f"unsupported metric type: {type(value).__name__}")
+    return json.dumps(data,indent=2,sort_keys=True,default=normalize)
+
+
 def evaluate_acceptance(measured:dict,locked:dict)->tuple[bool,dict]:
     requirements=locked["test_acceptance"]
     arms=measured["arms"]
@@ -91,10 +100,10 @@ def main()->None:
     result=locked_test(args.corpus_root,args.checkpoint,args.training_report)
     if args.output:
         args.output.parent.mkdir(parents=True,exist_ok=True)
-        args.output.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-    print(json.dumps({"acceptance":result["precommitted_acceptance"],
+        args.output.write_text(report_json(result)+"\n",encoding="utf-8")
+    print(report_json({"acceptance":result["precommitted_acceptance"],
                       "independent_test_pass":result["independent_test_pass"],
-                      "test_arms":result["test"]["arms"]},indent=2,sort_keys=True))
+                      "test_arms":result["test"]["arms"]}))
 
 
 if __name__=="__main__":

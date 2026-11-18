@@ -2,7 +2,9 @@
 import json
 import unittest
 
-from m3_r33.locked_test import LOCK_PATH,evaluate_acceptance
+import numpy as np
+
+from m3_r33.locked_test import LOCK_PATH,evaluate_acceptance,report_json
 
 
 class R32PrelockedAcceptance(unittest.TestCase):
@@ -29,3 +31,12 @@ class R32PrelockedAcceptance(unittest.TestCase):
         arms["unrelated_full"]["bpb"]=3.2
         arms["r32"]["books_improved"]=17
         self.assertFalse(evaluate_acceptance(measured,lock)[0])
+
+    def test_numpy_scalar_reporting_retains_values_and_types(self):
+        raw={"passed":np.bool_(True),"count":np.int64(24),
+             "bpb":np.float64(3.0973586126),"bytes":[1,2,3]}
+        restored=json.loads(report_json(raw))
+        self.assertIs(restored["passed"],True)
+        self.assertEqual(restored["count"],24)
+        self.assertEqual(restored["bpb"],3.0973586126)
+        self.assertEqual(restored["bytes"],[1,2,3])
