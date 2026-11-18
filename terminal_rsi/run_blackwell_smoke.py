@@ -108,8 +108,8 @@ def main(argv=None) -> int:
     p.add_argument("--rsi-fast-lr", type=float, default=0.02)
     p.add_argument("--rsi-fast-rank", type=int, default=8)
     p.add_argument("--rsi-fast-cycle-updates", type=int, default=4)
-    p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
-    p.add_argument("--rsi-fast-z", type=float, default=1.5)
+    p.add_argument("--rsi-fast-min-gain", type=float, default=0.001)
+    p.add_argument("--rsi-fast-z", type=float, default=3.0)
     p.add_argument("--rsi-fast-shards", type=int, default=8)
     p.add_argument("--rsi-fast-top-k", type=int, default=8)
     p.add_argument("--hierarchical-eval-books", type=int, default=4,

@@ -545,8 +545,8 @@ def main(argv=None):
     p.add_argument("--rsi-fast-lr", type=float, default=0.02)
     p.add_argument("--rsi-fast-rank", type=int, default=8)
     p.add_argument("--rsi-fast-cycle-updates", type=int, default=4)
-    p.add_argument("--rsi-fast-min-gain", type=float, default=0.0005)
-    p.add_argument("--rsi-fast-z", type=float, default=1.5)
+    p.add_argument("--rsi-fast-min-gain", type=float, default=0.001)
+    p.add_argument("--rsi-fast-z", type=float, default=3.0)
     p.add_argument("--rsi-fast-shards", type=int, default=8)
     p.add_argument("--rsi-fast-top-k", type=int, default=8)
     p.add_argument("--rsi-v4-meta", type=Path,
@@ -608,8 +608,8 @@ def main(argv=None):
     if (args.generation_steps < 0 or args.generation_temperature <= 0
             or args.generation_top_k < 0):
         p.error("Generation needs nonnegative steps/top-k and positive temperature")
-    if args.legacy_core_lr_scale <= 0:
-        p.error("Parent warm-start LR scale must be positive")
+    if args.legacy_core_lr_scale < 0:
+        p.error("Parent warm-start LR scale must be nonnegative")
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
                         ("moe", args.moe_loss_weight),
