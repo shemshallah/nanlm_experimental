@@ -27,7 +27,7 @@ class BlackwellPreflightTests(unittest.TestCase):
         # Blackwell is a hardware profile for the same ~100M graph.
         total = plan["parameter_count_total"]
         self.assertGreater(total, 95_000_000)
-        self.assertLess(total, 110_000_000)
+        self.assertLess(total, 115_000_000)
         self.assertGreater(plan["provisional_headroom_gib"], 0)
         self.assertTrue(plan["gradient_checkpointing"])
         self.assertTrue(plan["native_pytorch_causal_sdpa"])
@@ -43,7 +43,7 @@ class BlackwellPreflightTests(unittest.TestCase):
                          static_upgrade_parameter_count(PRESETS["cpu"]))
         total = counts["cpu"] + ORIGINAL_V103_PARAMETER_COUNT + 1
         self.assertGreater(total, 100_000_000)
-        self.assertLess(total, 110_000_000)
+        self.assertLess(total, 115_000_000)
         self.assertEqual(set(counts.values()), {counts["cpu"]})
         reference = models["cpu"].state_dict()
         for mode in ("t4", "blackwell"):

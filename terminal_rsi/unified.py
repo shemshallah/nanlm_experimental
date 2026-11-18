@@ -19,6 +19,7 @@ from .fast_weights import (
     FastWeightHead, RankAdapter, fast_weight_parameter_count,
     rank_adapter_parameter_count,
 )
+from .unit_heads import TOKEN_VOCAB_SIZE, WORD_VOCAB_SIZE
 from .norm import RMSNorm
 
 
@@ -50,7 +51,14 @@ ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 
 
 def fast_adapter_input_width(cfg: Preset) -> int:
-    return cfg.width + 3 * max(16, cfg.width // 4)
+    bus = max(16, cfg.width // 4)
+    return (cfg.width + 3 * bus + 256 + 256
+            + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+
+
+def symbiotic_parameter_count(cfg: Preset, hidden: int = 64) -> int:
+    adapter = fast_adapter_input_width(cfg)
+    return (adapter + 256) * hidden + hidden + hidden * cfg.width + cfg.width + 1
 
 
 def moe_layer_count(cfg: Preset) -> int:
@@ -76,7 +84,8 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         d + 1 +                               # adaptive-depth head
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
         rank_adapter_parameter_count(
-            fast_adapter_input_width(cfg)) +   # fast RSI byte side head
+            fast_adapter_input_width(cfg), rank=16) +  # fast RSI byte side head
+        symbiotic_parameter_count(cfg) +        # feedback refinement
         moe_layer_count(cfg) * moe_parameter_count(d) +  # 256-expert rank-1 MoE
         hierarchy_parameter_count(d)          # causal subword/word/sentence bus
     )
@@ -233,9 +242,16 @@ class TerminalRSI(nn.Module):
         self.fast_weight = FastWeightHead(d)
         self.depth_head = nn.Linear(d, 1)
         self.hierarchy = CausalHierarchy(d)
-        self.fast_adapter = RankAdapter(
-            d + 3 * self.hierarchy.bus_width, rank=8)
+        adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
+                       + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+        self.fast_adapter = RankAdapter(adapter_dim, rank=16)
         self.fast_adapter.requires_grad_(False)
+        self.symbiotic_feedback = nn.Sequential(
+            nn.Linear(adapter_dim + 256, 64),
+            nn.GELU(),
+            nn.Linear(64, d),
+        )
+        self.symbiosis_gate = nn.Parameter(torch.zeros(()))
         # RSI-v4 intervention target.  This is deliberately a plain Python
         # attribute, not a buffer, so old v103 checkpoints load unchanged.
         self.router_temperature = 1.0
@@ -355,7 +371,26 @@ class TerminalRSI(nn.Module):
         bus = self.hierarchy(final_state)
         enhanced = bus.state
         fast = self.fast_weight(enhanced)
+        token_logits = bus.unit_logits.get(
+            "current_token",
+            torch.zeros((enhanced.shape[0], TOKEN_VOCAB_SIZE),
+                        device=enhanced.device, dtype=enhanced.dtype))
+        word_logits = bus.unit_logits.get(
+            "current_word",
+            torch.zeros((enhanced.shape[0], WORD_VOCAB_SIZE),
+                        device=enhanced.device, dtype=enhanced.dtype))
+        adapter_input = torch.cat(
+            (enhanced[:, -1], bus.subword[:, -1], bus.word[:, -1],
+             bus.sentence[:, -1], bus.unit_byte_raw, fast[:, -1],
+             token_logits, word_logits), dim=-1)
+        adapter_logits = self.fast_adapter(adapter_input)
+        feedback = torch.tanh(self.symbiosis_gate) * self.symbiotic_feedback(
+            torch.cat((adapter_input, adapter_logits), dim=-1))
+        refined = enhanced[:, -1] + feedback
         raw_next = self.output[0](enhanced) + bus.byte_prior + fast
+        refined_last = (self.output[0](refined) + bus.byte_prior[:, -1]
+                        + fast[:, -1])
+        raw_next = torch.cat((raw_next[:, :-1], refined_last[:, None]), dim=1)
         predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
         moe_stats = [block.moe.last_load_balance.to(enhanced.device)
                      for block in self.backbone if block.moe is not None]
@@ -374,9 +409,7 @@ class TerminalRSI(nn.Module):
             "unit_logits": bus.unit_logits,
             "unit_byte_raw": bus.unit_byte_raw,
             "unit_byte_logits": bus.unit_byte_logits,
-            "adapter_input": torch.cat(
-                (enhanced[:, -1], bus.subword[:, -1], bus.word[:, -1],
-                 bus.sentence[:, -1]), dim=-1),
+            "adapter_input": adapter_input,
             "pair_entropy": bus.pair_entropy,
             "pair_gate": bus.pair_gate,
             "depth_prob": depth_prob.mean(),
