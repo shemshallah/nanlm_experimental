@@ -99,7 +99,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     distill_samples: int = 8,
                     moe_loss_weight: float = 0.01,
                     unit_byte_loss_weight: float = 0.0,
-                    unit_byte_distill_weight: float = 0.0):
+                    unit_byte_distill_weight: float = 0.0,
+                    freeze_parent: bool = False):
     """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
@@ -225,8 +226,9 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         loss = float(total_loss) / n
         bpb = float(8 * loss / math.log(2))
         accuracy = total_hits / (n * 8)
-        model.original.observe_online_bits(history[:, -32:], target, aux)
-        model.observe_verified_byte(bpb, accuracy)
+        if not freeze_parent:
+            model.original.observe_online_bits(history[:, -32:], target, aux)
+            model.observe_verified_byte(bpb, accuracy)
         report = {"bpb": bpb, "bit_accuracy": accuracy,
                   "grad_norm": grad_norm, "grad_clip": grad_clip}
         if use_aux:
@@ -314,8 +316,9 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         upgrade_out = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
-    model.original.observe_online_bits(history[:, -32:], target, aux)
-    model.observe_verified_byte(bpb, accuracy)
+    if not freeze_parent:
+        model.original.observe_online_bits(history[:, -32:], target, aux)
+        model.observe_verified_byte(bpb, accuracy)
     report = {"bpb": bpb, "bit_accuracy": accuracy,
               "grad_norm": grad_norm, "grad_clip": grad_clip}
     if upgrade_bpb is not None:
@@ -1115,7 +1118,8 @@ def main(argv=None):
                     distill_samples=args.distill_samples,
                     moe_loss_weight=args.moe_loss_weight,
                     unit_byte_loss_weight=args.unit_byte_loss_weight,
-                    unit_byte_distill_weight=args.unit_byte_distill_weight)
+                    unit_byte_distill_weight=args.unit_byte_distill_weight,
+                    freeze_parent=(args.legacy_core_lr_scale == 0.0))
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -1236,7 +1240,8 @@ def main(argv=None):
                         distill_samples=args.distill_samples,
                         moe_loss_weight=args.moe_loss_weight,
                         unit_byte_loss_weight=args.unit_byte_loss_weight,
-                    unit_byte_distill_weight=args.unit_byte_distill_weight))
+                    unit_byte_distill_weight=args.unit_byte_distill_weight,
+                    freeze_parent=(args.legacy_core_lr_scale == 0.0)))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
                 clone_model.train()
