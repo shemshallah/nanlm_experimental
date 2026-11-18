@@ -171,9 +171,7 @@ class CausalHierarchy(nn.Module):
         self.boundary_gate = nn.Parameter(torch.zeros(()))
         self.top_moe = SparseRankOneMoE(bw, experts=256)
         self.bottom_extensions = SparseRankOneMoE(bw, experts=256)
-        # Isolation while the word-prior/MoE gradient path is audited.
-        self.top_moe.gate.requires_grad_(False)
-        self.bottom_extensions.gate.requires_grad_(False)
+        # Word-prior gate stays isolated while the MoE paths are audited.
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
         self.unit_heads = (UnitHeads(bw, width)
                            if enable_units else None)
