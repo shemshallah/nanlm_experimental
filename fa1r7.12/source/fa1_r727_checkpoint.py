@@ -107,7 +107,8 @@ def load_unified(path, root, threads=2):
                                         'FA1_R7_60_SUPPORT_CALIBRATED_GEOMETRY_V1',
                                         'FA1_R7_61_TWO_RAIL_HIERARCHICAL_GEOMETRY_V1',
                                         'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                                        'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1')
+                                        'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                        'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1')
         else serialized_architecture)
     # R7.44-50 are strictly additive extensions of R7.40. First rebuild the
     # original 24-group topology, then append the one backoff group. Do not
@@ -277,7 +278,8 @@ def load_unified(path, root, threads=2):
                                                'FA1_R7_60_SUPPORT_CALIBRATED_GEOMETRY_V1',
                                                'FA1_R7_61_TWO_RAIL_HIERARCHICAL_GEOMETRY_V1',
                                                'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                                               'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1'):
+                                               'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                               'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                     from fa1_r757_geometric_transition_router import (
                         BANK_FIELDS, attach_transition_router)
                     banks = {field: obj['model'][
@@ -290,7 +292,8 @@ def load_unified(path, root, threads=2):
                             'FA1_R7_60_SUPPORT_CALIBRATED_GEOMETRY_V1',
                             'FA1_R7_61_TWO_RAIL_HIERARCHICAL_GEOMETRY_V1',
                             'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                            'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1'):
+                            'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                            'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                         from fa1_r758_contextual_geometry import (
                             BANK_FIELDS as CONTEXT_FIELDS, attach_contextual_geometry)
                         context_banks = {field: obj['model'][
@@ -302,7 +305,8 @@ def load_unified(path, root, threads=2):
                                 'FA1_R7_60_SUPPORT_CALIBRATED_GEOMETRY_V1',
                                 'FA1_R7_61_TWO_RAIL_HIERARCHICAL_GEOMETRY_V1',
                                 'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                                'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1'):
+                                'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                             from fa1_r759_geometric_prior import (
                                 BANK_FIELDS as PRIOR_FIELDS, attach_geometric_prior)
                             prior_banks = {field: obj['model'][
@@ -313,7 +317,8 @@ def load_unified(path, root, threads=2):
                                     'FA1_R7_60_SUPPORT_CALIBRATED_GEOMETRY_V1',
                                     'FA1_R7_61_TWO_RAIL_HIERARCHICAL_GEOMETRY_V1',
                                     'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                                    'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1'):
+                                    'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                    'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                                 from fa1_r760_geometric_calibration import (
                                     attach_geometric_calibration)
                                 attach_geometric_calibration(model, unified)
@@ -326,14 +331,17 @@ def load_unified(path, root, threads=2):
                                     attach_two_rail_geometry(model, unified, rail_banks)
                                 if serialized_architecture in (
                                         'FA1_R7_62_SELECTIVE_GEOMETRIC_INTERSECTION_V1',
-                                        'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1'):
+                                        'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                        'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                                     from fa1_r762_selective_intersection import (
                                         BANK_FIELDS as RAIL_FIELDS,attach_selective_intersection)
                                     rail_banks = {field: obj['model'][
                                         'word_backoff.r759_prior.' + field]
                                         for field in RAIL_FIELDS}
                                     attach_selective_intersection(model,unified,rail_banks)
-                                    if serialized_architecture == 'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1':
+                                    if serialized_architecture in (
+                                            'FA1_R7_63_TEMPORAL_CROSS_RAIL_GEOMETRY_V1',
+                                            'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1'):
                                         from fa1_r763_temporal_cross import (
                                             BANK_FIELDS as TEMPORAL_FIELDS,
                                             attach_temporal_cross)
@@ -341,6 +349,14 @@ def load_unified(path, root, threads=2):
                                             'word_backoff.r759_prior.'+field]
                                             for field in TEMPORAL_FIELDS}
                                         attach_temporal_cross(model,unified,temporal_banks)
+                                        if serialized_architecture == 'FA1_R7_64_MULTISCALE_TEMPORAL_DIAMOND_V1':
+                                            from fa1_r764_multiresolution import (
+                                                BANK_FIELDS as MULTI_FIELDS,
+                                                attach_multiresolution)
+                                            multi_banks={field:obj['model'][
+                                                'word_backoff.r759_prior.'+field]
+                                                for field in MULTI_FIELDS}
+                                            attach_multiresolution(model,unified,multi_banks)
     else:
         unified = None
     model.load_state_dict(obj['model'], strict=True)

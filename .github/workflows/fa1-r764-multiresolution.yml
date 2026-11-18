@@ -1,0 +1,37 @@
+name: FA1 R7.64 multiresolution causal CPU regression
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'fa1r7.12/source/fa1_r764_multiresolution.py'
+      - 'fa1r7.12/source/fa1_r764_cpu_pilot.py'
+      - 'fa1r7.12/source/test_fa1_r764_multiresolution.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - '.github/workflows/fa1-r764-multiresolution.yml'
+  workflow_dispatch:
+
+jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify inherited geometry and new multiresolution gates
+        run: |
+          export PYTHONPATH=fa1r7.12/source
+          python -m unittest -q \
+            test_fa1_r757_geometric_transition_router \
+            test_fa1_r758_contextual_geometry \
+            test_fa1_r759_geometric_prior \
+            test_fa1_r760_geometric_calibration \
+            test_fa1_r761_two_rail_geometry \
+            test_fa1_r762_selective_intersection \
+            test_fa1_r763_temporal_cross \
+            test_fa1_r764_multiresolution
