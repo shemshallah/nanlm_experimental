@@ -72,6 +72,14 @@ class SparseRankOneMoE(nn.Module):
         return x + torch.tanh(self.gate) * self.out(output).reshape(
             batch, time, width)
 
+    def __getstate__(self):
+        # RSI-v4 deep-copies candidate models between branch updates.  A live
+        # autograd tensor stored on the module cannot be deep-copied; drop it
+        # and let the clone rebuild it on its next forward.
+        state = self.__dict__.copy()
+        state["load_balance_loss"] = torch.zeros(())
+        return state
+
     def parameter_count(self) -> int:
         return sum(p.numel() for p in self.parameters())
 

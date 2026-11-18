@@ -1,6 +1,7 @@
 """CPU integration tests for the v5 unified graph."""
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -98,6 +99,13 @@ class V5ModuleTests(unittest.TestCase):
         moe.load_balance_loss.backward()
         self.assertIsNotNone(moe.router.weight.grad)
         self.assertTrue(bool(torch.isfinite(moe.router.weight.grad).all()))
+
+    def test_moe_deepcopy_after_forward(self):
+        moe = SparseRankOneMoE(32, experts=8)
+        moe(torch.randn(2, 5, 32))
+        clone = copy.deepcopy(moe)
+        self.assertIsInstance(clone, SparseRankOneMoE)
+        self.assertTrue(bool(torch.isfinite(clone.load_balance_loss).all()))
 
     def test_fast_weight_zero_init(self):
         head = FastWeightHead(32)
