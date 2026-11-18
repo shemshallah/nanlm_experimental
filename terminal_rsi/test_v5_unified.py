@@ -134,6 +134,25 @@ class V5ModuleTests(unittest.TestCase):
             self.assertTrue(0.0 <= report["word_top1"] <= 1.0)
             self.assertIn("moe_load_balance", report)
 
+    def test_kv_cache_matches_one_pass_full_sequence(self):
+        torch.manual_seed(5)
+        model = TerminalRSI(TINY).eval()
+        prompt = torch.randint(0, 256, (1, 16))
+        with torch.no_grad():
+            prefill = model.forward_prefill(prompt)
+            full = model(prompt, passes=1)["logits"][0, :, -1]
+            next_byte = torch.randint(0, 256, (1, 1))
+            full_next = model(
+                torch.cat((prompt, next_byte), dim=1), passes=1
+            )["logits"][0, :, -1]
+            cached = model.forward_token(
+                next_byte, position=prompt.shape[1],
+                caches=prefill["caches"],
+                basis_buffer=prefill["basis"],
+                state_buffer=prefill["states"])
+        self.assertLess(float((prefill["current"] - full).abs().max()), 2e-4)
+        self.assertLess(float((cached["current"] - full_next).abs().max()), 2e-4)
+
     def test_ablation_switches_are_wired(self):
         bus = CausalHierarchy(
             32, ablation={"units": False, "pair": False,

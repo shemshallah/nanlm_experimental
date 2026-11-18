@@ -171,11 +171,20 @@ class CausalBlock(nn.Module):
         self.down = nn.Linear(4 * width, width, bias=False)
         self.moe = SparseRankOneMoE(width) if use_moe else None
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cache: dict | None = None) -> torch.Tensor:
         b, t, d = x.shape
         q, k, v = self.qkv(self.norm_attn(x)).reshape(b, t, 3, self.heads, d // self.heads).unbind(2)
         q, k, v = (z.transpose(1, 2) for z in (q, k, v))
-        a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        if cache is not None:
+            if cache.get("k") is not None:
+                k = torch.cat((cache["k"], k), dim=2)
+                v = torch.cat((cache["v"], v), dim=2)
+            cache["k"] = k
+            cache["v"] = v
+            a = F.scaled_dot_product_attention(
+                q, k, v, is_causal=(q.shape[2] > 1))
+        else:
+            a = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         x = x + self.project(a.transpose(1, 2).contiguous().reshape(b, t, d))
         normed = self.norm_ff(x)
         gate, value = self.gate_value(normed).chunk(2, dim=-1)
@@ -248,7 +257,9 @@ class TerminalRSI(nn.Module):
         migrated = self.migrate_state_dict(dict(state_dict))
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
-        allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
+        allowed = ("fast_weight.", "depth_head.",
+                   "hierarchy.pair_memory.", "hierarchy.unit_heads.",
+                   "upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [
@@ -260,9 +271,10 @@ class TerminalRSI(nn.Module):
                 f"unexpected={unexpected[:4]}")
         return torch.nn.modules.module._IncompatibleKeys(missing, unexpected)
 
-    def _backbone_forward(self, h: torch.Tensor) -> torch.Tensor:
-        for layer in self.backbone:
-            h = layer(h)
+    def _backbone_forward(self, h: torch.Tensor,
+                          caches: list | None = None) -> torch.Tensor:
+        for index, layer in enumerate(self.backbone):
+            h = layer(h, cache=caches[index] if caches is not None else None)
         return h
 
     def _segment_forward(self, h: torch.Tensor, start: int, end: int) -> torch.Tensor:
@@ -355,6 +367,69 @@ class TerminalRSI(nn.Module):
                                  if moe_stats else torch.zeros((), device=enhanced.device)),
             "moe_entropy": (torch.stack(moe_entropies).mean()
                             if moe_entropies else torch.zeros((), device=enhanced.device)),
+        }
+
+    def forward_prefill(self, x: torch.Tensor) -> dict:
+        """One-pass prefill that returns per-layer K/V and hierarchy buffers."""
+        if x.dtype != torch.long or x.ndim != 2:
+            raise ValueError("prefill expects [batch,time] byte ids")
+        b, t = x.shape
+        h = self.byte(x) + self.position(
+            torch.arange(t, device=x.device))[None, :, :]
+        basis = self.norm(h)
+        temperature = float(getattr(self, "router_temperature", 1.0))
+        choice = F.softmax(self.router(basis) / max(temperature, 1e-3),
+                           dim=-1).to(h.dtype)
+        branches = [basis] + [expert(basis) for expert in self.specialists]
+        mixed = sum(choice[..., j:j + 1] * branches[j] for j in range(4))
+        h = h + 0.25 * (mixed - basis)
+        caches: list[dict] = [{"k": None, "v": None}
+                              for _ in self.backbone]
+        h = self._backbone_forward(h, caches)
+        states = self.norm(h)
+        bus = self.hierarchy(states)
+        current = (self.output[0](states) + bus.byte_prior
+                   + self.fast_weight(states))
+        return {
+            "current": current[:, -1],
+            "caches": caches,
+            "basis": basis,
+            "states": states,
+            "bus": bus,
+        }
+
+    def forward_token(self, x_new: torch.Tensor, position: int,
+                      caches: list[dict], basis_buffer: torch.Tensor,
+                      state_buffer: torch.Tensor) -> dict:
+        """One-pass cached next-byte step; updates the rolling buffers."""
+        if x_new.ndim != 2 or x_new.shape[1] != 1:
+            raise ValueError("cached token step expects [batch,1]")
+        device = x_new.device
+        position = min(int(position), self.position.num_embeddings - 1)
+        h = self.byte(x_new) + self.position(
+            torch.tensor([position], device=device))[None, :, :]
+        basis_new = self.norm(h)
+        window = torch.cat((basis_buffer[:, -63:], basis_new), dim=1)
+        branches = [basis_new] + [
+            expert(window)[:, -1:] for expert in self.specialists]
+        temperature = float(getattr(self, "router_temperature", 1.0))
+        choice = F.softmax(self.router(basis_new) / max(temperature, 1e-3),
+                           dim=-1).to(h.dtype)
+        mixed = sum(choice[..., j:j + 1] * branches[j] for j in range(4))
+        h = h + 0.25 * (mixed - basis_new)
+        h = self._backbone_forward(h, caches)
+        final = self.norm(h)
+        basis_buffer = torch.cat((basis_buffer, basis_new), dim=1)[:, -256:]
+        state_buffer = torch.cat((state_buffer, final), dim=1)[:, -256:]
+        bus = self.hierarchy(state_buffer)
+        enhanced = bus.state[:, -1:]
+        current = (self.output[0](enhanced) + bus.byte_prior[:, -1:]
+                   + self.fast_weight(enhanced))
+        return {
+            "current": current[:, -1],
+            "bus": bus,
+            "basis_buffer": basis_buffer,
+            "state_buffer": state_buffer,
         }
 
     def parameter_count(self) -> int:

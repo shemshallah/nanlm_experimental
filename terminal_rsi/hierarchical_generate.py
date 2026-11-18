@@ -57,6 +57,7 @@ def generate_bytes(
     word_vocab: dict[bytes, int] | None = None,
     word_onset_weight: float = 0.0,
     boundary_threshold: float = 0.5,
+    fast: bool = False,
 ) -> dict:
     """Generate ``steps`` bytes and expose the latent hierarchical state.
 
@@ -80,8 +81,22 @@ def generate_bytes(
         history = [0] * (32 - len(history)) + history
     generated: list[int] = []
     records: list[dict] = []
+    cached = None
+    total_length = len(history)
+    if fast:
+        with torch.no_grad():
+            prefill = model.upgrades.forward_prefill(
+                torch.tensor(history[-256:], dtype=torch.long,
+                             device=device)[None])
+        cached = {
+            "current": prefill["current"],
+            "bus": prefill["bus"],
+            "caches": prefill["caches"],
+            "basis": prefill["basis"],
+            "states": prefill["states"],
+        }
 
-    for _ in range(steps):
+    for step_index in range(steps):
         context = torch.tensor(
             history[-256:], dtype=torch.long, device=device)[None]
         candidates = torch.arange(256, dtype=torch.long, device=device)
@@ -89,14 +104,22 @@ def generate_bytes(
         auxiliary = _default_aux(model, previous)
         old_logits, _ = model.original(previous[:, -32:], candidates, auxiliary)
 
-        if device.type == "cuda" and model.cfg.name == "blackwell":
+        if fast and cached is not None:
+            current = cached["current"]
+            upgrade_out = {
+                "boundary_logits": cached["bus"].boundary_logits,
+                "unit_logits": cached["bus"].unit_logits,
+                "hierarchy_gates": cached["bus"].gates,
+            }
+        elif device.type == "cuda" and model.cfg.name == "blackwell":
             if not torch.cuda.is_bf16_supported():
                 raise RuntimeError("Blackwell hierarchy generation requires BF16")
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 upgrade_out = model.upgrades(context)
+            current = upgrade_out["logits"][0, :, -1, :]
         else:
             upgrade_out = model.upgrades(context)
-        current = upgrade_out["logits"][0, :, -1, :]
+            current = upgrade_out["logits"][0, :, -1, :]
         proposed = model._byte_to_conditional_bit_logits(
             current.expand(256, -1), candidates)
 
@@ -129,6 +152,23 @@ def generate_bytes(
         generated.append(next_byte)
         history.append(next_byte)
 
+        if fast and cached is not None and step_index + 1 < steps:
+            with torch.no_grad():
+                token = model.upgrades.forward_token(
+                    torch.tensor([[next_byte]], dtype=torch.long,
+                                 device=device),
+                    position=total_length,
+                    caches=cached["caches"],
+                    basis_buffer=cached["basis"],
+                    state_buffer=cached["states"])
+            cached.update({
+                "current": token["current"],
+                "bus": token["bus"],
+                "basis": token["basis_buffer"],
+                "states": token["state_buffer"],
+            })
+            total_length += 1
+
         records.append({
             "byte": next_byte,
             "boundary_subword": float(boundary[0]),
@@ -147,6 +187,7 @@ def generate_bytes(
             key: value.tolist()
             for key, value in upgrade_out["hierarchy_gates"].items()
         },
+        "fast": fast,
     }
 
 
@@ -159,6 +200,8 @@ def main(argv=None) -> int:
     parser.add_argument("--temperature", type=float, default=0.9)
     parser.add_argument("--top-k", type=int, default=0)
     parser.add_argument("--seed", type=int, default=103)
+    parser.add_argument("--fast", action="store_true",
+                        help="One-pass KV-cache generation")
     args = parser.parse_args(argv)
 
     model = VerbatimV103RSI(args.mode)
@@ -169,7 +212,8 @@ def main(argv=None) -> int:
         model.load_state_dict(state, strict=False)
     result = generate_bytes(
         model, args.prompt.encode("utf-8"), args.steps,
-        temperature=args.temperature, top_k=args.top_k, seed=args.seed)
+        temperature=args.temperature, top_k=args.top_k, seed=args.seed,
+        fast=args.fast)
     print(result["text"], end="")
     print()
     gates = result["hierarchy_gates"]

@@ -68,6 +68,7 @@ def main(argv=None) -> int:
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full")
+    p.add_argument("--compile-upgrade", action="store_true")
     p.add_argument("--no-gradient-checkpointing", action="store_true",
                    help="Use VRAM for full activations instead of checkpoint recompute")
     p.add_argument("--train-bytes", type=int, default=0,
@@ -110,6 +111,7 @@ def main(argv=None) -> int:
     p.add_argument("--generation-temperature", type=float, default=0.9)
     p.add_argument("--generation-top-k", type=int, default=0)
     p.add_argument("--generation-word-onset-weight", type=float, default=0.3)
+    p.add_argument("--fast-generation", action="store_true")
     args = p.parse_args(argv)
     if (args.seconds <= 0 or args.batch < 1 or args.microbatch < 0
             or not args.upgrade_loss_weight >= 0
@@ -171,6 +173,7 @@ def main(argv=None) -> int:
         "--distill-samples", str(args.distill_samples),
         "--moe-loss-weight", str(args.moe_loss_weight),
         "--ablation", args.ablation,
+        *(["--compile-upgrade"] if args.compile_upgrade else []),
         "--upgrade-context", str(args.context),
         "--train-stream", str(output / "train_cpu_pilot.bin"),
         "--bpe-merges", "terminal_rsi/reference/nancm_v103_bpe.txt",
@@ -219,6 +222,7 @@ def main(argv=None) -> int:
             "--generation-top-k", str(args.generation_top_k),
             "--generation-word-onset-weight",
             str(args.generation_word_onset_weight),
+            *(["--fast-generation"] if args.fast_generation else []),
         ]
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     status = _run_tee(command, Path.cwd(), console)

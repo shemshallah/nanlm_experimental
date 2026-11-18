@@ -461,6 +461,8 @@ def main(argv=None):
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full",
                    help="Hierarchy ablation variant for the current run")
+    p.add_argument("--compile-upgrade", action="store_true",
+                   help="Try torch.compile on the 100M upgrade branch; eager fallback")
     p.add_argument("--rsi-cycle-updates", type=int, default=50,
                    help="RSI self-construction proposal/verification every N byte steps; 0 disables for ablation")
     p.add_argument("--rsi-version", choices=("v3", "v4", "off"), default="v3",
@@ -517,6 +519,8 @@ def main(argv=None):
     p.add_argument("--generation-temperature", type=float, default=0.9)
     p.add_argument("--generation-top-k", type=int, default=0)
     p.add_argument("--generation-word-onset-weight", type=float, default=0.3)
+    p.add_argument("--fast-generation", action="store_true",
+                   help="One-pass KV-cache generation")
     p.add_argument("--upgrade-context", type=int, default=None,
                    help="Observed causal bytes for additive model, up to preset context")
     p.add_argument("--reference-full256", type=Path,
@@ -674,6 +678,12 @@ def main(argv=None):
         ablation_flags["boundary_pooling"] = False
     model.upgrades.hierarchy.ablation.update(ablation_flags)
     print("Hierarchy ablation:", ablation_flags, flush=True)
+    compiled_upgrade = None
+    if args.compile_upgrade:
+        from .speed import compile_upgrade
+        compiled_upgrade = compile_upgrade(model)
+        if compiled_upgrade is not None:
+            model._compiled_upgrades = compiled_upgrade
     if args.no_gradient_checkpointing:
         model.upgrades.gradient_checkpointing = False
     optimizer = build_v103_optimizer(
@@ -1068,7 +1078,12 @@ def main(argv=None):
         base_training = model.training
         clones = []
         for action in candidate_actions:
-            clone_model = copy.deepcopy(model)
+            compiled = model.__dict__.pop("_compiled_upgrades", None)
+            try:
+                clone_model = copy.deepcopy(model)
+            finally:
+                if compiled is not None:
+                    model._compiled_upgrades = compiled
             clone_optimizer = build_v103_optimizer(
                 clone_model, freeze_residual_gate=True)
             clone_model.load_state_dict(base_model)
@@ -1305,6 +1320,7 @@ def main(argv=None):
                "original_c256_parity_after": c256_after,
                "test_untouched": True,
                "ablation": model.upgrades.hierarchy.ablation,
+               "compile_upgrade": bool(compiled_upgrade is not None),
                "old_v103_logits_identical_at_gate_zero": proof["exact_parity"]}
     hierarchy = model.upgrades.hierarchy
     receipt["parameter_count"] = model.count_parameters()
@@ -1333,7 +1349,8 @@ def main(argv=None):
             top_k=args.generation_top_k, seed=103, device=device,
             word_vocab=(unit_labels.word_vocab if unit_labels is not None
                         else None),
-            word_onset_weight=args.generation_word_onset_weight)
+            word_onset_weight=args.generation_word_onset_weight,
+            fast=args.fast_generation)
         records = generation["records"]
         receipt["generation"] = {
             "prompt": args.generation_prompt,
