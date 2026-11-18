@@ -97,7 +97,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     distill_weight: float = 0.0,
                     distill_samples: int = 8,
                     moe_loss_weight: float = 0.01,
-                    unit_byte_loss_weight: float = 0.0):
+                    unit_byte_loss_weight: float = 0.0,
+                    unit_byte_distill_weight: float = 0.0):
     """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
         raise ValueError("Strict v103 training requires the original six causal features")
@@ -108,7 +109,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                         ("unit", unit_loss_weight),
                         ("distill", distill_weight),
                         ("moe", moe_loss_weight),
-                        ("unit_byte", unit_byte_loss_weight)):
+                        ("unit_byte", unit_byte_loss_weight),
+                        ("unit_byte_distill", unit_byte_distill_weight)):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
@@ -200,6 +202,18 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                 objective = objective + unit_byte_loss_weight * u_byte * (end - start)
                 unit_byte_total += float(u_byte.detach()) * (end - start)
                 unit_byte_count += end - start
+            if (upgrade_out is not None and unit_byte_distill_weight > 0
+                    and upgrade_out.get("unit_byte_raw") is not None):
+                teacher = _full_parent_log_probs(
+                    model, part_history, aux[start:end], distill_samples)
+                if teacher is not None:
+                    k = teacher.shape[0]
+                    student = F.log_softmax(
+                        upgrade_out["unit_byte_raw"][:k].float(), dim=-1)
+                    kl = F.kl_div(student, teacher, log_target=True,
+                                  reduction="sum")
+                    objective = objective + (
+                        unit_byte_distill_weight * kl * (n / k))
             (objective / n).backward()
             total_loss = (loss_sum.detach() if total_loss is None
                           else total_loss + loss_sum.detach())
@@ -273,6 +287,16 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             u_byte_value = F.cross_entropy(
                 upgrade_out["unit_byte_raw"].float(), target)
             objective = objective + unit_byte_loss_weight * u_byte_value
+        if (upgrade_out is not None and unit_byte_distill_weight > 0
+                and upgrade_out.get("unit_byte_raw") is not None):
+            teacher = _full_parent_log_probs(
+                model, history, aux, distill_samples)
+            if teacher is not None:
+                k = teacher.shape[0]
+                objective = objective + unit_byte_distill_weight * F.kl_div(
+                    F.log_softmax(upgrade_out["unit_byte_raw"][:k].float(),
+                                  dim=-1),
+                    teacher, log_target=True, reduction="batchmean")
         optimizer.zero_grad(set_to_none=True)
         objective.backward()
         upgrade_bpb = float(aux_loss.detach() / math.log(2))
@@ -483,6 +507,8 @@ def main(argv=None):
                    help="Load-balancing regularizer for the 256-expert MoE")
     p.add_argument("--unit-byte-loss-weight", type=float, default=0.1,
                    help="Direct CE on the current-unit -> byte decoder")
+    p.add_argument("--unit-byte-distill-weight", type=float, default=0.5,
+                   help="256-way parent KL into the unit -> byte decoder")
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full",
@@ -575,7 +601,8 @@ def main(argv=None):
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
                         ("moe", args.moe_loss_weight),
-                        ("unit_byte", args.unit_byte_loss_weight)):
+                        ("unit_byte", args.unit_byte_loss_weight),
+                        ("unit_byte_distill", args.unit_byte_distill_weight)):
         if value < 0:
             p.error(f"{name} loss weight must be nonnegative")
     if args.distill_samples < 0:
@@ -1055,7 +1082,8 @@ def main(argv=None):
                     distill_weight=args.distill_weight,
                     distill_samples=args.distill_samples,
                     moe_loss_weight=args.moe_loss_weight,
-                    unit_byte_loss_weight=args.unit_byte_loss_weight)
+                    unit_byte_loss_weight=args.unit_byte_loss_weight,
+                    unit_byte_distill_weight=args.unit_byte_distill_weight)
             sampler["cursor"] += batch
             step += 1
             update_count += 1
@@ -1143,7 +1171,8 @@ def main(argv=None):
                         distill_weight=args.distill_weight,
                         distill_samples=args.distill_samples,
                         moe_loss_weight=args.moe_loss_weight,
-                        unit_byte_loss_weight=args.unit_byte_loss_weight))
+                        unit_byte_loss_weight=args.unit_byte_loss_weight,
+                    unit_byte_distill_weight=args.unit_byte_distill_weight))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
                 clone_model.train()

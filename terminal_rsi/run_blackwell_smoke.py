@@ -66,6 +66,7 @@ def main(argv=None) -> int:
     p.add_argument("--distill-samples", type=int, default=8)
     p.add_argument("--moe-loss-weight", type=float, default=0.01)
     p.add_argument("--unit-byte-loss-weight", type=float, default=0.1)
+    p.add_argument("--unit-byte-distill-weight", type=float, default=0.5)
     p.add_argument("--ablation", choices=(
         "full", "no_loops", "no_bottom_up", "no_top_down", "no_lateral",
         "no_pair", "no_units", "no_boundary_pooling"), default="full")
@@ -125,7 +126,8 @@ def main(argv=None) -> int:
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
                         ("moe", args.moe_loss_weight),
-                        ("unit_byte", args.unit_byte_loss_weight)):
+                        ("unit_byte", args.unit_byte_loss_weight),
+                        ("unit_byte_distill", args.unit_byte_distill_weight)):
         if value < 0:
             p.error(f"{name} loss weight must be nonnegative")
 
@@ -175,6 +177,7 @@ def main(argv=None) -> int:
         "--distill-samples", str(args.distill_samples),
         "--moe-loss-weight", str(args.moe_loss_weight),
         "--unit-byte-loss-weight", str(args.unit_byte_loss_weight),
+        "--unit-byte-distill-weight", str(args.unit_byte_distill_weight),
         "--ablation", args.ablation,
         *(["--compile-upgrade"] if args.compile_upgrade else []),
         "--upgrade-context", str(args.context),
