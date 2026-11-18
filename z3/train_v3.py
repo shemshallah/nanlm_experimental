@@ -147,7 +147,11 @@ def _save_cpu(path: Path, payload: Any) -> None:
 def _xla_sync(device: torch.device) -> None:
     if device.type == "xla":
         import torch_xla
-        torch_xla.sync()
+        if hasattr(torch_xla, "sync"):
+            torch_xla.sync()
+        else:
+            import torch_xla.core.xla_model as xm
+            xm.mark_step()
 
 
 def _extract_state_dict(checkpoint: Any) -> dict[str, torch.Tensor]:
@@ -230,9 +234,30 @@ def _aux_scalar(value):
     return value
 
 
-def _amp_context(enabled: bool):
+def _tpu_environment() -> bool:
+    return bool(
+        os.environ.get("TPU_NAME")
+        or os.environ.get("COLAB_TPU_ADDR")
+        or os.environ.get("PJRT_DEVICE", "").strip().upper() == "TPU"
+    )
+
+
+def _amp_context(enabled: bool, device_type: str = "cuda"):
     if not enabled:
         return contextlib.nullcontext()
+    if device_type == "xla":
+        # TPU uses bf16 autocast.  Prefer the torch_xla context, then the
+        # newer torch.autocast("xla") spelling, then plain fp32.
+        try:
+            from torch_xla.amp import autocast as xla_autocast
+            return xla_autocast(enabled=True, dtype=torch.bfloat16)
+        except Exception:
+            try:
+                return torch.autocast(
+                    "xla", dtype=torch.bfloat16, enabled=True
+                )
+            except Exception:
+                return contextlib.nullcontext()
     return torch.amp.autocast("cuda", enabled=True)
 
 
@@ -244,6 +269,12 @@ def _capture_rng(device: torch.device) -> dict[str, Any]:
     }
     if device.type == "cuda" and torch.cuda.is_available():
         state["cuda"] = torch.cuda.get_rng_state_all()
+    elif device.type == "xla":
+        try:
+            import torch_xla.core.xla_model as xm
+            state["xla"] = xm.get_rng_state()
+        except Exception:
+            pass
     return state
 
 
@@ -259,6 +290,12 @@ def _restore_rng(state: Any, device: torch.device) -> None:
             torch.set_rng_state(state["torch"])
         if device.type == "cuda" and state.get("cuda"):
             torch.cuda.set_rng_state_all(state["cuda"])
+        elif device.type == "xla" and state.get("xla") is not None:
+            try:
+                import torch_xla.core.xla_model as xm
+                xm.set_rng_state(state["xla"])
+            except Exception:
+                pass
     except Exception as exc:  # pragma: no cover - best effort reproducibility
         print(f"[resume] could not restore RNG exactly: {exc}", flush=True)
 
@@ -1067,7 +1104,7 @@ def evaluate(
             )
         else:
             task_ids = None
-        with _amp_context(amp):
+        with _amp_context(amp, device.type):
             logits, mtp_logits, aux = model(
                 xb, return_diagnostics=True, sidecar=sidecar,
                 task_ids=task_ids, compute_mtp_aux=False,
@@ -1970,9 +2007,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     system = parser.add_argument_group("system")
     system.add_argument("--device", default="auto",
-                        help="'auto', 'cpu', 'cuda', or e.g. 'cuda:1'")
+                        help="'auto', 'cpu', 'cuda', 'cuda:1', 'xla', or 'tpu'")
     system.add_argument("--amp", action=argparse.BooleanOptionalAction, default=None,
-                        help="AMP on CUDA (default: enabled on CUDA; CPU always fp32)")
+                        help="bf16 autocast on XLA/TPU, fp16 on CUDA; CPU fp32")
     system.add_argument("--data-parallel", action="store_true",
                         help="wrap the model in nn.DataParallel when multiple CUDA GPUs exist")
     system.add_argument("--amp-init-scale", type=float, default=1024.0)
@@ -2412,13 +2449,24 @@ def main(argv: list[str] | None = None) -> int:
     torch.set_num_threads(args.threads)
 
     if args.device == "auto":
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    elif args.device == "xla":
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif _tpu_environment():
+            try:
+                import torch_xla.core.xla_model as xm
+            except ImportError as exc:
+                raise SystemExit(
+                    "TPU environment detected but torch_xla is missing"
+                ) from exc
+            device = xm.xla_device()
+        else:
+            device = torch.device("cpu")
+    elif args.device in ("xla", "tpu"):
         try:
             import torch_xla.core.xla_model as xm
         except ImportError as exc:
             raise SystemExit(
-                "--device xla requires torch_xla; install the TPU wheel first"
+                "--device xla/tpu requires torch_xla; install the TPU wheel first"
             ) from exc
         device = xm.xla_device()
     else:
@@ -2426,12 +2474,15 @@ def main(argv: list[str] | None = None) -> int:
     if device.type == "cuda" and not torch.cuda.is_available():
         raise SystemExit("--device cuda requested but CUDA is unavailable")
     if args.amp is None:
-        amp = device.type == "cuda"
+        amp = device.type in ("cuda", "xla")
     else:
-        amp = bool(args.amp) and device.type == "cuda"
-        if args.amp and device.type != "cuda":
-            print("[amp] requested on non-CUDA device; running fp32", flush=True)
-    if args.random_smoke or device.type == "xla":
+        amp = bool(args.amp) and device.type in ("cuda", "xla")
+        if args.amp and device.type not in ("cuda", "xla"):
+            print(
+                "[amp] requested on a non-accelerator device; running fp32",
+                flush=True,
+            )
+    if args.random_smoke:
         amp = False
 
     out = Path(args.out).expanduser()
@@ -2886,7 +2937,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     scaler = (
         torch.amp.GradScaler("cuda", init_scale=args.amp_init_scale)
-        if amp else None
+        if amp and device.type == "cuda" else None
     )
 
     ema_model = None
@@ -3165,7 +3216,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             task_ids = None
         optimizer.zero_grad(set_to_none=True)
-        with _amp_context(amp):
+        with _amp_context(amp, device.type):
             logits, mtp_logits, aux = model(
                 xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
                 sidecar=sidecar, task_ids=task_ids,

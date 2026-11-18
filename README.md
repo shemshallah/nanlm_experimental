@@ -16,7 +16,9 @@ parameter/compute audit and the `kaggle10m` short-run profile are in
 [`z3/KAGGLE_10M_ARCHITECTURE.md`](z3/KAGGLE_10M_ARCHITECTURE.md); the first
 T4 result (WikiText-2 **1.5981 BPB** after 900 steps with the no-MTP short-run profile) is in
 [`z3/KAGGLE_10M_RESULTS.md`](z3/KAGGLE_10M_RESULTS.md).  The Kaggle notebook is
-[`z3/kaggle_10m_115m.ipynb`](z3/kaggle_10m_115m.ipynb).
+[`z3/kaggle_10m_115m.ipynb`](z3/kaggle_10m_115m.ipynb).  For the TPU/XLA path
+see [`z3/TPU_115M.md`](z3/TPU_115M.md) and
+[`z3/kaggle_tpu_115m.ipynb`](z3/kaggle_tpu_115m.ipynb).
 
 **Z3 115M preset (fixed across hardware):** `z3/train_v3.py --preset 115m`
 constructs **115,238,237 parameters** on T4, A100, or Blackwell.  It uses

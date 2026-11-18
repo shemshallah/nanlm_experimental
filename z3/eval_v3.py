@@ -47,6 +47,7 @@ import codecs
 import hashlib
 import json
 import math
+import os
 import random
 import re
 import sys
@@ -1704,9 +1705,35 @@ def _parse_corpus_specs(specs: Sequence[str] | Sequence[Sequence[str]]) -> list[
     return corpora
 
 
+def _tpu_environment() -> bool:
+    return bool(
+        os.environ.get("TPU_NAME")
+        or os.environ.get("COLAB_TPU_ADDR")
+        or os.environ.get("PJRT_DEVICE", "").strip().upper() == "TPU"
+    )
+
+
 def _resolve_device(value: str) -> torch.device:
     if value == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if _tpu_environment():
+            try:
+                import torch_xla.core.xla_model as xm
+            except ImportError as exc:
+                raise ValueError(
+                    "TPU environment detected but torch_xla is missing"
+                ) from exc
+            return xm.xla_device()
+        return torch.device("cpu")
+    if value in ("xla", "tpu"):
+        try:
+            import torch_xla.core.xla_model as xm
+        except ImportError as exc:
+            raise ValueError(
+                "--device xla/tpu requires torch_xla; install the TPU wheel"
+            ) from exc
+        return xm.xla_device()
     device = torch.device(value)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but torch.cuda.is_available() is False")
@@ -1769,7 +1796,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="teacher-force every target token and report exact byte denominators",
     )
-    parser.add_argument("--device", default="auto", help="auto, cpu, cuda, cuda:0, ...")
+    parser.add_argument("--device", default="auto", help="auto, cpu, cuda, cuda:0, xla, tpu, ...")
     parser.add_argument("--out", default="eval_v3.json", help="output JSON path")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="validation position seed")
     parser.add_argument(
