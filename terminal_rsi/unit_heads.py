@@ -459,8 +459,20 @@ def word_prefix_byte_log_probs(word_logits: torch.Tensor,
     are the next-byte prior from words whose prefix matches the bytes after the
     last whitespace.
     """
-    if word_logits.ndim != 2 or word_logits.shape[-1] != word_bytes.shape[0]:
-        raise ValueError("word_logits and word_bytes vocabulary mismatch")
+    if word_logits.ndim != 2:
+        raise ValueError("word_logits must be [batch,vocab]")
+    vocab = word_logits.shape[-1]
+    if word_bytes.shape[0] != vocab:
+        if word_bytes.shape[0] < vocab:
+            pad = torch.zeros((vocab - word_bytes.shape[0], word_bytes.shape[1]),
+                              dtype=word_bytes.dtype, device=word_bytes.device)
+            word_bytes = torch.cat((word_bytes, pad), dim=0)
+            word_lengths = torch.cat((word_lengths, torch.zeros(
+                vocab - word_lengths.shape[0], dtype=word_lengths.dtype,
+                device=word_lengths.device)), dim=0)
+        else:
+            word_bytes = word_bytes[:vocab]
+            word_lengths = word_lengths[:vocab]
     device = word_logits.device
     history = history.to(device).long()
     table_all = word_bytes.to(device).long()
