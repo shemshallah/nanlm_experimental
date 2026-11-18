@@ -1,0 +1,32 @@
+name: FA1 R7.62 selective two-rail geometry CPU
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'fa1r7.12/source/fa1_r762_selective_intersection.py'
+      - 'fa1r7.12/source/fa1_r762_cpu_pilot.py'
+      - 'fa1r7.12/source/test_fa1_r762_selective_intersection.py'
+      - 'fa1r7.12/source/fa1_r727_checkpoint.py'
+      - '.github/workflows/fa1-r762-selective-intersection.yml'
+  workflow_dispatch:
+
+jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy sentencepiece
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify selective geometry and inherited predictor
+        run: |
+          export PYTHONPATH=fa1r7.12/source
+          python -m unittest -q test_fa1_r762_selective_intersection
+          python -m unittest -q test_fa1_r761_two_rail_geometry
+          python -m unittest -q test_fa1_r760_geometric_calibration
+          python -m unittest -q test_fa1_r759_geometric_prior
