@@ -55,6 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     tokenizer = eval_v3.load_tokenizer(
         "layered", None, args.layered_model
     )
+    # ``LayeredTokenizerAdapter`` only exposes flat IDs; pass the underlying
+    # layered tokenizer so generation can rebuild sidecars and decode text.
+    generation_tokenizer = getattr(tokenizer, "_layered", tokenizer)
     for prompt in prompts:
         ids = tokenizer.encode(prompt)
         if not ids:
@@ -67,12 +70,12 @@ def main(argv: list[str] | None = None) -> int:
                 max_new_tokens=int(args.max_new_tokens),
                 temperature=float(args.temperature),
                 seed=int(args.seed),
-                tokenizer=tokenizer,
+                tokenizer=generation_tokenizer,
             )
         out_ids = generated[0].detach().cpu().tolist()
         print(f"\n=== PROMPT: {prompt}")
-        print(_decode(tokenizer, out_ids))
-        if payload.get("composition"):
+        print(_decode(generation_tokenizer, out_ids))
+        if isinstance(payload, dict) and payload.get("composition"):
             print(f"[composition events: {len(payload['composition'])}]")
     return 0
 
