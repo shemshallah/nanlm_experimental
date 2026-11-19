@@ -34,16 +34,30 @@ the honest baseline, not a leaky score.
 | **External FineWeb-Edu, article-level 20% test** (shard 013, 2M tokens) | **1.6079** | 21.60% | 38.38% |
 | **PTB test** | **2.3011** | 13.85% | 24.69% |
 
+## 20-minute continuation
+
+Resumed the 24.4M-token checkpoint for 20 more minutes: +24,788,992
+tokens, total **49.15M**, 1,194.1 s.
+
+| Eval | 24.4M tokens | 49.15M tokens |
+|---|---:|---:|
+| In-domain valid | 1.5310 / 25.06% | **1.3652 / 30.45%** |
+| External FineWeb-Edu article-level | 1.6079 / 21.60% | **1.4603 / 25.70%** |
+| PTB test | 2.3011 / 13.85% | **1.9241 / 23.82%** |
+
+External top-5 improved 38.38% → **43.87%**; PTB top-5 24.69% → **35.24%**.
+
 For comparison:
 
 | Model | External FineWeb | PTB |
 |---|---:|---:|
 | Leaky full sidecar (115M/30m checkpoint) | 0.1076 | 0.7850 |
 | Causal eval of leaky weights | 6.1305 | — |
-| **Causal-trained pilot (84M, 24.4M tokens)** | **1.6079** | **2.3011** |
+| Causal pilot, 24.4M tokens | 1.6079 | 2.3011 |
+| **Causal continuation, 49.15M tokens** | **1.4603** | **1.9241** |
 
 The causal model is undertrained but not broken. The external and in-domain
-numbers are close (1.608 vs 1.531), which is what a small model that has
+numbers are close (1.460 vs 1.365), which is what a small model that has
 not memorized the corpus should look like. The near-zero 0.1076 was the
 future-token channel.
 
@@ -69,7 +83,8 @@ leaky 0.1/0.8 numbers must be discarded.
 
 ## Persistence
 
-- Kaggle: `shem42/z4-causal-pilot-84m`
+- Kaggle: `shem42/z4-causal-pilot-84m` (24.4M-token checkpoint)
+- Kaggle: `shem42/z4-causal-40m-84m` (49.15M-token checkpoint)
   - `final.pt`, `best.pt`, `config.json`, `result.json`, `eval_ptb.json`,
     external FineWeb JSON, logs
 - Code: `z3/concept_loop.py`, `z3/v3_model.py`, `z3/train_v3.py`,
