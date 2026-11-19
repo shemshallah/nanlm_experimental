@@ -51,6 +51,22 @@ The subword tokenizer is WikiText-2-derived, so this is model-weight
 zero-shot, not strict tokenizer-level zero-shot.  See
 [`NONWIKI_HOUR_2026_11_18.md`](NONWIKI_HOUR_2026_11_18.md).
 
+## Broad 1-hour run (2026-11-19)
+
+Fresh 115M model on a 125.5M-token broad corpus, batch 64, 68.8M tokens
+seen in 54m 25s, 0 non-finite skips.
+
+- **Clean OOD PTB test: 0.8679 BPB / 50.84% top-1** (pre-web 1980s WSJ,
+  0/105,141 32-gram overlap against a 5M train sample)
+- WikiText-2 test 0.3684, WikiText-103 0.3265, Shakespeare 0.5188 — but
+  the corpus contains web/Gutenberg material, so these are **not clean
+  zero-shot** claims
+- In-domain 0.2171 is optimistic because 1 KB chunking can split adjacent
+  chunks across train/valid
+
+See [`BROAD_HOUR_2026_11_19.md`](BROAD_HOUR_2026_11_19.md).  The clean
+under-1.0 result is PTB.
+
 ## Requirements
 
 - A CUDA GPU.  Blackwell (`sm_100`/`sm_120`) needs a PyTorch build with
