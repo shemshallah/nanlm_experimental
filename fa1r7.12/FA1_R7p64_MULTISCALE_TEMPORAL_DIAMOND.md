@@ -1,9 +1,8 @@
 # FA1 R7.64 — Multiresolution temporal Diamond
 
-**Experimental status:** Development-only candidate. The accepted production
-checkpoint and all independent TEST books remain protected. Promotion and
-9,000 extra CPU updates require the *same* independently sampled book-level
-superiority gates used in R7.63.
+**Status:** The 3,000-update checkpoint passed the 8,192-position book-
+disjoint DEV superiority gate and is the DEV-verified FA1 default. TEST
+remains unopened; this is not an independent-TEST or frontier claim.
 
 ## Why R7.63's finer crossing stalled
 
@@ -78,6 +77,27 @@ the full R7.64 state and sixth-tensor AdamW history while freezing all
 36 inherited parameter groups. Candidate selection uses original DEV
 samples; any later replication must declare its own sample/seed and
 acknowledge that DEV has been consulted repeatedly.
+
+### 3,000-update continuation and stronger replication
+
+Continued the **same** R7.64 checkpoint from 1,000 through 3,000 genuine
+CPU updates with all 37 optimizer groups (36 inherited groups frozen).
+On original DEV, word NLL improved to 5.07605362 versus R7.63 5.08234692.
+The frozen new 8,192-position/15-book DEV replication passed all four
+book-bootstrap 95% superiority bounds:
+
+| Comparison | Gain (nats/word) | CI95 |
+| --- | ---: | --- |
+| R7.64 versus R7.63 | +0.00167552 | [+0.00045877,+0.00302416] |
+| Geometry versus lexical only | +0.00176873 | [+0.00044635,+0.00327154] |
+| Correct history versus corrupted | +0.00290495 | [+0.00151936,+0.00448201] |
+| Correct geometry values versus corrupted | +0.00912647 | [+0.00787271,+0.01049078] |
+
+This supports **DEV-only promotion** of the 3,000-update checkpoint.
+The promotion script binds the source and both DEV report hashes, verifies
+the parent checkpoint, and checks all model tensors and optimizer moments
+remain identical after metadata-only promotion. Word-level NLL cannot
+be represented as true raw-byte BPB or byte top-5 accuracy.
 
 The default entrypoint is `source/fa1_default.py:load_default` and its
 immutable checkpoint filename is `FA1_R764_PROMOTED_DEV_GATE.pt`. This

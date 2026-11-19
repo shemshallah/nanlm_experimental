@@ -17,7 +17,7 @@ import tempfile
 import torch
 
 from fa1_r727_checkpoint import FORMAT, digest
-from fa1_r727_optimizer import FORMAT as OPTIMIZER_FORMAT
+from fa1_r727_optimizer import FORMAT as OPTIMIZER_FORMAT, _deep_equal
 from fa1_r764_multiresolution import ROUND
 
 GATES = (
@@ -75,6 +75,7 @@ def promote(candidate, dev_path, replication_path, output):
             checkpoint.get('promoted') is not False or
             checkpoint.get('candidate_trained') is not True or
             checkpoint.get('candidate_training_updates') != dev['selected_step'] or
+            checkpoint.get('source_checkpoint_sha256') != dev.get('parent_sha256') or
             state.get('format') != OPTIMIZER_FORMAT or
             len(state['groups']) != 37):
         raise ValueError('candidate architecture or optimizer history mismatch')
@@ -93,6 +94,12 @@ def promote(candidate, dev_path, replication_path, output):
     os.close(fd)
     try:
         torch.save(checkpoint, tmp)
+        check = torch.load(tmp, map_location='cpu', weights_only=False)
+        if (check.get('promoted') is not True or
+                not _deep_equal(checkpoint['model'], check['model']) or
+                not _deep_equal(checkpoint['optimizer'], check['optimizer'])):
+            raise AssertionError('promotion did not preserve tensors/moments')
+        del check
         with open(tmp, 'rb') as stream:
             os.fsync(stream.fileno())
         os.link(tmp, output)
