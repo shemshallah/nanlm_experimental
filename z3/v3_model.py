@@ -1335,11 +1335,16 @@ class V3LM(nn.Module):
                 compute_byte_probe: bool = True,
                 compute_byte_sequence: bool = True,
                 compute_concept: bool | None = None,
-                compute_mtp: bool | None = None):
+                compute_mtp: bool | None = None,
+                return_hidden: bool = False):
         if compute_concept is None:
             compute_concept = bool(self.cfg.compute_concept)
         if compute_mtp is None:
             compute_mtp = bool(self.cfg.compute_mtp)
+        if return_hidden and compute_mtp:
+            raise ValueError(
+                "return_hidden is only supported with compute_mtp=False"
+            )
         x = self.embed(tokens)
         feedback_scale = self.feedback_gate_scale(dtype=x.dtype)
         lbs, zs = [], []
@@ -1469,12 +1474,23 @@ class V3LM(nn.Module):
                 * memory_summary.unsqueeze(1)
             )
         x = self.norm(x)
-        main = self.project_logits(x)
-        if self.memory_path is not None:
-            # Sparse n-gram bias with a learned global scale.
-            bias = self.memory_path.logit_bias(tokens)
-            bias.value = bias.value * self.memory_scale
-            bias.add_(main)
+        if return_hidden:
+            # Training can project this hidden state through the 64k head in
+            # bounded chunks, so the (B, T, vocab) logits tensor is never
+            # materialised in full.  The hashed n-gram bias is token-local;
+            # reject the fast path rather than silently dropping it.
+            if self.memory_path is not None:
+                raise ValueError(
+                    "return_hidden does not support the n-gram logit bias"
+                )
+            main = None
+        else:
+            main = self.project_logits(x)
+            if self.memory_path is not None:
+                # Sparse n-gram bias with a learned global scale.
+                bias = self.memory_path.logit_bias(tokens)
+                bias.value = bias.value * self.memory_scale
+                bias.add_(main)
 
         # Deep supervision: each selected intermediate stream predicts t+2
         # through the same small MTP head.  The residual stream is causal, so
@@ -1845,7 +1861,7 @@ class V3LM(nn.Module):
                 )
         if return_diagnostics and "mtp_diagnostics" in locals():
             aux["mtp_diagnostics"] = mtp_diagnostics
-        return main, mtp, aux
+        return (x if return_hidden else main), mtp, aux
 
     @torch.no_grad()
     def generate(

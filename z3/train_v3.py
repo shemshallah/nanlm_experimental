@@ -58,6 +58,7 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -1041,6 +1042,46 @@ def lm_mtp_loss(
     return total, parts
 
 
+def lm_ce_from_hidden(
+    hidden: torch.Tensor,
+    project_logits: Any,
+    tokens: torch.Tensor,
+    *,
+    chunk_tokens: int = 2048,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """Main next-token CE without a full (B, T, 64k) logits tensor.
+
+    The head is applied to bounded token chunks and wrapped in activation
+    checkpointing, so backward recomputes one chunk of logits at a time.
+    This is the memory fix for the 64k vocabulary: at batch 64 / ctx 512 a
+    full logits tensor is ~2.1B values, larger than the rest of the model.
+    """
+    batch, seq_len, d_model = hidden.shape
+    flat = hidden[:, :-1].reshape(-1, d_model)
+    targets = tokens[:, 1:].reshape(-1)
+    total = flat.new_zeros((), dtype=torch.float32)
+    valid = 0
+    step = max(1, int(chunk_tokens))
+    for start in range(0, flat.shape[0], step):
+        chunk = flat[start:start + step]
+        target = targets[start:start + step]
+        logits = checkpoint(project_logits, chunk, use_reentrant=False)
+        total = total + F.cross_entropy(
+            logits, target, ignore_index=IGNORE_INDEX, reduction="sum"
+        ).float()
+        valid += int((target != IGNORE_INDEX).sum())
+    loss = total / max(1, valid)
+    zero = loss.detach() * 0.0
+    parts = {
+        "ce": loss.detach(),
+        "mtp": zero,
+        "mtp_weighted": zero,
+        "mtp_aux": zero,
+        "mtp_aux_layers": 0,
+    }
+    return loss, parts
+
+
 @torch.no_grad()
 def evaluate(
     model: V3LM,
@@ -2019,6 +2060,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="allow missing keys when initializing a model with new adapter parameters")
     run.add_argument("--resume", default="", metavar="PATH",
                      help="last.pt/checkpoint to resume; 'last' means OUT/last.pt")
+    run.add_argument("--chunked-ce", action=argparse.BooleanOptionalAction,
+                     default=False,
+                     help="apply the 64k head in bounded chunks to save VRAM")
+    run.add_argument("--ce-chunk-tokens", type=int, default=2048,
+                     help="token rows per chunked-CE head application")
     run.add_argument("--out", default="runs/v3")
     run.add_argument("--seed", type=int, default=3)
     run.add_argument("--threads", type=int, default=4)
@@ -3289,9 +3335,16 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             task_ids = None
+        use_chunked_ce = bool(
+            args.chunked_ce
+            and args.mtp_weight <= 0
+            and args.mtp_aux_weight <= 0
+            and not bool(getattr(core_model.cfg, "compute_mtp", False))
+            and getattr(core_model, "memory_path", None) is None
+        )
         optimizer.zero_grad(set_to_none=True)
         with _amp_context(amp, device.type, cuda_amp_dtype):
-            logits, mtp_logits, aux = model(
+            hidden_or_logits, mtp_logits, aux = model(
                 xb, mtp_teacher=True, mtp_gt_mix=mtp_gt_mix,
                 sidecar=sidecar, task_ids=task_ids,
                 compute_mtp_aux=args.mtp_aux_weight > 0,
@@ -3300,16 +3353,27 @@ def main(argv: list[str] | None = None) -> int:
                     or args.cross_resolution_weight > 0
                 ),
                 compute_byte_sequence=args.byte_sequence_weight > 0,
+                return_hidden=use_chunked_ce,
             )
-            loss, parts = lm_mtp_loss(
-                logits,
-                mtp_logits,
-                xb,
-                mtp_weight=args.mtp_weight,
-                aux_logits=aux.get("mtp_aux_logits") if aux else None,
-                aux_weight=args.mtp_aux_weight,
-                aux_weights=aux.get("mtp_aux_layer_weights") if aux else None,
-            )
+            if use_chunked_ce:
+                logits = None
+                loss, parts = lm_ce_from_hidden(
+                    hidden_or_logits,
+                    core_model.project_logits,
+                    xb,
+                    chunk_tokens=args.ce_chunk_tokens,
+                )
+            else:
+                logits = hidden_or_logits
+                loss, parts = lm_mtp_loss(
+                    logits,
+                    mtp_logits,
+                    xb,
+                    mtp_weight=args.mtp_weight,
+                    aux_logits=aux.get("mtp_aux_logits") if aux else None,
+                    aux_weight=args.mtp_aux_weight,
+                    aux_weights=aux.get("mtp_aux_layer_weights") if aux else None,
+                )
             load_balance = _aux_scalar(aux.get("load_balance")) if aux else None
             router_z = _aux_scalar(aux.get("router_z")) if aux else None
             mtp_load_balance = (
