@@ -445,15 +445,22 @@ def _segment_pool(
     if t == 0:
         return x, torch.zeros((b, 0), device=device, dtype=x.dtype)
     # First index of the current contiguous segment for every position.
-    starts = torch.zeros_like(ids)
-    if t > 1:
-        change = ids[:, 1:] != ids[:, :-1]
-        pos = torch.arange(1, t, device=device, dtype=ids.dtype)
-        pos = pos.expand(b, -1)
-        starts[:, 1:] = torch.where(
-            change, pos, torch.zeros_like(pos)
-        )
-        starts = torch.cummax(starts, dim=1).values
+    if ids.device.type == "xla":
+        # XLA has no reliable cummax; a fixed-shape equality matrix plus
+        # argmax gives the first occurrence of each segment id.  Word and
+        # sentence ids are unique per contiguous segment.
+        same = ids.unsqueeze(-1) == ids.unsqueeze(-2)
+        starts = same.to(torch.int32).argmax(dim=-1).to(ids.dtype)
+    else:
+        starts = torch.zeros_like(ids)
+        if t > 1:
+            change = ids[:, 1:] != ids[:, :-1]
+            pos = torch.arange(1, t, device=device, dtype=ids.dtype)
+            pos = pos.expand(b, -1)
+            starts[:, 1:] = torch.where(
+                change, pos, torch.zeros_like(pos)
+            )
+            starts = torch.cummax(starts, dim=1).values
     # Prefix sums in fp32, then subtract the sum before the segment start.
     xf = x.float()
     cum_x = torch.cumsum(xf, dim=1)

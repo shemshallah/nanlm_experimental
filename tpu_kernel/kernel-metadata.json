@@ -1,0 +1,17 @@
+{
+  "id": "shem42/z4-tpu-causal-smoke",
+  "title": "Z4 TPU causal smoke",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "shem42/z4-broad7h-bins"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": []
+}
