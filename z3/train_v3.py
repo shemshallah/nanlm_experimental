@@ -1835,6 +1835,9 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--feedback-mtp-carry",
                        action=argparse.BooleanOptionalAction, default=True,
                        help="feed each MTP lag's branch summary into the next lag")
+    model.add_argument("--causal-concept",
+                       action=argparse.BooleanOptionalAction, default=False,
+                       help="keep feedback params but zero sequence-global future paths")
     model.add_argument("--learned-router-mix",
                        action=argparse.BooleanOptionalAction, default=False,
                        help="learn positive gates for route/pooled/token router context")
@@ -2356,6 +2359,7 @@ def make_config(args: argparse.Namespace, vocab_size: int) -> V3Config:
         feedback_object_carry=bool(args.feedback_object_carry),
         feedback_memory_mtp=bool(args.feedback_memory_mtp),
         feedback_mtp_carry=bool(args.feedback_mtp_carry),
+        causal_concept=bool(args.causal_concept),
         learned_router_mix=bool(args.learned_router_mix),
         concept_loop_vertices=int(args.concept_vertices),
         concept_loop_dim=int(args.concept_dim),

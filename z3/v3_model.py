@@ -152,6 +152,12 @@ class V3Config:
     feedback_object_carry: bool = True
     feedback_memory_mtp: bool = True
     feedback_mtp_carry: bool = True
+    # Causal pilot switch: keep all feedback parameters (84M budget) but
+    # zero every sequence-global summary path.  Word/sentence pooling is
+    # always prefix-only in concept_loop._segment_pool; this flag additionally
+    # disables route/memory/global concept feedback that would otherwise mix
+    # future tokens across the whole window.
+    causal_concept: bool = False
     # Learn one positive gate per router-context component (route, pooled
     # concept, token-aligned concept).  The gates start at 1.0, so the first
     # step is numerically identical to the fixed sum, then the model can learn
@@ -492,6 +498,7 @@ class Block(nn.Module):
             if self.feedback_token_residual else None
         )
         self.route_feedback = bool(cfg.moe_route_feedback)
+        self.causal = bool(cfg.causal_concept)
         self.feedback_route = bool(
             cfg.feedback_route_concept and self.route_feedback
         )
@@ -611,7 +618,7 @@ class Block(nn.Module):
             x = x + self.drop(h)
         else:
             x = x + self.mlp(h)
-        if self.route_feedback:
+        if self.route_feedback and not self.causal:
             if route_ctx is None:
                 route_ctx = attn_out.new_zeros(
                     attn_out.shape[0], attn_out.shape[-1]
@@ -872,6 +879,7 @@ class V3LM(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.grad_checkpoint = bool(cfg.grad_checkpoint)
+        self.causal = bool(cfg.causal_concept)
         self.factorized_embedding = bool(cfg.factorized_embedding)
         if self.factorized_embedding:
             self.embedding_rank = int(cfg.embedding_rank)
@@ -924,6 +932,7 @@ class V3LM(nn.Module):
                 ),
                 depth_carry=bool(cfg.feedback_object_carry),
                 object_gate_init=float(cfg.object_gate_init),
+                causal=bool(cfg.causal_concept),
             )
             if cfg.use_concept_loop else None
         )
@@ -1464,7 +1473,11 @@ class V3LM(nn.Module):
             mem_aux.get("memory_summary")
             if isinstance(mem_aux, dict) else None
         )
-        if memory_summary is not None and self.memory_feedback_gate is not None:
+        if (
+            memory_summary is not None
+            and self.memory_feedback_gate is not None
+            and not self.causal
+        ):
             # Global memory state re-enters the residual stream.  The gate is
             # closed at init, so this is a learned feedback path, not a
             # second unconditional residual.
@@ -1592,7 +1605,11 @@ class V3LM(nn.Module):
                         mtp_context + scaled_loop
                         if mtp_context is not None else scaled_loop
                     )
-                if memory_summary is not None and self.memory_feedback_gate is not None:
+                if (
+                    memory_summary is not None
+                    and self.memory_feedback_gate is not None
+                    and not self.causal
+                ):
                     mtp_context = _router_add(
                         mtp_context,
                         feedback_scale

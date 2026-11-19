@@ -836,8 +836,10 @@ class ConceptLoop(nn.Module):
         subword_vocab_size: int = 0,
         depth_carry: bool = True,
         object_gate_init: float = 0.017986,
+        causal: bool = False,
     ) -> None:
         super().__init__()
+        self.causal = bool(causal)
         if vertices != 256:
             # The object address space is defined over exactly 256 vertices.
             # Keeping this explicit avoids a silent C(V,2) reinterpretation.
@@ -1218,7 +1220,11 @@ class ConceptLoop(nn.Module):
             self.concept_to_state(global_ctx)
             + self.object_to_state(object_ctx.mean(dim=1))
         )
-        if carry is None:
+        if self.causal:
+            # The global loop state is a sequence summary; keep the parameters
+            # (84M budget) but do not feed future information to the trunk.
+            loop_ctx = torch.zeros_like(update)
+        elif carry is None:
             loop_ctx = self.state_norm(update)
         else:
             gate = torch.sigmoid(self.carry_gate).to(dtype=update.dtype)
