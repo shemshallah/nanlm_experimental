@@ -84,7 +84,8 @@ def evaluate_book(model,tokens,identity,*,warmup=256,positions=128,
             hi=stop-left
             if weight==weights[0]:
                 first_hist=readings[0][0][:,lo:hi].clone()
-            if weight==1. and first_hist is not None:
+            if ((weight==1. and weights[0]!=1.) or
+                    (weight==weights[-1] and weights[0]==1.)) and first_hist is not None:
                 changed+=int((readings[0][0][:,lo:hi]-first_hist).abs()
                               .sum(-1).gt(1e-7).sum())
             pred,_=model.pair_successor(raw,pairs,ids,
