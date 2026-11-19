@@ -255,6 +255,41 @@ def _causal_mask(
     return mask
 
 
+def _sdpa(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    *,
+    dropout_p: float,
+    group: int,
+    is_causal: bool = False,
+    attn_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """SDPA with optional native grouped-query attention.
+
+    ``enable_gqa`` avoids materialising the repeated KV heads, which is a 5x
+    copy for the 10-query/2-KV layout.  Older PyTorch builds do not accept the
+    keyword; fall back to the explicit repeat there.  Masked calls keep the
+    repeat because some backends reject GQA together with an arbitrary mask.
+    """
+    kwargs = {"dropout_p": dropout_p}
+    if is_causal:
+        kwargs["is_causal"] = True
+    if attn_mask is not None:
+        kwargs["attn_mask"] = attn_mask
+    if group > 1 and attn_mask is None:
+        try:
+            return F.scaled_dot_product_attention(
+                q, k, v, enable_gqa=True, **kwargs
+            )
+        except TypeError:
+            pass
+    if group > 1:
+        k = k.repeat_interleave(group, dim=1)
+        v = v.repeat_interleave(group, dim=1)
+    return F.scaled_dot_product_attention(q, k, v, **kwargs)
+
+
 def _attention_context(device: torch.device):
     """Keep CPU SDPA on the deterministic math kernel.
 
@@ -343,28 +378,33 @@ class Attention(nn.Module):
         k = self.k_norm(k)
         q = self.rope(q)
         k = self.rope(k)
-        if self.kv_group > 1:
-            # Dense training path: expand KV heads for the attention kernel.
-            # Inference can cache the smaller KV tensors instead.
-            k = k.repeat_interleave(self.kv_group, dim=1)
-            v = v.repeat_interleave(self.kv_group, dim=1)
         if self.force_manual or x.device.type == "xla":
+            if self.kv_group > 1:
+                k = k.repeat_interleave(self.kv_group, dim=1)
+                v = v.repeat_interleave(self.kv_group, dim=1)
             y = self._manual_attention(q, k, v)
         else:
             with _attention_context(x.device):
-                if self.is_global:
-                    y = F.scaled_dot_product_attention(
+                # With ctx <= window the sliding-window mask is exactly the
+                # causal mask.  Passing a 512x512 bool mask here forces SDPA
+                # onto a slower masked backend and disables GQA; use the
+                # causal fast path instead.
+                if self.is_global or t <= self.window:
+                    y = _sdpa(
                         q, k, v,
                         dropout_p=self.drop if self.training else 0.0,
+                        group=self.kv_group,
                         is_causal=True,
                     )
                 else:
                     mask = _causal_mask(
                         t, x.device, is_global=False, window=self.window
                     )
-                    y = F.scaled_dot_product_attention(
-                        q, k, v, attn_mask=mask,
+                    y = _sdpa(
+                        q, k, v,
                         dropout_p=self.drop if self.training else 0.0,
+                        group=self.kv_group,
+                        attn_mask=mask,
                     )
         y = y.transpose(1, 2).contiguous().view(b, t, d)
         y = self.out(y)
