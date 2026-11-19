@@ -14,7 +14,7 @@ class CausalBookSuccessor:
 
     def __init__(self,horizon=32768,vocab=257,key_mode="hierarchical",
                  value_control="exact",query_map=None,query_byte_map=None,
-                 recency_half_life=0.0):
+                 recency_half_life=0.0,head_backoff_weight=1.0):
         if horizon<1 or vocab<2 or key_mode not in self.VALID_MODES:
             raise ValueError("Invalid book-memory horizon/vocab/key mode")
         if value_control not in ("exact","rotated"):
@@ -22,8 +22,14 @@ class CausalBookSuccessor:
         if (not isinstance(recency_half_life,(int,float)) or
                 not math.isfinite(recency_half_life) or recency_half_life<0):
             raise ValueError('Invalid causal recency half-life')
+        if (not isinstance(head_backoff_weight,(int,float)) or
+                not math.isfinite(head_backoff_weight) or head_backoff_weight<=0):
+            raise ValueError('Invalid geometric head-backoff weight')
         self.horizon,self.vocab,self.key_mode=horizon,vocab,key_mode
         self.recency_half_life=float(recency_half_life)
+        # R76: default 1 reproduces inherited equal-edge histogram exactly.
+        # Opt-in <1 discounts broad shared-head edges when exact edges coexist.
+        self.head_backoff_weight=float(head_backoff_weight)
         self.value_control=value_control
         self.query_map=self._check_map(query_map,32640,"pair")
         self.query_byte_map=self._check_map(query_byte_map,vocab,"byte")
@@ -156,7 +162,10 @@ class CausalBookSuccessor:
         coverage=0.0
         if matched:
             coverage=sum(confidence for _,confidence in matched)/len(pairs)
-            for hits,_ in matched:
+            edge_weights=[(1.0 if confidence==1. else self.head_backoff_weight)
+                          for _,confidence in matched]
+            edge_total=sum(edge_weights)
+            for (hits,_),edge_weight in zip(matched,edge_weights):
                 if self.recency_half_life:
                     # Stable normalization: only observed, already installed
                     # episodes contribute, and the newest hit has weight 1.
@@ -172,7 +181,7 @@ class CausalBookSuccessor:
                     # earliest u receives x[t], later u receives x[u].
                     value=(observed_byte if rec["u"]==earliest else rec["byte"]) if (
                         self.value_control=="rotated") else rec["successor"]
-                    hist[value]+=w/(len(matched)*total_weight)
+                    hist[value]+=edge_weight*w/(edge_total*total_weight)
             hist/=hist.sum()
         hist=hist.to(torch.float32)
         return hist,coverage,float(len(positions))
@@ -200,6 +209,7 @@ class CausalBookSuccessor:
                 "horizon":self.horizon,"vocab":self.vocab,
                 "key_mode":self.key_mode,"value_control":self.value_control,
                 "recency_half_life":self.recency_half_life,
+                "head_backoff_weight":self.head_backoff_weight,
                 "pending":self.pending,"last_input":self.last_input,
                 "first_position":(self.scheduled[0][0]
                                   if self.scheduled else self.position),
@@ -211,6 +221,8 @@ class CausalBookSuccessor:
                 raise ValueError("Incompatible stream snapshot "+field)
         if state.get('recency_half_life',0.0)!=self.recency_half_life:
             raise ValueError('Incompatible stream snapshot recency_half_life')
+        if state.get('head_backoff_weight',1.0)!=self.head_backoff_weight:
+            raise ValueError('Incompatible stream snapshot head_backoff_weight')
         if state["position"]<0:
             raise ValueError("Invalid stream position")
         self.begin_book(state["book_id"])
