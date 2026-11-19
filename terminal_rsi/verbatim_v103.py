@@ -472,8 +472,8 @@ def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
         raise ValueError("Original train/BPE/DEV identity changed across RSI resume")
     model.load_state_dict(checkpoint["model"], strict=True)
     optimizer.load_state_dict(checkpoint["optimizer"])
-    if len(optimizer.param_groups) != 3:
-        raise ValueError("Inherited two Adam groups and additive upgrade group lost")
+    if len(optimizer.param_groups) < 3:
+        raise ValueError("Optimizer group partition lost")
     state = checkpoint.get("training_state")
     if not state or "sampler" not in state or "torch_rng" not in state:
         raise ValueError("Unified RSI checkpoint lacks restartable RNG/sampler state")
