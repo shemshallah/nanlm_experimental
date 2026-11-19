@@ -427,49 +427,48 @@ def _segment_pool(
     x: torch.Tensor,  # (B,T,D)
     ids: torch.Tensor,  # (B,T), 0 = none, positive segment ids
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return gathered segment summaries and segment count per batch row.
+    """Return **causal prefix** segment summaries and counts.
 
-    The original implementation looped over the batch in Python.  A random
-    training window has many distinct word/sentence ids, so that loop was a
-    measurable CPU bottleneck for the active concept path.  Flattening the
-    (batch, segment) table into one ``index_add_`` keeps the same semantics
-    while issuing a single scatter per call.
+    For token ``t`` with segment id ``s``, the summary is the mean of
+    ``x[j]`` over ``j <= t`` with the same id.  Segments are contiguous
+    spans (word or sentence units), so this is computed with prefix sums
+    and the segment start index -- no ``(B, T, T)`` mask and no future
+    tokens.
+
+    The previous implementation averaged over all tokens sharing a
+    segment id, including future tokens.  That made the concept sidecar a
+    future-token channel: training and evaluation BPB were not causal.
     """
     b, t, d = x.shape
     device = x.device
     valid_ids = ids > 0
-    # Static-shape, exact compaction.  This removes the per-layer
-    # torch.unique + bool(any()) CUDA syncs that dominated the concept path.
-    compact = _fixed_segment_ids(ids)
-    max_segments = max(1, int(t))
-
-    bucket_count = max_segments + 1
-    out = torch.zeros(
-        b * bucket_count, d, device=device, dtype=x.dtype
-    )
-    counts = torch.zeros(
-        b * bucket_count, device=device, dtype=x.dtype
-    )
-    if ids.numel():
-        offsets = (
-            torch.arange(b, device=device, dtype=torch.long).unsqueeze(1)
-            * bucket_count
+    if t == 0:
+        return x, torch.zeros((b, 0), device=device, dtype=x.dtype)
+    # First index of the current contiguous segment for every position.
+    starts = torch.zeros_like(ids)
+    if t > 1:
+        change = ids[:, 1:] != ids[:, :-1]
+        pos = torch.arange(1, t, device=device, dtype=ids.dtype)
+        pos = pos.expand(b, -1)
+        starts[:, 1:] = torch.where(
+            change, pos, torch.zeros_like(pos)
         )
-        flat_index = (offsets + compact).reshape(-1)
-        valid_flat = valid_ids.reshape(-1)
-        flat_x = x.reshape(-1, d) * valid_flat.unsqueeze(-1).to(dtype=x.dtype)
-        out.index_add_(0, flat_index, flat_x)
-        counts.index_add_(
-            0, flat_index, valid_flat.to(dtype=counts.dtype)
-        )
-    out = out.view(b, bucket_count, d)
-    counts = counts.view(b, bucket_count)
-    gather_index = compact.clamp_min(0).unsqueeze(-1).expand(-1, -1, d)
-    gathered = out.gather(1, gather_index)
-    gathered = gathered / counts.unsqueeze(-1).gather(
-        1, compact.clamp_min(0).unsqueeze(-1)
-    ).clamp_min(1.0)
-    return gathered, counts
+        starts = torch.cummax(starts, dim=1).values
+    # Prefix sums in fp32, then subtract the sum before the segment start.
+    xf = x.float()
+    cum_x = torch.cumsum(xf, dim=1)
+    cum_n = torch.cumsum(valid_ids.to(torch.float32), dim=1)
+    base_idx = (starts - 1).clamp_min(0)
+    base_mask = (starts > 0).to(dtype=xf.dtype)
+    base_x = cum_x.gather(
+        1, base_idx.unsqueeze(-1).expand(-1, -1, d)
+    ) * base_mask.unsqueeze(-1)
+    base_n = cum_n.gather(1, base_idx) * base_mask
+    sum_x = cum_x - base_x
+    sum_n = cum_n - base_n
+    out = sum_x / sum_n.clamp_min(1.0).unsqueeze(-1)
+    out = out * valid_ids.unsqueeze(-1).to(dtype=out.dtype)
+    return out.to(dtype=x.dtype), sum_n
 
 
 class ConceptEncoder(nn.Module):
@@ -588,7 +587,11 @@ class ConceptEncoder(nn.Module):
             parts.append(subword)
         concept = self.out(torch.cat(parts, dim=-1))
         concept = F.normalize(concept, dim=-1)
-        return concept, concept.mean(dim=1)
+        # A sequence-wide mean is a future channel: token t would see the
+        # whole sentence/article.  The causal configuration does not consume
+        # a global context, so return a zero vector rather than a leaky
+        # summary.  The per-token concept carries the causal information.
+        return concept, torch.zeros_like(concept[:, 0])
 
 
 @dataclass
