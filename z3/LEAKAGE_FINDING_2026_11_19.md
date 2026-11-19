@@ -23,12 +23,20 @@ Setup:
 | Mode | BPB | Top-1 | Top-5 |
 |---|---:|---:|---:|
 | Full sidecar (leaky) | **0.1076** | 93.23% | 96.54% |
+| Causal prefix-only pooling, current weights | **6.1305** | 1.93% | 3.68% |
 | `compute_concept=False` (concept removed) | **6.8406** | 1.35% | 2.54% |
 
 The full-sidecar number is ~0.51 bits/token, which is not a plausible
-causal LM result. The concept-disabled number is worse than a uniform
-model because removing the concept path puts the trunk out of
-distribution; it is a break-glass bound, not a fair causal evaluation.
+causal LM result. Causal prefix-only pooling collapses the model to
+**6.13 BPB / 1.93% top-1**. The concept-disabled number is also worse than
+a uniform model because removing the concept path puts the trunk out of
+distribution; it is a break-glass bound.
+
+The causal number is for the **current weights trained with future
+pooling**, so it is also a distribution-shift measurement, not the loss a
+causally retrained model would reach. It proves the current checkpoint
+has no useful causal capability; it does not prove a causal architecture
+cannot learn.
 
 ## Root cause
 
@@ -71,12 +79,23 @@ A causal-pooling evaluation of the current weights is the next diagnostic.
 It will overstate the loss because the weights were trained with future
 pooling, but it will show how much of the score was the leak.
 
+## Coexistence and persistence
+
+The external FineWeb pass ran under a **37 GB VRAM cap**
+(`torch.cuda.set_per_process_memory_fraction(37/97)`) while another model
+training occupied roughly 38 GB. Peak for the full-sidecar pass was
+2.18 GB; causal pass peak 1.69 GB. Total GPU use stayed around 41 GB, so
+it coexisted without evicting the other job.
+
+Evidence is on Kaggle: `shem42/z4-fineweb-external-test`.
+
+The 84M 30-minute checkpoint and the per-domain table are on
+`shem42/z4-broad30m-84m`, but those metrics are leaky and must not be used
+for universality claims.
+
 ## Status
 
-The external FineWeb test is built and the leak-free/leaky bounds are
-measured. The causal-pooling evaluation and retrain need a fresh Molab
-token; the current `sb-64fe…` session now returns 401.
-
-The 84M 30-minute checkpoint and the per-domain table are still on
-Kaggle (`shem42/z4-broad30m-84m`), but those metrics are leaky and should
-not be used for universality claims.
+The leak is confirmed and the external test is reproducible. The next
+step is a **causal sidecar rebuild + retrain**, then the same external
+article-level test and PTB under the causal path. Do not use the current
+0.785 PTB or the per-domain 0.036–0.400 table as causal LM results.
