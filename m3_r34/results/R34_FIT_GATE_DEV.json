@@ -1,0 +1,390 @@
+{
+  "acceptance": {
+    "dev": {
+      "books_improved": false,
+      "both_feedback_directions_contribute": false,
+      "lower_bpb": true,
+      "nonspace_not_worse": false,
+      "top1_not_worse": true,
+      "top5_not_worse": true
+    },
+    "gate": {
+      "books_improved": true,
+      "both_feedback_directions_contribute": true,
+      "lower_bpb": true,
+      "nonspace_not_worse": true,
+      "top1_not_worse": true,
+      "top5_not_worse": true
+    }
+  },
+  "candidate_eligible": false,
+  "dev": {
+    "arms": {
+      "anchor_only": {
+        "books_improved": 4,
+        "bootstrap_is_descriptive": true,
+        "bpb": 2.98492385508863,
+        "gain_vs_r32": -0.0019148891705720317,
+        "nonspace_bpb": 3.9461857002772045,
+        "per_book_gain_bits": [
+          0.0013374718740455562,
+          -0.001972482646487401,
+          -0.0029247620464344314,
+          -0.002362389655814622,
+          -0.007862759689349118,
+          0.002075826081196829,
+          -0.0012107554330441298,
+          0.003355380716665877,
+          -0.002379298330350139,
+          -0.0074003497252984815,
+          -0.0075120537223650335,
+          0.00387750253054287
+        ],
+        "positions": 36864,
+        "top1": 0.4784613715277778,
+        "top5": 0.7602267795138888,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.004107102649308798,
+          0.0002418780442883201
+        ]
+      },
+      "local_only": {
+        "books_improved": 10,
+        "bootstrap_is_descriptive": true,
+        "bpb": 2.9798233160153957,
+        "gain_vs_r32": 0.0031856499026621243,
+        "nonspace_bpb": 3.935792495468786,
+        "per_book_gain_bits": [
+          0.006658562791854973,
+          0.008447907947999605,
+          0.004678592294592318,
+          0.0008638658692691261,
+          0.0038870509117690014,
+          0.006352807830541415,
+          0.0020054919108210725,
+          0.0048757040640149615,
+          0.0017019805492188313,
+          -0.0026318355318303553,
+          -0.002580768976705366,
+          0.003968439170397023
+        ],
+        "positions": 36864,
+        "top1": 0.4781629774305556,
+        "top5": 0.7595757378472222,
+        "whole_book_bootstrap_95pct_bits": [
+          0.0013407728851192523,
+          0.00497125961382686
+        ]
+      },
+      "r32": {
+        "bpb": 2.983008965918058,
+        "nonspace_bpb": 3.9401287904177034,
+        "positions": 36864,
+        "top1": 0.4779459635416667,
+        "top5": 0.759521484375
+      },
+      "r34": {
+        "books_improved": 7,
+        "bootstrap_is_descriptive": true,
+        "bpb": 2.981746279030077,
+        "gain_vs_r32": 0.0012626868879808129,
+        "nonspace_bpb": 3.9418452350643873,
+        "per_book_gain_bits": [
+          0.007952266694969281,
+          0.006404224511111025,
+          0.0017413012249477833,
+          -0.0014869204535111749,
+          -0.003985338444002084,
+          0.008414812997308117,
+          0.0008275459648340715,
+          0.008247643493846487,
+          -0.0007027684457124875,
+          -0.010017384258756836,
+          -0.010101948058434078,
+          0.007858807429245853
+        ],
+        "positions": 36864,
+        "top1": 0.4787055121527778,
+        "top5": 0.7602810329861112,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.0023856948659693672,
+          0.004714961699391804
+        ]
+      }
+    },
+    "books": 12,
+    "elapsed_s": 60.750192266,
+    "per_book": [
+      {
+        "anchor_only_bpb": 3.0628457744064974,
+        "filename": "66494--white-stewart-edward-1873-1946--the-river-boss.txt",
+        "gain_vs_r32": 0.007952266694968735,
+        "local_only_bpb": 3.057524683488688,
+        "positions": 3072,
+        "r32_bpb": 3.064183246280543,
+        "r34_bpb": 3.056230979585574,
+        "sha256": "f566dc3725e74f25ff6ded7a1ac11eae4245d27135051eda3bf138f22a9aad24"
+      },
+      {
+        "anchor_only_bpb": 3.054383379004571,
+        "filename": "71857--smith-richard-rein-1930-kluga-richard-illustrator--the-beast-of-boredom.txt",
+        "gain_vs_r32": 0.006404224511110446,
+        "local_only_bpb": 3.0439629884100836,
+        "positions": 3072,
+        "r32_bpb": 3.052410896358083,
+        "r34_bpb": 3.0460066718469725,
+        "sha256": "c3a58c5c79729beea7c466d2e5f30efe3d0ef9a2215ca80eb8786e145c08dac8"
+      },
+      {
+        "anchor_only_bpb": 2.699679200313232,
+        "filename": "76997--thompson-william-1865-boog-carle-michel-1877-1968-illustrator--wigwam-wonder-tales.txt",
+        "gain_vs_r32": 0.0017413012249476445,
+        "local_only_bpb": 2.692075845972205,
+        "positions": 3072,
+        "r32_bpb": 2.6967544382667974,
+        "r34_bpb": 2.6950131370418497,
+        "sha256": "4a5c24996e87eb83015755a1869a056db53d7b2d85f167c2d469597c0570a4fb"
+      },
+      {
+        "anchor_only_bpb": 2.9705549422294744,
+        "filename": "73441--various-ganley-w-paul-william-paul-1934-editor--fan-fare-may-1953.txt",
+        "gain_vs_r32": -0.0014869204535106206,
+        "local_only_bpb": 2.9673286867043913,
+        "positions": 3072,
+        "r32_bpb": 2.9681925525736603,
+        "r34_bpb": 2.969679473027171,
+        "sha256": "d04d983fa6bf5c9b4f7cc3500a7343780d43b5451f2d63f80b83b5b4f29ba0f3"
+      },
+      {
+        "anchor_only_bpb": 2.836011921128247,
+        "filename": "75257--straparola-giovanni-francesco-1480-1557-hughes-edward-robert-1851-1914-illustrat--the-nights-of-straparola-volume-1-of-2.txt",
+        "gain_vs_r32": -0.00398533844400184,
+        "local_only_bpb": 2.8242621105271297,
+        "positions": 3072,
+        "r32_bpb": 2.828149161438898,
+        "r34_bpb": 2.8321344998829,
+        "sha256": "91eaa0ce1224acd020f4207c4c5e0b98d1079b0deecc04ddd046f0dd3d0293c4"
+      },
+      {
+        "anchor_only_bpb": 3.29502961493559,
+        "filename": "67347--strobridge-idah-meacham-1855-1932-dixon-maynard-1875-1946-illustrator--the-loom-of-the-desert.txt",
+        "gain_vs_r32": 0.008414812997307397,
+        "local_only_bpb": 3.2907526331862456,
+        "positions": 3072,
+        "r32_bpb": 3.2971054410167864,
+        "r34_bpb": 3.288690628019479,
+        "sha256": "26a075760496c48716cd02eb077f56cfbb5d6ad0be7b6c626fef1a8acbbfd4e6"
+      },
+      {
+        "anchor_only_bpb": 3.364731481605336,
+        "filename": "72154--leslie-madeline-1815-1893--the-golden-pennies-and-other-stories.txt",
+        "gain_vs_r32": 0.0008275459648339201,
+        "local_only_bpb": 3.3615152342614714,
+        "positions": 3072,
+        "r32_bpb": 3.363520726172292,
+        "r34_bpb": 3.362693180207458,
+        "sha256": "28b113ea7d03fb5355279a06185f1debf979279d833fe7071758e4fae6925ab0"
+      },
+      {
+        "anchor_only_bpb": 3.587580394534168,
+        "filename": "64961--various-hornig-charles-d-1916-1999-editor--the-fantasy-fan-volume-2-number-4-december-1934.txt",
+        "gain_vs_r32": 0.008247643493846102,
+        "local_only_bpb": 3.586060071186818,
+        "positions": 3072,
+        "r32_bpb": 3.590935775250833,
+        "r34_bpb": 3.5826881317569867,
+        "sha256": "93179332cbd92fb505580f4d191cac68be65f1a51c0f13401772ebb78de9c18b"
+      },
+      {
+        "anchor_only_bpb": 3.220175799353878,
+        "filename": "72890--forster-e-m-edward-morgan-1879-1970--the-eternal-moment-and-other-stories.txt",
+        "gain_vs_r32": -0.0007027684457128203,
+        "local_only_bpb": 3.216094520474309,
+        "positions": 3072,
+        "r32_bpb": 3.217796501023528,
+        "r34_bpb": 3.2184992694692407,
+        "sha256": "fa6bb621b9bf5792cecff02918a156327508fba93b62aa9563db5c837ced6e57"
+      },
+      {
+        "anchor_only_bpb": 2.012821379882748,
+        "filename": "71432--gonzalez-ambrose-elliott-1857-1926--the-black-border.txt",
+        "gain_vs_r32": -0.010017384258756756,
+        "local_only_bpb": 2.0080528656892795,
+        "positions": 3072,
+        "r32_bpb": 2.0054210301574495,
+        "r34_bpb": 2.0154384144162063,
+        "sha256": "107987980e7803fc259362662d65e2c51cc972bdec7cbc222c3030a9774f29e1"
+      },
+      {
+        "anchor_only_bpb": 2.270271438993671,
+        "filename": "67434--various-graham-george-r-1813-1894-editor--graham-s-magazine-vol-xx-no-1-january-1842.txt",
+        "gain_vs_r32": -0.010101948058434118,
+        "local_only_bpb": 2.2653401542480105,
+        "positions": 3072,
+        "r32_bpb": 2.262759385271306,
+        "r34_bpb": 2.27286133332974,
+        "sha256": "25fd9d41a31de4cddf54fcf705275404b8881cafc5470d883d1a7f9e235f5f13"
+      },
+      {
+        "anchor_only_bpb": 3.4450009346760537,
+        "filename": "68919--roberts-morley-1857-1942--the-promotion-of-the-admiral-and-other-sea-comedies.txt",
+        "gain_vs_r32": 0.007858807429245829,
+        "local_only_bpb": 3.4449099980362,
+        "positions": 3072,
+        "r32_bpb": 3.4488784372065964,
+        "r34_bpb": 3.4410196297773505,
+        "sha256": "8f94f003556db6fcfef4f77ddb21592690cdcf7d68829e1f2af3ad019a0780ba"
+      }
+    ],
+    "positions": 36864
+  },
+  "dev_indices": [
+    560,
+    572
+  ],
+  "fit_indices": [
+    540,
+    556
+  ],
+  "fitted": {
+    "elapsed_s": 82.82144173700001,
+    "inherited_adam_groups": 32,
+    "new_adam_groups": 4,
+    "positions": 49152,
+    "theta": [
+      -0.04870588146127952,
+      -0.13203514361293897,
+      0.39125621108701786,
+      0.1118108098776598
+    ],
+    "updates": 768
+  },
+  "gate": {
+    "arms": {
+      "anchor_only": {
+        "books_improved": 2,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.246274964152048,
+        "gain_vs_r32": 0.000891091433870006,
+        "nonspace_bpb": 3.6495860034803633,
+        "per_book_gain_bits": [
+          0.006165812807001514,
+          0.001072473739923015,
+          -0.000879755506777903,
+          -0.00279416530462121
+        ],
+        "positions": 12288,
+        "top1": 0.3877766927083333,
+        "top5": 0.743408203125,
+        "whole_book_bootstrap_95pct_bits": [
+          -0.0018369604056995567,
+          0.0044044207285566595
+        ]
+      },
+      "local_only": {
+        "books_improved": 3,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.244594530058381,
+        "gain_vs_r32": 0.002571525527537144,
+        "nonspace_bpb": 3.6462159379495804,
+        "per_book_gain_bits": [
+          -0.00025331877845301493,
+          0.0007224251865745558,
+          0.006252436114035028,
+          0.003564559588021082
+        ],
+        "positions": 12288,
+        "top1": 0.3894856770833333,
+        "top5": 0.7408854166666666,
+        "whole_book_bootstrap_95pct_bits": [
+          0.00023455320406077043,
+          0.004908497851028056
+        ]
+      },
+      "r32": {
+        "bpb": 3.247166055585918,
+        "nonspace_bpb": 3.6480030801531433,
+        "positions": 12288,
+        "top1": 0.3885091145833333,
+        "top5": 0.7403971354166666
+      },
+      "r34": {
+        "books_improved": 4,
+        "bootstrap_is_descriptive": true,
+        "bpb": 3.2437092448336,
+        "gain_vs_r32": 0.0034568107523180736,
+        "nonspace_bpb": 3.6477932432571927,
+        "per_book_gain_bits": [
+          0.005894322487469645,
+          0.001788455190963346,
+          0.005346392895544128,
+          0.0007980724353389094
+        ],
+        "positions": 12288,
+        "top1": 0.3887532552083333,
+        "top5": 0.7434895833333334,
+        "whole_book_bootstrap_95pct_bits": [
+          0.0012932638131511276,
+          0.005620357691506886
+        ]
+      }
+    },
+    "books": 4,
+    "elapsed_s": 19.97837251499999,
+    "per_book": [
+      {
+        "anchor_only_bpb": 3.0732460560997037,
+        "filename": "68256--smith-george-o-george-oliver-1911-1981-cartier-edd-1914-2008-illustrator--rat-race.txt",
+        "gain_vs_r32": 0.005894322487469683,
+        "local_only_bpb": 3.079665187685158,
+        "positions": 3072,
+        "r32_bpb": 3.0794118689067056,
+        "r34_bpb": 3.073517546419236,
+        "sha256": "2937cdb45cbea8a560d74eda9b278bbd20aa6733c76af631a007e9a81a3b3fc4"
+      },
+      {
+        "anchor_only_bpb": 3.305980035536262,
+        "filename": "68162--craddock-charles-egbert-1850-1922--the-bushwhackers-other-stories.txt",
+        "gain_vs_r32": 0.0017884551909626012,
+        "local_only_bpb": 3.306330084089611,
+        "positions": 3072,
+        "r32_bpb": 3.307052509276185,
+        "r34_bpb": 3.3052640540852223,
+        "sha256": "c1e823004eb07193d4b6287cf7cdb4412e322a6a9cd2eca43be1923acb76cdf8"
+      },
+      {
+        "anchor_only_bpb": 3.3119647335548925,
+        "filename": "67975--various-graham-george-r-1813-1894-editor-griswold-rufus-w-rufus-wilmot-1815-1857--graham-s-magazine-vol-xxi-no-2-august-1842.txt",
+        "gain_vs_r32": 0.00534639289554395,
+        "local_only_bpb": 3.304832541934079,
+        "positions": 3072,
+        "r32_bpb": 3.311084978048114,
+        "r34_bpb": 3.3057385851525702,
+        "sha256": "f4d5cdc1f8e951ea14307481619a28d3d1edd3e825e9f692468ea56fdd4b8ba3"
+      },
+      {
+        "anchor_only_bpb": 3.293909031417306,
+        "filename": "68229--fitzgerald-f-scott-francis-scott-1896-1940--all-the-sad-young-men.txt",
+        "gain_vs_r32": 0.0007980724353382485,
+        "local_only_bpb": 3.2875503065246634,
+        "positions": 3072,
+        "r32_bpb": 3.2911148661126846,
+        "r34_bpb": 3.2903167936773463,
+        "sha256": "57ea2c3b9b2977bbfe540fa736b021f6d09307d911f2b10cd1c4f6ae6913c368"
+      }
+    ],
+    "positions": 12288
+  },
+  "gate_indices": [
+    556,
+    560
+  ],
+  "lineage": "M3 R34 same R32 causal state",
+  "parent_r32_certified": true,
+  "promotion": "R32 remains default; R34 unpromoted candidate",
+  "sealed_test_indices": [
+    572,
+    596
+  ],
+  "sealed_test_read": false
+}

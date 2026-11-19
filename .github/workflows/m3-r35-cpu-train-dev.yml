@@ -1,0 +1,54 @@
+name: M3 R35 unified local-feedback CPU training and fresh DEV
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'm3_r35/**'
+      - '.github/workflows/m3-r35-cpu-train-dev.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  m3-r35-immutable-r32-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Regression, exact R32 parent and frozen R34 comparison
+        run: |
+          python -m compileall -q m3_default m3_r32 m3_r34 m3_r35
+          python -m unittest discover -s m3_r34 -p 'test_*.py' -v
+          python -m unittest discover -s m3_r35 -p 'test_*.py' -v
+          printf '%s  %s\n' \
+            67e7417fb38c8d914714cee243fb080da6e63cf5f9e9c9737e28a5b168c1da1a \
+            m3_default/r32_accepted_checkpoint.npz | sha256sum -c -
+          printf '%s  %s\n' \
+            0d63bff7ce91d6444d1c2eaf4de15021f981401ba210e0208e08e5ac43bf8b5c \
+            m3_r34/results/R34_36_group_candidate.npz | sha256sum -c -
+      - name: Download SHA-verified NaNROUTER Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/m3_r35_corpus
+          gh release download corpora-short-stories-0004 -R shemshallah/NaNROUTER \
+            --dir /tmp/m3_r35_corpus
+          cd /tmp/m3_r35_corpus
+          sha256sum -c short_stories-0004.SHA256SUMS
+          tar --zstd -xf short_stories-0004.tar.zst
+      - name: Train two new Adam groups; compare R32 and R34 on fresh DEV
+        run: |
+          python -m m3_r35.train_dev \
+            --corpus-root /tmp/m3_r35_corpus \
+            --r34-reference m3_r34/results/R34_36_group_candidate.npz \
+            --checkpoint m3_r35/results/R35_34_group_candidate.npz \
+            --output m3_r35/results/R35_FIT_GATE_FRESH_DEV.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3-r35-local-feedback-34-group-candidate-and-fresh-dev
+          path: m3_r35/results/
+          if-no-files-found: warn
