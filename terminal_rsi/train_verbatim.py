@@ -1565,6 +1565,9 @@ def main(argv=None):
                 f"bit_acc={report['bit_accuracy']:.4f}{aux_text} | {rsi_text}",
                 flush=True,
             )
+    # Durable final state: the rolling file is the recovery checkpoint.
+    if not args.smoke:
+        save_rolling()
     # Time ONLY the byte optimizer loop here. RSI feedback and held-out DEV
     # evaluation are reported separately; otherwise updates/s is misleading.
     training_duration_seconds = time.monotonic() - clock
