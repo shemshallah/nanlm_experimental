@@ -1818,6 +1818,10 @@ class V3LM(nn.Module):
         task_id: int | None = None,
         composition_thresholds: Sequence[float] | None = None,
         speculative: bool = False,
+        top_k: int = 0,
+        top_p: float = 1.0,
+        repetition_penalty: float = 1.0,
+        repetition_window: int = 256,
     ):
         """Autoregressive loop with model and tokenizer composition events."""
         if speculative:
@@ -1875,10 +1879,42 @@ class V3LM(nn.Module):
                 window, sidecar=sidecar, task_ids=task_ids
             )
             next_logits = logits[:, -1].float()
+            if repetition_penalty and repetition_penalty != 1.0:
+                next_logits = next_logits.clone()
+                recent = ids[0, -max(1, int(repetition_window)):]
+                if recent.numel():
+                    unique = torch.unique(recent)
+                    selected = next_logits[0, unique]
+                    next_logits[0, unique] = torch.where(
+                        selected > 0,
+                        selected / float(repetition_penalty),
+                        selected * float(repetition_penalty),
+                    )
+            if temperature > 0:
+                next_logits = next_logits / max(1e-3, temperature)
+            if top_k and int(top_k) > 0:
+                k = min(int(top_k), next_logits.size(-1))
+                values, indices = torch.topk(next_logits, k, dim=-1)
+                filtered = torch.full_like(next_logits, float("-inf"))
+                filtered.scatter_(1, indices, values)
+                next_logits = filtered
+            if top_p is not None and 0.0 < float(top_p) < 1.0:
+                sorted_logits, sorted_indices = torch.sort(
+                    next_logits, descending=True, dim=-1
+                )
+                probs = torch.softmax(sorted_logits, dim=-1)
+                cumulative = torch.cumsum(probs, dim=-1)
+                mask = cumulative - probs > float(top_p)
+                sorted_logits = sorted_logits.masked_fill(
+                    mask, float("-inf")
+                )
+                next_logits = torch.full_like(
+                    next_logits, float("-inf")
+                ).scatter_(1, sorted_indices, sorted_logits)
             if temperature <= 0:
                 next_id = next_logits.argmax(dim=-1)
             else:
-                probs = torch.softmax(next_logits / max(1e-3, temperature), dim=-1)
+                probs = torch.softmax(next_logits, dim=-1)
                 next_id = torch.multinomial(probs, num_samples=1).squeeze(-1)
             ids = torch.cat([ids, next_id[:, None]], dim=1)
             comp = aux.get("composition_logits")
