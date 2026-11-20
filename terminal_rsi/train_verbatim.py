@@ -660,6 +660,15 @@ def main(argv=None):
                    help="Initialize model weights only from a unified checkpoint; reset optimizer/step for new data")
     p.add_argument("--init-core-lr-scale", type=float, default=0.1,
                    help="LR multiplier for inherited parent groups when --init-weights")
+    p.add_argument("--residual-gate-init", type=float, default=0.0,
+                   help="Fresh-start scalar residual gate before training; "
+                        "tanh(value) is the branch mixing weight")
+    p.add_argument("--upgrade-gate-bias-init", type=float, default=0.0,
+                   help="Fresh-start per-token gate bias; open the 100M branch "
+                        "from the first update instead of waiting for the gate")
+    p.add_argument("--word-prior-byte-scale", type=float, default=1.0,
+                   help="Scale the word-prefix prior contribution to the byte "
+                        "path; 0 disables it without touching the word head")
     p.add_argument("--train-stream", type=Path, required=True)
     p.add_argument("--bpe-merges", type=Path, required=True)
     p.add_argument("--dev-bin", type=Path, required=True,
@@ -818,6 +827,8 @@ def main(argv=None):
         p.error("Generation needs nonnegative steps/top-k and positive temperature")
     if args.legacy_core_lr_scale < 0:
         p.error("Parent warm-start LR scale must be nonnegative")
+    if args.word_prior_byte_scale < 0:
+        p.error("Word-prior byte scale must be nonnegative")
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
                         ("moe", args.moe_loss_weight),
@@ -1064,6 +1075,15 @@ def main(argv=None):
             torch.cuda.set_rng_state_all(source["cuda_rng"])
         if "python_rng" in source:
             random.setstate(source["python_rng"])
+    if args.resume is None and args.init_weights is None:
+        # A fresh random parent is not a useful predictor.  Open the additive
+        # branch immediately instead of spending thousands of updates with a
+        # near-zero gate and a random parent dominating the logits.
+        with torch.no_grad():
+            model.residual_gate.fill_(args.residual_gate_init)
+            model.upgrades.upgrade_gate.bias.fill_(
+                args.upgrade_gate_bias_init)
+    model.word_prior_byte_scale = float(args.word_prior_byte_scale)
     # RSI owns the training loop. Its action policy proposes real changes to
     # the specialist router, feedback gain and additive-capacity gate; only
     # verified internal TRAIN-probe improvements survive a mutation cycle.
@@ -1924,6 +1944,19 @@ def main(argv=None):
             receipt["champion_guard"] = consider_candidate(
                 args.output, receipt, args.champion_dir)
             print("RSI IMMUTABLE DEV CHAMPION:", receipt["champion_guard"], flush=True)
+    # The byte metrics above use short v103 parity windows.  The 100M branch
+    # is trained with upgrade_context causal bytes, so report that context
+    # separately instead of letting the short-window number masquerade as the
+    # model's held-out BPB.
+    receipt["after_context_note"] = (
+        "after.bpb uses 32-byte v103 parity windows; dev_bpb_256 is the "
+        "upgrade-context held-out BPB")
+    hierarchical = receipt.get("hierarchical") or {}
+    byte_256 = hierarchical.get("byte") or {}
+    if byte_256:
+        receipt["dev_bpb_256"] = byte_256.get("bpb")
+        receipt["dev_byte_top1_256"] = byte_256.get("top1")
+        receipt["dev_byte_top5_256"] = byte_256.get("top5")
     if args.metrics_output:
         _write_if_unchanged_or_new(args.metrics_output,
             (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode())

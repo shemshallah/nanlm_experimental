@@ -218,8 +218,9 @@ class VerbatimV103RSI(nn.Module):
             prior = torch.nan_to_num(prior, nan=-30.0, neginf=-30.0,
                                      posinf=0.0)
             prior_bits = self._byte_to_conditional_bit_logits(prior, target)
-            word_scale = WORD_PRIOR_MAX_SCALE * torch.tanh(
-                self.word_prior_gate)
+            word_scale = (WORD_PRIOR_MAX_SCALE
+                          * float(getattr(self, "word_prior_byte_scale", 1.0))
+                          * torch.tanh(self.word_prior_gate))
             final_logits = final_logits + word_scale.to(
                 final_logits.dtype) * prior_bits.to(final_logits.dtype)
         if use_fast_adapter:
