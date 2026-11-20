@@ -71,7 +71,7 @@ def _prepare(name: str, raw_path: Path, work: Path, books: int,
     }, indent=2) + "\n")
     return {
         "name": name,
-        "manifest": manifest,
+        "manifest": str(manifest),
         "raw_sha256": _sha256(raw_path),
         "clean_sha256": _sha256(out),
         "clean_bytes": len(cleaned),
@@ -163,7 +163,7 @@ def main(argv=None) -> int:
               f"word_top5={word.get('top5', float('nan')):.4f} "
               f"positions={result['positions']}", flush=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2) + "\n")
+    args.output.write_text(json.dumps(report, indent=2, default=str) + "\n")
     print("wrote", args.output, flush=True)
     return 0
 
