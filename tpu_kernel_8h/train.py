@@ -143,6 +143,30 @@ else:
            "--best-every", "1000"]
     sh(cmd, timeout=32400)
 
+# Clean OOD eval after the long run.
+if MODE != "smoke" and (OUT / "final.pt").is_file():
+    import urllib.request
+    ptb = Path("/kaggle/working/ptb.test.txt")
+    if not ptb.is_file() or ptb.stat().st_size < 100000:
+        urllib.request.urlretrieve(
+            "https://raw.githubusercontent.com/wojzaremba/lstm/master/data/ptb.test.txt",
+            ptb,
+        )
+    base_eval = [
+        sys.executable, str(REPO / "z3" / "eval_domains.py"),
+        "--checkpoint", str(OUT / "final.pt"),
+        "--corpus", f"ptb={ptb}",
+        "--out", str(OUT / "eval_ptb.json"),
+        "--batch-size", "4",
+        "--bootstrap", "100",
+    ]
+    try:
+        sh(base_eval + ["--device", "xla"], timeout=1800)
+    except SystemExit:
+        print("XLA PTB eval failed; retrying on CPU", flush=True)
+        sh(base_eval + ["--device", "cpu"], timeout=3600)
+    print("TPU_PTB", (OUT / "eval_ptb.json").read_text()[:1000], flush=True)
+
 result_path = OUT / "result.json"
 if result_path.is_file():
     result = json.loads(result_path.read_text())
