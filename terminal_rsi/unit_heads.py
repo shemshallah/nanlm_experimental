@@ -522,17 +522,10 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                 if not bool(valid.any()):
                     continue
                 head_logits = logits[name]
-                if name == "word" and ngram_weight > 0:
-                    bigram = getattr(model, "word_bigram_log_probs", None)
-                    if bigram is not None and bigram.numel():
-                        previous = labels.current_word[positions - 1].to(device)
-                        prior = model.word_unigram_log_probs.to(device)[
-                            None, :].expand(len(previous), -1)
-                        ok = (previous > 0) & (previous < bigram.shape[0])
-                        if bool(ok.any()):
-                            prior = prior.clone()
-                            prior[ok] = bigram.to(device)[previous[ok]]
-                        head_logits = head_logits + ngram_weight * prior
+                # The bridge + bigram/4-gram prior was already applied above
+                # exactly once.  A second bigram/unigram add here made eval
+                # logits differ from training logits and confounded every
+                # reported word top-5.
                 prediction = head_logits[valid].topk(5, dim=-1).indices
                 totals[name]["units"] += int(valid.sum())
                 totals[name]["top1"] += int(

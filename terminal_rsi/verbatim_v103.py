@@ -85,7 +85,9 @@ class VerbatimV103RSI(nn.Module):
         from .unit_heads import _word_tokens
         ids = [self._word_vocab.get(word, 0)
                for _start, _end, word in _word_tokens(raw)]
-        ids = [index for index in ids if index > 0]
+        # Keep UNK (id 0) in the stream.  Dropping it merged transitions across
+        # OOV words and made the prior unable to predict UNK, even though UNK is
+        # a valid target class in the word-head evaluation.
         size = int(self.upgrades.hierarchy.unit_heads.word.out_features)
         counts = torch.zeros((size, size), dtype=torch.float32)
         if len(ids) > 1:
