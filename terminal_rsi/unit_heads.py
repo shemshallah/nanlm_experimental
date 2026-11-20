@@ -349,25 +349,36 @@ class UnitHeads(nn.Module):
         # a zero-initialized normalized residual MLP.  The base path is exactly
         # unchanged at initialization; the residual adds word-specific
         # nonlinearity without discarding previously trained word weights.
-        self.word = nn.Linear(width, WORD_VOCAB_SIZE, bias=True)
+        # Keep the base weight initialization byte-identical to the old head;
+        # the bias is added as an explicit zero parameter and later seeded
+        # from the corpus unigram prior.
+        self.word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        self.word.bias = nn.Parameter(torch.zeros(WORD_VOCAB_SIZE))
+        self.sentence = nn.Linear(width, SENTENCE_VOCAB_SIZE, bias=False)
+        self.current_token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
+        self.current_word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        # Preserve the exact old initialization order and RNG consumption for
+        # the shared/base heads.  The new residual is built afterwards under a
+        # forked RNG, so every byte-branch module keeps the initialization it
+        # would have had without the word-head upgrade.
+        nn.init.normal_(self.byte_proj.weight, std=0.02)
+        nn.init.normal_(self.token.weight, std=0.02)
+        nn.init.normal_(self.word.weight, std=0.02)
+        nn.init.normal_(self.sentence.weight, std=0.02)
+        nn.init.normal_(self.current_token.weight, std=0.02)
+        nn.init.normal_(self.current_word.weight, std=0.02)
+        nn.init.zeros_(self.word.bias)
+        rng_state = torch.get_rng_state()
         self.word_norm = nn.LayerNorm(width)
         self.word_residual = nn.Sequential(
             nn.Linear(width, width, bias=True),
             nn.GELU(),
             nn.Linear(width, WORD_VOCAB_SIZE, bias=False),
         )
-        self.sentence = nn.Linear(width, SENTENCE_VOCAB_SIZE, bias=False)
-        self.current_token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
-        self.current_word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
-        nn.init.normal_(self.byte_proj.weight, std=0.02)
-        for head in (self.token, self.sentence,
-                     self.current_token, self.current_word):
-            nn.init.normal_(head.weight, std=0.02)
-        nn.init.normal_(self.word.weight, std=0.02)
-        nn.init.zeros_(self.word.bias)
         nn.init.normal_(self.word_residual[0].weight, std=0.02)
         nn.init.zeros_(self.word_residual[0].bias)
         nn.init.zeros_(self.word_residual[2].weight)
+        torch.set_rng_state(rng_state)
 
     def word_logits(self, word_input: torch.Tensor) -> torch.Tensor:
         base = self.word(word_input)
@@ -383,7 +394,10 @@ class UnitHeads(nn.Module):
         else:
             byte_proj = self.byte_proj(byte_state)
         token_input = torch.cat((subword[:, -1], byte_proj[:, -1]), dim=-1)
-        word_input = torch.cat((word[:, -1], byte_proj[:, -1]), dim=-1)
+        # The word heads are a side task: let them read the hierarchy state
+        # without back-propagating word gradients into the shared byte state.
+        word_input = torch.cat(
+            (word[:, -1], byte_proj[:, -1]), dim=-1).detach()
         sentence_input = torch.cat((sentence[:, -1], byte_proj[:, -1]), dim=-1)
         return {
             "token": self.token(token_input),
