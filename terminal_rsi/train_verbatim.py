@@ -102,25 +102,26 @@ def _word_ngram_prior(model, window, index, device):
 
 
 def _unit_logits_with_ngram(model, unit_logits, targets, weight):
-    if weight <= 0 or not unit_logits or targets is None:
+    if not unit_logits or targets is None:
         return unit_logits
     word_logits = unit_logits.get("word")
-    previous = targets.get("current_word")
-    bigram = getattr(model, "word_bigram_log_probs", None)
-    if (word_logits is None or previous is None or bigram is None
-            or bigram.numel() == 0):
+    if word_logits is None:
+        return unit_logits
+    prev1, prev2, prev3 = (targets.get("prev_word_1"),
+                           targets.get("prev_word_2"),
+                           targets.get("prev_word_3"))
+    if prev1 is None or prev2 is None or prev3 is None:
         return unit_logits
     device = word_logits.device
-    previous = previous.to(device).long()
-    prior = model.word_unigram_log_probs.to(device)[None, :].expand(
-        len(previous), -1).clone()
-    valid = (previous > 0) & (previous < bigram.shape[0])
-    if bool(valid.any()):
-        prior[valid] = bigram.to(device)[previous[valid]]
+    prev1 = prev1.to(device).long()
+    prev2 = prev2.to(device).long()
+    prev3 = prev3.to(device).long()
+    bridge = model.word_bridge(torch.stack((prev1, prev2, prev3), dim=-1))
+    prior = model.word_ngram_prior(prev1, prev2, prev3)
     merged = dict(unit_logits)
-    merged["word"] = word_logits + weight * prior
+    merged["word"] = (word_logits + bridge.to(word_logits.dtype)
+                      + float(weight) * prior.to(word_logits.dtype))
     return merged
-
 
 def word_boundary_loss(model, upgrade_out, window, *,
                        max_current: int = 4096, max_next: int = 2048,
@@ -159,10 +160,14 @@ def word_boundary_loss(model, upgrade_out, window, *,
             heads.byte_proj(byte_state[index[:, 0], index[:, 1]].to(
                 param_dtype))), dim=-1)
         logits = head(hidden.to(head.weight.dtype))
+        prev1 = window["prev_word_1"].to(device).long()[index[:, 0], index[:, 1]]
+        prev2 = window["prev_word_2"].to(device).long()[index[:, 0], index[:, 1]]
+        prev3 = window["prev_word_3"].to(device).long()[index[:, 0], index[:, 1]]
+        bridge = model.word_bridge(torch.stack((prev1, prev2, prev3), dim=-1))
+        logits = logits + bridge.to(logits.dtype)
         if use_ngram:
-            prior = _word_ngram_prior(model, window, index, device)
-            if prior is not None:
-                logits = logits + ngram_weight * prior
+            prior = model.word_ngram_prior(prev1, prev2, prev3)
+            logits = logits + ngram_weight * prior.to(logits.dtype)
         ce = F.cross_entropy(logits, target)
         loss = ce
         if top5_weight > 0:
@@ -959,7 +964,7 @@ def main(argv=None):
             raise ValueError("--init-weights is not a unified Terminal-RSI checkpoint")
         if init_checkpoint.get("config") != vars(model.cfg):
             raise ValueError("--init-weights mode/architecture mismatch")
-        model.load_state_dict(init_checkpoint["model"], strict=True)
+        model.load_state_dict(init_checkpoint["model"], strict=False)
         init_meta = {
             "path": str(args.init_weights),
             "sha256": hashlib.sha256(args.init_weights.read_bytes()).hexdigest(),

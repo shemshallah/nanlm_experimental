@@ -25,6 +25,9 @@ from torch.nn import functional as F
 
 from .legacy_v103_reference import V103ParityGPUFullSystem, PARITY_SCHEMA
 from .unit_heads import WORD_VOCAB_SIZE, word_prefix_byte_log_probs
+from .word_bridge import (
+    WORD4_BUCKETS, WORD4_TOPK, WordTokenBridge, build_word4_table, word4_bucket,
+)
 
 # Trust region for the word-prefix prior.  The prior is a classifier-derived
 # distribution, so a free gate lets it dominate the parent before the word
@@ -43,6 +46,7 @@ class VerbatimV103RSI(nn.Module):
         self.upgrades = TerminalRSI(self.cfg)
         self.residual_gate = nn.Parameter(torch.zeros(()))
         self.word_prior_gate = nn.Parameter(torch.zeros(()))
+        self.word_bridge = WordTokenBridge(WORD_VOCAB_SIZE)
         self.register_buffer("word_bytes", torch.zeros(1, 1, dtype=torch.long),
                              persistent=False)
         self.register_buffer("word_lengths", torch.zeros(1, dtype=torch.long),
@@ -51,6 +55,8 @@ class VerbatimV103RSI(nn.Module):
                              persistent=False)
         self.register_buffer("word_unigram_log_probs", torch.zeros(0),
                              persistent=False)
+        self.register_buffer("word4_next", torch.zeros(0), persistent=False)
+        self.register_buffer("word4_logp", torch.zeros(0), persistent=False)
         self._word_vocab: dict[bytes, int] | None = None
 
     @torch.no_grad()
@@ -93,7 +99,32 @@ class VerbatimV103RSI(nn.Module):
         device = next(self.parameters()).device
         self.word_bigram_log_probs = logp.to(device)
         self.word_unigram_log_probs = logu.to(device)
+        next_ids, ngram_logp = build_word4_table(ids)
+        self.word4_next = next_ids.to(device)
+        self.word4_logp = ngram_logp.to(device)
         self.word_ngram_counts = int(len(ids))
+
+    def word_ngram_prior(self, prev1: torch.Tensor, prev2: torch.Tensor,
+                          prev3: torch.Tensor) -> torch.Tensor:
+        """Bigram backoff + hashed 4-gram top-k prior [batch,vocab]."""
+        prev1 = prev1.long()
+        prior = None
+        if self.word_bigram_log_probs.numel():
+            prior = self.word_bigram_log_probs[
+                prev1.clamp(0, self.word_bigram_log_probs.shape[0] - 1)]
+        if self.word4_next.numel():
+            buckets = word4_bucket(prev1, prev2, prev3, self.word4_next.shape[0])
+            ids = self.word4_next[buckets].long()
+            values = self.word4_logp[buckets].float()
+            if prior is None:
+                prior = torch.zeros(
+                    (prev1.shape[0], WORD_VOCAB_SIZE), device=prev1.device)
+            prior = prior.clone()
+            prior.scatter_add_(1, ids.clamp(0, prior.shape[1] - 1), values)
+        if prior is None:
+            prior = torch.zeros((prev1.shape[0], WORD_VOCAB_SIZE),
+                                device=prev1.device)
+        return prior
 
     @staticmethod
     def _byte_to_conditional_bit_logits(byte_logits: torch.Tensor,
@@ -227,7 +258,7 @@ class VerbatimV103RSI(nn.Module):
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.upgrade_gate.", "upgrades.fast_adapter.",
-                   "word_prior_gate.",
+                   "word_bridge.", "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [
@@ -274,8 +305,9 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
             side.append(parameter)
         else:
             added.append(parameter)
-    # The word-prefix prior is a side head: train it with the unit heads.
+    # The word-prefix prior and word-token bridge are side heads.
     side.append(model.word_prior_gate)
+    side.extend(model.word_bridge.parameters())
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)
     else:

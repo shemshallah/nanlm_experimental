@@ -148,6 +148,9 @@ class UnitLabels:
     next_sentence_start: torch.Tensor
     current_token: torch.Tensor
     current_word: torch.Tensor
+    prev_word_1: torch.Tensor
+    prev_word_2: torch.Tensor
+    prev_word_3: torch.Tensor
     token_start: torch.Tensor
     word_start: torch.Tensor
     sentence_start: torch.Tensor
@@ -169,6 +172,9 @@ class UnitLabels:
             "next_sentence_start": self.next_sentence_start[positions].bool(),
             "current_token": self.current_token[target_positions].long(),
             "current_word": self.current_word[target_positions].long(),
+            "prev_word_1": self.prev_word_1[positions].long(),
+            "prev_word_2": self.prev_word_2[positions].long(),
+            "prev_word_3": self.prev_word_3[positions].long(),
             "token_start": self.token_start[positions].bool(),
             "word_start": self.word_start[positions].bool(),
             "sentence_start": self.sentence_start[positions].bool(),
@@ -197,6 +203,9 @@ class UnitLabels:
             "next_sentence_start": self.next_sentence_start[positions].bool(),
             "current_token": self.current_token[target_positions].long(),
             "current_word": self.current_word[target_positions].long(),
+            "prev_word_1": self.prev_word_1[positions].long(),
+            "prev_word_2": self.prev_word_2[positions].long(),
+            "prev_word_3": self.prev_word_3[positions].long(),
             "token_start": self.token_start[positions].bool(),
             "word_start": self.word_start[positions].bool(),
             "sentence_start": self.sentence_start[positions].bool(),
@@ -292,6 +301,19 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
         torch.full((length,), IGNORE_ID, dtype=torch.int32))
     if len(current_word) != length:
         raise AssertionError("current-word label length mismatch")
+    prev1 = torch.zeros(length, dtype=torch.int32)
+    prev2 = torch.zeros(length, dtype=torch.int32)
+    prev3 = torch.zeros(length, dtype=torch.int32)
+    history = [UNK_ID, UNK_ID, UNK_ID]
+    word_index = 0
+    for position in range(length):
+        while (word_index < len(word_pairs)
+               and word_pairs[word_index][1] <= position):
+            history = [word_values[word_index], history[0], history[1]]
+            word_index += 1
+        prev1[position] = history[0]
+        prev2[position] = history[1]
+        prev3[position] = history[2]
 
     return UnitLabels(
         token_vocab=token_vocab,
@@ -305,6 +327,9 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
         next_sentence_start=_next_start(sentence_start),
         current_token=current_token,
         current_word=current_word,
+        prev_word_1=prev1,
+        prev_word_2=prev2,
+        prev_word_3=prev3,
         token_start=token_start,
         word_start=word_start,
         sentence_start=sentence_start,
@@ -468,6 +493,16 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                     chunked[name].append(part[name])
             logits = {name: torch.cat(values, dim=0)
                       for name, values in chunked.items()}
+            if "word" in logits:
+                prev1 = labels.prev_word_1[positions - 1].to(device).long()
+                prev2 = labels.prev_word_2[positions - 1].to(device).long()
+                prev3 = labels.prev_word_3[positions - 1].to(device).long()
+                bridge = model.word_bridge(
+                    torch.stack((prev1, prev2, prev3), dim=-1))
+                prior = model.word_ngram_prior(prev1, prev2, prev3)
+                logits["word"] = (logits["word"] + bridge.to(
+                    logits["word"].dtype)
+                    + float(ngram_weight) * prior.to(logits["word"].dtype))
             observed = torch.tensor(
                 sorted(set(vocabulary.word_vocab.values())),
                 dtype=torch.long, device=device)
