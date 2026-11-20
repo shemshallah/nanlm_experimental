@@ -161,7 +161,13 @@ def word_boundary_loss(model, upgrade_out, window, *,
             word_state[index[:, 0], index[:, 1]].to(param_dtype),
             heads.byte_proj(byte_state[index[:, 0], index[:, 1]].to(
                 param_dtype))), dim=-1)
-        logits = head(hidden.to(param_dtype))
+        # The high-volume word-boundary loss is a side objective.  Let it train
+        # the word head, residual MLP, bridge and 4-gram prior, but do not let
+        # it rewrite the shared byte representation that the byte loss owns.
+        # Without this detach, a strong word weight dominates the microbatch
+        # and raises byte BPB (measured: 4.058 -> 4.576 at the same step).
+        hidden = hidden.detach()
+        logits = head(hidden)
         prev1 = window["prev_word_1"].to(device).long()[index[:, 0], index[:, 1]]
         prev2 = window["prev_word_2"].to(device).long()[index[:, 0], index[:, 1]]
         prev3 = window["prev_word_3"].to(device).long()[index[:, 0], index[:, 1]]
