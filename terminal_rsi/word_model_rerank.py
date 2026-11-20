@@ -172,6 +172,10 @@ def main() -> int:
             print("book", book_idx, "records", len(records),
                   "seconds", round(time.perf_counter() - t0, 1), flush=True)
 
+    def pad(seq, n=TOPK):
+        seq = list(seq)[:n]
+        return seq + [-1] * (n - len(seq))
+
     # Persist a compact cache for later experiments.
     np.savez_compressed(
         CACHE,
@@ -181,9 +185,9 @@ def main() -> int:
         prev=np.array([r["prev"] for r in records], dtype=np.int32),
         target=np.array([r["target"] for r in records], dtype=np.int32),
         book=np.array([r["book"] for r in records], dtype=np.int16),
-        ppm=np.array([r["ppm"] for r in records], dtype=np.int32),
-        cache=np.array([r["cache"] for r in records], dtype=np.int32),
-        copy=np.array([r["copy"] for r in records], dtype=np.int32),
+        ppm=np.array([pad(r["ppm"]) for r in records], dtype=np.int32),
+        cache=np.array([pad(r["cache"]) for r in records], dtype=np.int32),
+        copy=np.array([pad(r["copy"]) for r in records], dtype=np.int32),
     )
     print("cache written", CACHE, flush=True)
 
