@@ -118,9 +118,11 @@ def _unit_logits_with_ngram(model, unit_logits, targets, weight):
     prev3 = prev3.to(device).long()
     bridge = model.word_bridge(torch.stack((prev1, prev2, prev3), dim=-1))
     prior = model.word_ngram_prior(prev1, prev2, prev3)
+    bridge_scale = torch.tanh(model.word_bridge_scale).to(word_logits.dtype)
+    ngram_scale = torch.tanh(model.word_ngram_scale).to(word_logits.dtype)
     merged = dict(unit_logits)
-    merged["word"] = (word_logits + bridge.to(word_logits.dtype)
-                      + float(weight) * prior.to(word_logits.dtype))
+    merged["word"] = (word_logits + bridge_scale * bridge.to(word_logits.dtype)
+                      + ngram_scale * float(weight) * prior.to(word_logits.dtype))
     return merged
 
 def word_boundary_loss(model, upgrade_out, window, *,
@@ -164,10 +166,12 @@ def word_boundary_loss(model, upgrade_out, window, *,
         prev2 = window["prev_word_2"].to(device).long()[index[:, 0], index[:, 1]]
         prev3 = window["prev_word_3"].to(device).long()[index[:, 0], index[:, 1]]
         bridge = model.word_bridge(torch.stack((prev1, prev2, prev3), dim=-1))
-        logits = logits + bridge.to(logits.dtype)
+        bridge_scale = torch.tanh(model.word_bridge_scale).to(logits.dtype)
+        ngram_scale = torch.tanh(model.word_ngram_scale).to(logits.dtype)
+        logits = logits + bridge_scale * bridge.to(logits.dtype)
         if use_ngram:
             prior = model.word_ngram_prior(prev1, prev2, prev3)
-            logits = logits + ngram_weight * prior.to(logits.dtype)
+            logits = logits + ngram_scale * ngram_weight * prior.to(logits.dtype)
         ce = F.cross_entropy(logits, target)
         loss = ce
         if top5_weight > 0:

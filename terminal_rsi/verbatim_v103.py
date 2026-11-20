@@ -47,6 +47,8 @@ class VerbatimV103RSI(nn.Module):
         self.residual_gate = nn.Parameter(torch.zeros(()))
         self.word_prior_gate = nn.Parameter(torch.zeros(()))
         self.word_bridge = WordTokenBridge(WORD_VOCAB_SIZE)
+        self.word_bridge_scale = nn.Parameter(torch.tensor(0.1))
+        self.word_ngram_scale = nn.Parameter(torch.tensor(0.0))
         self.register_buffer("word_bytes", torch.zeros(1, 1, dtype=torch.long),
                              persistent=False)
         self.register_buffer("word_lengths", torch.zeros(1, dtype=torch.long),
@@ -258,7 +260,8 @@ class VerbatimV103RSI(nn.Module):
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.upgrade_gate.", "upgrades.fast_adapter.",
-                   "word_bridge.", "word_prior_gate.",
+                   "word_bridge.", "word_bridge_scale.",
+                   "word_ngram_scale.", "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
         bad_missing = [
@@ -307,6 +310,8 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
             added.append(parameter)
     # The word-prefix prior and word-token bridge are side heads.
     side.append(model.word_prior_gate)
+    side.append(model.word_bridge_scale)
+    side.append(model.word_ngram_scale)
     side.extend(model.word_bridge.parameters())
     if freeze_residual_gate:
         model.residual_gate.requires_grad_(False)

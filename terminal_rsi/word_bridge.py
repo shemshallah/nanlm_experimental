@@ -85,10 +85,12 @@ def word_candidates(model, previous: torch.Tensor, prev_word_ids: torch.Tensor,
     """Top word IDs from the hierarchy's current-word head plus bridge/4-gram."""
     upgrade = model.upgrades(previous)
     logits = upgrade["unit_logits"]["current_word"].float()
-    logits = logits + model.word_bridge(prev_word_ids).float()
+    logits = logits + torch.tanh(model.word_bridge_scale).float() * (
+        model.word_bridge(prev_word_ids).float())
     prior = model.word_ngram_prior(
         prev_word_ids[:, 0], prev_word_ids[:, 1], prev_word_ids[:, 2])
-    logits = logits + float(ngram_weight) * prior
+    logits = logits + torch.tanh(model.word_ngram_scale).float() * (
+        float(ngram_weight) * prior)
     values, indices = logits.log_softmax(-1).topk(top_k, dim=-1)
     return values, indices
 

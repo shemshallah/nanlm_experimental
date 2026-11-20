@@ -500,9 +500,14 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                 bridge = model.word_bridge(
                     torch.stack((prev1, prev2, prev3), dim=-1))
                 prior = model.word_ngram_prior(prev1, prev2, prev3)
-                logits["word"] = (logits["word"] + bridge.to(
+                bridge_scale = torch.tanh(model.word_bridge_scale).to(
                     logits["word"].dtype)
-                    + float(ngram_weight) * prior.to(logits["word"].dtype))
+                ngram_scale = torch.tanh(model.word_ngram_scale).to(
+                    logits["word"].dtype)
+                logits["word"] = (logits["word"]
+                    + bridge_scale * bridge.to(logits["word"].dtype)
+                    + ngram_scale * float(ngram_weight)
+                    * prior.to(logits["word"].dtype))
             observed = torch.tensor(
                 sorted(set(vocabulary.word_vocab.values())),
                 dtype=torch.long, device=device)
