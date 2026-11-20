@@ -1012,7 +1012,14 @@ def main(argv=None):
         raw_tensor, torch.arange(args.batch) + PARITY_CONTEXT,
         upgrade_context).to(device)
     actual_aux = aux_data[:args.batch].to(device=device)
-    proof = exact_parent_parity(model, actual[:, :-1], actual[:, -1], actual_aux)
+    if args.init_weights is not None:
+        # A weights-only continuation already has trained side/per-token gates;
+        # exact archived-v103 parity is intentionally no longer applicable.
+        proof = {"skipped": "weights-only new-data initialization",
+                 "init_steps": init_meta["steps"] if init_meta else None}
+    else:
+        proof = exact_parent_parity(
+            model, actual[:, :-1], actual[:, -1], actual_aux)
     print("VERBATIM v103 original checkpoint, gate=0:", json.dumps(proof))
     provenance.update({"source_sha256": hashlib.sha256(raw).hexdigest(),
                        "feature_manifest": manifest, "dev_sha256": dev_digest,
