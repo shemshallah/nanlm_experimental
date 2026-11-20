@@ -98,10 +98,19 @@ def _sentence_spans(data: bytes) -> list[tuple[int, int]]:
     return spans
 
 
+MAX_CANDIDATE_SEQUENCES = 2048
+
+
+def _safe_eval_batch(eval_batch: int) -> int:
+    """Cap 256-way candidate expansion so one forward cannot blow up VRAM."""
+    return max(1, min(int(eval_batch), MAX_CANDIDATE_SEQUENCES // 256))
+
+
 @torch.no_grad()
 def _byte_log_probs(model, previous: torch.Tensor, target: torch.Tensor,
                     auxiliary: torch.Tensor, *, eval_batch: int = 8):
     """Exact 256-way byte log-probabilities for each target position."""
+    eval_batch = _safe_eval_batch(eval_batch)
     model.eval()
     try:
         batches = []

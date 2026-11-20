@@ -420,6 +420,7 @@ def evaluate_unit_head_dev(model, *, corpus_dir: Path, dev_manifest: Path,
                            ngram_weight: float = 0.0,
                            eval_batch: int = 128) -> dict:
     """Score the real token/word/sentence heads on held-out DEV excerpts."""
+    eval_batch = max(1, min(int(eval_batch), 64))
     manifest = json.loads(Path(dev_manifest).read_text())
     selected = manifest.get("selected_books") or []
     if not selected:
