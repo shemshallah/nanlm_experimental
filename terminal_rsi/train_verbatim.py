@@ -225,6 +225,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     unit_byte_loss_weight: float = 0.0,
                     unit_byte_distill_weight: float = 0.0,
                     top5_byte_loss_weight: float = 0.0,
+                    sequence_targets: torch.Tensor | None = None,
+                    upgrade_sequence_loss_weight: float = 0.0,
                     unit_window_targets: dict | None = None,
                     word_boundary_loss_weight: float = 0.0,
                     word_top5_loss_weight: float = 0.0,
@@ -301,6 +303,14 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     top5_byte_loss_weight * top5_value * (end - start))
             if aux_sum is not None:
                 objective = objective + upgrade_loss_weight * aux_sum
+            if (upgrade_out is not None and sequence_targets is not None
+                    and upgrade_sequence_loss_weight > 0):
+                seq_logits = upgrade_out["logits"][0].float()
+                seq_loss = F.cross_entropy(
+                    seq_logits.transpose(1, 2),
+                    sequence_targets[start:end])
+                objective = objective + (
+                    upgrade_sequence_loss_weight * seq_loss * (end - start))
             if upgrade_out is not None and boundary_loss_weight > 0:
                 b_loss = boundary_loss(
                     upgrade_out["boundary_logits"],
@@ -425,6 +435,12 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             top5_value = top5_byte_loss(logits, target)
             objective = objective + top5_byte_loss_weight * top5_value
         b_loss = None
+        if (upgrade_out is not None and sequence_targets is not None
+                and upgrade_sequence_loss_weight > 0):
+            seq_logits = upgrade_out["logits"][0].float()
+            seq_loss = F.cross_entropy(
+                seq_logits.transpose(1, 2), sequence_targets)
+            objective = objective + upgrade_sequence_loss_weight * seq_loss
         if upgrade_out is not None and boundary_loss_weight > 0:
             b_loss = boundary_loss(
                 upgrade_out["boundary_logits"],
@@ -717,6 +733,9 @@ def main(argv=None):
                    help="256-way parent KL into the unit -> byte decoder")
     p.add_argument("--top5-byte-loss-weight", type=float, default=0.0,
                    help="Listwise top-5 ranking loss on the final byte logits")
+    p.add_argument("--upgrade-sequence-loss-weight", type=float, default=0.0,
+                   help="Train the upgrade branch on every byte position in "
+                        "the window, not only its final target")
     p.add_argument("--word-boundary-loss-weight", type=float, default=0.0,
                    help="Train word heads on every boundary in the window")
     p.add_argument("--word-top5-loss-weight", type=float, default=0.0,
@@ -1383,6 +1402,9 @@ def main(argv=None):
                     unit_byte_loss_weight=args.unit_byte_loss_weight,
                     unit_byte_distill_weight=args.unit_byte_distill_weight,
                     top5_byte_loss_weight=args.top5_byte_loss_weight,
+                    sequence_targets=sample[:, 1:],
+                    upgrade_sequence_loss_weight=(
+                        args.upgrade_sequence_loss_weight),
                     unit_window_targets=unit_window,
                     word_boundary_loss_weight=args.word_boundary_loss_weight,
                     word_top5_loss_weight=args.word_top5_loss_weight,
