@@ -647,6 +647,10 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=2026,
                    help="Deterministic from-scratch initialization; ignored by resumed checkpoints")
     p.add_argument("--resume", type=Path, help="Resume exact-mode unified candidate with all Adam/RSI state")
+    p.add_argument("--init-weights", type=Path,
+                   help="Initialize model weights only from a unified checkpoint; reset optimizer/step for new data")
+    p.add_argument("--init-core-lr-scale", type=float, default=0.1,
+                   help="LR multiplier for inherited parent groups when --init-weights")
     p.add_argument("--train-stream", type=Path, required=True)
     p.add_argument("--bpe-merges", type=Path, required=True)
     p.add_argument("--dev-bin", type=Path, required=True,
@@ -845,6 +849,10 @@ def main(argv=None):
         torch.set_num_threads(args.cpu_threads)
     if args.fresh_start == (args.legacy_checkpoint is not None):
         p.error("Choose exactly one: protected --legacy-checkpoint OR disposable --fresh-start")
+    if args.init_weights is not None and not args.fresh_start:
+        p.error("--init-weights requires --fresh-start")
+    if args.init_weights is not None and args.resume is not None:
+        p.error("--init-weights cannot combine with --resume")
     if args.legacy_checkpoint and args.output.resolve() == args.legacy_checkpoint.resolve():
         p.error("Never overwrite the original trained v103 checkpoint")
     if args.output.exists() and (args.resume is None or args.output.resolve() != args.resume.resolve()):
@@ -942,6 +950,22 @@ def main(argv=None):
         ablation_flags["boundary_pooling"] = False
     model.upgrades.hierarchy.ablation.update(ablation_flags)
     print("Hierarchy ablation:", ablation_flags, flush=True)
+    init_meta = None
+    if args.init_weights is not None:
+        init_checkpoint = torch.load(
+            args.init_weights, map_location="cpu", weights_only=True)
+        if init_checkpoint.get("schema") != (
+                "terminal-rsi-verbatim-v103-plus-upgrades-v1"):
+            raise ValueError("--init-weights is not a unified Terminal-RSI checkpoint")
+        if init_checkpoint.get("config") != vars(model.cfg):
+            raise ValueError("--init-weights mode/architecture mismatch")
+        model.load_state_dict(init_checkpoint["model"], strict=True)
+        init_meta = {
+            "path": str(args.init_weights),
+            "sha256": hashlib.sha256(args.init_weights.read_bytes()).hexdigest(),
+            "steps": int(init_checkpoint.get("steps", 0)),
+        }
+        print("Initialized weights only from", init_meta, flush=True)
     compiled_upgrade = None
     if args.compile_upgrade:
         from .speed import compile_upgrade
@@ -962,6 +986,10 @@ def main(argv=None):
         # The 100M upgrade branch keeps its full LR and learns the hierarchy.
         for group in optimizer.param_groups[:2]:
             group["lr"] = float(group["lr"]) * args.legacy_core_lr_scale
+    if args.init_weights is not None:
+        for group in optimizer.param_groups[:2]:
+            group["lr"] = float(group["lr"]) * args.init_core_lr_scale
+        provenance["init_weights"] = init_meta
     dev_local = None
     if model.original.causal_copy_enabled:
         # The original read-only local-copy specialist must receive true
