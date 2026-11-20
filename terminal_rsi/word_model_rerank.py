@@ -34,7 +34,7 @@ from terminal_rsi.verbatim_v103 import VerbatimV103RSI  # noqa: E402
 
 V = 4096
 MAX_ORDER = 8
-TOPK = 20
+TOPK = 100
 
 
 def build_ppm(train_ids, max_order=MAX_ORDER):

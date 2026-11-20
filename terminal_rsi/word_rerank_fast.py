@@ -16,7 +16,7 @@ import torch.nn.functional as F
 
 CACHE = Path("/marimo/word_dev_cache.npz")
 OUT = Path("/marimo/word_rerank_fast_results.json")
-TOPK = 20
+TOPK = 100
 TOPK_BIG = 100
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
