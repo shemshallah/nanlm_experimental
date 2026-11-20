@@ -21,6 +21,9 @@ from terminal_rsi.unit_heads import (
     UnitHeads, build_unit_labels, unit_head_loss, unit_parameter_count,
     word_prefix_byte_log_probs,
 )
+from terminal_rsi.word_bridge import (
+    WordTokenBridge, build_word4_table, word4_bucket,
+)
 from terminal_rsi.unified import (
     PRESETS, Preset, TerminalRSI, static_upgrade_parameter_count,
 )
@@ -82,6 +85,31 @@ class V5ModuleTests(unittest.TestCase):
         scale = 0.05 * torch.tanh(gate)
         (scale * prior.detach()).sum().backward()
         self.assertTrue(bool(torch.isfinite(gate.grad).all()))
+
+    def test_word_token_bridge_zero_init(self):
+        bridge = WordTokenBridge(16)
+        out = bridge(torch.tensor([[1, 2, 3], [0, 4, 5]]))
+        self.assertEqual(tuple(out.shape), (2, 16))
+        self.assertTrue(torch.equal(out, torch.zeros_like(out)))
+        out.sum().backward()
+        self.assertTrue(bool(torch.isfinite(bridge.out.weight.grad).all()))
+
+    def test_hashed_word4_table(self):
+        ids = [1, 2, 3, 4, 1, 2, 3, 5, 1, 2, 3, 4]
+        next_ids, logp = build_word4_table(ids, buckets=16, topk=4)
+        self.assertEqual(tuple(next_ids.shape), (16, 4))
+        self.assertTrue(bool(torch.isfinite(logp).all()))
+        bucket = word4_bucket(torch.tensor([1]), torch.tensor([2]),
+                              torch.tensor([3]), buckets=16)
+        self.assertTrue(0 <= int(bucket) < 16)
+
+    def test_previous_word_labels(self):
+        labels = build_unit_labels(b"alpha beta gamma delta", BPE)
+        start = b"alpha beta gamma delta".index(b"delta")
+        gamma = labels.word_vocab[b"gamma"]
+        self.assertEqual(int(labels.prev_word_1[start]), gamma)
+        self.assertEqual(int(labels.prev_word_2[start]),
+                         labels.word_vocab[b"beta"])
 
     def test_word_boundary_window_and_ngram_loss(self):
         raw = (b"alpha beta gamma delta epsilon zeta eta theta "
