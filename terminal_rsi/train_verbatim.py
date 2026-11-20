@@ -1016,7 +1016,8 @@ def main(argv=None):
         # A weights-only continuation already has trained side/per-token gates;
         # exact archived-v103 parity is intentionally no longer applicable.
         proof = {"skipped": "weights-only new-data initialization",
-                 "init_steps": init_meta["steps"] if init_meta else None}
+                 "init_steps": init_meta["steps"] if init_meta else None,
+                 "exact_parity": False}
     else:
         proof = exact_parent_parity(
             model, actual[:, :-1], actual[:, -1], actual_aux)
