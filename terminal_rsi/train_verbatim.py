@@ -126,7 +126,7 @@ def _unit_logits_with_ngram(model, unit_logits, targets, weight):
     return merged
 
 def word_boundary_loss(model, upgrade_out, window, *,
-                       max_current: int = 4096, max_next: int = 2048,
+                       max_current: int = 8192, max_next: int = 8192,
                        top5_weight: float = 0.1,
                        ngram_weight: float = 0.5) -> tuple:
     """Train the current/next word heads on every boundary in the window."""
@@ -142,7 +142,7 @@ def word_boundary_loss(model, upgrade_out, window, *,
     specs = (
         ("current_word", "current_word", heads.current_word,
          max_current, 0.5, False),
-        ("next_word", "next_word", heads.word, max_next, 1.0, True),
+        ("next_word", "next_word", heads.word_logits, max_next, 1.0, True),
     )
     for name, key, head, cap, weight, use_ngram in specs:
         target_all = window[key].to(device).long()
@@ -161,7 +161,7 @@ def word_boundary_loss(model, upgrade_out, window, *,
             word_state[index[:, 0], index[:, 1]].to(param_dtype),
             heads.byte_proj(byte_state[index[:, 0], index[:, 1]].to(
                 param_dtype))), dim=-1)
-        logits = head(hidden.to(head.weight.dtype))
+        logits = head(hidden.to(param_dtype))
         prev1 = window["prev_word_1"].to(device).long()[index[:, 0], index[:, 1]]
         prev2 = window["prev_word_2"].to(device).long()[index[:, 0], index[:, 1]]
         prev3 = window["prev_word_3"].to(device).long()[index[:, 0], index[:, 1]]
