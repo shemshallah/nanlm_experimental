@@ -115,3 +115,60 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 - 4k word head, fixed eval: **12.6% in-vocab top-5**, 42.3% all-class (UNK hits), ~30% OOV.
 - PPM context memory: **51.9% top-5**, 60.0% top-20, 69.2% any-order oracle.
 - The 80% target is a coverage + candidate-recall problem before it is a ranking problem.
+
+## Measured results (16 MB pilot, book-disjoint)
+
+### Tokenization / coverage / PPM
+
+| config | vocab | OOV | PPM top-1 | PPM top-5 | PPM top-20 |
+|---|---:|---:|---:|---:|---:|
+| raw, 4k | 4,095 | 31.9% | 32.9% | **54.75%** | 66.87% |
+| normalized, 4k | 4,095 | 21.1% | 24.4% | 45.38% | 58.60% |
+| normalized, 16k | 16,383 | 8.2% | 17.9% | 33.98% | 47.12% |
+
+Longest-match raw4k: top-1 31.6%, top-5 51.9%, top-20 62.9%.
+KT/CTW raw4k: top-1 34.4%, top-5 53.5%, top-20 65.7%.
+
+Coverage improves with normalization/16k, but top-5 drops on 16 MB because contexts
+become sparse. 16k needs more data or a much stronger prior.
+
+### Alien / nonparametric
+
+| mechanism | top-1 | top-5 | top-20 |
+|---|---:|---:|---:|
+| PPM interpolation | 32.9% | **54.75%** | 66.87% |
+| LZP (last-occurrence) | 19.7% | 44.34% | 57.91% |
+| STDP-like decayed transitions | 31.8% | 43.35% | 55.17% |
+| HRR (permutation + ridge) | 31.9% | 43.58% | 52.92% |
+| immune kNN (HRR keys) | 30.3% | 35.07% | 51.58% |
+| recency cache | 30.3% | 35.93% | 46.24% |
+| copy from excerpt | 11.9% | 30.44% | 45.94% |
+| alien union (no PPM/cache/copy) | - | **53.11%** | 61.84% |
+
+### Model head, candidate union, reranker
+
+| item | value |
+|---|---:|
+| fixed eval, in-vocab word top-5 | 12.56% |
+| fixed eval, all-class word top-5 | 42.31% |
+| head top-5, all test records | 36.36% |
+| PPM top-5, all test records | 37.19% |
+| candidate recall@20 | 64.88% |
+| candidate recall@100 | **79.75%** |
+| oracle top-5 of current sources | 51.03% |
+| listwise reranker, conditional top-5 | **77.07%** |
+| listwise reranker, overall top-5 | **50.00%** |
+| listwise reranker, overall top-1 | 37.60% |
+
+**Conclusion:** the selector is good enough to reach 84% *when the target is in the
+candidate set*, but the current union covers only 65% at top-20 and 80% at top-100.
+The path to 80% requires candidate recall >=95%, which means the lexicon-constrained
+byte beam, OOV/copy channel, and/or 16k tail must be added before more reranker tuning.
+
+### Still open / not yet physically tested
+
+W1.2 FM-index, W1.3 CTW, W1.7 BM25, W1.8 phrase/Re-Pair, W2.4 lexicon byte beam,
+W2.5 Ising/DPP, W2.6 sheaf fusion, W2.8 policy gradient, W3.1 hierarchical softmax,
+W3.2 spherical/PMI-SVD, W3.3 PQ tail, W4.1-W4.8 linguistic, W5.2 reservoir,
+W5.5 Kuramoto, W5.6 CA, W5.7 ant/Physarum, W5.8 Ising memory, W5.9 persistence,
+W6.4 RG blocks, W6.5 free-energy regimes, W6.6 MPS, W6.8 quantum, W6.9 Solomonoff.
