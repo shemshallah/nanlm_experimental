@@ -345,45 +345,14 @@ class UnitHeads(nn.Module):
         self.byte_proj = nn.Linear(byte_width, bus_width, bias=False)
         width = 2 * bus_width
         self.token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
-        # Keep the original base linear for checkpoint compatibility, and add
-        # a zero-initialized normalized residual MLP.  The base path is exactly
-        # unchanged at initialization; the residual adds word-specific
-        # nonlinearity without discarding previously trained word weights.
-        # Keep the base weight initialization byte-identical to the old head;
-        # the bias is added as an explicit zero parameter and later seeded
-        # from the corpus unigram prior.
         self.word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
-        self.word.bias = nn.Parameter(torch.zeros(WORD_VOCAB_SIZE))
         self.sentence = nn.Linear(width, SENTENCE_VOCAB_SIZE, bias=False)
         self.current_token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
         self.current_word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
-        # Preserve the exact old initialization order and RNG consumption for
-        # the shared/base heads.  The new residual is built afterwards under a
-        # forked RNG, so every byte-branch module keeps the initialization it
-        # would have had without the word-head upgrade.
         nn.init.normal_(self.byte_proj.weight, std=0.02)
-        nn.init.normal_(self.token.weight, std=0.02)
-        nn.init.normal_(self.word.weight, std=0.02)
-        nn.init.normal_(self.sentence.weight, std=0.02)
-        nn.init.normal_(self.current_token.weight, std=0.02)
-        nn.init.normal_(self.current_word.weight, std=0.02)
-        nn.init.zeros_(self.word.bias)
-        rng_state = torch.get_rng_state()
-        self.word_norm = nn.LayerNorm(width)
-        self.word_residual = nn.Sequential(
-            nn.Linear(width, width, bias=True),
-            nn.GELU(),
-            nn.Linear(width, WORD_VOCAB_SIZE, bias=False),
-        )
-        nn.init.normal_(self.word_residual[0].weight, std=0.02)
-        nn.init.zeros_(self.word_residual[0].bias)
-        nn.init.zeros_(self.word_residual[2].weight)
-        torch.set_rng_state(rng_state)
-
-    def word_logits(self, word_input: torch.Tensor) -> torch.Tensor:
-        base = self.word(word_input)
-        residual = self.word_residual(self.word_norm(word_input))
-        return base + residual
+        for head in (self.token, self.word, self.sentence,
+                     self.current_token, self.current_word):
+            nn.init.normal_(head.weight, std=0.02)
 
     def forward(self, subword: torch.Tensor, word: torch.Tensor,
                 sentence: torch.Tensor,
@@ -394,14 +363,11 @@ class UnitHeads(nn.Module):
         else:
             byte_proj = self.byte_proj(byte_state)
         token_input = torch.cat((subword[:, -1], byte_proj[:, -1]), dim=-1)
-        # The word heads are a side task: let them read the hierarchy state
-        # without back-propagating word gradients into the shared byte state.
-        word_input = torch.cat(
-            (word[:, -1], byte_proj[:, -1]), dim=-1).detach()
+        word_input = torch.cat((word[:, -1], byte_proj[:, -1]), dim=-1)
         sentence_input = torch.cat((sentence[:, -1], byte_proj[:, -1]), dim=-1)
         return {
             "token": self.token(token_input),
-            "word": self.word_logits(word_input),
+            "word": self.word(word_input),
             "sentence": self.sentence(sentence_input),
             "current_token": self.current_token(token_input),
             "current_word": self.current_word(word_input),
@@ -466,13 +432,9 @@ def unit_head_loss(logits: dict[str, torch.Tensor],
 
 def unit_parameter_count(bus_width: int, byte_width: int | None = None) -> int:
     byte_width = bus_width if byte_width is None else byte_width
-    width = 2 * bus_width
-    # token, current_token, sentence, current_word, base word linear, plus the
-    # LayerNorm + two-layer residual word MLP and the word bias.
-    return (byte_width * bus_width
-            + width * (2 * TOKEN_VOCAB_SIZE + 3 * WORD_VOCAB_SIZE
-                       + SENTENCE_VOCAB_SIZE)
-            + 3 * width + width * width + WORD_VOCAB_SIZE)
+    return (byte_width * bus_width + 2 * bus_width * (
+        TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + SENTENCE_VOCAB_SIZE
+        + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE))
 
 
 @torch.no_grad()

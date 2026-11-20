@@ -101,18 +101,6 @@ class VerbatimV103RSI(nn.Module):
         device = next(self.parameters()).device
         self.word_bigram_log_probs = logp.to(device)
         self.word_unigram_log_probs = logu.to(device)
-        # A fresh word head should start at the corpus unigram prior instead of
-        # a zero logit vector.  Never overwrite a word bias that has already
-        # been trained or restored from a checkpoint.
-        heads = getattr(self.upgrades.hierarchy, "unit_heads", None)
-        if (heads is not None and getattr(heads, "word", None) is not None
-                and heads.word.bias is not None
-                and not torch.count_nonzero(heads.word.bias)):
-            with torch.no_grad():
-                heads.word.bias.copy_(
-                    self.word_unigram_log_probs.to(
-                        device=heads.word.bias.device,
-                        dtype=heads.word.bias.dtype))
         next_ids, ngram_logp = build_word4_table(ids)
         self.word4_next = next_ids.to(device)
         self.word4_logp = ngram_logp.to(device)
