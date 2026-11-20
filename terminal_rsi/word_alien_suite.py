@@ -78,6 +78,8 @@ def main() -> int:
 
     report = {"train_words": len(train_ids), "dev_words": len(dev_ids_all),
               "vocab": len(vocab)}
+    union5 = [set() for _ in dev_ids_all]
+    union20 = [set() for _ in dev_ids_all]
 
     # --- LZP: last 5 continuations per context order ---
     t = time.perf_counter()
@@ -107,6 +109,8 @@ def main() -> int:
             ranking = uni_top
         ranking = ranking + [w for w in uni_top if w not in ranking]
         add_hit(hits, target, ranking)
+        union5[i].update(ranking[:5])
+        union20[i].update(ranking[:20])
         total += 1
     report["lzp"] = metrics(hits, total, "lzp")
     report["lzp"]["build_seconds"] = round(time.perf_counter() - t, 1)
@@ -162,6 +166,8 @@ def main() -> int:
         ranking = ranking[np.argsort(-score[ranking])].tolist()
         ranking = ranking + [w for w in uni_top if w not in ranking]
         add_hit(hits, target, ranking)
+        union5[i].update(ranking[:5])
+        union20[i].update(ranking[:20])
         total += 1
     report["stdp_transition"] = metrics(hits, total, "stdp")
     report["stdp_transition"]["build_seconds"] = round(
@@ -207,6 +213,8 @@ def main() -> int:
         ranking = np.argpartition(-score, UNI)[:UNI]
         ranking = ranking[np.argsort(-score[ranking])].tolist()
         add_hit(hits, dev_ids_all[i], ranking)
+        union5[i].update(ranking[:5])
+        union20[i].update(ranking[:20])
         total += 1
     report["hrr"] = metrics(hits, total, "hrr")
     report["hrr"]["build_seconds"] = round(time.perf_counter() - t, 1)
@@ -218,7 +226,8 @@ def main() -> int:
     proto_idx = rng.choice(n_train, n_proto, replace=False)
     K = H[proto_idx, :dim].copy()
     K /= np.linalg.norm(K, axis=1, keepdims=True) + 1e-9
-    proto_next = train_ids[np.array([sample_idx[i] for i in proto_idx])]
+    proto_next = np.array([train_ids[int(sample_idx[int(i)])]
+                           for i in proto_idx], dtype=np.int32)
     hits = [0, 0, 0]
     total = 0
     for i in range(1, len(dev_ids_all)):
@@ -232,10 +241,19 @@ def main() -> int:
         ranking = [w for w, _ in scores.most_common(UNI)]
         ranking += [w for w in uni_top if w not in ranking]
         add_hit(hits, dev_ids_all[i], ranking)
+        union5[i].update(ranking[:5])
+        union20[i].update(ranking[:20])
         total += 1
     report["immune_knn"] = metrics(hits, total, "immune")
     report["immune_knn"]["build_seconds"] = round(time.perf_counter() - t, 1)
     print("immune", report["immune_knn"], flush=True)
+    seen = sum(1 for i, t in enumerate(dev_ids_all)
+               if i > 0 and t in union5[i])
+    seen20 = sum(1 for i, t in enumerate(dev_ids_all)
+                 if i > 0 and t in union20[i])
+    report["union"] = {"top5": seen / max(len(dev_ids_all) - 1, 1),
+                        "top20": seen20 / max(len(dev_ids_all) - 1, 1),
+                        "note": "LZP+STDP+HRR+immune; cache/copy excluded"}
     report["total_seconds"] = round(time.perf_counter() - t0, 1)
     OUT.write_text(json.dumps(report, indent=2) + "\n")
     print("wrote", OUT, flush=True)
