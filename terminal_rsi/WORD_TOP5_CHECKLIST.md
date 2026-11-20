@@ -172,3 +172,30 @@ W2.5 Ising/DPP, W2.6 sheaf fusion, W2.8 policy gradient, W3.1 hierarchical softm
 W3.2 spherical/PMI-SVD, W3.3 PQ tail, W4.1-W4.8 linguistic, W5.2 reservoir,
 W5.5 Kuramoto, W5.6 CA, W5.7 ant/Physarum, W5.8 Ising memory, W5.9 persistence,
 W6.4 RG blocks, W6.5 free-energy regimes, W6.6 MPS, W6.8 quantum, W6.9 Solomonoff.
+
+## Top-100 candidate recall experiment (true, all test records)
+
+| item | value |
+|---|---:|
+| true recall@20 | 64.88% |
+| true recall@100 | **79.75%** |
+| reranker overall top-5 (top-100 candidates) | 48.86% |
+| reranker conditional top-5 | 61.27% |
+| source-sum overall top-5 | 40.39% |
+| head top-5, all | 36.36% |
+| PPM top-5, all | 37.19% |
+
+The earlier 84.4% / recall@50 94.3% numbers were computed only on the
+target-in-union subset (selection bias). The true overall reranker is ~49-50%.
+
+**Conclusion:** the candidate generator, not the selector, is now the hard wall.
+To reach 80% overall, candidate coverage must rise from 80% to ~95-100%, while the
+conditional selector must stay at ~80%. The next mechanisms must create candidates
+the current head/PPM/bridge/cache/copy cannot produce: lexicon-constrained byte
+beam, OOV/surface copy, 16k tail, and morphological/retrieval candidates.
+
+Still open: W1.2 FM, W1.3 CTW, W1.7 BM25, W1.8 phrase, W2.4 lexicon beam,
+W2.5 Ising/DPP, W2.6 sheaf, W2.8 policy, W3.1-W3.3 hierarchical/PMI/PQ,
+W3.4 16k ranking, W4.1-W4.8 linguistic, W5.2 reservoir, W5.5 Kuramoto,
+W5.6 CA, W5.7 ant/Physarum, W5.8 Ising memory, W5.9 persistence,
+W6.4 RG blocks, W6.5 free energy, W6.6 MPS, W6.8 quantum, W6.9 Solomonoff.
