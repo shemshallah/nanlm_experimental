@@ -22,7 +22,7 @@ V = 4096
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEQ = 128
 BATCH = 256
-EPOCHS = 4
+EPOCHS = 12
 sys.path.insert(0, str(ROOT))
 from terminal_rsi.unit_heads import _word_tokens  # noqa: E402
 
