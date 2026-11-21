@@ -199,9 +199,15 @@ lord lady professor captain
 # Token helpers
 # ---------------------------------------------------------------------------
 
+def _text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "ignore")
+    return str(value)
+
+
 def strip_token(word: str) -> str:
     """Strip surrounding punctuation, keeping internal apostrophes/hyphens."""
-    return str(word).strip(_PUNCT_STRIP)
+    return _text(word).strip(_PUNCT_STRIP)
 
 
 def word_core(word: str) -> str:
@@ -210,16 +216,16 @@ def word_core(word: str) -> str:
 
 
 def _display(word: str) -> str:
-    return str(word).strip(_PUNCT_STRIP)
+    return _text(word).strip(_PUNCT_STRIP)
 
 
 def _is_punct_token(word: str) -> bool:
-    return all(not ch.isalnum() for ch in str(word))
+    return all(not ch.isalnum() for ch in _text(word))
 
 
 def is_sentence_end(word: str) -> bool:
     """Approximate sentence end.  ``Mr.`` is a known false positive."""
-    token = str(word).strip().strip(_QUOTE_STRIP)
+    token = _text(word).strip().strip(_QUOTE_STRIP)
     return bool(token) and token[-1] in ".!?"
 
 
@@ -237,6 +243,37 @@ def _is_plural_noun(word: str) -> bool:
     core = word_core(word)
     return (len(core) > 2 and core.endswith("s")
             and not core.endswith(("ss", "us", "is", "ous")))
+
+
+_PUNCT_SUFFIXES = (".", ",", ";", ":", "!", "?", ")", "’", "'")
+
+
+def _lookup_variants(surface: str) -> Iterable[str]:
+    """Surface spellings to try when mapping a generated word to a vocab ID.
+
+    Raw whitespace tokenization often stores ``door.``/``apples,``; generated
+    centering and morphology surfaces are usually unpunctuated.  The common
+    variants are tried only after the exact/display/lower-case forms.
+    """
+    raw = _text(surface)
+    display = _display(raw)
+    core = display.lower()
+    seen: set[str] = set()
+    first = [raw, display, core]
+    if display and display[:1].islower():
+        first.append(display[:1].upper() + display[1:])
+    for variant in first:
+        if variant and variant not in seen:
+            seen.add(variant)
+            yield variant
+    for base in (display, core):
+        if not base:
+            continue
+        for suffix in _PUNCT_SUFFIXES:
+            variant = base + suffix
+            if variant not in seen:
+                seen.add(variant)
+                yield variant
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +298,8 @@ class SimpleTagger:
         self._sentence_start = True
 
     def tag_sequence(self, words: Iterable[str]) -> list[str]:
-        if isinstance(words, str):
-            words = words.split()
+        if isinstance(words, (str, bytes)):
+            words = _text(words).split()
         self.reset()
         return [self.tag(word) for word in words]
 
@@ -294,6 +331,11 @@ class SimpleTagger:
             return "PRON"
 
         if core in _VERB_FORMS:
+            # Many irregular forms double as nouns ("a run", "the show",
+            # "the rose", "the left").  A determiner/adjective/number context
+            # is stronger evidence for the nominal reading.
+            if prev in ("DET", "ADJ", "NUM"):
+                return "NOUN"
             return "VERB"
         if core in _ADJ_WORDS:
             return "ADJ"
@@ -567,7 +609,7 @@ class ConstructionInventory:
                             untyped_counts[order][untyped] = (
                                 untyped_counts[order].get(untyped, 0) + 1)
             if (self.max_contexts is not None and index
-                    and index % 8192 == 0):
+                    and index % 65536 == 0):
                 for order in orders:
                     self._bounded_prune_inplace(exact_counts[order])
                     self._bounded_prune_inplace(typed_counts[order])
@@ -665,10 +707,10 @@ class ConstructionInventory:
         # them first is cheap and usually enough to get below the cap.
         pruned = {key: count for key, count in table.items()
                   if count > 1}
-        if len(pruned) > self.max_contexts:
+        target = max(1, int(self.max_contexts * 0.9))
+        if len(pruned) > target:
             pruned = dict(heapq.nlargest(
-                self.max_contexts, pruned.items(),
-                key=lambda item: item[1]))
+                target, pruned.items(), key=lambda item: item[1]))
         table.clear()
         table.update(pruned)
 
@@ -869,8 +911,8 @@ class ConstructionInventory:
     def _encode_history(
             self, history: Iterable[str | int] | str
     ) -> tuple[list[int], list[str]]:
-        if isinstance(history, str):
-            tokens: list[str | int] = history.split()
+        if isinstance(history, (str, bytes)):
+            tokens: list[str | int] = _text(history).split()
         else:
             tokens = list(history)
         ids: list[int] = []
@@ -880,15 +922,14 @@ class ConstructionInventory:
                 word_id = int(token)
                 surface = self.id_to_word.get(word_id, "")
             else:
-                surface = str(token)
+                surface = _text(token)
                 word_id = self._lookup_id(surface)
             ids.append(word_id)
             surfaces.append(surface)
         return ids, surfaces
 
     def _lookup_id(self, surface: str) -> int:
-        for candidate in (surface, _display(surface), word_core(surface),
-                          _display(surface).capitalize()):
+        for candidate in _lookup_variants(surface):
             if candidate in self.word_to_id:
                 return int(self.word_to_id[candidate])
         return UNK_ID
@@ -947,7 +988,10 @@ class Entity:
 
 @dataclass(frozen=True)
 class EntityCandidate:
-    """A word-level candidate proposed by centering."""
+    """A word-level candidate proposed by centering.
+
+    ``score`` is relative salience/pronoun-fit, not a calibrated probability.
+    """
 
     surface: str
     word_id: int | None
@@ -956,6 +1000,9 @@ class EntityCandidate:
     kind: str                  # entity | pronoun | name_continuation
     gender: str | None = None
     number: str = "sg"
+
+    def __str__(self) -> str:
+        return self.surface
 
 
 @dataclass
@@ -1066,7 +1113,7 @@ class CenteringCache:
         if isinstance(word, (int, np.integer)):
             self._stream.append(self.id_to_word.get(int(word), ""))
         else:
-            self._stream.append(str(word))
+            self._stream.append(_text(word))
         return self
 
     @property
@@ -1211,10 +1258,10 @@ class CenteringCache:
         """
         if history is None:
             history = self._stream
-        state = self.analyze(history)
+        words = self._as_words(history)
+        state = self.analyze(words)
         if not state.entities:
             return []
-        words = self._as_words(history)
         last = word_core(words[-1]) if words else ""
         boundary = bool(words) and is_sentence_end(words[-1])
         pronoun_info = _PRONOUN_INFO.get(last)
@@ -1295,19 +1342,18 @@ class CenteringCache:
         return ranked[:max(int(top_k), 0)]
 
     def _as_words(self, history: Iterable[str | int] | str) -> list[str]:
-        if isinstance(history, str):
-            return history.split()
+        if isinstance(history, (str, bytes)):
+            return _text(history).split()
         words: list[str] = []
         for token in history:
             if isinstance(token, (int, np.integer)):
                 words.append(self.id_to_word.get(int(token), ""))
             else:
-                words.append(str(token))
+                words.append(_text(token))
         return words
 
     def _lookup_id(self, surface: str) -> int | None:
-        for candidate in (surface, _display(surface), word_core(surface),
-                          _display(surface).capitalize()):
+        for candidate in _lookup_variants(surface):
             if candidate in self.word_to_id:
                 return int(self.word_to_id[candidate])
         return None
@@ -1566,13 +1612,20 @@ class MorphAnalysis:
 
 @dataclass(frozen=True)
 class MorphCandidate:
-    """An inflected/derived form proposed by morphology."""
+    """An inflected/derived form proposed by morphology.
+
+    ``score`` is a relative context-fit score (top candidate 1.0), not a
+    calibrated probability.
+    """
 
     surface: str
     lemma: str
     score: float
     feature: str
     source_word: str
+
+    def __str__(self) -> str:
+        return self.surface
 
 
 class MorphologyCandidates:
@@ -1761,7 +1814,18 @@ class MorphologyCandidates:
 
     def analyze(self, word: str) -> MorphAnalysis | None:
         options = self.analyses(word)
-        return options[0] if options else None
+        if not options:
+            return None
+        best = options[0]
+        alternatives = tuple(dict.fromkeys(
+            option.lemma for option in options[1:]
+            if option.lemma != best.lemma))
+        if not alternatives:
+            return best
+        return MorphAnalysis(
+            surface=best.surface, lemma=best.lemma, suffix=best.suffix,
+            features=best.features, confidence=best.confidence,
+            alternatives=alternatives)
 
     # -- generation --------------------------------------------------------
 
@@ -1984,9 +2048,9 @@ class MorphologyCandidates:
 
     @staticmethod
     def _as_words(history: Iterable[str | int] | str) -> list[str]:
-        if isinstance(history, str):
-            return history.split()
-        return [str(token) for token in history]
+        if isinstance(history, (str, bytes)):
+            return _text(history).split()
+        return [_text(token) for token in history]
 
 
 def _regular_plural(lemma: str) -> list[str]:
@@ -2072,7 +2136,12 @@ def _regular_agent(lemma: str) -> list[str]:
 
 @dataclass
 class LinguisticQuery:
-    """Result of combining the linguistic experts for one history."""
+    """Result of combining the linguistic experts for one history.
+
+    ``scores`` is a fixed-size candidate-score vector, max-normalised to 1.0;
+    it is not a probability distribution.  ``ids`` is the sparse ranked
+    candidate list and ``sources`` holds per-expert rankings.
+    """
 
     ids: list[int]
     scores: np.ndarray
@@ -2097,8 +2166,11 @@ class LinguisticQuery:
         """Sparse ranked candidate IDs (alias for ``ids``)."""
         return self.ids
 
-    def __array__(self, dtype=None) -> np.ndarray:
-        return np.asarray(self.scores, dtype=dtype)
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
+        array = np.asarray(self.scores, dtype=dtype)
+        if copy:
+            return array.copy()
+        return array
 
     def __len__(self) -> int:
         return len(self.scores)
@@ -2289,8 +2361,8 @@ class LinguisticPrior:
     def _encode_history(
             self, history: Iterable[str | int] | str
     ) -> tuple[list[int], list[str]]:
-        if isinstance(history, str):
-            tokens: list[str | int] = history.split()
+        if isinstance(history, (str, bytes)):
+            tokens: list[str | int] = _text(history).split()
         else:
             tokens = list(history)
         ids: list[int] = []
@@ -2301,14 +2373,13 @@ class LinguisticPrior:
                 ids.append(word_id)
                 surfaces.append(self.id_to_word.get(word_id, ""))
             else:
-                surface = str(token)
+                surface = _text(token)
                 ids.append(self._lookup_id(surface))
                 surfaces.append(surface)
         return ids, surfaces
 
     def _lookup_id(self, surface: str) -> int:
-        for candidate in (surface, _display(surface), word_core(surface),
-                          _display(surface).capitalize()):
+        for candidate in _lookup_variants(surface):
             if candidate in self.word_to_id:
                 return int(self.word_to_id[candidate])
         return UNK_ID
@@ -2396,9 +2467,11 @@ class LinguisticPrior:
         pos = self._pos_distribution(surfaces) if any(surfaces) else {}
 
         centering: dict[int, float] = {}
+        centering_candidates = []
         if any(surfaces):
-            for candidate in self.centering.candidates(
-                    surfaces, top_k=max(self.source_top_k, 1)):
+            centering_candidates = self.centering.candidates(
+                surfaces, top_k=max(self.source_top_k, 1))
+            for candidate in centering_candidates:
                 if candidate.word_id is None:
                     continue
                 word = int(candidate.word_id)
@@ -2406,9 +2479,11 @@ class LinguisticPrior:
                                       float(candidate.score))
 
         morphology: dict[int, float] = {}
+        morph_candidates = []
         if any(surfaces):
-            for candidate in self.morphology.candidates(
-                    surfaces, top_k=max(self.source_top_k, 1)):
+            morph_candidates = self.morphology.candidates(
+                surfaces, top_k=max(self.source_top_k, 1))
+            for candidate in morph_candidates:
                 word = self._lookup_id(candidate.surface)
                 if word == UNK_ID:
                     continue
@@ -2465,7 +2540,9 @@ class LinguisticPrior:
                 source_scores={},
                 details={"tags": tags,
                          "construction": construction_match,
-                         "next_tags": []})
+                         "next_tags": [],
+                         "centering": [],
+                         "morphology": []})
 
         # Renormalise the sparse mixture to max 1.0.
         best = max(combined.values())
@@ -2505,12 +2582,10 @@ class LinguisticPrior:
             "next_tags": next_tags,
             "centering": [(candidate.surface, candidate.kind,
                             candidate.score)
-                          for candidate in self.centering.candidates(
-                              surfaces, top_k=8)] if any(surfaces) else [],
+                          for candidate in centering_candidates[:8]],
             "morphology": [(candidate.surface, candidate.feature,
                              candidate.score)
-                           for candidate in self.morphology.candidates(
-                               surfaces, top_k=8)] if any(surfaces) else [],
+                           for candidate in morph_candidates[:8]],
         }
         return LinguisticQuery(
             ids=ids_out, scores=scores, sources=sources,
@@ -2571,6 +2646,27 @@ class LinguisticPrior:
         return {name: ids[:max(int(top_k), 0)]
                 for name, ids in result.sources.items()}
 
+    def candidate_sources(self, history: Iterable[str | int] | str = (),
+                           top_k: int = 100) -> dict[str, list[int]]:
+        """Alias for ``sources`` (explicit candidate-source name)."""
+        return self.sources(history, top_k=top_k)
+
+    def candidates(self, history: Iterable[str | int] | str = (),
+                   top_k: int = 100) -> list[int]:
+        """Sparse ranked candidate IDs (shortcut for ``query(...).ids``)."""
+        return self.query(history, top_k=top_k).ids
+
+    def candidate_ids(self, history: Iterable[str | int] | str = (),
+                      top_k: int = 100) -> list[int]:
+        """Alias for ``candidates``."""
+        return self.candidates(history, top_k=top_k)
+
+    def top_k(self, history: Iterable[str | int] | str = (),
+              k: int = 10) -> list[tuple[int, float]]:
+        """Sparse ranked ``(word_id, score)`` pairs."""
+        result = self.query(history, top_k=k)
+        return result.top_k(k)
+
     def candidate_features(
             self, history: Iterable[str | int] | str,
             candidates: Sequence[int],
@@ -2618,8 +2714,8 @@ def _prepare_stream(
         vocab_size: int = DEFAULT_VOCAB_SIZE,
 ) -> tuple[list[int], list[str], dict[int, str], dict[str, int], int]:
     """Normalise a word stream to IDs, surfaces, and bidirectional vocab."""
-    if isinstance(word_stream, str):
-        items: list = word_stream.split()
+    if isinstance(word_stream, (str, bytes)):
+        items: list = _text(word_stream).split()
     else:
         items = list(word_stream)
     if not items:
@@ -2630,24 +2726,24 @@ def _prepare_stream(
         ids = [int(word) for word in items]
         if id_to_word is None and word_to_id is not None:
             id_map: dict[int, str] = {
-                int(identifier): str(word)
+                int(identifier): _text(word)
                 for word, identifier in word_to_id.items()}
         elif id_to_word is None:
             id_map = {}
         elif isinstance(id_to_word, dict):
-            id_map = {int(key): str(value)
+            id_map = {int(key): _text(value)
                       for key, value in id_to_word.items()}
         else:
-            id_map = {index: str(value)
+            id_map = {index: _text(value)
                       for index, value in enumerate(id_to_word)}
         surfaces = [id_map.get(word, "") for word in ids]
         if word_to_id is None:
             word_map = {value: int(key) for key, value in id_map.items()}
         else:
-            word_map = {str(key): int(value)
+            word_map = {_text(key): int(value)
                         for key, value in word_to_id.items()}
     else:
-        surfaces = [str(word) for word in items]
+        surfaces = [_text(word) for word in items]
         if word_to_id is None:
             counts = Counter(surfaces)
             limit = max(int(vocab_size) - 1, 0)
@@ -2655,16 +2751,16 @@ def _prepare_stream(
             word_map = {word: index + 1
                         for index, word in enumerate(kept)}
         else:
-            word_map = {str(key): int(value)
+            word_map = {_text(key): int(value)
                         for key, value in word_to_id.items()}
         ids = [int(word_map.get(word, UNK_ID)) for word in surfaces]
         if id_to_word is None:
             id_map = {identifier: word for word, identifier in word_map.items()}
         elif isinstance(id_to_word, dict):
-            id_map = {int(key): str(value)
+            id_map = {int(key): _text(value)
                       for key, value in id_to_word.items()}
         else:
-            id_map = {index: str(value)
+            id_map = {index: _text(value)
                       for index, value in enumerate(id_to_word)}
 
     maximum = max(ids) if ids else 0
