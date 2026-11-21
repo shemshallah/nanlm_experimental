@@ -523,19 +523,28 @@ def load_optimizer_allow_extra_params(optimizer, state_dict, allowed_extra):
     for index, (group, saved_group) in enumerate(zip(current, saved)):
         extra = len(group["params"]) - len(saved_group["params"])
         if extra:
-            differences.append((index, extra))
+            differences.append((index, extra, saved_group))
     if len(differences) != 1 or differences[0][1] < 1:
         raise ValueError("Optimizer groups changed beyond the fast adapter")
-    index, extra = differences[0]
+    index, extra, saved_group = differences[0]
+    if any(len(group["params"]) != len(saved_group_other["params"])
+           for other, (group, saved_group_other) in enumerate(zip(current, saved))
+           if other != index):
+        raise ValueError("Optimizer groups changed beyond the fast adapter")
     group = current[index]
     full = list(group["params"])
-    missing = full[-extra:]
     allowed = {id(parameter) for parameter in allowed_extra}
-    if any(id(parameter) not in allowed for parameter in missing):
+    # The adapter was inserted in the middle of the side group by
+    # build_v103_optimizer, not appended at the end.  Remove exactly the
+    # allowed parameters and verify that the remaining order matches the
+    # checkpoint group before loading inherited Adam histories.
+    without_extra = [p for p in full if id(p) not in allowed]
+    if (len(without_extra) != len(saved_group["params"])
+            or len(full) - len(without_extra) != extra):
         raise ValueError("Unexplained optimizer parameters cannot be migrated")
-    group["params"] = full[:-extra]
+    group["params"] = without_extra
     optimizer.load_state_dict(state_dict)
-    optimizer.param_groups[index]["params"].extend(missing)
+    optimizer.param_groups[index]["params"] = full
     return True
 
 
