@@ -367,3 +367,30 @@ model trained on much more than 80 MB, or a 16k/OOV-aware word model.
 The all-position loss reduced train BPB from ~2.2 to **1.96** by step 4080.
 Remaining budget: ~4,800 s plus final DEV/WikiText eval. Resume from the 06:52
 Kaggle checkpoint on the next session.
+
+## FINAL: 4h continuation finish (step 4170)
+
+| metric | value |
+|---|---:|
+| final step | 4170 |
+| updates in finish | 220 |
+| DEV BPB (256 ctx) | **1.9561** |
+| DEV byte top-1 | **60.94%** |
+| DEV byte top-5 | **89.06%** |
+| DEV token beam top-5 | 87.92% |
+| DEV word beam top-5 | 46.67% |
+| word head top-5 | 54.98% |
+| word_observed top-5 | 27.17% |
+| unit decoder delta | +0.0469 BPB |
+| WikiText-2/103 test BPB | **2.6342** |
+| WikiText test byte top-5 | **80.66%** |
+| WikiText test byte top-1 | 51.17% |
+| WikiText-103 valid BPB | **2.5578** |
+| WikiText valid byte top-5 | **79.49%** |
+| WikiText valid byte top-1 | 52.54% |
+
+Kaggle final version: `final.pt` + `metrics.json` + full train log at 17:35 UTC.
+Final metrics dataset: `shem42/trsi-100m-final-metrics`.
+
+This is the best model so far: DEV below 2 BPB, WikiText test 2.63 BPB / 80.7% byte top-5.
+The word head remains the weak component (55% all-class, 27% observed).
