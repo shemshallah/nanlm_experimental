@@ -120,7 +120,7 @@ def main() -> int:
         })
     observed = []
     for row in smoothed[::max(1, len(smoothed) // 20)]:
-        observed.append({"step": row[0], "elapsed_s": row[1],
+        observed.append({"step": int(row[0]), "elapsed_s": int(row[1]),
                          "train_bpb": round(row[2], 4)})
     report = {
         "last_step": last_step, "last_elapsed_s": last_elapsed,
