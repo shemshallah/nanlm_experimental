@@ -442,3 +442,31 @@ Treat these as rough, not measured.
 around 2.0; DEV BPB improved only 0.025 and top-5 moved down within the noise of
 a 256-position eval. Another 20-minute increment is not expected to move the
 headline metrics materially.
+
+## Arbitrary vocabulary size + 16k/OOV coverage
+
+Implemented end to end:
+- `--word-vocab-size` on `train_verbatim`; default 4096.
+- `UnitHeads`, `TerminalRSI`, `CausalHierarchy`, `VerbatimV103RSI`,
+  `WordTokenBridge`, `unit_parameter_count`, `hierarchy_parameter_count`,
+  `static_upgrade_parameter_count`, and `build_unit_labels` are parameterized.
+- Checkpoint top-level `word_vocab_size`; old 4k checkpoints default to 4096.
+- 16k run checkpoint: `word_vocab_size=16384`, schema unchanged.
+- 43 targeted tests pass, including an 8,192-word head test.
+
+Coverage on the same book-disjoint DEV:
+
+| vocab | 16 MB coverage | 16 MB OOV | 80 MB coverage | 80 MB OOV |
+|---:|---:|---:|---:|---:|
+| 4k | 68.1% | 31.9% | 71.4% | 28.6% |
+| 16k | **82.6%** | **17.4%** | **84.5%** | **15.5%** |
+
+16k smoke (10 min, fresh random, 16 MB pilot, 81 updates):
+- DEV BPB 3.508 (not quality; random short run)
+- byte top-5 71.1%
+- word top-5 25.8% all-class / 20.2% observed
+- 16,383 word classes, UNK id 0; 16k bigram table ~1 GB; rate 0.14 upd/s.
+
+16k is not full OOV coverage: 15.5% of 80 MB dev tokens are still outside the
+vocabulary. Reaching >95% needs a larger tail (64k/PQ) or a character/byte OOV
+fallback, not 16k alone.
