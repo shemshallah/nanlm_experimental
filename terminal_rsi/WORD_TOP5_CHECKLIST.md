@@ -394,3 +394,36 @@ Final metrics dataset: `shem42/trsi-100m-final-metrics`.
 
 This is the best model so far: DEV below 2 BPB, WikiText test 2.63 BPB / 80.7% byte top-5.
 The word head remains the weak component (55% all-class, 27% observed).
+
+## Sequence-loss curve and training-time extrapolation
+
+Observed (batch BPB, noisy): 2.299 at step 2400 -> ~2.04-2.07 at 3900-4170.
+Rate: 0.183 updates/s = **657 updates/hour**.
+20-minute finish: 220 updates, final DEV BPB 1.956, DEV byte top-5 89.06%.
+
+Fit from the sequence-loss segment (train-batch BPB, RMSE ~0.020):
+
+| additional time | updates | total step | optimistic BPB | conservative BPB |
+|---:|---:|---:|---:|---:|
+| 20 min | 219 | 4,389 | 1.989 | 1.996 |
+| 1 h | 657 | 4,827 | 1.931 | 1.944 |
+| 2 h | 1,315 | 5,484 | 1.848 | 1.875 |
+| 4 h | 2,629 | 6,799 | 1.701 | 1.762 |
+| 6 h | 3,943 | 8,113 | 1.574 | 1.676 |
+| 12 h | 7,887 | 12,057 | 1.292 | 1.522 |
+| 24 h | 15,774 | 19,944 | 0.998 | 1.424 |
+
+Optimistic asymptote 0.8, tau 8,685; conservative asymptote 1.4, tau 4,836.
+These are train-batch trends, not guarantees; the last 20 minutes showed little
+batch-BPB movement despite a better DEV checkpoint.
+
+Throughput/cost:
+- 657 updates/hour; 50-step save every ~4.6 min; checkpoint 1.39 GB.
+- 10-minute Kaggle versioning = 6 versions/hour, ~8.3 GB/hour retained.
+- 4 h = 2,629 updates; 6 h = 3,943; 12 h = 7,887; 24 h = 15,774.
+- Add ~25 min staging per fresh/resumed session; Molab sessions last ~2.5-3.5 h,
+  so 4 h+ needs rolling Kaggle resume.
+
+Naive offset projection (current train 2.07 -> DEV 1.956, Wiki test 2.634):
+4 h -> DEV ~1.59-1.65, Wiki ~2.26-2.33; 6 h -> DEV ~1.46-1.57, Wiki ~2.13-2.24.
+Treat these as rough, not measured.
