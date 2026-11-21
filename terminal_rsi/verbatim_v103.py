@@ -302,8 +302,7 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
     the v4 path: the 100M upgrade branch is random at gate 0, so a direct gate
     gradient would inject random logits before RSI has verified any branch.
     """
-    if freeze_fast_adapter:
-        model.upgrades.fast_adapter.requires_grad_(False)
+    model.upgrades.fast_adapter.requires_grad_(not freeze_fast_adapter)
     parent = list(model.original.named_parameters())
     base = [p for name, p in parent if not name.startswith("v103_")]
     specialists = [p for name, p in parent if name.startswith("v103_")]
@@ -502,6 +501,44 @@ def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
             tmp.unlink()
 
 
+def load_optimizer_allow_extra_params(optimizer, state_dict, allowed_extra):
+    """Load an older optimizer state after new parameters joined a group.
+
+    Legacy four-group checkpoints predate the trainable fast adapter.  Their
+    saved side group is shorter than the current one.  Adam creates moments
+    lazily, so the new parameters need no saved state: temporarily shrink the
+    group to the saved length, load every inherited history, then append the
+    new parameters.  Only the explicitly allowed parameters may be appended.
+    """
+    try:
+        optimizer.load_state_dict(state_dict)
+        return False
+    except ValueError as error:
+        failure = error
+    current = optimizer.param_groups
+    saved = state_dict.get("param_groups") or []
+    if len(current) != len(saved):
+        raise ValueError("Optimizer group count changed unexpectedly") from failure
+    differences = []
+    for index, (group, saved_group) in enumerate(zip(current, saved)):
+        extra = len(group["params"]) - len(saved_group["params"])
+        if extra:
+            differences.append((index, extra))
+    if len(differences) != 1 or differences[0][1] < 1:
+        raise ValueError("Optimizer groups changed beyond the fast adapter")
+    index, extra = differences[0]
+    group = current[index]
+    full = list(group["params"])
+    missing = full[-extra:]
+    allowed = {id(parameter) for parameter in allowed_extra}
+    if any(id(parameter) not in allowed for parameter in missing):
+        raise ValueError("Unexplained optimizer parameters cannot be migrated")
+    group["params"] = full[:-extra]
+    optimizer.load_state_dict(state_dict)
+    optimizer.param_groups[index]["params"].extend(missing)
+    return True
+
+
 def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
                     *, source_sha256: str, feature_manifest: dict,
                     dev_sha256: str):
@@ -524,7 +561,9 @@ def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
             prior.get("dev_sha256") != dev_sha256):
         raise ValueError("Original train/BPE/DEV identity changed across RSI resume")
     model.load_state_dict(checkpoint["model"], strict=True)
-    optimizer.load_state_dict(checkpoint["optimizer"])
+    load_optimizer_allow_extra_params(
+        optimizer, checkpoint["optimizer"],
+        model.upgrades.fast_adapter.parameters())
     if len(optimizer.param_groups) < 3:
         raise ValueError("Optimizer group partition lost")
     state = checkpoint.get("training_state")

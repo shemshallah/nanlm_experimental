@@ -38,6 +38,7 @@ from .hierarchical_bus import (
 )
 from .unit_heads import IGNORE_ID, build_unit_labels, top5_hinge, unit_head_loss
 from .fast_rsi import build_fast_cache, run_fast_adapter_rsi
+from .fast_weights import reopen_fast_adapter
 from .unified import PRESETS, device_for
 from .rsi_self_builder import RSISelfBuilder
 from .rsi_v4 import (
@@ -1020,6 +1021,9 @@ def main(argv=None):
         if init_checkpoint.get("config") != vars(model.cfg):
             raise ValueError("--init-weights mode/architecture mismatch")
         model.load_state_dict(init_checkpoint["model"], strict=False)
+        if reopen_fast_adapter(model):
+            print("Reopened legacy zero fast adapter from init weights",
+                  flush=True)
         init_meta = {
             "path": str(args.init_weights),
             "sha256": hashlib.sha256(args.init_weights.read_bytes()).hexdigest(),
@@ -1110,6 +1114,8 @@ def main(argv=None):
         if device.type == "cuda" and state.get("cuda_rng"):
             torch.cuda.set_rng_state_all(state["cuda_rng"])
         random.setstate(state["python_rng"])
+        if not freeze_fast_adapter and reopen_fast_adapter(model):
+            print("Reopened legacy zero fast adapter on resume", flush=True)
         print("Exact unified RSI checkpoint resumed at", step)
     elif source is not None:
         if "torch_rng" in source:
