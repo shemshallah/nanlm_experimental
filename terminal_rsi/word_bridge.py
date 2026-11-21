@@ -133,10 +133,24 @@ def generate_words(model, prompt: bytes, steps: int, *,
         word_id = int(indices[0, pick])
         word = id_to_word.get(word_id, b"")
         text = word.decode("utf-8", "replace")
-        records.append({"word_id": word_id, "word": text,
-                        "logp": float(values[0, pick]),
-                        "candidates": [id_to_word.get(int(i), b"").decode(
-                            "utf-8", "replace") for i in indices[0]]})
+        if word_id == 0 or not text:
+            # The word head can only emit UNK for a surface form outside the
+            # vocabulary.  Spell it with the byte model instead of stopping.
+            from .oov_fallback import spell_oov
+            oov = spell_oov(model, bytes(history[-256:]), beam=4,
+                            max_len=24, top_k=top_k, device=device)
+            records.append({
+                "word_id": 0, "word": oov[0][0] if oov else "",
+                "logp": None, "oov": True,
+                "candidates": [surface for surface, _score in oov]})
+            if not oov:
+                break
+            text = oov[0][0]
+        else:
+            records.append({"word_id": word_id, "word": text,
+                            "logp": float(values[0, pick]),
+                            "candidates": [id_to_word.get(int(i), b"").decode(
+                                "utf-8", "replace") for i in indices[0]]})
         if not text:
             break
         history.extend(text.encode("utf-8") + b" ")
