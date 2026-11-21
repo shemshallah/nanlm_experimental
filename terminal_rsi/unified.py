@@ -92,7 +92,8 @@ def static_upgrade_parameter_count(cfg: Preset,
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
         rank_adapter_parameter_count(
             fast_adapter_input_width(cfg, word_vocab_size), rank=16) +  # side head
-        symbiotic_parameter_count(cfg, word_vocab_size) +  # feedback refinement
+        symbiotic_parameter_count(
+            cfg, word_vocab_size=word_vocab_size) +  # feedback refinement
         moe_layer_count(cfg) * moe_parameter_count(d) +  # 256-expert rank-1 MoE
         hierarchy_parameter_count(d, word_vocab_size)  # causal hierarchy
     )
