@@ -560,7 +560,30 @@ Fixes:
   train the adapter.
 - Real step-4224 checkpoint verification: side group 25 -> 28 params,
   `reopen_fast_adapter=True`, `B.grad.max=14.48`, adapter output 0.0.
-- 51 tests pass (5 new adapter/migration tests).
+- 53 tests pass (7 new adapter/migration/vocab tests).
 
-Next fresh run: 16k vocabulary, gates opened at 0.1, fast adapter live,
-word n-gram weight 0.5, OOV byte speller available as the UNK surface fallback.
+## 16k warm start from the trained 4k checkpoint
+
+`build_unit_labels` assigns IDs by frequency, so the first 4,096 IDs of the
+16k vocabulary are the same words as the 4k vocabulary (same 80 MB corpus).
+`expand_word_vocab_state` now grows a trained checkpoint:
+
+- copies the overlapping rows of both word heads, the word bridge embedding,
+  bridge output weight, and bridge bias;
+- randomizes only the new tail of trained heads; keeps the new bridge output
+  rows at zero;
+- reinitializes the vocabulary-width internal layers (`unit_to_byte.*`,
+  `fast_adapter.A`, `symbiotic_feedback.0.weight`) because their flat feature
+  vectors need offset-aware block insertion;
+- inherits every non-vocabulary tensor, including the byte backbone, hierarchy,
+  MoE, pair memory and gates.
+
+Verified on the real step-4170 checkpoint: 216 tensors expanded, 10
+vocabulary-width tensors reinitialized, all 4,096 inherited rows bit-equal,
+word heads 4096 -> 16384, model 135.0M parameters.
+Enable with `--init-weights <4k.pt> --word-vocab-size 16384
+--expand-init-vocab`.
+
+Next fresh run: 16k vocabulary warm-started from `trsi_100m_4h_finish`,
+gates opened at 0.1, fast adapter live, word n-gram weight 0.5, OOV byte
+speller available as the UNK surface fallback.
