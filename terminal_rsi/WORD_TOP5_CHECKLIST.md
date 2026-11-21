@@ -427,3 +427,18 @@ Throughput/cost:
 Naive offset projection (current train 2.07 -> DEV 1.956, Wiki test 2.634):
 4 h -> DEV ~1.59-1.65, Wiki ~2.26-2.33; 6 h -> DEV ~1.46-1.57, Wiki ~2.13-2.24.
 Treat these as rough, not measured.
+
+## Second 20-minute run: flattening check
+
+| item | step 4170 | step 4392 | delta |
+|---|---:|---:|---:|
+| DEV BPB (256 ctx) | 1.9561 | **1.9311** | -0.0250 |
+| DEV byte top-1 | 60.94% | 58.59% | -2.35 pp |
+| DEV byte top-5 | 89.06% | 88.28% | -0.78 pp |
+| train batch BPB | ~2.06 | ~2.00 | ~flat |
+| unit decoder delta | +0.0469 | +0.0491 | +0.0022 |
+
+222 updates in 1,200 s (0.184 updates/s). The batch-BPB trend has flattened
+around 2.0; DEV BPB improved only 0.025 and top-5 moved down within the noise of
+a 256-position eval. Another 20-minute increment is not expected to move the
+headline metrics materially.
