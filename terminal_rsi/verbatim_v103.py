@@ -289,7 +289,8 @@ class VerbatimV103RSI(nn.Module):
 
 
 def build_v103_optimizer(model: VerbatimV103RSI, *,
-                         freeze_residual_gate: bool = False):
+                         freeze_residual_gate: bool = False,
+                         freeze_fast_adapter: bool = False):
     """Preserve the ORIGINAL two AdamW learning-rate groups, plus upgrades.
 
     The historical v103 notebook used 2e-3 for inherited GPUFullSystem
@@ -301,6 +302,8 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
     the v4 path: the 100M upgrade branch is random at gate 0, so a direct gate
     gradient would inject random logits before RSI has verified any branch.
     """
+    if freeze_fast_adapter:
+        model.upgrades.fast_adapter.requires_grad_(False)
     parent = list(model.original.named_parameters())
     base = [p for name, p in parent if not name.startswith("v103_")]
     specialists = [p for name, p in parent if name.startswith("v103_")]

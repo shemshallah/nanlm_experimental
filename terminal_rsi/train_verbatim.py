@@ -683,6 +683,9 @@ def main(argv=None):
     p.add_argument("--reopen-gates", type=float, default=None,
                    help="Fresh/resume gate value for hierarchy, MoE and "
                         "symbiosis feedback paths; None preserves the checkpoint")
+    p.add_argument("--train-fast-adapter", action="store_true",
+                   help="On resume, also train the fast adapter; only valid if "
+                        "the checkpoint optimizer already contains its params")
     p.add_argument("--residual-gate-init", type=float, default=0.0,
                    help="Fresh-start scalar residual gate before training; "
                         "tanh(value) is the branch mixing weight")
@@ -1031,8 +1034,11 @@ def main(argv=None):
             model._compiled_upgrades = compiled_upgrade
     if args.no_gradient_checkpointing:
         model.upgrades.gradient_checkpointing = False
+    freeze_fast_adapter = (args.resume is not None
+                           and not args.train_fast_adapter)
     optimizer = build_v103_optimizer(
-        model, freeze_residual_gate=(args.rsi_version == "v4"))
+        model, freeze_residual_gate=(args.rsi_version == "v4"),
+        freeze_fast_adapter=freeze_fast_adapter)
     provenance = (restore_v103_parent(args.legacy_checkpoint, model, optimizer)
                   if source is not None else
                   {"legacy_step": 0, "legacy_checkpoint_sha256": None,
@@ -1521,7 +1527,8 @@ def main(argv=None):
                 if compiled is not None:
                     model._compiled_upgrades = compiled
             clone_optimizer = build_v103_optimizer(
-                clone_model, freeze_residual_gate=True)
+                clone_model, freeze_residual_gate=True,
+                freeze_fast_adapter=freeze_fast_adapter)
             clone_model.load_state_dict(base_model)
             clone_optimizer.load_state_dict(base_optimizer)
             clone_model.upgrades.gradient_checkpointing = (
