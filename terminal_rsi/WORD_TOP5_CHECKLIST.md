@@ -520,3 +520,47 @@ Feedback traceroute fixes:
   A 5-minute step-4170 continuation with all gates reopened at 0.1 is running
   (`trsi_100m_gate_smoke2`); result pending.
 - 46 tests pass.
+
+## Gate-reopen smoke (step 4170 -> 4224)
+
+54 updates, 300 s, all hierarchy/MoE/symbiosis gates reopened at 0.1.
+
+| metric | step 4170 | step 4224 (gates 0.1) |
+|---|---:|---:|
+| DEV BPB (256 ctx) | 1.9561 | 1.9658 |
+| DEV byte top-1 | 60.94% | 58.20% |
+| DEV byte top-5 | 89.06% | 88.28% |
+| train batch BPB | ~2.0 | ~2.0-2.2 |
+
+The gates did not collapse: after 54 updates every audited gate is still in
+0.057-0.10, and `feedback_audit` reports `all gates open`. The 0.01 BPB and
+0.8-point top-5 differences are inside the 512-position DEV noise and are not
+evidence of a gain. The useful result is that reopening is safe; a fresh run
+should start with open gates so the specialist branches receive gradient from
+step zero instead of remaining permanently disconnected.
+
+Checkpoint/metrics: `trsi_100m_gate_smoke2`, uploaded at 21:03 UTC to
+`shem42/trsi-100m-6h-diverse-checkpoints`.
+
+## Fast-adapter dead loop (fixed)
+
+Traceroute found a second, deeper reason the adapter stayed zero: `RankAdapter`
+initialized **both** `A` and `B` to zero. In `(state @ A) @ B`, zero `A` kills
+`dL/dB`, and zero `B` kills `dL/dA`. Unfreezing alone could never revive it.
+
+Fixes:
+- LoRA-style init: `A ~ N(0, 0.02)`, `B = 0`. Output is still exactly zero at
+  init, but `B` receives a nonzero gradient on the first step.
+- `reopen_fast_adapter`: legacy all-zero checkpoints get a seeded `A` while
+  `B`/`bias` keep their checkpoint values.
+- `load_optimizer_allow_extra_params`: legacy four-group Adam state loads by
+  removing exactly the new adapter parameters from the side group, then
+  restoring them. No inherited moments are lost.
+- `--train-fast-adapter` now works on legacy checkpoints; fresh runs always
+  train the adapter.
+- Real step-4224 checkpoint verification: side group 25 -> 28 params,
+  `reopen_fast_adapter=True`, `B.grad.max=14.48`, adapter output 0.0.
+- 51 tests pass (5 new adapter/migration tests).
+
+Next fresh run: 16k vocabulary, gates opened at 0.1, fast adapter live,
+word n-gram weight 0.5, OOV byte speller available as the UNK surface fallback.
