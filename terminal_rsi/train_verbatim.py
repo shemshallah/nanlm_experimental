@@ -52,6 +52,7 @@ from .verbatim_c256 import compare_c256_wrapped
 from .verbatim_v103 import (
     VerbatimV103RSI, build_v103_optimizer, restore_v103_parent,
     exact_parent_parity, save_combined, resume_combined,
+    expand_word_vocab_state,
 )
 
 COMBINED_SCHEMA = "terminal-rsi-verbatim-v103-plus-upgrades-v1"
@@ -677,6 +678,9 @@ def main(argv=None):
     p.add_argument("--resume", type=Path, help="Resume exact-mode unified candidate with all Adam/RSI state")
     p.add_argument("--init-weights", type=Path,
                    help="Initialize model weights only from a unified checkpoint; reset optimizer/step for new data")
+    p.add_argument("--expand-init-vocab", action="store_true",
+                   help="Allow --init-weights with a smaller word vocabulary; "
+                        "copy the overlapping rows and initialize the new tail")
     p.add_argument("--init-core-lr-scale", type=float, default=0.1,
                    help="LR multiplier for inherited parent groups when --init-weights")
     p.add_argument("--word-vocab-size", type=int, default=4096,
@@ -1014,13 +1018,21 @@ def main(argv=None):
             raise ValueError("--init-weights is not a unified Terminal-RSI checkpoint")
         saved_vocab = int(init_checkpoint.get(
             "word_vocab_size", 4096))
+        init_state = init_checkpoint["model"]
         if saved_vocab != int(args.word_vocab_size):
-            raise ValueError(
-                "--init-weights word vocabulary size does not match "
-                f"(--word-vocab-size {args.word_vocab_size} vs {saved_vocab})")
+            if (not args.expand_init_vocab
+                    or saved_vocab > int(args.word_vocab_size)):
+                raise ValueError(
+                    "--init-weights word vocabulary size does not match "
+                    f"(--word-vocab-size {args.word_vocab_size} vs "
+                    f"{saved_vocab}); use --expand-init-vocab to grow it")
+            init_state = expand_word_vocab_state(
+                init_state, saved_vocab, int(args.word_vocab_size))
+            print(f"Expanded init vocabulary {saved_vocab} -> "
+                  f"{args.word_vocab_size}", flush=True)
         if init_checkpoint.get("config") != vars(model.cfg):
             raise ValueError("--init-weights mode/architecture mismatch")
-        model.load_state_dict(init_checkpoint["model"], strict=False)
+        model.load_state_dict(init_state, strict=False)
         if reopen_fast_adapter(model):
             print("Reopened legacy zero fast adapter from init weights",
                   flush=True)
@@ -1028,6 +1040,9 @@ def main(argv=None):
             "path": str(args.init_weights),
             "sha256": hashlib.sha256(args.init_weights.read_bytes()).hexdigest(),
             "steps": int(init_checkpoint.get("steps", 0)),
+            "source_word_vocab_size": saved_vocab,
+            "target_word_vocab_size": int(args.word_vocab_size),
+            "vocab_expanded": saved_vocab != int(args.word_vocab_size),
         }
         print("Initialized weights only from", init_meta, flush=True)
     compiled_upgrade = None

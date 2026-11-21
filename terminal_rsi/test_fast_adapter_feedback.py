@@ -12,7 +12,8 @@ from torch import nn
 from terminal_rsi.fast_weights import RankAdapter, reopen_fast_adapter
 from terminal_rsi.unified import PRESETS, Preset
 from terminal_rsi.verbatim_v103 import (
-    VerbatimV103RSI, build_v103_optimizer, load_optimizer_allow_extra_params,
+    WORD_VOCAB_TENSORS, VerbatimV103RSI, build_v103_optimizer,
+    expand_word_vocab_state, load_optimizer_allow_extra_params,
     resume_combined, save_combined,
 )
 
@@ -43,6 +44,44 @@ class FastAdapterInitTests(unittest.TestCase):
         self.assertEqual(
             float(model.upgrades.fast_adapter.B.abs().max()), 0.0)
         self.assertFalse(reopen_fast_adapter(model))
+
+
+class VocabularyExpansionTests(unittest.TestCase):
+    def setUp(self):
+        self.patch = patch.dict(PRESETS, {"cpu": TINY})
+        self.patch.start()
+        torch.manual_seed(11)
+
+    def tearDown(self):
+        self.patch.stop()
+
+    def test_overlapping_rows_are_preserved_and_tail_is_initialized(self):
+        source = VerbatimV103RSI("cpu", word_vocab_size=64)
+        state = source.state_dict()
+        expanded = expand_word_vocab_state(state, 64, 128)
+        target = VerbatimV103RSI("cpu", word_vocab_size=128)
+        target.load_state_dict(expanded, strict=False)
+        target_state = target.state_dict()
+        for name in WORD_VOCAB_TENSORS:
+            self.assertEqual(target_state[name].shape[0], 128)
+            self.assertTrue(torch.equal(
+                state[name], target_state[name][:64]), name)
+        self.assertGreater(float(
+            target_state["upgrades.hierarchy.unit_heads.word.weight"][64:]
+            .abs().max()), 0.0)
+        self.assertEqual(float(
+            target_state["word_bridge.out.weight"][64:].abs().max()), 0.0)
+        self.assertEqual(float(
+            target_state["word_bridge.out.bias"][64:].abs().max()), 0.0)
+
+    def test_shrinking_or_expanding_without_rows_is_rejected(self):
+        state = VerbatimV103RSI("cpu", word_vocab_size=64).state_dict()
+        with self.assertRaisesRegex(ValueError, "larger"):
+            expand_word_vocab_state(state, 64, 64)
+        with self.assertRaisesRegex(ValueError, "lacks"):
+            expand_word_vocab_state(
+                {k: v for k, v in state.items()
+                 if k != "word_bridge.out.bias"}, 64, 128)
 
 
 class LegacyOptimizerMigrationTests(unittest.TestCase):

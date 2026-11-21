@@ -501,6 +501,50 @@ def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
             tmp.unlink()
 
 
+WORD_VOCAB_TENSORS = (
+    "upgrades.hierarchy.unit_heads.word.weight",
+    "upgrades.hierarchy.unit_heads.current_word.weight",
+    "word_bridge.embed.weight",
+    "word_bridge.out.weight",
+    "word_bridge.out.bias",
+)
+
+
+def expand_word_vocab_state(state_dict, old_vocab: int, new_vocab: int,
+                            *, seed: int = 103):
+    """Grow a trained 4k word model to a larger vocabulary without losing it.
+
+    ``build_unit_labels`` assigns IDs by corpus frequency, so the first
+    ``old_vocab`` IDs of a larger vocabulary are the same words.  Copy the
+    overlapping rows and initialize only the new tail.  The byte backbone and
+    every non-vocabulary tensor are inherited unchanged.
+    """
+    old_vocab = int(old_vocab)
+    new_vocab = int(new_vocab)
+    if new_vocab <= old_vocab:
+        raise ValueError("Vocabulary expansion requires a larger target size")
+    expanded = dict(state_dict)
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    for name in WORD_VOCAB_TENSORS:
+        value = expanded.get(name)
+        if value is None or value.ndim < 1 or value.shape[0] != old_vocab:
+            raise ValueError(f"Checkpoint lacks the expected {name} rows")
+        grown = value.new_zeros((new_vocab, *value.shape[1:]))
+        grown[:old_vocab] = value
+        if name in ("word_bridge.out.weight", "word_bridge.out.bias"):
+            # The bridge output started at zero; keep the new tail at zero too
+            # so the warm start does not inject random next-word logits.
+            pass
+        else:
+            tail = torch.randn(
+                (new_vocab - old_vocab, *value.shape[1:]),
+                generator=generator) * 0.02
+            grown[old_vocab:] = tail.to(device=value.device,
+                                        dtype=value.dtype)
+        expanded[name] = grown
+    return expanded
+
+
 def load_optimizer_allow_extra_params(optimizer, state_dict, allowed_extra):
     """Load an older optimizer state after new parameters joined a group.
 
