@@ -97,6 +97,12 @@ class LegacyResumeAdapterTests(unittest.TestCase):
             model, freeze_fast_adapter=True)
         aux = model.original._default_aux(self.context).to(torch.int32)
         train_one_batch(model, old_optimizer, self.context, self.target, aux)
+        # Simulate the historical checkpoints: the adapter was frozen before
+        # this config existed, so both factors are exactly zero.
+        with torch.no_grad():
+            model.upgrades.fast_adapter.A.zero_()
+            model.upgrades.fast_adapter.B.zero_()
+            model.upgrades.fast_adapter.bias.zero_()
         provenance = {
             "source_sha256": "orig-sha",
             "feature_manifest": {"sha": "causal"},
