@@ -54,6 +54,9 @@ def main(argv=None) -> int:
     parser.add_argument("--token", required=True)
     parser.add_argument("--seconds", type=float, default=13200.0)
     parser.add_argument("--reopen-gates", type=float, default=None)
+    parser.add_argument("--train-fast-adapter", action="store_true")
+    parser.add_argument("--lookahead-loss-weight", type=float, default=0.0)
+    parser.add_argument("--critic-loss-weight", type=float, default=0.0)
     parser.add_argument("--batch", type=int, default=1024)
     parser.add_argument("--microbatch", type=int, default=256)
     parser.add_argument("--staging", type=Path, default=Path("/marimo/trsi_upload_6h"))
@@ -136,6 +139,12 @@ def main(argv=None) -> int:
     ]
     if args.reopen_gates is not None:
         cmd += ["--reopen-gates", str(args.reopen_gates)]
+    if args.train_fast_adapter:
+        cmd += ["--train-fast-adapter"]
+    if args.lookahead_loss_weight:
+        cmd += ["--lookahead-loss-weight", str(args.lookahead_loss_weight)]
+    if args.critic_loss_weight:
+        cmd += ["--critic-loss-weight", str(args.critic_loss_weight)]
     with (run / "RUN_SUMMARY.md").open("a") as stream:
         stream.write(
             "\n## Resumed after platform termination\n\n"
