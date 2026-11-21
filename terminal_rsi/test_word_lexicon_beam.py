@@ -11,6 +11,7 @@ tests are marked skipped in this Termux environment (torch is not installed).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import struct
@@ -188,6 +189,16 @@ class TestBeamSearch(unittest.TestCase):
         self.assertEqual(result.candidates, [])
         self.assertEqual(result.edges_scored, 0)
 
+    def test_max_depth_marks_truncated(self) -> None:
+        result = self.trie.beam_search(
+            FakeScorer(), self.base, beam_width=None, top_k=100,
+            max_depth=1)
+        self.assertTrue(result.truncated)
+        self.assertEqual(result.stop_reason, "max_depth")
+        self.assertTrue(result.candidates)
+        self.assertTrue(all(len(item.word) == 1
+                            for item in result.candidates))
+
     def test_plain_callable_scorer(self) -> None:
         def scorer(pairs):
             return [[fake_logp(context, child) for child in children]
@@ -266,6 +277,23 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(fmt, "raw")
         self.assertEqual(skip, 0)
         self.assertEqual(excerpts, [b"hello world"])
+
+    def test_manifest_check(self) -> None:
+        payload = b"abc"
+        manifest = {
+            "dev_sha256": hashlib.sha256(payload).hexdigest(),
+            "books": 1,
+            "skip": 0,
+            "selected_books": [{"relative_path": "x.txt"}],
+        }
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "manifest.json"
+            path.write_text(json.dumps(manifest))
+            loaded, notes = wlb._manifest_check(path, [payload], 0, payload)
+            self.assertEqual(loaded["books"], 1)
+            self.assertEqual(notes, [])
+            with self.assertRaises(ValueError):
+                wlb._manifest_check(path, [b"other"], 0, b"other")
 
     def test_vocab_json_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as work:
@@ -501,6 +529,23 @@ class TestExactScorerRunner(unittest.TestCase):
         self.assertEqual(results[0].cost["trie_edges"], trie.node_count - 1)
         self.assertFalse(results[0].truncated)
 
+    def test_auto_falls_back_to_teacher_on_prefix_error(self) -> None:
+        def runner(previous_rows, targets):
+            return ([fake_logp(row, int(target))
+                     for row, target in zip(previous_rows, targets)], 0)
+
+        class BadScorer:
+            def score_pairs(self, _pairs):
+                raise RuntimeError("intentional prefix failure")
+
+        trie = wlb.WordTrie({b"ab": 1, b"b": 2})
+        results = wlb.lexicon_beam(
+            object(), [b"q" * 40], trie, mode="auto", scorer=BadScorer(),
+            runner=runner, top_k=10, batch_size=64, context_window=32)
+        self.assertEqual(results[0].mode, "teacher")
+        self.assertIn("intentional prefix failure", results[0].fallback_reason)
+        self.assertTrue(results[0].candidates)
+
 
 class TestReport(unittest.TestCase):
     """Exercise the CLI report builder without importing torch."""
@@ -517,6 +562,7 @@ class TestReport(unittest.TestCase):
             vocab_json=Path("vocab.json"), topk=100, context_window=32,
             min_context=32, per_book=0, max_boundaries=10, exact="prefix",
             beam=2, max_edges=1000, batch_size=4, head_batch=2,
+            max_word_bytes=24, max_vocab=4096,
             details=False, progress=False, train_bin=None,
             ppm_max_order=8, ppm_max_train_words=0, baseline_cache=None)
 

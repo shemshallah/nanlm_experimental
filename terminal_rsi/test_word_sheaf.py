@@ -4,11 +4,17 @@ from __future__ import annotations
 import contextlib
 import io
 import math
+import sys
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from terminal_rsi.word_sheaf import (
+# Allow ``python terminal_rsi/test_word_sheaf.py`` as well as
+# ``python -m unittest terminal_rsi.test_word_sheaf``.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from terminal_rsi.word_sheaf import (  # noqa: E402
     CellularSheafFusion,
     IsingDPPSelect,
     fit_sheaf_weights,

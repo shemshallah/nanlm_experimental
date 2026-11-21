@@ -36,7 +36,9 @@ CAUSAL RULE (IMPORTANT)
 The target word's bytes are never read as model input.  The observed history
 ends immediately before the word start.  At depth ``d`` the model sees only
 ``history + candidate_prefix`` where ``candidate_prefix`` has ``d`` bytes and
-the byte being scored is the ``(d+1)``-th candidate byte.  The teacher-forced
+the byte being scored is the ``(d+1)``-th candidate byte.  Those prefix bytes
+come from the trie, never from the dev excerpt's target word; the target word
+is compared only after all candidate scores are computed.  The teacher-forced
 fallback is also target-free: it uses only the boundary history.  No ground
 truth future byte enters either path.  The v103 auxiliary features are the
 model's causal ``_default_aux`` fallback (last eight observed bytes), not the
@@ -63,9 +65,10 @@ The ceiling is in-vocabulary coverage: the beam can only return the words in
 the supplied trie, and target id 0 (UNK/OOV) is impossible.  On the repo's
 16 MB pilot the measured prior top-1000 coverage is 92.56% (top-100 76.0%)
 and union top-100 coverage is 79.75% (see ``WORD_TOP5_CHECKLIST.md``); the
-exact beam's recall has NOT been measured here.  Treat it as a candidate generator, not an
-oracle: with beam width 8, recall@100 is bounded by the number of distinct
-word prefixes the beam keeps, and by the byte model's per-byte top-k mass.
+exact beam's recall has NOT been measured here.  Treat it as a candidate
+generator, not an oracle: with beam width 8, recall@100 is bounded by the
+number of distinct word prefixes the beam keeps, and by the byte model's
+per-byte top-k mass.
 The teacher fallback should be expected to be clearly worse than the exact
 path on words longer than ~4 bytes because it cannot condition on the
 candidate prefix.  The exact beam also prunes the *first* byte to
@@ -73,17 +76,21 @@ candidate prefix.  The exact beam also prunes the *first* byte to
 unreachable for small beams; use ``beam_width=None`` (CLI ``--beam 0``) or a
 larger beam when measuring the vocabulary ceiling.
 
-    The vocabulary must be the *exact training vocabulary* (same bytes -> id
-    mapping) used by the checkpoint.  The checkpoint does not embed it;
-    ``set_word_vocab`` is driven by this mapping, so shifted ids silently
-    misalign the word prior and the head baseline.
+The vocabulary must be the *exact training vocabulary* (same bytes -> id
+mapping) used by the checkpoint.  The checkpoint does not embed it;
+``set_word_vocab`` is driven by this mapping, so shifted ids silently
+misalign the word prior and the head baseline.
 
 USAGE (library)
 ---------------
->>> trie = WordTrie(vocab, max_len=24)
->>> results = lexicon_beam(model, [history_bytes], trie, mode="prefix",
-...                        top_k=100, beam_width=8)
->>> [c.word_id for c in results[0].candidates]
+    model.set_word_vocab(vocab)   # enables the model's word-prefix prior
+    trie = WordTrie(vocab, max_len=24)
+    results = lexicon_beam(model, [history_bytes], trie, mode="prefix",
+                           top_k=100, beam_width=8)
+    [candidate.word_id for candidate in results[0].candidates]
+
+Without ``set_word_vocab`` the beam still scores the parent byte path, but
+the model's word-prefix prior branch is inactive.
 
 USAGE (CLI, no GPU job is started by this module itself)
 --------------------------------------------------------
@@ -819,8 +826,13 @@ class BoundaryByteScorer:
         values = self._prefix.score_pairs(
             [(self.base_context, list(range(256)))])[0]
         self.log_mass = _logsumexp(values)
-        self.mass_error = (math.exp(self.log_mass) - 1.0
-                           if math.isfinite(self.log_mass) else math.nan)
+        if math.isfinite(self.log_mass):
+            try:
+                self.mass_error = math.exp(self.log_mass) - 1.0
+            except OverflowError:
+                self.mass_error = math.inf
+        else:
+            self.mass_error = math.nan
         self.normalized = bool(normalize)
         if self.normalized:
             if not math.isfinite(self.log_mass):
@@ -954,6 +966,8 @@ def lexicon_beam(model: Any, histories: Any, trie: WordTrie, *,
     if trie is None or len(trie) == 0:
         raise ValueError("trie must contain at least one word")
     items = _normalise_histories(histories)
+    if not items:
+        return []
     if scorer is not None and requested == "teacher":
         raise ValueError("a custom scorer is only valid for prefix mode")
     if model is None and scorer is None and runner is None:
@@ -997,6 +1011,8 @@ def lexicon_beam(model: Any, histories: Any, trie: WordTrie, *,
             truncated = False
             stop_reason = "complete"
             used_mode = started_mode
+            beam_edges = 0
+            beam_prefixes = 0
 
             if started_mode == "prefix":
                 try:
@@ -1006,9 +1022,11 @@ def lexicon_beam(model: Any, histories: Any, trie: WordTrie, *,
                     candidates = beam.candidates
                     truncated = beam.truncated
                     stop_reason = beam.stop_reason
+                    beam_edges = beam.edges_scored
+                    beam_prefixes = beam.prefixes_expanded
                 except Exception as exc:  # noqa: BLE001
                     if (requested != "auto" or not fallback_on_error
-                            or model is None):
+                            or (model is None and runner is None)):
                         raise
                     fallback_reason = f"{type(exc).__name__}: {exc}"
                     used_mode = "teacher"
@@ -1053,7 +1071,9 @@ def lexicon_beam(model: Any, histories: Any, trie: WordTrie, *,
                          if hasattr(prefix_scorer, "stats") else {})
                 cost = _stats_delta(before, after) if after else {}
                 cost["trie_nodes"] = trie.node_count
-                cost["trie_edges"] = int(cost.get("edges_scored", 0))
+                cost["trie_edges"] = int(
+                    cost.get("edges_scored", beam_edges))
+                cost["prefixes_expanded"] = beam_prefixes
                 notes_for_result = [
                     "candidate-prefix re-scoring: one model row per trie "
                     "edge, batched by depth; target bytes are never inputs"]
@@ -1442,7 +1462,10 @@ def _book_labels(manifest: dict | None, count: int) -> list[str]:
     for index in range(count):
         if index < len(selected):
             item = selected[index]
-            labels.append(str(item.get("relative_path", f"book{index}")))
+            if isinstance(item, dict):
+                labels.append(str(item.get("relative_path", f"book{index}")))
+            else:
+                labels.append(str(item))
         else:
             labels.append(f"book{index}")
     return labels
@@ -1480,6 +1503,7 @@ def _build_report(args: argparse.Namespace, *, boundaries: Sequence[Boundary],
                   manifest: dict | None, dev_format: str, skip: int,
                   excerpts: Sequence[bytes], model: Any | None,
                   device: Any | None, notes: Sequence[str]) -> dict[str, Any]:
+    report_started = time.perf_counter()
     targets = [boundary.target_id for boundary in boundaries]
     oov = sum(target == UNK_ID for target in targets)
     report: dict[str, Any] = {
@@ -1509,6 +1533,21 @@ def _build_report(args: argparse.Namespace, *, boundaries: Sequence[Boundary],
             "min_context": args.min_context,
             "per_book": args.per_book,
             "max_boundaries": args.max_boundaries,
+            "books_selected": sorted({boundary.book for boundary in boundaries}),
+        },
+        "settings": {
+            "exact": args.exact,
+            "beam": args.beam,
+            "top_k": args.topk,
+            "batch_size": args.batch_size,
+            "head_batch": args.head_batch,
+            "max_edges": args.max_edges,
+            "context_window_arg": args.context_window,
+            "min_context": args.min_context,
+            "max_word_bytes": args.max_word_bytes,
+            "max_vocab": args.max_vocab,
+            "per_book": args.per_book,
+            "max_boundaries": args.max_boundaries,
         },
         "notes": list(notes),
     }
@@ -1527,17 +1566,21 @@ def _build_report(args: argparse.Namespace, *, boundaries: Sequence[Boundary],
 
     kmax = max([int(args.topk)] + list(RECALL_KS))
     report["notes"].extend([
+        "this CLI scores a small, deterministic boundary sample; the recall "
+        "numbers are not a full dev-set measurement",
         "recall fields are fractions in [0,1]; unique_hits is a count",
         "the vocabulary JSON must be the exact training bytes -> id mapping; "
         "shifted ids misalign the word prior and the head baseline",
         "beam scores are raw summed byte log-probs; no EOS term and no "
         "length normalization (short words are favored)",
         "the lexicon beam cannot return OOV/UNK id 0; overall recall is "
-        "bounded by in-vocabulary coverage",
+        "bounded by in-vocabulary coverage (head/PPM may still predict id 0)",
         "exact prefix mode re-runs the model on candidate prefixes; target "
         "word bytes are never model inputs",
         "teacher mode reuses one boundary distribution and does not "
         "re-score candidate prefixes",
+        "the model word table truncates at 24 bytes; a larger trie "
+        "max-word-bytes only extends the byte-beam path",
         "a finite beam prunes the first word byte at the root; words with a "
         "rare first byte are unreachable unless --beam is larger or 0",
         "v103 auxiliary features use model._default_aux (last eight observed "
@@ -1645,7 +1688,8 @@ def _build_report(args: argparse.Namespace, *, boundaries: Sequence[Boundary],
             cache["ppm"] if cache else None, targets, in_vocab_only=True),
     }
     report["cost"] = {
-        "seconds_total": elapsed,
+        "seconds_total": time.perf_counter() - report_started,
+        "seconds_beam_wall": elapsed,
         "seconds_beam": sum(result.cost.get("seconds", 0.0) for result in results),
         "model_calls": sum(int(result.cost.get("model_calls", 0))
                            for result in results),
@@ -1732,7 +1776,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="minimum observed bytes before a boundary")
     parser.add_argument("--max-word-bytes", type=int,
                         default=DEFAULT_MAX_WORD_BYTES,
-                        help="skip words longer than this (head table cap)")
+                        help="trie word length cap; the model word table "
+                             "itself is built with maxlen=24")
     parser.add_argument("--max-vocab", type=int, default=DEFAULT_MAX_VOCAB,
                         help="word id upper bound (4096 for the head)")
     parser.add_argument("--per-book", type=int, default=1,
@@ -1770,12 +1815,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"--context-window must be >= {MODEL_MIN_CONTEXT}")
     if args.beam < 0:
         parser.error("--beam must be non-negative (0=exhaustive)")
+    if args.max_word_bytes < 1:
+        parser.error("--max-word-bytes must be positive")
+    if args.max_vocab < 2:
+        parser.error("--max-vocab must be at least 2")
+    if args.topk < 1:
+        parser.error("--topk must be positive")
+    if args.batch_size < 1 or args.head_batch < 1:
+        parser.error("batch sizes must be positive")
+    if args.max_edges < 0:
+        parser.error("--max-edges must be non-negative")
+    if args.per_book < 0 or args.max_boundaries < 0:
+        parser.error("boundary counts must be non-negative")
+    if args.ppm_max_order < 1:
+        parser.error("--ppm-max-order must be positive")
+    if args.ppm_max_train_words < 0:
+        parser.error("--ppm-max-train-words must be non-negative")
     if not args.boundaries_only and args.checkpoint is None:
         parser.error("--checkpoint is required unless --boundaries-only")
 
     vocabulary = load_vocab_json(args.vocab_json, max_vocab=args.max_vocab)
     trie = WordTrie(vocabulary, max_len=args.max_word_bytes,
                     max_vocab=args.max_vocab)
+    if len(trie) == 0:
+        parser.error("the vocabulary produced an empty trie; check "
+                     "--max-word-bytes and the JSON ids")
     excerpts, skip, dev_format, payload = read_dev_bin(args.dev_bin)
     manifest, notes = _manifest_check(
         args.dev_manifest, excerpts, skip, payload)
@@ -1821,6 +1885,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "beam": (report.get("recall") or {}).get("beam"),
         "head": (report.get("recall") or {}).get("head"),
         "ppm": (report.get("recall") or {}).get("ppm"),
+        "cached_head": (report.get("recall") or {}).get("cached_head"),
+        "cached_ppm": (report.get("recall") or {}).get("cached_ppm"),
         "cost": report.get("cost"),
         "out": str(args.out),
     }

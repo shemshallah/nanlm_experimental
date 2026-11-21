@@ -68,6 +68,10 @@ class SimpleTaggerTests(unittest.TestCase):
         self.assertIn("PUNCT", TAGS)
         self.assertIn("OTHER", TAGS)
 
+    def test_string_sentence_input(self):
+        self.assertEqual(SimpleTagger().tag_sequence("the dog"),
+                         ["DET", "NOUN"])
+
 
 class ConstructionInventoryTests(unittest.TestCase):
     @classmethod
@@ -129,6 +133,14 @@ class ConstructionInventoryTests(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match.order, 2)
         self.assertEqual(match.kind, "exact")
+
+    def test_string_history_and_distribution(self):
+        match = self.inventory.longest_match("the old man")
+        self.assertIsNotNone(match)
+        self.assertEqual(match.order, 3)
+        distribution = self.inventory.query_distribution("the old man")
+        self.assertEqual(distribution[match.next_ids[0]],
+                         match.probs[0])
 
     def test_query_and_backoff_distribution(self):
         top = self.inventory.query(["the", "old", "man"], top_k=2)
@@ -275,6 +287,7 @@ class LinguisticPriorTests(unittest.TestCase):
         result = self.prior.query(["the", "old", "man"])
         self.assertEqual(result.scores.shape, (4096,))
         self.assertEqual(result.scores.dtype, np.float32)
+        self.assertEqual(np.asarray(result).shape, (4096,))
         self.assertEqual(result.ids[0], self.walked)
         self.assertEqual(result.top_k(1)[0][0], self.walked)
         self.assertGreater(result.score(self.walked), 0.0)

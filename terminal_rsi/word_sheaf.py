@@ -315,6 +315,11 @@ class CellularSheafFusion:
     mass:
         ``"uniform"``, ``"confidence"``, ``"entropy"``, an array of shape
         ``(n_experts,)``, or a per-sample ``(n, n_experts)`` array.
+    expert_weights:
+        Optional non-negative global aggregation weights (for example the
+        ``expert_weights`` returned by :func:`fit_sheaf_weights`).  When set,
+        the output is a mass-times-expert-weight mixture of the harmonic
+        vertex signals.
     normalize:
         If True, each expert input is converted to log-probabilities with a
         log-softmax before fusion.
@@ -334,6 +339,7 @@ class CellularSheafFusion:
         mass: Any = "uniform",
         mass_power: float = 1.0,
         mass_floor: float = 1e-6,
+        expert_weights: Any = None,
         normalize: bool = True,
         directional: bool = False,
         seed: int = 0,
@@ -354,16 +360,19 @@ class CellularSheafFusion:
         self.n_experts = len(self.experts)
         self.low_rank = max(0, int(low_rank))
         self.low_rank_scale = float(low_rank_scale)
-        self.laplacian_weight = float(laplacian_weight)
+        self.laplacian_weight = max(0.0, float(laplacian_weight))
         self.mass_mode = mass
         self.mass_power = float(mass_power)
-        self.mass_floor = float(mass_floor)
+        self.mass_floor = max(float(mass_floor), 1e-12)
         self.normalize = bool(normalize)
         self.directional = bool(directional)
         self.max_iter = int(max_iter)
         self.tol = float(tol)
         self.dtype = np.dtype(dtype)
         self.temperatures = np.ones(self.n_experts, dtype=np.float64)
+        self.expert_weights: np.ndarray | None = None
+        if expert_weights is not None:
+            self.set_expert_weights(expert_weights)
         self.cycle_edges = _cycle_edges(self.n_experts, self.edges)
 
         # Edge weights: explicit sequence wins over the per-edge defaults.
@@ -445,8 +454,13 @@ class CellularSheafFusion:
 
     # -- public configuration ---------------------------------------------
 
+    @property
+    def restriction_maps(self) -> dict[tuple[int, int], AffineRestriction]:
+        """Mapping ``(vertex, edge) -> AffineRestriction``."""
+        return self.maps
+
     def set_edge_weights(self, weights: Sequence[float]) -> "CellularSheafFusion":
-        weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+        weights = _as_numpy(weights, dtype=np.float64).reshape(-1)
         if weights.size != len(self.edges):
             raise ValueError(f"expected {len(self.edges)} weights")
         if np.any(weights < 0):
@@ -456,7 +470,7 @@ class CellularSheafFusion:
         return self
 
     def set_temperatures(self, temperatures: Any) -> "CellularSheafFusion":
-        temps = np.asarray(temperatures, dtype=np.float64).reshape(-1)
+        temps = _as_numpy(temperatures, dtype=np.float64).reshape(-1)
         if temps.size == 1:
             temps = np.full(self.n_experts, float(temps[0]))
         if temps.size != self.n_experts:
@@ -464,6 +478,23 @@ class CellularSheafFusion:
         if np.any(temps <= 0):
             raise ValueError("temperatures must be positive")
         self.temperatures = temps
+        return self
+
+    def set_expert_weights(self, weights: Any) -> "CellularSheafFusion":
+        """Set optional global expert aggregation weights."""
+        w = _as_numpy(weights, dtype=np.float64).reshape(-1)
+        if w.size == 1:
+            w = np.full(self.n_experts, float(w[0]))
+        if w.size != self.n_experts:
+            raise ValueError(f"expected {self.n_experts} expert weights")
+        if np.any(w < 0):
+            raise ValueError("expert weights must be non-negative")
+        total = float(np.sum(w))
+        if total <= 0:
+            w = np.full(self.n_experts, 1.0 / self.n_experts)
+        else:
+            w = w / total
+        self.expert_weights = w
         return self
 
     def set_fit(self, fit: Mapping[str, Any]) -> "CellularSheafFusion":
@@ -475,6 +506,16 @@ class CellularSheafFusion:
                         if i < fit_temps.size}
         self.set_temperatures([temp_by_name.get(name, 1.0)
                                for name in self.experts])
+
+        fit_expert = fit.get("expert_weights")
+        if fit_expert is not None:
+            fit_expert = _as_numpy(fit_expert, dtype=np.float64).reshape(-1)
+            by_name = {name: float(fit_expert[i])
+                       for i, name in enumerate(fit_experts)
+                       if i < fit_expert.size}
+            if by_name:
+                self.set_expert_weights([by_name.get(name, 1.0)
+                                         for name in self.experts])
 
         fit_edges = fit.get("edges", [])
         fit_weights = np.asarray(fit.get("edge_weights", []),
@@ -500,6 +541,12 @@ class CellularSheafFusion:
                  ) -> "CellularSheafFusion":
         kwargs.setdefault("experts", fit.get("experts", DEFAULT_EXPERTS))
         kwargs.setdefault("stalk_dim", fit.get("vocab_size", 4096))
+        if "edges" in fit:
+            kwargs.setdefault("edges", fit["edges"])
+        if "mass" in fit:
+            kwargs.setdefault("mass", fit["mass"])
+        if "edge_mass_power" in fit:
+            kwargs.setdefault("mass_power", fit["edge_mass_power"])
         obj = cls(**kwargs)
         obj.set_fit(fit)
         return obj
@@ -510,6 +557,10 @@ class CellularSheafFusion:
         kwargs.setdefault(
             "edges", [(self.experts[u], self.experts[v])
                       for u, v in self.edges])
+        kwargs.setdefault("laplacian_weight", self.laplacian_weight)
+        if isinstance(self.mass_mode, str):
+            kwargs.setdefault("edge_mass", self.mass_mode)
+        kwargs.setdefault("edge_mass_power", self.mass_power)
         result = fit_sheaf_weights(expert_logits, targets, **kwargs)
         self.set_fit(result)
         return result
@@ -585,7 +636,7 @@ class CellularSheafFusion:
     def _prepare_prior(self, expert_logits: Any,
                        temperatures: Any = None) -> np.ndarray:
         p = self._stack_prior(expert_logits)
-        temps = self.temperatures if temperatures is None else np.asarray(
+        temps = self.temperatures if temperatures is None else _as_numpy(
             temperatures, dtype=np.float64).reshape(-1)
         if temps.size == 1:
             temps = np.full(self.n_experts, float(temps[0]))
@@ -622,14 +673,16 @@ class CellularSheafFusion:
                 raise KeyError(f"missing masses for experts: {missing}")
             cols = []
             for name in self.experts:
-                a = np.asarray(mode[name], dtype=np.float64)
+                a = _as_numpy(mode[name], dtype=np.float64)
                 cols.append(a)
             m = np.stack(cols, axis=-1)
             if m.ndim == 1:
                 m = np.tile(m[None, :], (b, 1))
         else:
-            m = np.asarray(mode, dtype=np.float64)
-            if m.ndim == 1:
+            m = _as_numpy(mode, dtype=np.float64)
+            if m.ndim == 0:
+                m = np.full((b, e), float(m))
+            elif m.ndim == 1:
                 if m.size != e:
                     raise ValueError(f"expected {e} masses")
                 m = np.tile(m[None, :], (b, 1))
@@ -665,6 +718,10 @@ class CellularSheafFusion:
             x = x[None, :, :]
         if x.ndim != 3:
             raise ValueError("vertex_signals must be 2-D or 3-D")
+        if x.shape[1] != self.n_experts or x.shape[2] != self.stalk_dim:
+            raise ValueError(
+                f"expected (n, {self.n_experts}, {self.stalk_dim}); "
+                f"got {x.shape}")
         out = self._laplacian_linear(x)
         return out[0] if squeeze else out
 
@@ -762,7 +819,11 @@ class CellularSheafFusion:
         return x
 
     def _output_weights(self, m: np.ndarray) -> np.ndarray:
-        return m / (np.sum(m, axis=1, keepdims=True) + EPS)
+        if self.expert_weights is not None:
+            w = m * self.expert_weights[None, :]
+        else:
+            w = m
+        return w / (np.sum(w, axis=1, keepdims=True) + EPS)
 
     def _h1_from_vertices(self, x: np.ndarray) -> np.ndarray:
         b = x.shape[0]
@@ -958,7 +1019,8 @@ class CellularSheafFusion:
             a = np.linalg.solve(mat, np.diag(m))
         except np.linalg.LinAlgError:
             a = np.linalg.pinv(mat) @ np.diag(m)
-        c = m / (np.sum(m) + EPS)
+        c = m if self.expert_weights is None else m * self.expert_weights
+        c = c / (np.sum(c) + EPS)
         alpha = a.T @ c
         alpha = np.maximum(alpha, 0.0)
         return alpha / (np.sum(alpha) + EPS)
@@ -978,7 +1040,10 @@ class IsingDPPSelect:
 
     and the greedy selection maximises either a quality-weighted DPP
     log-determinant (``mode="dpp"``) or the MMR objective
-    ``h_i - diversity * max_j cos(emb_i, emb_j)`` (``mode="mmr"``).
+    ``h_i - diversity * max_j cos(emb_i, emb_j)`` (``mode="mmr"``).  The
+    diversity term is the anti-ferromagnetic coupling of the Ising picture;
+    ``diversity=0`` reduces to greedy fields and ``diversity=1`` maximises
+    spread.
     """
 
     def __init__(
@@ -1134,6 +1199,9 @@ class IsingDPPSelect:
         fields: Any = None,
         top_k: int = 5,
         return_scores: bool = False,
+        temperature: float | None = None,
+        diversity: float | None = None,
+        mode: str | None = None,
     ) -> Any:
         """Return the top-``top_k`` candidate ids.
 
@@ -1142,42 +1210,48 @@ class IsingDPPSelect:
         candidate scores are gathered from it.  PMI/context fields are added
         before the diversity-aware greedy selection.
         """
-        cand = np.asarray([int(c) for c in candidates], dtype=np.int64)
-        if cand.ndim != 1:
-            raise ValueError("candidates must be 1-D")
-        # Preserve the caller's shortlist order while removing duplicates and
-        # invalid ids.  This makes ties deterministic.
-        if cand.size:
-            _, first = np.unique(cand, return_index=True)
-            cand = cand[np.sort(first)]
-            if np.any(cand < 0):
-                cand = cand[cand >= 0]
+        raw_cand = _as_numpy(candidates, dtype=np.int64).reshape(-1)
+        # Preserve the caller's shortlist order while removing duplicate and
+        # invalid ids.  Keep the masks so per-candidate side inputs stay
+        # aligned.  This makes ties deterministic.
+        keep = np.zeros(raw_cand.size, dtype=bool)
+        seen: set[int] = set()
+        for pos, c in enumerate(raw_cand.tolist()):
+            if c < 0 or c in seen:
+                continue
+            seen.add(c)
+            keep[pos] = True
+        cand = raw_cand[keep]
         if cand.size == 0:
             return (np.empty(0, dtype=np.int64), np.empty(0)) \
                 if return_scores else []
         max_id = int(np.max(cand))
         self.ensure_vocab(max_id + 1)
 
+        def _aligned(value: Any, name: str) -> np.ndarray:
+            arr = _as_numpy(value, dtype=np.float64).reshape(-1)
+            if arr.size != raw_cand.size:
+                raise ValueError(
+                    f"expected {raw_cand.size} {name}, got {arr.size}")
+            return arr[keep]
+
         if scores is None and logits is not None:
-            dense = np.asarray(logits, dtype=np.float64).reshape(-1)
+            dense = _as_numpy(logits, dtype=np.float64).reshape(-1)
             if max_id >= dense.size:
                 raise ValueError("candidate id exceeds logits length")
             base = dense[cand]
         elif scores is not None:
-            base = _as_numpy(scores, dtype=np.float64).reshape(-1)
-            if base.size != cand.size:
-                raise ValueError(
-                    f"expected {cand.size} scores, got {base.size}")
+            base = _aligned(scores, "scores")
         else:
             base = np.zeros(cand.size, dtype=np.float64)
         base = np.nan_to_num(base, nan=0.0, posinf=0.0, neginf=0.0)
-        field = base / self.temperature
+        temp = self.temperature if temperature is None else float(temperature)
+        if temp <= 0:
+            raise ValueError("temperature must be positive")
+        field = base / temp
 
         if pmi_fields is not None:
-            pmi = np.asarray(pmi_fields, dtype=np.float64).reshape(-1)
-            if pmi.size != cand.size:
-                raise ValueError(
-                    f"expected {cand.size} pmi fields, got {pmi.size}")
+            pmi = _aligned(pmi_fields, "pmi fields")
             field = field + self.pmi_weight * pmi / self.pmi_temperature
         elif self.pmi_weight != 0.0:
             pmi = self.pmi_field(cand, context_ids, pmi_matrix)
@@ -1188,10 +1262,7 @@ class IsingDPPSelect:
                 cand, context_embedding, context_ids)
 
         if fields is not None:
-            extra = np.asarray(fields, dtype=np.float64).reshape(-1)
-            if extra.size != cand.size:
-                raise ValueError(
-                    f"expected {cand.size} fields, got {extra.size}")
+            extra = _aligned(fields, "fields")
             field = field + extra
         field = np.nan_to_num(field, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -1207,10 +1278,16 @@ class IsingDPPSelect:
             return selected.tolist()
 
         emb = self.embeddings[cand]
-        if self.mode == "mmr":
-            selected = self._mmr_select(field, emb, k)
+        div = self.diversity if diversity is None else float(diversity)
+        if not 0.0 <= div <= 1.0:
+            raise ValueError("diversity must be in [0, 1]")
+        mode_eff = self.mode if mode is None else str(mode).lower().strip()
+        if mode_eff not in {"dpp", "mmr"}:
+            raise ValueError("mode must be 'dpp' or 'mmr'")
+        if mode_eff == "mmr":
+            selected = self._mmr_select(field, emb, k, diversity=div)
         else:
-            selected = self._dpp_select(field, emb, k)
+            selected = self._dpp_select(field, emb, k, diversity=div)
         chosen = cand[selected]
         if return_scores:
             return chosen, field[selected]
@@ -1219,9 +1296,14 @@ class IsingDPPSelect:
     # Convenience aliases used by other selector experiments.
     rerank = select
 
-    def _mmr_select(self, field: np.ndarray, emb: np.ndarray, k: int
-                    ) -> list[int]:
+    def __call__(self, candidates: Sequence[int], scores: Any = None,
+                 **kwargs: Any) -> Any:
+        return self.select(candidates, scores, **kwargs)
+
+    def _mmr_select(self, field: np.ndarray, emb: np.ndarray, k: int,
+                    diversity: float | None = None) -> list[int]:
         n = len(field)
+        diversity = self.diversity if diversity is None else float(diversity)
         selected: list[int] = []
         available = np.ones(n, dtype=bool)
         # Scale the diversity penalty to the field's spread so one knob works
@@ -1233,21 +1315,22 @@ class IsingDPPSelect:
             else:
                 sim = emb @ emb[selected].T
                 penalty = np.max(sim, axis=1)
-            objective = field - self.diversity * spread * penalty
+            objective = field - diversity * spread * penalty
             objective[~available] = -np.inf
             idx = int(np.argmax(objective))
             selected.append(idx)
             available[idx] = False
         return selected
 
-    def _dpp_select(self, field: np.ndarray, emb: np.ndarray, k: int
-                    ) -> list[int]:
+    def _dpp_select(self, field: np.ndarray, emb: np.ndarray, k: int,
+                    diversity: float | None = None) -> list[int]:
         n = len(field)
+        diversity = self.diversity if diversity is None else float(diversity)
         # Quality-weighted DPP: q_i = exp((h_i - max h) / quality_temp).
         q = np.exp((field - np.max(field)) / self.quality_temperature)
         q = np.clip(q, 1e-12, 1.0)
         sim = emb @ emb.T
-        kernel = (1.0 - self.diversity) * np.eye(n) + self.diversity * sim
+        kernel = (1.0 - diversity) * np.eye(n) + diversity * sim
         # Symmetrise defensively; a convex combination of PSD matrices is PSD.
         kernel = 0.5 * (kernel + kernel.T)
         quality = np.outer(q, q)
@@ -1352,7 +1435,10 @@ def _stack_expert_logits(
             return np.asarray(stack, dtype=np.float64), names
         arr = _as_numpy(expert_logits)
         if arr.ndim == 2:
-            arr = arr[None, :, :]
+            if experts is not None and len(experts) == 1 and arr.shape[1] != 1:
+                arr = arr[:, None, :]
+            else:
+                arr = arr[None, :, :]
         if arr.ndim != 3:
             raise ValueError(
                 "expert_logits must be (n, experts, vocab), "
@@ -1490,10 +1576,11 @@ def fit_sheaf_weights(
 
     Temperatures and the mixture weights are fitted by full-batch Adam on the
     train cross-entropy.  Edge weights are then fitted by a short coordinate
-    search over the actual per-sample confidence-gated harmonic extension on
-    a deterministic subset (``edge_search_positions``).  This makes the edge
-    weights identifiable: with uniform masses every connected graph would
-    otherwise collapse to the same uniform mixture.
+    search over the actual per-sample confidence-gated harmonic extension
+    (scalar restriction linearisation) on a deterministic subset
+    (``edge_search_positions``).  This makes the edge weights identifiable:
+    with uniform masses every connected graph would otherwise collapse to the
+    same uniform mixture.
 
     Returns a dict with ``temperatures``, ``edge_weights``,
     ``expert_weights``, ``train_ce``, ``baseline_ce`` and the metadata needed
@@ -1715,6 +1802,7 @@ def fit_sheaf_weights(
         "laplacian_weight": float(laplacian_weight),
         "mass": mass,
         "edge_mass": edge_mass if isinstance(edge_mass, str) else "custom",
+        "edge_mass_power": float(edge_mass_power),
     }
     return result
 
@@ -1767,6 +1855,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="evaluate only the first N test records (0=all)")
     parser.add_argument("--mass", default="confidence",
                         choices=("uniform", "confidence", "entropy"))
+    parser.add_argument("--mass-power", type=float, default=0.5)
     args = parser.parse_args(argv)
 
     cache = Path(args.cache)
@@ -1834,13 +1923,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit = fit_sheaf_weights(
         train, target[train_idx], experts=experts, vocab_size=vocab,
         normalize=True, edges="cycle", mass=args.mass,
-        edge_mass=args.mass, edge_mass_power=0.5,
+        edge_mass=args.mass, edge_mass_power=args.mass_power,
         epochs=args.fit_epochs, max_positions=args.max_train,
         verbose=True,
     )
     fusion = CellularSheafFusion(
         experts=experts, stalk_dim=vocab, edges="cycle",
-        low_rank=args.low_rank, mass=args.mass, mass_power=0.5,
+        low_rank=args.low_rank, mass=args.mass,
+        mass_power=args.mass_power,
         normalize=True, max_iter=args.max_iter,
     )
     fusion.set_fit(fit)

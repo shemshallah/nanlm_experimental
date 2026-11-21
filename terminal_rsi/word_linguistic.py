@@ -28,10 +28,13 @@ Approximations and expected contribution
     untyped ``<X>`` index generalises further.  This is not a semantic
     construction grammar: slots are POS-typed only, and skeletons are mined
     from adjacent tokens (sentence boundaries are only approximated by
-    punctuation).  Expected contribution: high-precision candidates when a
-    closed-class frame repeats with novel open-class fillers.  Build can be
-    memory heavy for large corpora; use ``min_count=2`` and a smaller
-    ``max_order`` there.
+    punctuation).  Skeleton indexes skip punctuation successors so that a
+    novel filler does not merely predict a sentence-final period; exact
+    n-grams retain the full successor distribution.  Expected contribution:
+    high-precision candidates when a closed-class frame repeats with novel
+    open-class fillers.  Build can be memory heavy for large corpora; use
+    ``min_count=2`` and a smaller ``max_order`` there, and note that
+    ``max_contexts`` may drop rare contexts.
 
 ``CenteringCache``
     Heuristic centering: salience-decayed entity mentions, capitalized-name
@@ -52,7 +55,10 @@ Fusion
     Source scores are mixed with fixed weights (construction first, then
     centering/POS, then morphology) and renormalised.  Treat the result as a
     candidate *union* expert.  It is deliberately conservative: in particular
-    unknown word ID 0 is excluded from generated candidates.
+    unknown word ID 0 is excluded from generated candidates.  Realistically
+    this is a low-single-digit candidate-recall expert on prose, concentrated
+    at determiner/pronoun/construction positions; morphology overgenerates
+    and should keep its small weight.
 
 Integration with ``word_rerank_fast.py``
 ---------------------------------------
@@ -123,9 +129,6 @@ _CONJ = frozenset("""
 and or but nor so yet because although though while whereas if unless until
 when where whether since after before as than that
 """.split())
-_PREP_CONJ = _PREP & _CONJ
-
-_POSSESSIVE = frozenset("my your his her its our their".split())
 
 _VERB_FORMS = frozenset("""
 am is are was were be been being have has had having do does did done doing
@@ -178,6 +181,10 @@ bed shed seed need speed feed weed breed creed deed sled
 _ALL_CLOSED = _DET | _PRON | _PREP | _CONJ
 _FUNCTION_WORDS = _ALL_CLOSED | frozenset("""
 not no nor so too very just also then there here now only even still yet
+can could will would shall should may might must ought
+""".split())
+_AUXILIARIES = frozenset("""
+be am is are was were been being have has had having do does did done doing
 """.split())
 _COMMON_CAPS = frozenset("""
 the a an this that these those i it he she they we you his her its our their
@@ -309,6 +316,8 @@ class SimpleTagger:
             if prev in ("DET", "ADJ", "NUM"):
                 return "NOUN"
             return "VERB"
+        if core in _NOUN_ED:
+            return "NOUN" if prev in ("DET", "ADJ", "NUM", "PREP") else "VERB"
         if core.endswith("ed") and len(core) > 3:
             if prev in ("DET", "ADJ", "NUM"):
                 return "ADJ"
@@ -461,7 +470,7 @@ class ConstructionInventory:
     """
 
     def __init__(self, max_order: int = 6, min_count: int = 1,
-                 max_next: int = 12, max_contexts: int = 1_000_000,
+                 max_next: int = 12, max_contexts: int = 200_000,
                  backoff_decay: float = 0.5) -> None:
         if int(max_order) < 2:
             raise ValueError("max_order must be at least 2")
@@ -486,13 +495,25 @@ class ConstructionInventory:
         self.order_contexts: dict[int, int] = {}
         self._built = False
 
+    @property
+    def vocab(self) -> dict[str, int]:
+        """Alias for ``word_to_id`` (surface -> ID)."""
+        return self.word_to_id
+
     # -- construction ------------------------------------------------------
 
     def build(self, word_stream: Iterable[str | int], *,
               word_to_id: dict[str, int] | None = None,
               id_to_word: dict[int, str] | Sequence[str] | None = None,
               vocab_size: int = DEFAULT_VOCAB_SIZE,
-              tags: Sequence[str] | None = None) -> "ConstructionInventory":
+              tags: Sequence[str] | None = None,
+              min_count: int | None = None,
+              max_next: int | None = None
+              ) -> "ConstructionInventory":
+        if min_count is not None:
+            self.min_count = max(1, int(min_count))
+        if max_next is not None:
+            self.max_next = max(1, int(max_next))
         ids, surfaces, id_to_word, word_to_id, vocab_size = _prepare_stream(
             word_stream, word_to_id=word_to_id, id_to_word=id_to_word,
             vocab_size=vocab_size)
@@ -545,6 +566,12 @@ class ConstructionInventory:
                         if has_untyped:
                             untyped_counts[order][untyped] = (
                                 untyped_counts[order].get(untyped, 0) + 1)
+            if (self.max_contexts is not None and index
+                    and index % 8192 == 0):
+                for order in orders:
+                    self._bounded_prune_inplace(exact_counts[order])
+                    self._bounded_prune_inplace(typed_counts[order])
+                    self._bounded_prune_inplace(untyped_counts[order])
 
         for order in orders:
             exact_counts[order] = self._prune_counts(exact_counts[order])
@@ -569,12 +596,15 @@ class ConstructionInventory:
                 if tags is None:
                     continue
                 context_tags = tags[index:index + order]
+                successor_tag = tags[index + order]
                 typed_key, has_typed = _typed_key(context, context_tags)
-                if has_typed and typed_key in typed_counts[order]:
+                if (has_typed and typed_key in typed_counts[order]
+                        and successor_tag != "PUNCT"):
                     _bump_count(typed[order], typed_key, successor,
                                 self.max_next)
                 untyped_key, has_untyped = _untyped_key(context, context_tags)
-                if has_untyped and untyped_key in untyped_counts[order]:
+                if (has_untyped and untyped_key in untyped_counts[order]
+                        and successor_tag != "PUNCT"):
                     _bump_count(untyped[order], untyped_key, successor,
                                 self.max_next)
 
@@ -624,6 +654,23 @@ class ConstructionInventory:
                                       self.id_to_word.get(int(raw), ""))
         self._canonical = canonical
         self._canonical_text = canonical_text
+
+    def _bounded_prune_inplace(
+            self, table: dict[tuple[int, ...], int]) -> None:
+        """Drop rare contexts during the counting pass, in place."""
+        if (self.max_contexts is None
+                or len(table) <= self.max_contexts):
+            return
+        # Most of the blow-up is singleton high-order contexts.  Removing
+        # them first is cheap and usually enough to get below the cap.
+        pruned = {key: count for key, count in table.items()
+                  if count > 1}
+        if len(pruned) > self.max_contexts:
+            pruned = dict(heapq.nlargest(
+                self.max_contexts, pruned.items(),
+                key=lambda item: item[1]))
+        table.clear()
+        table.update(pruned)
 
     def _prune_counts(
             self, table: dict[tuple[int, ...], int]
@@ -738,6 +785,11 @@ class ConstructionInventory:
                     top_k: int = 10) -> list[tuple[int, float]]:
         """Alias for ``query`` (explicit top-k name)."""
         return self.query(history, top_k=top_k)
+
+    def top_k(self, history: Iterable[str | int] | str,
+              k: int = 10) -> list[tuple[int, float]]:
+        """Alias for ``query`` with a short ``k`` argument."""
+        return self.query(history, top_k=k)
 
     def next_distribution(
             self,
@@ -863,12 +915,14 @@ _PRONOUN_INFO = {
 }
 _FEMALE_NAMES = frozenset("""
 alice mary jane susan karen nancy lisa betty margaret sandra ashley emily
-emma sarah jessica laura helen anna julia maria elizabeth
+emma sarah jessica laura helen anna julia maria elizabeth linda patricia
+barbara dorothy jennifer nicole amy rachel michelle deborah carol diane
 """.split())
 _MALE_NAMES = frozenset("""
 john james robert michael william david richard joseph thomas charles
 christopher daniel matthew anthony mark donald steven paul andrew joshua
-kenneth kevin brian george edward ronald alice
+kenneth kevin brian george edward ronald bob mike dave tom jack henry peter
+frank joe sam alex chris tony gary larry jerry rick bill
 """.split()) - {"alice"}
 _FEMALE_TITLES = frozenset("mrs ms miss lady queen princess mother sister "
                            "daughter wife aunt".split())
@@ -933,6 +987,11 @@ class CenteringCache:
         self.name_pairs: dict[str, Counter[str]] = defaultdict(Counter)
         self._stream: list[str] = []
         self._tagger = SimpleTagger()
+
+    @property
+    def vocab(self) -> dict[str, int]:
+        """Alias for ``word_to_id`` (surface -> ID)."""
+        return self.word_to_id
 
     # -- building the name lexicon ----------------------------------------
 
@@ -1017,20 +1076,29 @@ class CenteringCache:
     def entities(self) -> list[Entity]:
         return list(self.analyze(self._stream).entities)
 
-    def candidate_ids(self, history: Iterable[str | int] | str,
+    def candidate_ids(self, history: Iterable[str | int] | str | None = None,
                       top_k: int = 12) -> list[int]:
-        return [candidate.word_id for candidate
-                in self.candidates(history, top_k=top_k)
-                if candidate.word_id is not None]
+        ids: list[int] = []
+        seen: set[int] = set()
+        for candidate in self.candidates(history, top_k=top_k):
+            word = candidate.word_id
+            if word is not None and int(word) not in seen:
+                seen.add(int(word))
+                ids.append(int(word))
+        return ids
 
-    def candidate_surfaces(self, history: Iterable[str | int] | str,
-                           top_k: int = 12) -> list[str]:
+    def candidate_surfaces(
+            self, history: Iterable[str | int] | str | None = None,
+            top_k: int = 12) -> list[str]:
         return [candidate.surface
                 for candidate in self.candidates(history, top_k=top_k)]
 
     # -- analysis and candidates ------------------------------------------
 
-    def analyze(self, history: Iterable[str | int] | str) -> CenteringState:
+    def analyze(self, history: Iterable[str | int] | str | None = None
+                ) -> CenteringState:
+        if history is None:
+            history = self._stream
         words = self._as_words(history)
         if not words:
             return CenteringState([], "", "PUNCT", None, ())
@@ -1133,8 +1201,16 @@ class CenteringCache:
             word_core(words[-1]) else None,
             tags=tuple(tags))
 
-    def candidates(self, history: Iterable[str | int] | str,
+    def candidates(self, history: Iterable[str | int] | str | None = None,
                    top_k: int = 12) -> list[EntityCandidate]:
+        """Entity/pronoun candidates for the next word.
+
+        Returns :class:`EntityCandidate` records so callers get both the
+        surface string and its vocabulary ID; ``candidate_surfaces`` and
+        ``candidate_ids`` are string/ID convenience views.
+        """
+        if history is None:
+            history = self._stream
         state = self.analyze(history)
         if not state.entities:
             return []
@@ -1448,6 +1524,13 @@ _IRREGULAR_EXTRA_SURFACES = {
     "are": ("be", ("present", "pl")),
     "were": ("be", ("past", "pl")),
 }
+# Keep the causal tagger's irregular-verb lexicon in sync with the morphology
+# table (sought, fell, rose, hit, cut, ...).
+_VERB_FORMS = _VERB_FORMS | frozenset(
+    surface
+    for _forms in _IRREGULAR_VERBS.values()
+    for surface in _forms.values()
+) | frozenset(_IRREGULAR_EXTRA_SURFACES)
 _IRREGULAR_DEGREE = {
     "good": {"comparative": "better", "superlative": "best"},
     "bad": {"comparative": "worse", "superlative": "worst"},
@@ -1457,13 +1540,6 @@ _IRREGULAR_DEGREE = {
     "much": {"comparative": "more", "superlative": "most"},
 }
 
-_COMMON_VERBS = frozenset(_IRREGULAR_VERBS) | frozenset("""
-walk look open smile jump talk play work call ask answer help love like live
-move need want use try start stop plan visit watch listen cry study carry worry
-hurry enjoy clean close dance change create decide describe improve include
-provide receive require achieve believe produce divide remove save smile bake
-wake name hope value argue
-""".split())
 _E_RESTORE_VERBS = frozenset("""
 make take give have come move love live write drive use hope like bake wake save
 name smile dance change choose lose raise close argue value create produce
@@ -1710,13 +1786,16 @@ class MorphologyCandidates:
                 ordered.append(surface)
         return ordered
 
-    def candidates(self, history: Iterable[str | int] | str,
+    def candidates(self, history: Iterable[str | int] | str = (),
                    top_k: int = 12) -> list[MorphCandidate]:
         """Propose next-word forms conditioned on the observed context.
 
         Two signals are combined: variants of the immediately previous word
         (word-form repetition/backoff) and inflections of recent content-word
         lemmas that fit the grammatical slot after the previous word.
+
+        Returns :class:`MorphCandidate` records sorted by score; use
+        ``candidate_surfaces`` for a plain list of strings.
         """
         words = self._as_words(history)
         if not words:
@@ -1729,7 +1808,8 @@ class MorphologyCandidates:
         for offset in range(len(cores) - 1, max(-1, len(cores) - 25), -1):
             core = cores[offset]
             if (tag_in := tags[offset]) in ("NOUN", "VERB", "ADJ") and \
-                    core not in _FUNCTION_WORDS:
+                    core not in _FUNCTION_WORDS and \
+                    core not in _AUXILIARIES:
                 recency = math.exp(-(len(cores) - 1 - offset) / 12.0)
                 recent.append((recency, core, tag_in))
 
@@ -1786,7 +1866,7 @@ class MorphologyCandidates:
                     source_word=item.source_word) for item in ranked]
         return ranked[:max(int(top_k), 0)]
 
-    def candidate_surfaces(self, history: Iterable[str | int] | str,
+    def candidate_surfaces(self, history: Iterable[str | int] | str = (),
                            top_k: int = 12) -> list[str]:
         """Surface-string view of ``candidates`` for simple callers."""
         return [candidate.surface
@@ -2075,7 +2155,8 @@ class LinguisticPrior:
 
     def __init__(self, vocab_size: int = DEFAULT_VOCAB_SIZE,
                  max_order: int = 6, min_count: int = 1,
-                 max_next: int = 12, source_top_k: int = 100,
+                 max_next: int = 12, max_contexts: int | None = 200_000,
+                 source_top_k: int = 100,
                  weights: dict[str, float] | None = None) -> None:
         self.vocab_size = int(vocab_size)
         self.source_top_k = int(source_top_k)
@@ -2085,7 +2166,8 @@ class LinguisticPrior:
                                  for key, value in weights.items()})
         self.tagger = SimpleTagger()
         self.constructions = ConstructionInventory(
-            max_order=max_order, min_count=min_count, max_next=max_next)
+            max_order=max_order, min_count=min_count, max_next=max_next,
+            max_contexts=max_contexts)
         self.centering = CenteringCache()
         self.morphology = MorphologyCandidates()
         self.word_to_id: dict[str, int] = {}
@@ -2101,6 +2183,11 @@ class LinguisticPrior:
         self._word_by_tag: dict[str, Counter[int]] = defaultdict(Counter)
         self._unigram: Counter[int] = Counter()
         self._built = False
+
+    @property
+    def vocab(self) -> dict[str, int]:
+        """Alias for ``word_to_id`` (surface -> ID)."""
+        return self.word_to_id
 
     # -- build -------------------------------------------------------------
 
@@ -2118,7 +2205,9 @@ class LinguisticPrior:
                     min_count=(self.constructions.min_count
                                if min_count is None else int(min_count)),
                     max_next=(self.constructions.max_next
-                              if max_next is None else int(max_next)))
+                              if max_next is None else int(max_next)),
+                    max_contexts=self.constructions.max_contexts,
+                    backoff_decay=self.constructions.backoff_decay)
         if min_count is not None:
             self.constructions.min_count = max(1, int(min_count))
         if max_next is not None:
@@ -2129,7 +2218,7 @@ class LinguisticPrior:
         ids, surfaces, id_to_word, word_to_id, effective = _prepare_stream(
             word_stream, word_to_id=word_to_id, id_to_word=id_to_word,
             vocab_size=target_vocab)
-        self.vocab_size = max(self.vocab_size, effective)
+        self.vocab_size = max(int(effective), 1)
         self.word_to_id = dict(word_to_id)
         self.id_to_word = dict(id_to_word)
 
@@ -2140,6 +2229,7 @@ class LinguisticPrior:
         self.constructions.build_from_arrays(
             ids, tags=tags, id_to_word=self.id_to_word,
             word_to_id=self.word_to_id, vocab_size=self.vocab_size)
+        self.centering.reset()
         self.centering.build_from_words(surfaces)
         self.centering.word_to_id = dict(self.word_to_id)
         self.centering.id_to_word = dict(self.id_to_word)
@@ -2352,16 +2442,17 @@ class LinguisticPrior:
         # Unigram backoff keeps the vector non-empty on cold start and adds a
         # tiny amount of tail coverage.  It is not a fifth linguistic expert.
         unigram: dict[int, float] = {}
+        unigram_used = False
         if self._unigram:
             top = self._unigram.most_common(16)
             total = sum(count for _word, count in top)
             if total > 0:
                 unigram = {int(word): count / total
                            for word, count in top if int(word) > 0}
-                # Only let the unigram tail enter the mixture when the
-                # linguistic experts produced a very small candidate set;
-                # the source list is still exposed for diagnostics.
-                if len(combined) < 8:
+                # Only let the unigram tail enter the mixture as a cold-start
+                # fallback; the four linguistic experts define normal queries.
+                if not combined:
+                    unigram_used = True
                     for word, score in unigram.items():
                         if word < self.vocab_size:
                             combined[word] += self.weights["unigram"] * score
@@ -2396,7 +2487,7 @@ class LinguisticPrior:
             sources[source] = [word for word, _score
                                in self._rank_map(
                                    mapping, limit=self.source_top_k)]
-        if unigram:
+        if unigram_used:
             sources["unigram"] = [word for word, _score
                                   in self._rank_map(
                                       unigram, limit=self.source_top_k)]
@@ -2537,8 +2628,12 @@ def _prepare_stream(
     first = items[0]
     if isinstance(first, (int, np.integer)):
         ids = [int(word) for word in items]
-        if id_to_word is None:
-            id_map: dict[int, str] = {}
+        if id_to_word is None and word_to_id is not None:
+            id_map: dict[int, str] = {
+                int(identifier): str(word)
+                for word, identifier in word_to_id.items()}
+        elif id_to_word is None:
+            id_map = {}
         elif isinstance(id_to_word, dict):
             id_map = {int(key): str(value)
                       for key, value in id_to_word.items()}
