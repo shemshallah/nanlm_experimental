@@ -153,6 +153,27 @@ class VerbatimTrainingCPU(unittest.TestCase):
             self.assertTrue(torch.equal(probes[3,:32],torch.zeros(32,dtype=torch.long)))
             self.assertEqual(probes[3,-1].item(),132)
 
+    def test_lookahead_and_critic_losses_are_wired(self):
+        report = train_one_batch(
+            self.model, self.optimizer, self.context, self.target, self.aux,
+            upgrade_loss_weight=1.0, microbatch=0,
+            lookahead_loss_weight=0.5, critic_loss_weight=0.1)
+        self.assertIn("lookahead_bpb", report)
+        self.assertIn("critic_mse", report)
+        self.assertGreater(report["lookahead_bpb"], 0.0)
+        self.assertGreater(report["critic_mse"], 0.0)
+        for head in (self.model.upgrades.output[1],
+                     self.model.upgrades.output[2]):
+            self.assertIsNotNone(head.weight.grad)
+            self.assertGreater(float(head.weight.grad.abs().max()), 0.0)
+        critic = self.model.upgrades.critic
+        for parameter in critic.parameters():
+            if parameter.grad is not None:
+                self.assertGreater(float(parameter.grad.abs().max()), 0.0)
+                break
+        else:
+            self.fail("critic received no gradient")
+
     def test_no_train_on_fake_missing_causal_features(self):
         with self.assertRaisesRegex(ValueError, "six causal features"):
             train_one_batch(self.model, self.optimizer, self.context,

@@ -233,6 +233,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     word_boundary_loss_weight: float = 0.0,
                     word_top5_loss_weight: float = 0.0,
                     word_ngram_weight: float = 0.0,
+                    lookahead_loss_weight: float = 0.0,
+                    critic_loss_weight: float = 0.0,
                     freeze_parent: bool = False):
     """One v103 observe, 100M upgrade, hierarchy, unit heads and distillation."""
     if aux is None or aux.shape != (len(target), 6):
@@ -249,17 +251,21 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                         ("top5_byte", top5_byte_loss_weight),
                         ("word_boundary", word_boundary_loss_weight),
                         ("word_top5", word_top5_loss_weight),
-                        ("word_ngram", word_ngram_weight)):
+                        ("word_ngram", word_ngram_weight),
+                        ("lookahead", lookahead_loss_weight),
+                        ("critic", critic_loss_weight)):
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
     top5_value = None
     n = len(target)
-    use_aux = upgrade_loss_weight > 0
+    use_aux = (upgrade_loss_weight > 0 or lookahead_loss_weight > 0
+               or critic_loss_weight > 0)
     use_hierarchy = use_aux and (
         boundary_loss_weight > 0 or unit_loss_weight > 0
         or distill_weight > 0 or moe_loss_weight > 0
-        or word_boundary_loss_weight > 0)
+        or word_boundary_loss_weight > 0
+        or lookahead_loss_weight > 0 or critic_loss_weight > 0)
     if microbatch and microbatch < n:
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
@@ -274,6 +280,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         unit_total: dict = {}
         unit_weight_total = 0
         total_hits = 0
+        lookahead_total = 0.0
+        lookahead_count = 0
+        critic_total = 0.0
+        critic_count = 0
         for start in range(0, n, microbatch):
             end = min(start + microbatch, n)
             part_target = target[start:end]
@@ -314,6 +324,37 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
                     sequence_targets[start:end])
                 objective = objective + (
                     upgrade_sequence_loss_weight * seq_loss * (end - start))
+            if (upgrade_out is not None
+                    and (lookahead_loss_weight > 0 or critic_loss_weight > 0)):
+                # x[0..T-1] plus the external next byte x[T].  The +2/+3
+                # heads see only targets already present in this window, and
+                # the critic learns the observed next-byte surprise.
+                extended = torch.cat(
+                    (part_history, part_target[:, None]), dim=1)
+                if (lookahead_loss_weight > 0
+                        and upgrade_out["logits"].shape[-2] >= 3):
+                    horizon2 = F.cross_entropy(
+                        upgrade_out["logits"][1][:, :-1].float().transpose(1, 2),
+                        extended[:, 2:])
+                    horizon3 = F.cross_entropy(
+                        upgrade_out["logits"][2][:, :-2].float().transpose(1, 2),
+                        extended[:, 3:])
+                    lookahead = horizon2 + horizon3
+                    objective = objective + (
+                        lookahead_loss_weight * lookahead * (end - start))
+                    lookahead_total += float(lookahead.detach()) * (end - start)
+                    lookahead_count += end - start
+                if critic_loss_weight > 0:
+                    with torch.no_grad():
+                        observed = F.cross_entropy(
+                            upgrade_out["logits"][0].float().transpose(1, 2),
+                            extended[:, 1:], reduction="none")
+                    critic_loss = F.mse_loss(
+                        upgrade_out["critic"].float(), observed)
+                    objective = objective + (
+                        critic_loss_weight * critic_loss * (end - start))
+                    critic_total += float(critic_loss.detach()) * (end - start)
+                    critic_count += end - start
             if upgrade_out is not None and boundary_loss_weight > 0:
                 b_loss = boundary_loss(
                     upgrade_out["boundary_logits"],
@@ -421,6 +462,11 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         if unit_byte_count:
             report["unit_byte_bpb"] = float(
                 (unit_byte_total / unit_byte_count) / math.log(2))
+        if lookahead_count:
+            report["lookahead_bpb"] = float(
+                lookahead_total / (2 * lookahead_count) / math.log(2))
+        if critic_count:
+            report["critic_mse"] = float(critic_total / critic_count)
         return report
     if use_aux:
         if use_hierarchy:
@@ -438,12 +484,36 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
             top5_value = top5_byte_loss(logits, target)
             objective = objective + top5_byte_loss_weight * top5_value
         b_loss = None
+        lookahead_value = None
+        critic_value = None
         if (upgrade_out is not None and sequence_targets is not None
                 and upgrade_sequence_loss_weight > 0):
             seq_logits = upgrade_out["logits"][0].float()
             seq_loss = F.cross_entropy(
                 seq_logits.transpose(1, 2), sequence_targets)
             objective = objective + upgrade_sequence_loss_weight * seq_loss
+        if (upgrade_out is not None
+                and (lookahead_loss_weight > 0 or critic_loss_weight > 0)):
+            extended = torch.cat((history, target[:, None]), dim=1)
+            if (lookahead_loss_weight > 0
+                    and upgrade_out["logits"].shape[-2] >= 3):
+                horizon2 = F.cross_entropy(
+                    upgrade_out["logits"][1][:, :-1].float().transpose(1, 2),
+                    extended[:, 2:])
+                horizon3 = F.cross_entropy(
+                    upgrade_out["logits"][2][:, :-2].float().transpose(1, 2),
+                    extended[:, 3:])
+                lookahead_value = horizon2 + horizon3
+                objective = objective + (
+                    lookahead_loss_weight * lookahead_value)
+            if critic_loss_weight > 0:
+                with torch.no_grad():
+                    observed = F.cross_entropy(
+                        upgrade_out["logits"][0].float().transpose(1, 2),
+                        extended[:, 1:], reduction="none")
+                critic_value = F.mse_loss(
+                    upgrade_out["critic"].float(), observed)
+                objective = objective + critic_loss_weight * critic_value
         if upgrade_out is not None and boundary_loss_weight > 0:
             b_loss = boundary_loss(
                 upgrade_out["boundary_logits"],
@@ -532,6 +602,11 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         report["upgrade_bpb"] = upgrade_bpb
     if b_loss is not None:
         report["boundary_bce"] = float(b_loss.detach())
+    if lookahead_value is not None:
+        report["lookahead_bpb"] = float(
+            lookahead_value.detach() / (2 * math.log(2)))
+    if critic_value is not None:
+        report["critic_mse"] = float(critic_value.detach())
     report.update(u_stats)
     if top5_value is not None:
         report["top5_byte_loss"] = float(top5_value.detach())
@@ -751,6 +826,12 @@ def main(argv=None):
     p.add_argument("--upgrade-sequence-loss-weight", type=float, default=0.0,
                    help="Train the upgrade branch on every byte position in "
                         "the window, not only its final target")
+    p.add_argument("--lookahead-loss-weight", type=float, default=0.0,
+                   help="Train the +2 and +3 byte heads on targets already "
+                        "inside the causal window")
+    p.add_argument("--critic-loss-weight", type=float, default=0.0,
+                   help="Train the surprise critic to predict observed "
+                        "next-byte cross-entropy")
     p.add_argument("--word-boundary-loss-weight", type=float, default=0.0,
                    help="Train word heads on every boundary in the window")
     p.add_argument("--word-top5-loss-weight", type=float, default=0.0,
@@ -1458,6 +1539,8 @@ def main(argv=None):
                     word_boundary_loss_weight=args.word_boundary_loss_weight,
                     word_top5_loss_weight=args.word_top5_loss_weight,
                     word_ngram_weight=args.word_ngram_weight,
+                    lookahead_loss_weight=args.lookahead_loss_weight,
+                    critic_loss_weight=args.critic_loss_weight,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0))
             sampler["cursor"] += batch
             step += 1
@@ -1586,6 +1669,8 @@ def main(argv=None):
                     word_boundary_loss_weight=0.0,
                     word_top5_loss_weight=0.0,
                     word_ngram_weight=0.0,
+                    lookahead_loss_weight=args.lookahead_loss_weight,
+                    critic_loss_weight=args.critic_loss_weight,
                     freeze_parent=(args.legacy_core_lr_scale == 0.0)))
                 shard_bpbs = controller.probe.evaluate(
                     clone_model, chunk_size=controller.config.eval_chunk)
