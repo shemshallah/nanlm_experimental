@@ -349,3 +349,21 @@ coverage problem (97.6% at K1000) or a selector-coverage problem (84.3% at K50).
 It is a **word-model capacity/data** problem: the GRU is the strongest predictor
 and the selector cannot exceed it materially. The next lever is a larger word
 model trained on much more than 80 MB, or a 16k/OOV-aware word model.
+
+## 4-hour sequence-loss continuation (partial, platform kill)
+
+| item | value |
+|---|---:|
+| resumed from | step 2400 |
+| last step | 4080 |
+| updates into run | 1,680 |
+| elapsed | 9,571 / 14,400 s |
+| train BPB | **1.96-2.07** |
+| bit accuracy | 92.0% |
+| rate | 0.18 updates/s |
+| last Kaggle version | 06:52 UTC, step ~4050 + log |
+| final metrics | **not written**; container killed at 06:52 UTC |
+
+The all-position loss reduced train BPB from ~2.2 to **1.96** by step 4080.
+Remaining budget: ~4,800 s plus final DEV/WikiText eval. Resume from the 06:52
+Kaggle checkpoint on the next session.
