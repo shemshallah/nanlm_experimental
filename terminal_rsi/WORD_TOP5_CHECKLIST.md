@@ -308,3 +308,44 @@ K50 has 84.5% conditional but only 66.8% coverage; K1000 has 98.5% coverage but
 54.5% conditional. Best overall remains 56.4% at K50. The 80% target now requires
 a better **shortlist** (high recall at 50-100 candidates) or a much stronger
 word-level context model; more candidates alone will not do it.
+
+## CORRECTION: 80 MB cache label-alignment bug
+
+The first 80 MB cache used global training labels with local dev positions.
+That invalidated the earlier 80 MB selector numbers (K50 56.4, K1000 53.7).
+The cache is fixed: local excerpt word IDs, local previous words, local targets.
+
+Corrected cache: 2,549 records, 64 books.
+
+Corrected coverage (union with GRU source):
+
+| K | recall |
+|---:|---:|
+| 50 | 84.3% |
+| 100 | 89.1% |
+| 200 | 90.9% |
+| 500 | 94.2% |
+| 1000 | 97.6% |
+
+Word GRU:
+- small 128/256, 12 epochs: **57.14% top-5** (7,651 dev tokens)
+- big 256/512, 20 epochs: **59.22% top-5**
+
+Selector sweep with GRU source (train 1,259 / test 1,290):
+
+| K | coverage | conditional | overall |
+|---:|---:|---:|---:|
+| 50 | 84.3% | **69.7%** | **58.8%** |
+| 100 | 89.1% | 65.7% | 58.6% |
+| 200 | 90.9% | 64.1% | 58.3% |
+| 500 | 94.2% | 62.1% | 58.5% |
+| 1000 | 97.6% | 60.0% | 58.6% |
+
+Best overall remains **58.8%**; the GRU alone (59.2%) is essentially the whole system.
+The selector does not add value over the GRU at this data scale.
+
+**Conclusion:** after fixing the cache, the 80% gap is no longer a candidate
+coverage problem (97.6% at K1000) or a selector-coverage problem (84.3% at K50).
+It is a **word-model capacity/data** problem: the GRU is the strongest predictor
+and the selector cannot exceed it materially. The next lever is a larger word
+model trained on much more than 80 MB, or a 16k/OOV-aware word model.
