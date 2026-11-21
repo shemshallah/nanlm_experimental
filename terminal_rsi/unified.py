@@ -258,7 +258,6 @@ class TerminalRSI(nn.Module):
                        + 2 * (TOKEN_VOCAB_SIZE + self.word_vocab_size)
                        + SENTENCE_VOCAB_SIZE)
         self.fast_adapter = RankAdapter(adapter_dim, rank=16)
-        self.fast_adapter.requires_grad_(False)
         self.symbiotic_feedback = nn.Sequential(
             nn.Linear(adapter_dim + 256, 64),
             nn.GELU(),

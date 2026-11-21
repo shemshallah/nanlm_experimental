@@ -520,9 +520,10 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         upgrade_out = None
     grad_norm = float(nn.utils.clip_grad_norm_(model.parameters(), grad_clip))
     optimizer.step()
-    if not freeze_parent:
-        model.original.observe_online_bits(history[:, -32:], target, aux)
-        model.observe_verified_byte(bpb, accuracy)
+    # Feedback state is read-only w.r.t. parent gradients: update it even
+    # when the parent weights are frozen, otherwise trust/feedback loops die.
+    model.original.observe_online_bits(history[:, -32:], target, aux)
+    model.observe_verified_byte(bpb, accuracy)
     report = {"bpb": bpb, "bit_accuracy": accuracy,
               "grad_norm": grad_norm, "grad_clip": grad_clip}
     if upgrade_bpb is not None:
@@ -679,6 +680,9 @@ def main(argv=None):
                    help="LR multiplier for inherited parent groups when --init-weights")
     p.add_argument("--word-vocab-size", type=int, default=4096,
                    help="Word-head vocabulary size (including UNK); 4096 or 16384")
+    p.add_argument("--reopen-gates", type=float, default=None,
+                   help="Fresh/resume gate value for hierarchy, MoE and "
+                        "symbiosis feedback paths; None preserves the checkpoint")
     p.add_argument("--residual-gate-init", type=float, default=0.0,
                    help="Fresh-start scalar residual gate before training; "
                         "tanh(value) is the branch mixing weight")
@@ -1117,6 +1121,10 @@ def main(argv=None):
             model.upgrades.upgrade_gate.bias.fill_(
                 args.upgrade_gate_bias_init)
     model.word_prior_byte_scale = float(args.word_prior_byte_scale)
+    if args.reopen_gates is not None:
+        from .feedback_audit import reopen_gates
+        reopened = reopen_gates(model, args.reopen_gates)
+        print("Reopened feedback gates:", len(reopened), flush=True)
     # RSI owns the training loop. Its action policy proposes real changes to
     # the specialist router, feedback gain and additive-capacity gate; only
     # verified internal TRAIN-probe improvements survive a mutation cycle.

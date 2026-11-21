@@ -311,7 +311,8 @@ def build_v103_optimizer(model: VerbatimV103RSI, *,
             continue
         if (name.startswith("hierarchy.unit_heads.")
                 or name.startswith("hierarchy.unit_to_byte.")
-                or name == "hierarchy.unit_byte_gate"):
+                or name == "hierarchy.unit_byte_gate"
+                or name.startswith("fast_adapter.")):
             side.append(parameter)
         else:
             added.append(parameter)
