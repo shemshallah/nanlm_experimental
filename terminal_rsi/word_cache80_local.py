@@ -130,16 +130,16 @@ def main() -> int:
             _, _, _, out = model(
                 windows, targets, aux_rows,
                 return_aux=True, return_hierarchy=True)
-            heads = out["unit_logits"]["word"].float().cpu()
+            heads = out["unit_logits"]["word"].float().detach().cpu()
             prev = torch.zeros((len(part), 3), dtype=torch.long)
             for row, idx in enumerate(part):
                 history = ids[max(0, idx - 3):idx]
                 history = [0] * (3 - len(history)) + history
                 prev[row] = torch.tensor(history[-3:])
             prev = prev.to(device)
-            bridge = model.word_bridge(prev).float().cpu()
+            bridge = model.word_bridge(prev).float().detach().cpu()
             prior = model.word_ngram_prior(
-                prev[:, 0], prev[:, 1], prev[:, 2]).float().cpu()
+                prev[:, 0], prev[:, 1], prev[:, 2]).float().detach().cpu()
             for row, idx in enumerate(part):
                 ppm = ppm_rank(ids, idx, counts, uni_top)
                 cache = cache_rank(recent)
