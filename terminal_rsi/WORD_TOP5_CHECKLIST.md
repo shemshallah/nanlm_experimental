@@ -11,10 +11,10 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 | W0.1 | Fix eval double n-gram add | TESTED | fixed; true in-vocab head 12.6%, all-class 42.3% |
 | W0.2 | Keep UNK in word n-gram stream | TESTED | fixed; prior can predict UNK |
 | W0.3 | 5k+ word-unit eval cache | TODO | 16 books x 256 positions = 1,314 units (partial) |
-| W0.4 | Coverage / OOV audit by domain | TODO | 4k vs 16k, raw vs normalized tokenization |
-| W0.5 | Punctuation/case-normalized tokenizer | TODO | lower/strip punctuation; rebuild vocab |
-| W0.6 | 16k vocabulary coverage | TODO | measure ceiling; flat/PQ later |
-| W0.7 | UNK calibration / copy surface | TODO | logistic UNK gate; report observed separately |
+| W0.4 | Coverage / OOV audit by domain | TESTED | 4k vs 16k, raw vs normalized tokenization |
+| W0.5 | Punctuation/case-normalized tokenizer | TESTED | lower/strip punctuation; rebuild vocab |
+| W0.6 | 16k vocabulary coverage | TESTED (coverage only) | measure ceiling; flat/PQ later |
+| W0.7 | UNK calibration / copy surface | TESTED (UNK channel; no coverage gain) | logistic UNK gate; report observed separately |
 | W0.8 | Normalize all priors to log-probabilities | TODO | current 4-gram scatter is unnormalized |
 | W0.9 | Book/chunk sentinels for retrieval | TODO | no matches across books |
 
@@ -25,9 +25,9 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 | W1.1 | Word PPM orders 1-8, longest-match + backoff | TESTED | 2,608 units: top1 31.75%, top5 51.92%, top20 59.97% |
 | W1.2 | Exact suffix array / FM-index | TODO | collision-free counts, PPM exclusion |
 | W1.3 | CTW / context-tree weighting | TODO | Bayesian depth mixture |
-| W1.4 | LZP last-occurrence predictor | TODO | confidence-gated copy |
-| W1.5 | Recency / burstiness cache | TODO | document cache, decay |
-| W1.6 | Copy / entity / name cache | TODO | capitalized entities, pronouns |
+| W1.4 | LZP last-occurrence predictor | TESTED | confidence-gated copy |
+| W1.5 | Recency / burstiness cache | TESTED | document cache, decay |
+| W1.6 | Copy / entity / name cache | TESTED (copy only) | capitalized entities, pronouns |
 | W1.7 | BM25 / kNN context retrieval | TODO | rare-word inverted index |
 | W1.8 | Phrase table / Re-Pair grammar | TODO | 2-6-gram maximal phrases |
 | W1.9 | Solomonoff/MDL program library | DEFERRED | after CTW; copy/repeat/grammar programs |
@@ -37,8 +37,8 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 
 | ID | Item | Status | Test / result |
 |---|---|---|---|
-| W2.1 | Candidate union (head, PPM, beam, cache, bridge) | TODO | recall@32/64/128/256 |
-| W2.2 | Listwise reranker (MLP/GRU) | TODO | listwise + top5 hinge |
+| W2.1 | Candidate union (head, PPM, cache, bridge) | TESTED | recall@32/64/128/256 |
+| W2.2 | Listwise reranker (MLP/GRU) | TESTED | listwise + top5 hinge |
 | W2.3 | Direct previous-word skip into head | TODO | prev 3 x 64-d embeddings |
 | W2.4 | Lexicon-constrained byte beam | TODO | 4k trie, exact word scores |
 | W2.5 | Ising/DPP reranker | TODO | PMI fields + diversity |
@@ -54,7 +54,7 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 | W3.1 | Brown/bisecting cluster hierarchical softmax | TODO | 64-128 clusters |
 | W3.2 | Spherical / PMI-SVD label embeddings | TODO | PPMI-SVD init, cosine head |
 | W3.3 | Product-quantized 16k tail | TODO | 2x128 / 3x32 codebooks |
-| W3.4 | 16k flat head upper bound | TODO | coverage vs ranking |
+| W3.4 | 16k flat head upper bound | TESTED (coverage only) | coverage vs ranking |
 | W3.5 | Low-rank / hyperbolic label geometry | DEFERRED | after spherical |
 | W3.6 | Class-based n-gram backoff | TODO | cluster transitions |
 
@@ -75,10 +75,10 @@ Primary dev: 16 MB pilot, book-disjoint, >=1,000 word units. Secondary: 80 MB.
 
 | ID | Item | Status | Test / result |
 |---|---|---|---|
-| W5.1 | Clonal-selection immune memory | TODO | prototype bank, KNN, recency |
+| W5.1 | Clonal-selection immune memory | TESTED (kNN proxy) | prototype bank, KNN, recency |
 | W5.2 | Echo-state reservoir | TODO | 2 timescales, ridge readout |
-| W5.3 | HRR / holographic reduced representations | TODO | circular convolution, bundling |
-| W5.4 | STDP spiking trace memory | TODO | sparse codes, delays, traces |
+| W5.3 | HRR / holographic reduced representations | TESTED | circular convolution, bundling |
+| W5.4 | STDP spiking trace memory | TESTED (decayed-transition proxy) | sparse codes, delays, traces |
 | W5.5 | Kuramoto oscillator prior | TODO | phase advance, resonance |
 | W5.6 | Cellular automaton / hypergraph | DEFERRED | after cheaper aliens |
 | W5.7 | Ant-colony / Physarum flow | TODO | word graph diffusion |
