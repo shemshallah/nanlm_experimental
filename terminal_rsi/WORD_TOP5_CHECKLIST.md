@@ -238,3 +238,21 @@ shortlist/selector loses too much. The 80% path now requires:
 The strongest single source is the prior at top-1000 (92.56% coverage). A source-aware
 sheaf/Ising gate over a 1000-candidate prior/head/bridge union, plus more training
 data, is the next selector experiment. The 16 MB data budget remains a ceiling.
+
+## MLP stage-1 selector (rerun after server restart)
+
+| item | value |
+|---|---:|
+| candidate coverage@1000 | 93.29% |
+| stage-1 MLP shortlist recall@50 | 75.97% |
+| stage-2 overall top-5 (903 covered) | 53.38% |
+| stage-2 overall top-5 over all 968 | ~49.8% |
+| stage-2 conditional top-5 | 70.26% |
+
+The MLP stage 1 did not materially beat the linear stage 1 (75.0 -> 76.0).
+The selector is data/feature-limited, not capacity-limited. With 16 MB and 968
+training boundaries, a 1,000-candidate listwise selector cannot reach the ~86%
+conditional accuracy needed for 80%.
+
+Next decisive run: 80 MB pilot + 5-6k word-boundary cache + the same selector.
+Server restart preserved the 16 MB cache and results.
