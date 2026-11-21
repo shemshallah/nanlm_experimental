@@ -508,3 +508,15 @@ Feedback traceroute fixes:
 - `--reopen-gates` for hierarchy/MoE/symbiosis paths
 - checkpoint gate audit found dead: symbiosis, four backbone MoE gates, top_moe
 - 5-minute gate-reopen smoke (0.1) is running against step 4170.
+
+### Feedback/OOV follow-up
+
+- OOV speller now uses the main 256-way byte head; real checkpoint demo after
+  "The quick brown " gives "of", "to", "integration(s)".
+- Fast adapter is trained on fresh runs; on legacy resume it is frozen because
+  the old four-group Adam state cannot accept extra parameters. `--train-fast-adapter`
+  exists but is only safe for checkpoints whose optimizer already has them.
+- Gate audit found dead symbiosis, four backbone MoE gates, and top_moe.
+  A 5-minute step-4170 continuation with all gates reopened at 0.1 is running
+  (`trsi_100m_gate_smoke2`); result pending.
+- 46 tests pass.
