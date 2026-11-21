@@ -470,3 +470,26 @@ Coverage on the same book-disjoint DEV:
 16k is not full OOV coverage: 15.5% of 80 MB dev tokens are still outside the
 vocabulary. Reaching >95% needs a larger tail (64k/PQ) or a character/byte OOV
 fallback, not 16k alone.
+
+## OOV byte fallback + feedback-loop traceroute
+
+Implemented:
+- `terminal_rsi/oov_fallback.py`: beam speller over the hierarchy's 256-way
+  `unit_byte_raw` decoder; returns OOV surface candidates from a history ending
+  at a word start. No target bytes enter the context. 46 tests pass.
+- `terminal_rsi/feedback_audit.py`: audits/reopens every hierarchy, MoE and
+  symbiosis scalar gate. CLI works on a checkpoint.
+- Feedback state now updates even when parent weights are frozen
+  (`observe_online_bits` + `observe_verified_byte` unconditionally).
+- `fast_adapter` is no longer frozen and is in the `unit_side_heads` optimizer
+  group.
+- `--reopen-gates` on `train_verbatim` and the resume launcher.
+
+Audit of the step-4170 checkpoint found these disconnected paths:
+- `upgrades.symbiosis_gate` (-0.0023)
+- `upgrades.backbone.1/4/7/10.moe.gate`
+- `upgrades.hierarchy.top_moe.gate`
+
+Other hierarchy gates were small but above threshold. A 5-minute continuation
+from step 4170 with all of them reopened at 0.1 is running to measure whether
+reconnection helps or destabilizes the model.
