@@ -493,3 +493,18 @@ Audit of the step-4170 checkpoint found these disconnected paths:
 Other hierarchy gates were small but above threshold. A 5-minute continuation
 from step 4170 with all of them reopened at 0.1 is running to measure whether
 reconnection helps or destabilizes the model.
+
+### OOV speller correction
+
+The first real-model demo used `unit_byte_raw` and produced nonsense
+("integrally/integered" after "The quick brown "). The speller now uses the
+main 256-way `upgrades["logits"]` byte head. Real checkpoint demo after
+"The quick brown " gives "of", "to", "integration(s)" — still a weak LM, but a
+real distribution instead of a side-decoder artifact.
+
+Feedback traceroute fixes:
+- feedback state updates even when parent weights are frozen
+- `fast_adapter` unfrozen and moved into `unit_side_heads`
+- `--reopen-gates` for hierarchy/MoE/symbiosis paths
+- checkpoint gate audit found dead: symbiosis, four backbone MoE gates, top_moe
+- 5-minute gate-reopen smoke (0.1) is running against step 4170.
