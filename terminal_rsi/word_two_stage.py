@@ -114,9 +114,9 @@ def main() -> int:
             return self.fc(x).squeeze(-1)
 
     dim = len(train_ex[0]["features"][0])
-    stage1 = LinearRanker(dim).to(DEVICE)
+    stage1 = Net(dim).to(DEVICE)
     opt1 = torch.optim.AdamW(stage1.parameters(), lr=1e-3, weight_decay=1e-2)
-    for epoch in range(50):
+    for epoch in range(30):
         stage1.train()
         total = 0.0
         for ex in train_ex:
