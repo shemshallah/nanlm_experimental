@@ -610,3 +610,38 @@ stopping. 56 tests pass.
 
 20-minute smoke: `trsi_100m_deep_smoke`, resumed from step 4224, gates 0.1,
 `--train-fast-adapter`, lookahead 0.1, critic 0.03, word n-gram 0.5.
+
+## 20-minute deeper-wiring smoke (step 4224 -> 4442)
+
+Run: `trsi_100m_deep_smoke`, 218 updates, resumed from step 4224 with
+gates at 0.1, `--train-fast-adapter`, lookahead 0.1, critic 0.03,
+word n-gram 0.5. Kaggle version 57 (22:07 UTC) has `last.pt` + `metrics.json`
+for step 4442.
+
+DEV (512 positions):
+
+| metric | step 4170 | step 4224 | step 4442 (deep) |
+|---|---:|---:|---:|
+| DEV BPB | 1.9561 | 1.9658 | 1.9963 |
+| DEV byte top-1 | 60.94% | 58.20% | 58.59% |
+| DEV byte top-5 | 89.06% | 88.28% | 89.84% |
+| fast-adapter delta | 0.0 | 0.0 | **+0.0027 BPB** |
+
+Held-out WikiText, same 8 excerpts x 64 positions (paired):
+
+| checkpoint | wt_test BPB | wt_test byte/word top-5 | wt103_valid BPB | wt103_valid byte/word top-5 |
+|---|---:|---:|---:|---:|
+| step 4170 | 2.6342 | 80.66 / 34.82 | 2.5578 | 79.49 / 28.30 |
+| step 4224 gates | 2.6047 | 79.49 / 31.25 | 2.4745 | 79.10 / 29.25 |
+| step 4442 deep | 2.5865 | 80.08 / 33.93 | 2.5483 | 78.12 / 28.30 |
+
+The deep run improves WikiText-2 test BPB and word top-5 over the gate
+checkpoint (+2.7 points word top-5), but regresses WikiText-103 valid. The
+direction is inconsistent across the two held-out sets and the 512-position
+samples are noisy, so this is **not** evidence that the lookahead/critic weights
+are ready for a long run. They remain opt-in defaults (0.0). The trained fast
+adapter is the one unambiguous gain: its held-out contribution is now nonzero
+and positive instead of exactly 0.0.
+
+Next tuning run should use a much smaller lookahead weight (0.01-0.02) or
+critic-only, and a larger held-out eval before adopting either loss.
