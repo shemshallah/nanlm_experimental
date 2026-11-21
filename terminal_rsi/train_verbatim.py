@@ -251,6 +251,7 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"{name} loss weight must be finite and nonnegative")
     model.train()
+    top5_value = None
     n = len(target)
     use_aux = upgrade_loss_weight > 0
     use_hierarchy = use_aux and (
