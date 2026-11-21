@@ -266,6 +266,8 @@ def train_one_batch(model: VerbatimV103RSI, optimizer, history: torch.Tensor,
         or distill_weight > 0 or moe_loss_weight > 0
         or word_boundary_loss_weight > 0
         or lookahead_loss_weight > 0 or critic_loss_weight > 0)
+    lookahead_value = None
+    critic_value = None
     if microbatch and microbatch < n:
         optimizer.zero_grad(set_to_none=True)
         total_loss = None
