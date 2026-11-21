@@ -275,3 +275,36 @@ The MLP stage-1 selector result is recorded above (53.38% overall on 903 covered
 
 Server status: HTTP 410 after the restart; need a fresh Molab pair prompt to run
 the sheaf/lexicon/linguistic/alien probes and the 80 MB selector.
+
+## 80 MB run (6-hour checkpoint, 2,240 word boundaries)
+
+Candidate coverage over 1,120 held-out boundaries:
+
+| K | recall |
+|---:|---:|
+| 20 | 65.7% |
+| 50 | 69.0% |
+| 100 | 77.7% |
+| 200 | 84.2% |
+| 500 | 91.0% |
+| 1000 | **98.5%** |
+| 2000 | 100% |
+
+Single-stage selector sweep (train 1,120 / test 1,120):
+
+| K | coverage | conditional top-5 | overall top-5 |
+|---:|---:|---:|---:|
+| 50 | 66.8% | **84.5%** | **56.4%** |
+| 100 | 77.7% | 69.9% | 54.3% |
+| 200 | 84.2% | 64.9% | 54.6% |
+| 500 | 91.0% | 56.7% | 51.6% |
+| 1000 | 98.5% | 54.5% | 53.7% |
+
+Sheaf fusion CLI (280 fit records): coverage 77.8%, conditional 62.6%, overall 48.7%.
+
+**Conclusion (80 MB):** coverage is solved at top-1000 (98.5%), but the selector's
+conditional accuracy and the shortlist coverage trade off almost perfectly:
+K50 has 84.5% conditional but only 66.8% coverage; K1000 has 98.5% coverage but
+54.5% conditional. Best overall remains 56.4% at K50. The 80% target now requires
+a better **shortlist** (high recall at 50-100 candidates) or a much stronger
+word-level context model; more candidates alone will not do it.
