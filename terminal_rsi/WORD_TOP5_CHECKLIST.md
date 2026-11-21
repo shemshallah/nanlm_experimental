@@ -199,3 +199,42 @@ W2.5 Ising/DPP, W2.6 sheaf, W2.8 policy, W3.1-W3.3 hierarchical/PMI/PQ,
 W3.4 16k ranking, W4.1-W4.8 linguistic, W5.2 reservoir, W5.5 Kuramoto,
 W5.6 CA, W5.7 ant/Physarum, W5.8 Ising memory, W5.9 persistence,
 W6.4 RG blocks, W6.5 free energy, W6.6 MPS, W6.8 quantum, W6.9 Solomonoff.
+
+## Coverage curve and two-stage selector
+
+True coverage over all 968 test word positions:
+
+| candidate set | recall |
+|---|---:|
+| head top-100 | 63.2% |
+| prior top-100 | 76.0% |
+| union top-20 | 64.9% |
+| union top-100 | 79.75% |
+| union top-500 | 90.08% |
+| union top-1000 | **93.29%** |
+| union top-2000 | **100%** |
+| prior top-1000 alone | 92.56% |
+
+UNK channel: adding class 0 did **not** raise coverage; the missing targets are rare
+in-vocabulary words, not OOV.
+
+Two-stage selector (stage 1 linear listwise over head/bridge/prior top-1000 +
+PPM/cache/copy; stage 2 MLP on top-50):
+
+| item | value |
+|---|---:|
+| candidate coverage@1000 | 93.29% |
+| stage-1 shortlist recall@50 | 74.97% |
+| stage-2 overall top-5 (903 covered) | 52.71% |
+| stage-2 overall top-5 over all 968 | ~49.2% |
+| stage-2 conditional top-5 | 70.31% |
+| stage-2 top-1 | 38.21% |
+
+**New wall:** candidate coverage is sufficient (93% at 1000; 100% at 2000), but the
+shortlist/selector loses too much. The 80% path now requires:
+1. stage-1 shortlist recall >=95% (currently 75%), and
+2. stage-2 conditional top-5 >=85% (currently 70%).
+
+The strongest single source is the prior at top-1000 (92.56% coverage). A source-aware
+sheaf/Ising gate over a 1000-candidate prior/head/bridge union, plus more training
+data, is the next selector experiment. The 16 MB data budget remains a ceiling.
