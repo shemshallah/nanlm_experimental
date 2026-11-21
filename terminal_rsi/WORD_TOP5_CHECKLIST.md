@@ -587,3 +587,26 @@ Enable with `--init-weights <4k.pt> --word-vocab-size 16384
 Next fresh run: 16k vocabulary warm-started from `trsi_100m_4h_finish`,
 gates opened at 0.1, fast adapter live, word n-gram weight 0.5, OOV byte
 speller available as the UNK surface fallback.
+
+## Deeper architecture wiring
+
+The main `train_verbatim` loop was only training `output[0]` (next byte). Two
+declared components were computed on every step but never received a loss:
+
+- `output[1]` / `output[2]` (+2 and +3 byte heads),
+- `critic` (predicted next-byte surprise, used inside the recursive pass).
+
+New flags:
+- `--lookahead-loss-weight`: CE on the +2/+3 heads using targets already inside
+  the causal window; the final 1-2 positions are masked by construction.
+- `--critic-loss-weight`: MSE between `critic` and detached observed next-byte
+  CE, so the recursive feedback signal is a trained surprise estimate instead
+  of a random projection.
+
+Both default to 0.0 for old runs. `train_one_batch` activates `upgrade_out`
+when either loss is requested, and reports `lookahead_bpb` / `critic_mse`.
+`generate_words` now spells UNK word IDs with the byte OOV speller instead of
+stopping. 56 tests pass.
+
+20-minute smoke: `trsi_100m_deep_smoke`, resumed from step 4224, gates 0.1,
+`--train-fast-adapter`, lookahead 0.1, critic 0.03, word n-gram 0.5.
