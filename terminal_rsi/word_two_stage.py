@@ -139,7 +139,7 @@ def main() -> int:
             scores = stage1(ex["features"].to(DEVICE))
             order = torch.argsort(-scores)[:top].tolist()
             cand = [ex["candidates"][j] for j in order]
-            idx = torch.tensor(order, device=DEVICE)
+            idx = torch.tensor(order)
             out.append({"candidates": cand,
                         "features": ex["features"][idx],
                         "target": ex["target"],
