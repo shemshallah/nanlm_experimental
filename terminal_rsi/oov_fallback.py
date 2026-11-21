@@ -44,9 +44,15 @@ def next_byte_logprobs(model, contexts: list[bytes],
     device = device or next(model.parameters()).device
     x = _batch_contexts(contexts).to(device)
     out = model.upgrades(x)
-    raw = out.get("unit_byte_raw")
+    # Prefer the main 256-way byte head.  unit_byte_raw is a side decoder and
+    # is materially weaker (it produced nonsense after "The quick brown ").
+    logits = out.get("logits")
+    if logits is not None:
+        raw = logits[0][:, -1, :]
+    else:
+        raw = out.get("unit_byte_raw")
     if raw is None:
-        raise RuntimeError("model has no unit_byte_raw decoder")
+        raise RuntimeError("model has no byte decoder")
     return F.log_softmax(raw.float(), dim=-1)
 
 
