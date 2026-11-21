@@ -676,6 +676,8 @@ def main(argv=None):
                    help="Initialize model weights only from a unified checkpoint; reset optimizer/step for new data")
     p.add_argument("--init-core-lr-scale", type=float, default=0.1,
                    help="LR multiplier for inherited parent groups when --init-weights")
+    p.add_argument("--word-vocab-size", type=int, default=4096,
+                   help="Word-head vocabulary size (including UNK); 4096 or 16384")
     p.add_argument("--residual-gate-init", type=float, default=0.0,
                    help="Fresh-start scalar residual gate before training; "
                         "tanh(value) is the branch mixing weight")
@@ -848,6 +850,8 @@ def main(argv=None):
         p.error("Parent warm-start LR scale must be nonnegative")
     if args.word_prior_byte_scale < 0:
         p.error("Word-prior byte scale must be nonnegative")
+    if args.word_vocab_size < 2:
+        p.error("Word vocabulary size must be at least 2")
     for name, value in (("unit", args.unit_loss_weight),
                         ("distill", args.distill_weight),
                         ("moe", args.moe_loss_weight),
@@ -953,7 +957,9 @@ def main(argv=None):
         raise AssertionError("Original feature-target offset mismatch")
     unit_labels = None
     if args.unit_loss_weight > 0:
-        unit_labels = build_unit_labels(raw, args.bpe_merges)
+        unit_labels = build_unit_labels(
+            raw, args.bpe_merges,
+            word_vocab_size=args.word_vocab_size)
         print(
             "Unit labels:",
             f"tokens={len(unit_labels.token_vocab)}",
@@ -963,7 +969,8 @@ def main(argv=None):
         )
     dev_aux = heldout_auxiliary(str(args.dev_bin), device, ranks, memory)
     raw_tensor = torch.frombuffer(bytearray(raw), dtype=torch.uint8)
-    model = VerbatimV103RSI(args.mode).to(device)
+    model = VerbatimV103RSI(
+        args.mode, word_vocab_size=args.word_vocab_size).to(device)
     if unit_labels is not None:
         model.set_word_vocab(unit_labels.word_vocab)
         model.set_word_ngram(raw)
@@ -996,6 +1003,12 @@ def main(argv=None):
         if init_checkpoint.get("schema") != (
                 "terminal-rsi-verbatim-v103-plus-upgrades-v1"):
             raise ValueError("--init-weights is not a unified Terminal-RSI checkpoint")
+        saved_vocab = int(init_checkpoint.get(
+            "word_vocab_size", 4096))
+        if saved_vocab != int(args.word_vocab_size):
+            raise ValueError(
+                "--init-weights word vocabulary size does not match "
+                f"(--word-vocab-size {args.word_vocab_size} vs {saved_vocab})")
         if init_checkpoint.get("config") != vars(model.cfg):
             raise ValueError("--init-weights mode/architecture mismatch")
         model.load_state_dict(init_checkpoint["model"], strict=False)

@@ -215,7 +215,8 @@ class UnitLabels:
 def build_unit_labels(raw: bytes, bpe_merges: Path, *,
                       token_vocab: dict[int, int] | None = None,
                       word_vocab: dict[bytes, int] | None = None,
-                      sentence_vocab: dict[int, int] | None = None) -> UnitLabels:
+                      sentence_vocab: dict[int, int] | None = None,
+                      word_vocab_size: int = WORD_VOCAB_SIZE) -> UnitLabels:
     """Build causal next-unit labels; optionally reuse a training vocabulary."""
     ranks = read_bpe_ranks(Path(bpe_merges))
     if not ranks:
@@ -230,8 +231,11 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
 
     word_pairs = _word_tokens(raw)
     word_starts = [start for start, _end, _word in word_pairs]
+    if int(word_vocab_size) < 2:
+        raise ValueError("word_vocab_size must be at least 2")
     word_vocab = word_vocab or _top_vocab(
-        [word for _start, _end, word in word_pairs], WORD_VOCAB_SIZE - 1)
+        [word for _start, _end, word in word_pairs],
+        int(word_vocab_size) - 1)
     word_values = [word_vocab.get(word, UNK_ID)
                    for _start, _end, word in word_pairs]
 
@@ -339,16 +343,20 @@ def build_unit_labels(raw: bytes, bpe_merges: Path, *,
 class UnitHeads(nn.Module):
     """Three classification heads over bus states plus the byte hidden state."""
 
-    def __init__(self, bus_width: int, byte_width: int | None = None):
+    def __init__(self, bus_width: int, byte_width: int | None = None,
+                 word_vocab_size: int = WORD_VOCAB_SIZE):
         super().__init__()
         byte_width = bus_width if byte_width is None else byte_width
+        if int(word_vocab_size) < 2:
+            raise ValueError("word_vocab_size must be at least 2")
+        self.word_vocab_size = int(word_vocab_size)
         self.byte_proj = nn.Linear(byte_width, bus_width, bias=False)
         width = 2 * bus_width
         self.token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
-        self.word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        self.word = nn.Linear(width, self.word_vocab_size, bias=False)
         self.sentence = nn.Linear(width, SENTENCE_VOCAB_SIZE, bias=False)
         self.current_token = nn.Linear(width, TOKEN_VOCAB_SIZE, bias=False)
-        self.current_word = nn.Linear(width, WORD_VOCAB_SIZE, bias=False)
+        self.current_word = nn.Linear(width, self.word_vocab_size, bias=False)
         nn.init.normal_(self.byte_proj.weight, std=0.02)
         for head in (self.token, self.word, self.sentence,
                      self.current_token, self.current_word):
@@ -430,11 +438,12 @@ def unit_head_loss(logits: dict[str, torch.Tensor],
     return total, stats
 
 
-def unit_parameter_count(bus_width: int, byte_width: int | None = None) -> int:
+def unit_parameter_count(bus_width: int, byte_width: int | None = None,
+                         word_vocab_size: int = WORD_VOCAB_SIZE) -> int:
     byte_width = bus_width if byte_width is None else byte_width
     return (byte_width * bus_width + 2 * bus_width * (
-        TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE + SENTENCE_VOCAB_SIZE
-        + TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE))
+        TOKEN_VOCAB_SIZE + int(word_vocab_size) + SENTENCE_VOCAB_SIZE
+        + TOKEN_VOCAB_SIZE + int(word_vocab_size)))
 
 
 @torch.no_grad()

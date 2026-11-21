@@ -37,7 +37,8 @@ def hierarchy_bus_width(width: int) -> int:
     return max(16, width // 4)
 
 
-def hierarchy_parameter_count(width: int) -> int:
+def hierarchy_parameter_count(width: int,
+                              word_vocab_size: int = WORD_VOCAB_SIZE) -> int:
     """Exact parameter count of :class:`CausalHierarchy`."""
     bw = hierarchy_bus_width(width)
     return (
@@ -51,14 +52,16 @@ def hierarchy_parameter_count(width: int) -> int:
         + width + 3 * bw                        # input + three level RMSNorm
         + pair_parameter_count(bw)              # 65,536 paired concepts
         + 2 * moe_parameter_count(bw)           # top MoE + bottom extensions
-        + unit_parameter_count(bw, width)       # real token/word/sentence heads
-        + unit_decoder_parameter_count(width)  # unit+hierarchy -> byte MLP
+        + unit_parameter_count(bw, width, word_vocab_size)  # real heads
+        + unit_decoder_parameter_count(width, word_vocab_size)  # -> byte
     )
 
 
-def unit_decoder_parameter_count(width: int, hidden: int = 256) -> int:
+def unit_decoder_parameter_count(width: int, word_vocab_size: int = WORD_VOCAB_SIZE,
+                                 hidden: int = 256) -> int:
     bw = hierarchy_bus_width(width)
-    input_dim = 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE) + SENTENCE_VOCAB_SIZE + width + 3 * bw
+    input_dim = (2 * (TOKEN_VOCAB_SIZE + int(word_vocab_size))
+                 + SENTENCE_VOCAB_SIZE + width + 3 * bw)
     return (2 * input_dim + input_dim * hidden + hidden + 2 * hidden
             + hidden * 256 + 256 + 1)
 
@@ -145,9 +148,11 @@ class CausalHierarchy(nn.Module):
     def __init__(self, width: int, windows: tuple[int, int, int] = (4, 16, 64),
                  *, boundary_pooling: bool = True, enable_pair: bool = True,
                  enable_units: bool = True,
+                 word_vocab_size: int = WORD_VOCAB_SIZE,
                  ablation: dict[str, bool] | None = None):
         super().__init__()
         bw = hierarchy_bus_width(width)
+        self.word_vocab_size = int(word_vocab_size)
         self.width = width
         self.bus_width = bw
         self.windows = windows
@@ -172,9 +177,9 @@ class CausalHierarchy(nn.Module):
         self.top_moe = SparseRankOneMoE(bw, experts=256)
         self.bottom_extensions = SparseRankOneMoE(bw, experts=256)
         self.pair_memory = PairConceptMemory(bw) if enable_pair else None
-        self.unit_heads = (UnitHeads(bw, width)
+        self.unit_heads = (UnitHeads(bw, width, self.word_vocab_size)
                            if enable_units else None)
-        decoder_input_dim = (2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+        decoder_input_dim = (2 * (TOKEN_VOCAB_SIZE + self.word_vocab_size)
                              + SENTENCE_VOCAB_SIZE + width + 3 * bw)
         self.unit_to_byte = nn.Sequential(
             nn.LayerNorm(decoder_input_dim),

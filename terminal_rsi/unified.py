@@ -52,15 +52,17 @@ PRESETS = {
 ORIGINAL_V103_PARAMETER_COUNT = 2_782_515
 
 
-def fast_adapter_input_width(cfg: Preset) -> int:
+def fast_adapter_input_width(cfg: Preset,
+                             word_vocab_size: int = WORD_VOCAB_SIZE) -> int:
     bus = max(16, cfg.width // 4)
     return (cfg.width + 3 * bus + 256 + 256
-            + 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+            + 2 * (TOKEN_VOCAB_SIZE + int(word_vocab_size))
             + SENTENCE_VOCAB_SIZE)
 
 
-def symbiotic_parameter_count(cfg: Preset, hidden: int = 64) -> int:
-    adapter = fast_adapter_input_width(cfg)
+def symbiotic_parameter_count(cfg: Preset, hidden: int = 64,
+                              word_vocab_size: int = WORD_VOCAB_SIZE) -> int:
+    adapter = fast_adapter_input_width(cfg, word_vocab_size)
     return (adapter + 256) * hidden + hidden + hidden * cfg.width + cfg.width + 2
 
 
@@ -69,7 +71,8 @@ def moe_layer_count(cfg: Preset) -> int:
     return sum(1 for index in range(cfg.layers) if index % 3 == 1)
 
 
-def static_upgrade_parameter_count(cfg: Preset) -> int:
+def static_upgrade_parameter_count(cfg: Preset,
+                                   word_vocab_size: int = WORD_VOCAB_SIZE) -> int:
     """Exact TerminalRSI new-parameter count without allocating Blackwell weights."""
     d = cfg.width
     c = cfg.context
@@ -88,10 +91,10 @@ def static_upgrade_parameter_count(cfg: Preset) -> int:
         d + 1 +                               # per-token upgrade gate
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
         rank_adapter_parameter_count(
-            fast_adapter_input_width(cfg), rank=16) +  # fast RSI byte side head
-        symbiotic_parameter_count(cfg) +        # feedback refinement
+            fast_adapter_input_width(cfg, word_vocab_size), rank=16) +  # side head
+        symbiotic_parameter_count(cfg, word_vocab_size) +  # feedback refinement
         moe_layer_count(cfg) * moe_parameter_count(d) +  # 256-expert rank-1 MoE
-        hierarchy_parameter_count(d)          # causal subword/word/sentence bus
+        hierarchy_parameter_count(d, word_vocab_size)  # causal hierarchy
     )
 
 
@@ -224,9 +227,10 @@ class TerminalRSI(nn.Module):
     A learned critic estimates surprise and feeds the next refinement pass.
     Next, +2 and +3 have distinct proper predictive heads.
     """
-    def __init__(self, cfg: Preset):
+    def __init__(self, cfg: Preset, word_vocab_size: int = WORD_VOCAB_SIZE):
         super().__init__()
         self.cfg = cfg
+        self.word_vocab_size = int(word_vocab_size)
         self.gradient_checkpointing = (
             cfg.name in ("t4", "blackwell") and cfg.width >= 512)
         d = cfg.width
@@ -248,9 +252,9 @@ class TerminalRSI(nn.Module):
         # Per-token parent/upgrade mixing gate.  Zero-initialized so the
         # inherited v103 logits stay exact until this head learns.
         self.upgrade_gate = nn.Linear(d, 1)
-        self.hierarchy = CausalHierarchy(d)
+        self.hierarchy = CausalHierarchy(d, word_vocab_size=self.word_vocab_size)
         adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
-                       + 2 * (TOKEN_VOCAB_SIZE + WORD_VOCAB_SIZE)
+                       + 2 * (TOKEN_VOCAB_SIZE + self.word_vocab_size)
                        + SENTENCE_VOCAB_SIZE)
         self.fast_adapter = RankAdapter(adapter_dim, rank=16)
         self.fast_adapter.requires_grad_(False)
@@ -384,7 +388,7 @@ class TerminalRSI(nn.Module):
         fast = self.fast_weight(enhanced)
         zeros_t = torch.zeros((enhanced.shape[0], TOKEN_VOCAB_SIZE),
                               device=enhanced.device, dtype=enhanced.dtype)
-        zeros_w = torch.zeros((enhanced.shape[0], WORD_VOCAB_SIZE),
+        zeros_w = torch.zeros((enhanced.shape[0], self.word_vocab_size),
                               device=enhanced.device, dtype=enhanced.dtype)
         zeros_s = torch.zeros((enhanced.shape[0], SENTENCE_VOCAB_SIZE),
                               device=enhanced.device, dtype=enhanced.dtype)

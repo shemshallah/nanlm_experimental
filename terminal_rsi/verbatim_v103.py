@@ -37,16 +37,20 @@ from .unified import PRESETS, TerminalRSI, device_for
 
 
 class VerbatimV103RSI(nn.Module):
-    def __init__(self, mode="cpu"):
+    def __init__(self, mode="cpu", word_vocab_size=WORD_VOCAB_SIZE):
         super().__init__()
         if mode not in PRESETS:
             raise ValueError("Unknown CPU/T4/Blackwell mode")
+        if int(word_vocab_size) < 2:
+            raise ValueError("word_vocab_size must be at least 2")
         self.cfg = PRESETS[mode]
+        self.word_vocab_size = int(word_vocab_size)
         self.original = V103ParityGPUFullSystem()
-        self.upgrades = TerminalRSI(self.cfg)
+        self.upgrades = TerminalRSI(
+            self.cfg, word_vocab_size=self.word_vocab_size)
         self.residual_gate = nn.Parameter(torch.zeros(()))
         self.word_prior_gate = nn.Parameter(torch.zeros(()))
-        self.word_bridge = WordTokenBridge(WORD_VOCAB_SIZE)
+        self.word_bridge = WordTokenBridge(self.word_vocab_size)
         self.word_bridge_scale = nn.Parameter(torch.tensor(0.1))
         self.word_ngram_scale = nn.Parameter(torch.tensor(0.0))
         self.register_buffer("word_bytes", torch.zeros(1, 1, dtype=torch.long),
@@ -122,11 +126,11 @@ class VerbatimV103RSI(nn.Module):
             values = self.word4_logp[buckets].float()
             if prior is None:
                 prior = torch.zeros(
-                    (prev1.shape[0], WORD_VOCAB_SIZE), device=prev1.device)
+                    (prev1.shape[0], self.word_vocab_size), device=prev1.device)
             prior = prior.clone()
             prior.scatter_add_(1, ids.clamp(0, prior.shape[1] - 1), values)
         if prior is None:
-            prior = torch.zeros((prev1.shape[0], WORD_VOCAB_SIZE),
+            prior = torch.zeros((prev1.shape[0], self.word_vocab_size),
                                 device=prev1.device)
         return prior
 
@@ -473,6 +477,8 @@ def save_combined(path: Path, model: VerbatimV103RSI, optimizer, step: int,
     path.parent.mkdir(parents=True, exist_ok=True)
     bundle = {"schema": "terminal-rsi-verbatim-v103-plus-upgrades-v1",
               "mode": model.cfg.name, "config": vars(model.cfg),
+              "word_vocab_size": int(getattr(
+                  model, "word_vocab_size", WORD_VOCAB_SIZE)),
               "model": model.state_dict(), "optimizer": optimizer.state_dict(),
               "steps": step, "legacy_provenance": provenance,
               "feedback_events": list(feedback_events or []),
@@ -505,6 +511,9 @@ def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
         raise ValueError("Not a complete unified Terminal-RSI checkpoint")
     if checkpoint.get("config") != vars(model.cfg):
         raise ValueError("Mode/architecture changed: require explicit capacity migration")
+    saved_vocab = int(checkpoint.get("word_vocab_size", WORD_VOCAB_SIZE))
+    if saved_vocab != int(getattr(model, "word_vocab_size", WORD_VOCAB_SIZE)):
+        raise ValueError("Word vocabulary size changed across resume")
     prior = checkpoint["legacy_provenance"]
     if (prior.get("source_sha256") != source_sha256 or
             prior.get("feature_manifest") != feature_manifest or

@@ -229,6 +229,17 @@ class V5ModuleTests(unittest.TestCase):
         self.assertEqual(unit_parameter_count(16),
                          sum(p.numel() for p in heads.parameters()))
 
+    def test_unit_heads_support_arbitrary_word_vocab(self):
+        heads = UnitHeads(16, word_vocab_size=8192)
+        subword = torch.randn(2, 5, 16)
+        word = torch.randn(2, 5, 16)
+        sentence = torch.randn(2, 5, 16)
+        logits = heads(subword, word, sentence)
+        self.assertEqual(logits["word"].shape[1], 8192)
+        self.assertEqual(logits["current_word"].shape[1], 8192)
+        self.assertEqual(unit_parameter_count(16, word_vocab_size=8192),
+                         sum(p.numel() for p in heads.parameters()))
+
     def test_fused_glu_migration_round_trip(self):
         model = TerminalRSI(TINY)
         state = model.state_dict()
