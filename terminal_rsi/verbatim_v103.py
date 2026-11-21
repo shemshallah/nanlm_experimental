@@ -270,7 +270,9 @@ class VerbatimV103RSI(nn.Module):
                    "word_bridge.", "word_bridge_scale.",
                    "word_ngram_scale.", "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
-                   "upgrades.hierarchy.unit_heads.")
+                   "upgrades.hierarchy.unit_heads.",
+                   "upgrades.hierarchy.unit_to_byte.",
+                   "upgrades.symbiotic_feedback.")
         bad_missing = [
             key for key in missing
             if not key.startswith(allowed) and ".moe." not in key]
@@ -542,6 +544,16 @@ def expand_word_vocab_state(state_dict, old_vocab: int, new_vocab: int,
             grown[old_vocab:] = tail.to(device=value.device,
                                         dtype=value.dtype)
         expanded[name] = grown
+    # These layers concatenate the word-head outputs into a flat feature
+    # vector, so their widths depend on the vocabulary.  Expanding them needs
+    # offset-aware block insertion; reinitialize them instead.  Everything
+    # that does not touch the vocabulary (the byte backbone, hierarchy, MoE,
+    # memory, gates) is still inherited.
+    for name in list(expanded):
+        if (name.startswith("upgrades.hierarchy.unit_to_byte.")
+                or name == "upgrades.fast_adapter.A"
+                or name == "upgrades.symbiotic_feedback.0.weight"):
+            del expanded[name]
     return expanded
 
 
