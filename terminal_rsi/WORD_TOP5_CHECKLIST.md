@@ -256,3 +256,22 @@ conditional accuracy needed for 80%.
 
 Next decisive run: 80 MB pilot + 5-6k word-boundary cache + the same selector.
 Server restart preserved the 16 MB cache and results.
+
+## Wave 2 modules landed (unit-tested, physical probes pending)
+
+| module | tests | physical result |
+|---|---|---|
+| `word_lexicon_beam.py` | 36 tests OK (2 skipped) | pending; CLI requires checkpoint+dev-bin+vocab JSON |
+| `word_sheaf.py` | 9 tests OK | pending; CLI reads `/marimo/word_dev_cache.npz` |
+| `word_linguistic.py` | 34 tests OK | pending; needs dev word-stream probe |
+| `word_alien_more.py` | 35 tests OK | probe launched; server died before results |
+
+`word_alien_more.py` includes persistent homology, full STDP spiking trace,
+reservoir, Kuramoto, cellular automaton, ant colony, tensor-train/MPS, Re-Pair
+renormalization blocks, and free-energy regimes.
+
+The MLP stage-1 selector result is recorded above (53.38% overall on 903 covered,
+70.26% conditional); it did not break the 16 MB selector wall.
+
+Server status: HTTP 410 after the restart; need a fresh Molab pair prompt to run
+the sheaf/lexicon/linguistic/alien probes and the 80 MB selector.
