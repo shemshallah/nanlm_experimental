@@ -263,7 +263,7 @@ Server restart preserved the 16 MB cache and results.
 |---|---|---|
 | `word_lexicon_beam.py` | 36 tests OK (2 skipped) | pending; CLI requires checkpoint+dev-bin+vocab JSON |
 | `word_sheaf.py` | 9 tests OK | pending; CLI reads `/marimo/word_dev_cache.npz` |
-| `word_linguistic.py` | 34 tests OK | pending; needs dev word-stream probe |
+| `word_linguistic.py` | 36 tests OK | pending; needs dev word-stream probe |
 | `word_alien_more.py` | 35 tests OK | probe launched; server died before results |
 
 `word_alien_more.py` includes persistent homology, full STDP spiking trace,
