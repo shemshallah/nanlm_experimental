@@ -1,5 +1,5 @@
---- /mnt/data/nancm172_work/experiments/nancm/v171/wordfield171_api.cpp	2026-11-22 20:48:56.000000000 +0000
-+++ /mnt/data/nancm172_work/experiments/nancm/v172/wordfield172_api.cpp	2026-11-22 21:36:33.733798986 +0000
+--- experiments/nancm/v171/wordfield171_api.cpp
++++ experiments/nancm/v172/wordfield172_api.cpp
 @@ -1,4 +1,4 @@
 -// NaNCM v171 experimental wider signed ANN; v169/v170 inherited.
 +// NaNCM v172 experimental signed multi-rail retrieval, single-rail exact rollback.
