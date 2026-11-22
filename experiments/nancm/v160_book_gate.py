@@ -139,6 +139,8 @@ def main():
         k.split(":",1)[0]+"\t"+k.split(":",1)[1]+"\t"+v[0]+"\t"+str(v[1])+"\t"+str(v[2])+"\n"
         for k,v in sorted(index.items())
     ))
+    book_unigram=collections.Counter(w for name,data in books["train"] for w in tokens(data)[:3000])
+    (out/"book_unigrams.tsv").write_text("".join(w+"\t"+str(n)+"\n" for w,n in sorted(book_unigram.items())))
     backoff=train_backoff(books["train"])
     (out/"v161_backoff.tsv").write_text("".join(k.split(":",1)[0]+"\t"+k.split(":",1)[1]+"\t"+v[0]+"\t"+str(v[1])+"\t"+str(v[2])+"\n" for k,v in sorted(backoff.items())))
     backoff_dev=eval_backoff(books["dev"],backoff)
@@ -151,6 +153,7 @@ def main():
         "books":{k:len(v) for k,v in books.items()},"exact_duplicates_removed":duplicates,
         "associations":len(index),"index_sha256":digest_file(p),
         "DEV":evaluate(books["dev"],index),"TEST":evaluate(books["test"],index),
+        "book_unigram_types":len(book_unigram),"book_unigram_tokens":sum(book_unigram.values()),
         "v161_backoff_entries":len(backoff),"v161_backoff_DEV":backoff_dev,"v161_backoff_TEST":"NOT YET EVALUATED — select on DEV first",
         "native_dev_windows":len(dev_windows),"native_test_windows":len(test_windows),
         "independent_books":True,
