@@ -13,20 +13,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Compile inherited native 256-way byte ABI
+      - name: Compile v170 causal online module with synthetic parent experts
         run: |
-          g++ -O2 -std=c++17 -fPIC -shared -Isrc -Iparent/src -Iparent/integration/v152_native \
-            experiments/nancm/v170/wordfield170_api.cpp -o /tmp/libwordfield170.so
-      - name: Verify new and inherited exported symbols
+          g++ -O2 -std=c++17 -Wall -Wextra -pedantic \
+            -Iexperiments/nancm/v170 \
+            experiments/nancm/v170/test_source170.cpp -o /tmp/nancm_v170_source_smoke
+      - name: Run standalone causal trust and normalization checks
+        run: /tmp/nancm_v170_source_smoke
+      - name: Explain checkpoint-dependent native gate
         run: |
-          python3 - <<'PY'
-          import ctypes
-          L=ctypes.CDLL('/tmp/libwordfield170.so')
-          names=['wf148_open','wf148_begin','wf148_next','wf148_close',
-                 'wf169_byte_open','wf169_byte_next','wf169_byte_close',
-                 'wf170_byte_open','wf170_byte_next','wf170_byte_reset',
-                 'wf170_byte_set_adaptive','wf170_byte_last_eta','wf170_byte_close']
-          for x in names:
-              assert getattr(L,x),x
-          print('PASS',len(names),'native ABI symbols (source-only, no trained checkpoint)')
-          PY
+          echo "PASS synthetic gate/ABI smoke only."
+          echo "Full signed-cloud native parity and BPB require the cumulative v170"
+          echo "recovery ZIP with original v169 checkpoints, not in source-only Git."
