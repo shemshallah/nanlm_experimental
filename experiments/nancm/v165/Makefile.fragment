@@ -1,0 +1,8 @@
+# Append to the complete v164 Makefile after unpacking its recovery ZIP.
+.PHONY: v165 test-v165
+v165: bin/libwordfield165.so
+bin/libwordfield165.so: src/wordfield165_api.cpp src/wordfield164_embed165.cpp src/wordfield164_api.cpp src/wordfield162_embed163.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) $< -o $@
+test-v165: v165
+	OPENBLAS_NUM_THREADS=1 python tests/test_native165.py

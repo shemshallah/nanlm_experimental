@@ -1,0 +1,34 @@
+{
+  "split": "dev",
+  "n": 480,
+  "books": 24,
+  "words_per_book": 20,
+  "sample": "deterministically spaced word positions in distinct books",
+  "strengths": [
+    0.0,
+    0.1,
+    0.25,
+    0.5,
+    1.0
+  ],
+  "beam": null,
+  "metrics": {
+    "0.0": {
+      "bits_per_spelling_symbol": 2.880214
+    },
+    "0.1": {
+      "bits_per_spelling_symbol": 2.880779
+    },
+    "0.25": {
+      "bits_per_spelling_symbol": 2.882804
+    },
+    "0.5": {
+      "bits_per_spelling_symbol": 2.888548
+    },
+    "1.0": {
+      "bits_per_spelling_symbol": 2.903277
+    }
+  },
+  "seconds": 6.59,
+  "warning": "Spelling/EOS bits per symbol, NOT full 256-byte BPB; TEST reused in prior research"
+}
