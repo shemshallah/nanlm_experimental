@@ -56,7 +56,7 @@ class CausalSuccessors:
             del self.history[:len(self.history) - self.max_history]
         self.observed += 1
 
-    def features(self, parent_logp):
+    def features(self, parent_logp, *, wrong_values=False):
         """Return (12,256) finite features from *past* observations only.
 
         Three terms per order: residual evidence, across-scale disagreement,
@@ -82,6 +82,7 @@ class CausalSuccessors:
                 continue
             # Explicitly smooth with the parent's causal probabilities.
             smoothing = 8.0 + 0.5 * order
+            counts = np.roll(counts, 37) if wrong_values else counts
             q = (counts.astype(np.float64) + smoothing * p) / (total + smoothing)
             reliability = total / (total + smoothing)
             # Limit the influence of extremely improbable isolated candidates.
@@ -136,9 +137,9 @@ class M3R38Predictor:
             raise ValueError('invalid R38 parameters')
         self.memory = CausalSuccessors(capacity=capacity)
 
-    def predict_parts(self):
+    def predict_parts(self, *, wrong_values=False):
         base = np.asarray(self.parent.predict_logp(), dtype=np.float64)
-        features = self.memory.features(base)
+        features = self.memory.features(base, wrong_values=wrong_values)
         return base, features
 
     def predict_logp(self):

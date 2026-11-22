@@ -27,3 +27,7 @@ This **R32 staging** run uses previously opened FIT 540–555, GATE 556–559 an
 ## Publication rule
 
 Do not promote this experiment on synthetic data or staging DEV. A new untouched book-disjoint TEST is required, following a successful development gate. Never use the independent TEST used to certify R37 for tuning. Preserve the accepted checkpoint, and keep a single deployed default with exact fallback modes.
+
+### Stronger R38 control gate (R38.1)
+
+The paired evaluator now includes **wrong-successor-value** and **synchronized unrelated-book-history** controls, in addition to the frozen parent. Every competitor shares the exact same frozen parent distribution and scores targets before any causal-memory update. The gate additionally requires R38 to beat both controls, preserve top-1/top-5, improve at least 75% of books, show actual reranking, and have a positive descriptive whole-book bootstrap lower bound. These are exploratory checks on reused DEV, not independent TEST certification.

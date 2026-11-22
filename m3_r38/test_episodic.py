@@ -88,6 +88,14 @@ class R38Regression(unittest.TestCase):
         self.assertEqual(int(np.argmax(x)),65)
         self.assertAlmostEqual(float(np.exp(x).sum()),1.,places=12)
 
+    def test_causal_wrong_successor_and_unrelated_nulls(self):
+        books=[b"abC"*160,b"xyZ"*160]
+        theta=np.zeros(GROUPS); theta[0]=1.
+        out=evaluate(books,FrozenParent,theta,warmup=16)
+        self.assertLess(out["r38"]["bpb"],out["wrong_successors"]["bpb"])
+        self.assertLess(out["r38"]["bpb"],out["unrelated_history"]["bpb"])
+        self.assertEqual(len(out["r38"]["whole_book_bootstrap_95pct_bits"]),2)
+
     def test_scoring_is_book_disjoint(self):
         sample=[b'abcdefghiabcdefghi'*12,b'zzzabcdefghiabcdefghi'*10]
         z=evaluate(sample,FrozenParent,np.zeros(GROUPS),warmup=16)
