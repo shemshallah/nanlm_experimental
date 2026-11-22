@@ -24,6 +24,7 @@ EXACT_GATES = (
     "upgrades.symbiosis_gate",
     "upgrades.symbiosis_output_gate",
     "upgrades.fast_weight.scale",
+    "upgrades.copy_gate",
 )
 
 

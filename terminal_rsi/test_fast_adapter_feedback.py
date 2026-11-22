@@ -57,6 +57,8 @@ class CopyHeadTests(unittest.TestCase):
 
     def test_copy_logits_follow_the_causal_match_candidates(self):
         model = VerbatimV103RSI("cpu")
+        with torch.no_grad():
+            model.upgrades.copy_gate.fill_(0.1)
         history = torch.randint(0, 256, (2, 32))
         aux = torch.zeros((2, 6), dtype=torch.int32)
         aux[:, 2] = ord("a")

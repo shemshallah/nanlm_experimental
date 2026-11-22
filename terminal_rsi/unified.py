@@ -257,7 +257,8 @@ class TerminalRSI(nn.Module):
         # Learned trust in the causal 5-byte and 12-byte historic matches.
         # The v103 parent already consumes these aux columns; the 100M branch
         # previously ignored them completely.
-        self.copy_gate = nn.Parameter(torch.tensor([0.05, 0.05]))
+        # Zero preserves exact legacy parity; --reopen-gates opens it.
+        self.copy_gate = nn.Parameter(torch.zeros(2))
         self.hierarchy = CausalHierarchy(d, word_vocab_size=self.word_vocab_size)
         adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
                        + 2 * (TOKEN_VOCAB_SIZE + self.word_vocab_size)
