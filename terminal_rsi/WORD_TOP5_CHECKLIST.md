@@ -645,3 +645,41 @@ and positive instead of exactly 0.0.
 
 Next tuning run should use a much smaller lookahead weight (0.01-0.02) or
 critic-only, and a larger held-out eval before adopting either loss.
+
+## Drastic upgrade: causal copy head in the 100M branch
+
+The v103 parent consumes six causal features per target (BPE/word bigram
+hashes, 5-byte match byte/length, 12-byte match byte/length). The 100M
+upgrade branch ignored all six. It now has a learned **causal copy head**:
+
+- `upgrades.copy_gate` has one trust scalar for the 5-byte match and one for
+  the 12-byte match.
+- At the target position the matched candidate byte receives a positive logit
+  proportional to `tanh(gate) * match_length / span`, added to the final
+  bit logits outside the residual gate.
+- Zero-initialized, so legacy checkpoints retain exact parity until
+  `--reopen-gates` opens it. `feedback_audit` now audits/reopens it with the
+  other feedback gates.
+- Legacy optimizer migration handles both the new copy gate in the recursive
+  upgrades group and the fast adapter in the side group.
+
+Small smoke on a rebuilt 16 MB diverse corpus (55 updates, warm start from
+step 4442, gates 0.1, copy head open):
+
+| metric | value |
+|---|---:|
+| DEV BPB | 1.8939 |
+| DEV byte top-1 | 60.55% |
+| DEV byte top-5 | 87.89% |
+| learned copy gates | 0.0666 / 0.0670 |
+| copy on/off BPB (same DEV) | 2.1240 / 2.1389, **+0.0149 BPB** |
+
+The copy head is a real held-out gain, not just a gate that moved.
+
+The old session's 80 MB pilot was not present on the replacement Molab
+session, so a new 80 MB corpus was rebuilt from public HuggingFace sources
+(Gutenberg, OpenR1 math, AG News, TinyStories) and a new 80 MB pilot was
+generated. The 2-hour run is `trsi_100m_copy_2h`, warm-started from step 4442
+with `--reopen-gates 0.1`, copy head active, fast adapter trainable,
+lookahead 0.02 and critic 0.01. Rolling backups go to
+`shem42/trsi-100m-copy-2h-checkpoints`.
