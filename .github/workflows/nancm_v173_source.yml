@@ -1,0 +1,34 @@
+name: NaNCM v173 causal joint source tests
+on:
+  push:
+    branches: [master]
+    paths:
+      - "experiments/nancm/v173/**"
+      - ".github/workflows/nancm_v173_source.yml"
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile v173 Python training and benchmark scripts
+        run: python3 -m compileall -q experiments/nancm/v173
+      - name: Check native joint API remains default disabled with inherited ABI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('experiments/nancm/v173/wordfield173_api.cpp').read_text()
+          for marker in ('../v172/wordfield172_api.cpp','wf173_joint_open',
+                         'wf173_joint_begin','wf173_joint_next','wf173_joint_close',
+                         'gamma==0.','wf170_byte_set_adaptive',
+                         'wf170_byte_next','wf148_begin','wf148_next'):
+              assert marker in src,marker
+          assert 's->root[26]=(float)eos' in src
+          assert 'if(s->gamma==0.||n>0)return wf148_next' in src
+          print('PASS causal ABI source contract')
+          PY
+      - name: Compile/run standalone normalized root algebra C++ smoke
+        run: |
+          g++ -O2 -std=c++17 experiments/nancm/v173/test_source173.cpp -o /tmp/nancm173_smoke
+          /tmp/nancm173_smoke

@@ -1,0 +1,10 @@
+# NaNCM v173 causal normalized first-letter joint word/byte head.
+.PHONY: v173 test-v173
+v173: bin/libwordfield173.so
+bin/libwordfield173.so: experiments/nancm/v173/wordfield173_api.cpp experiments/nancm/v172/wordfield172_api.cpp experiments/nancm/v170/native_online170.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v173: v173
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v173/test_native173.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v173/test_native_teacher173.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v173/audit_root173.py

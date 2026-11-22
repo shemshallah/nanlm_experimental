@@ -1,0 +1,419 @@
+{
+  "active": {
+    "version": "NaNCM v173",
+    "status": "EXPERIMENTAL_ONLY_NOT_PROMOTED",
+    "parent": "NaNCM v172 cumulative recovery",
+    "active_word_baseline": "v167",
+    "protected_byte_baseline": "v170",
+    "native_joint_gamma_default": 0,
+    "trained_lexical_expert_default": 0,
+    "trained_step_parent": 6000,
+    "trained_step_exact_ce_candidate": 6880,
+    "trained_optimizer_state_groups": 3,
+    "trained_optimizer_state_tensors": 5,
+    "weights_changed_norm": {
+      "ctx.weight": 0.4158109128475189,
+      "out.weight": 0.5232174396514893,
+      "bias": 0.24764513969421387,
+      "cloud_projection.weight": 0.07482661306858063,
+      "gain": 0.0006666183471679688
+    },
+    "exposed_dev_top1_v167": 27,
+    "exposed_dev_joint_gamma_0p1": 27,
+    "exposed_dev_contexts": 244,
+    "exposed_dev_first_letter_nll_parent": 2.9291495627308533,
+    "exposed_dev_first_letter_nll_joint": 2.8955784027039826,
+    "byte_replay_nbytes": 16018,
+    "byte_dev_bpb": 2.563848893529875,
+    "byte_reused_test_bpb": 2.472756833747626,
+    "book_disjoint_fresh": false,
+    "last_verified_models": "all inherited models and optimizers kept in cumulative ZIP",
+    "notes": "No strict-word improvement; native mixing optional and rollback exactly matched. No 80% word top1."
+  },
+  "joint_native": {
+    "status": "PASS",
+    "complete_root_prefix_vectors_exact_rollback": 240,
+    "joint_root_checks": 48,
+    "later_prefix_exact_parent_checks": 144,
+    "changed_root_distributions": 48,
+    "max_root_fusion_abs_error": 1.4177405360804585e-08,
+    "default_gamma": 0.0,
+    "experimental_gamma": 0.1,
+    "strictly_causal": true,
+    "normalized_root": true,
+    "missing_byte_pack_fails_closed": true,
+    "invalid_gamma_fails_closed": true,
+    "weights_and_optimizer_unchanged": true
+  },
+  "first_letter": {
+    "parent": {
+      "n": 244,
+      "top1": 43,
+      "top5": 114,
+      "nll": 714.7124933063282,
+      "nll_nats_per_first_letter": 2.9291495627308533
+    },
+    "joint": {
+      "n": 244,
+      "top1": 43,
+      "top5": 113,
+      "nll": 706.5211302597718,
+      "nll_nats_per_first_letter": 2.8955784027039826
+    }
+  },
+  "dev_word_beam": {
+    "n": 244,
+    "top1": 27,
+    "top5": 57,
+    "top32": 98,
+    "parent_top1": 27,
+    "native_calls": 181116
+  },
+  "trainval_word_beam": {
+    "n": 197,
+    "top1": 24,
+    "top5": 58,
+    "top32": 94,
+    "parent_top1": 23,
+    "native_calls": 140295
+  },
+  "exact_ce": {
+    "name": "NaNCM v173 exact CE refinement",
+    "status": "EXPERIMENT_ONLY",
+    "steps_run": 1040,
+    "selected_step": 6880,
+    "optimizer_resumed": true,
+    "parent_step": 6080,
+    "resumed_from_v173": true,
+    "validation_parent": {
+      "n": 1536,
+      "nll_nats": 6.261117696762085,
+      "top1": 98,
+      "top5": 356
+    },
+    "validation_selected": {
+      "n": 1536,
+      "nll_nats": 6.260750929514567,
+      "top1": 102,
+      "top5": 357
+    },
+    "dev_exposed_selected": {
+      "n": 227,
+      "nll_nats": 6.5252561863298455,
+      "top1": 14,
+      "top5": 42
+    },
+    "train_context_rows": 657062,
+    "val_context_rows": 35312,
+    "test_not_pristine": true,
+    "val_not_book_disjoint": true,
+    "history": [
+      {
+        "updates": 40,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261563301086426,
+          "top1": 95,
+          "top5": 355
+        },
+        "loss": 5.902176380157471,
+        "seconds": 0.31
+      },
+      {
+        "updates": 80,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.2624523639678955,
+          "top1": 101,
+          "top5": 355
+        },
+        "loss": 6.425577163696289,
+        "seconds": 0.61
+      },
+      {
+        "updates": 120,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.2631111939748125,
+          "top1": 96,
+          "top5": 354
+        },
+        "loss": 6.136384010314941,
+        "seconds": 0.94
+      },
+      {
+        "updates": 160,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.2632230917612715,
+          "top1": 96,
+          "top5": 355
+        },
+        "loss": 6.343227863311768,
+        "seconds": 1.24
+      },
+      {
+        "updates": 200,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.26346755027771,
+          "top1": 95,
+          "top5": 354
+        },
+        "loss": 5.913440227508545,
+        "seconds": 1.58
+      },
+      {
+        "updates": 240,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.263883352279663,
+          "top1": 95,
+          "top5": 356
+        },
+        "loss": 6.422204494476318,
+        "seconds": 1.94
+      },
+      {
+        "updates": 280,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.263424873352051,
+          "top1": 95,
+          "top5": 355
+        },
+        "loss": 6.073713302612305,
+        "seconds": 2.24
+      },
+      {
+        "updates": 320,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.262027978897095,
+          "top1": 96,
+          "top5": 354
+        },
+        "loss": 5.926916599273682,
+        "seconds": 2.53
+      },
+      {
+        "updates": 360,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.262675046920776,
+          "top1": 101,
+          "top5": 355
+        },
+        "loss": 5.8701910972595215,
+        "seconds": 2.83
+      },
+      {
+        "updates": 400,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.26242717107137,
+          "top1": 102,
+          "top5": 356
+        },
+        "loss": 6.493886947631836,
+        "seconds": 3.14
+      },
+      {
+        "updates": 440,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.262486219406128,
+          "top1": 102,
+          "top5": 355
+        },
+        "loss": 5.671928882598877,
+        "seconds": 3.61
+      },
+      {
+        "updates": 480,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261681318283081,
+          "top1": 102,
+          "top5": 356
+        },
+        "loss": 5.684442043304443,
+        "seconds": 4.06
+      },
+      {
+        "updates": 520,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261648019154866,
+          "top1": 102,
+          "top5": 356
+        },
+        "loss": 5.905040264129639,
+        "seconds": 4.44
+      },
+      {
+        "updates": 560,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.262436946233113,
+          "top1": 102,
+          "top5": 361
+        },
+        "loss": 6.647491931915283,
+        "seconds": 4.76
+      },
+      {
+        "updates": 600,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261808474858602,
+          "top1": 101,
+          "top5": 355
+        },
+        "loss": 6.268851280212402,
+        "seconds": 5.08
+      },
+      {
+        "updates": 640,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261759201685588,
+          "top1": 102,
+          "top5": 356
+        },
+        "loss": 6.197616100311279,
+        "seconds": 5.54
+      },
+      {
+        "updates": 680,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.2612950801849365,
+          "top1": 101,
+          "top5": 356
+        },
+        "loss": 6.084849834442139,
+        "seconds": 5.87
+      },
+      {
+        "updates": 720,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.263041734695435,
+          "top1": 101,
+          "top5": 355
+        },
+        "loss": 5.9645819664001465,
+        "seconds": 6.17
+      },
+      {
+        "updates": 760,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.262275854746501,
+          "top1": 101,
+          "top5": 355
+        },
+        "loss": 6.126512050628662,
+        "seconds": 6.47
+      },
+      {
+        "updates": 800,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.260750929514567,
+          "top1": 102,
+          "top5": 357
+        },
+        "loss": 6.159670829772949,
+        "seconds": 6.83
+      },
+      {
+        "updates": 840,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261357307434082,
+          "top1": 101,
+          "top5": 359
+        },
+        "loss": 6.192431926727295,
+        "seconds": 7.18
+      },
+      {
+        "updates": 880,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261554479598999,
+          "top1": 99,
+          "top5": 359
+        },
+        "loss": 5.974907875061035,
+        "seconds": 7.5
+      },
+      {
+        "updates": 920,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.260920127232869,
+          "top1": 99,
+          "top5": 359
+        },
+        "loss": 6.076070308685303,
+        "seconds": 7.95
+      },
+      {
+        "updates": 960,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.261301596959432,
+          "top1": 102,
+          "top5": 360
+        },
+        "loss": 6.200344562530518,
+        "seconds": 8.33
+      },
+      {
+        "updates": 1000,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.260848760604858,
+          "top1": 103,
+          "top5": 359
+        },
+        "loss": 6.146057605743408,
+        "seconds": 8.67
+      },
+      {
+        "updates": 1040,
+        "validation": {
+          "n": 1536,
+          "nll_nats": 6.260835886001587,
+          "top1": 101,
+          "top5": 359
+        },
+        "loss": 6.2148566246032715,
+        "seconds": 9.04
+      }
+    ]
+  },
+  "native_teacher": {
+    "status": "PASS",
+    "contexts": 21,
+    "max_teacher_probability_difference": 5.960464477539063e-08,
+    "max_root_mixture_difference": 1.196219723276215e-08,
+    "native_12000_way_normalized": true,
+    "missing_optin_sidecar_fails_closed": true,
+    "disabled_parent_path_opens_without_sidecar": true,
+    "gating": "expert shares only if explicit V172_TEACHER_SHARE >0",
+    "provenance": "DEV exposed diagnostic only"
+  },
+  "byte": {
+    "dev": 2.563848893529875,
+    "reused_test": 2.472756833747626,
+    "exact_rollback": 292
+  },
+  "rejected": {
+    "prior": 24,
+    "ngram": 18
+  }
+}
