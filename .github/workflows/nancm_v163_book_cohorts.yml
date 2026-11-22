@@ -1,0 +1,35 @@
+name: NaNCM v163 cross-fit signed-cloud gate data
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v163_book_cohorts.py'
+      - '.github/workflows/nancm_v163_book_cohorts.yml'
+permissions:
+  contents: read
+jobs:
+  crossfit-books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m pip install --disable-pip-version-check zstandard
+      - name: Download official corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p input output
+          base=https://github.com/shemshallah/NaNROUTER/releases/download/corpora-short-stories-0004
+          curl --fail --location --retry 3 "$base/short_stories-0004.tar.zst" -o input/short_stories-0004.tar.zst
+          curl --fail --location --retry 3 "$base/short_stories-0004.SHA256SUMS" -o input/short_stories-0004.SHA256SUMS
+          (cd input && sha256sum -c short_stories-0004.SHA256SUMS)
+      - name: Train candidate memory on 400 books; export 100 separate calibration books
+        run: |
+          python experiments/nancm/v163_book_cohorts.py input/short_stories-0004.tar.zst input/short_stories-0004.SHA256SUMS output/ | tee output/CONSOLE.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nancm-v163-crossfit-train
+          path: output/
+          retention-days: 30
