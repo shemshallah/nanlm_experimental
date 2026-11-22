@@ -1,0 +1,18 @@
+{
+  "id": "shem42/z4-gpu12h-domain-eval-v2",
+  "title": "Z4 GPU12h domain eval v2",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [
+    "shem42/z4-domain-eval-inputs-12h"
+  ],
+  "model_sources": [],
+  "category_ids": []
+}
