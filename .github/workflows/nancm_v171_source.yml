@@ -1,0 +1,31 @@
+name: NaNCM v171 source smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - "experiments/nancm/v171/**"
+      - ".github/workflows/nancm_v171_source.yml"
+  workflow_dispatch:
+jobs:
+  source-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify v171 bounded ANN knobs and inherited byte integration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("experiments/nancm/v171/wordfield171_api.cpp").read_text()
+          for fragment in ('wf171_ann_limits','V171_ANN_NEIGHBORS','V171_ANN_CANDIDATES',
+                           's->neighbor_limit,16,512','s->candidate_limit,32,1024',
+                           '../v170/native_online170.cpp','../v169/native_byte169.cpp'):
+              assert fragment in s,fragment
+          assert s.count('if(best.size()<(size_t)s->neighbor_limit)')==1
+          assert 'if(sorted.size()>(size_t)s->candidate_limit)' in s
+          print('PASS v171 source bounds/ABI check; trained numerical parity requires recovery ZIP')
+          PY
+      - name: Compile and run inherited causal trust synthetic ABI check
+        run: |
+          g++ -O2 -std=c++17 -Iexperiments/nancm/v170 experiments/nancm/v170/test_source170.cpp -o /tmp/v171_online_smoke
+          /tmp/v171_online_smoke

@@ -1,0 +1,68 @@
+{
+  "version": "v171",
+  "status": "EXPERIMENTAL_NOT_PROMOTED",
+  "active_word": "v167",
+  "active_byte_experiment": "v170",
+  "cohort": "244 exposed DEV gate-active contexts, 16 books",
+  "ann_scaled": [
+    {
+      "neighbors": 32,
+      "candidates": 64,
+      "ann_top1": 21,
+      "ann_recall": 93,
+      "union_ceiling": 111,
+      "word_top1": 27,
+      "word_top5": 57,
+      "word_top32": 98
+    },
+    {
+      "neighbors": 64,
+      "candidates": 128,
+      "ann_top1": 22,
+      "ann_recall": 112,
+      "union_ceiling": 126
+    },
+    {
+      "neighbors": 128,
+      "candidates": 256,
+      "ann_top1": 22,
+      "ann_recall": 131,
+      "union_ceiling": 138,
+      "word_top1": 27,
+      "word_top5": 56,
+      "word_top32": 96
+    },
+    {
+      "neighbors": 256,
+      "candidates": 512,
+      "ann_top1": 23,
+      "ann_recall": 148,
+      "union_ceiling": 151,
+      "word_top1": 27,
+      "word_top5": 56,
+      "word_top32": 95
+    },
+    {
+      "neighbors": 512,
+      "candidates": 1024,
+      "ann_top1": 20,
+      "ann_recall": 160,
+      "union_ceiling": 167,
+      "word_top1": 27,
+      "word_top5": 56,
+      "word_top32": 96
+    }
+  ],
+  "native_rollback": {
+    "word_27_way_exact": 40,
+    "byte_256_way_exact": 292,
+    "streaming_bytes": 16018
+  },
+  "v170_byte_bpb": {
+    "dev": 2.563848893529875,
+    "reused_test": 2.472756833747626
+  },
+  "optimizer_modified": false,
+  "trained_cloud_modified": false,
+  "pristine_test": false
+}

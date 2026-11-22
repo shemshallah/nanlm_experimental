@@ -58,3 +58,7 @@ The **active development baseline remains v158**. v162 is **opt-in research only
 ## v169 Native Symbiotic 256-Byte experiment — 2026-11-22
 
 **Active development word baseline remains v167.** v169 is research-only on master, not an active checkpoint promotion. It composes inherited 128+128 signed S+/S− cloud, v166 trained lexical head and v168 signed ANN with a new native 256-way byte 0–3gram and word bridge. Its frozen DEV-selected mixture records full next-byte BPB **2.587376** on 8,015 DEV bytes and **2.505834** on 8,003 previously reused TEST bytes; 24/24 book windows improve versus a same-TRAIN fitted byte ngram. These figures belong to the NEW hybrid byte predictor, not historical 27-way spelling/EOS BPB. Strict word DEV top-1 still **46/480** and **141/1,394**, without advancement. No claim of untouched test, Android readiness, or 80% word top-1. Source and regression under `experiments/nancm/v169/`; trained sidecars and entire optimizer/checkpoint lineage only in complete recovery ZIP.
+
+## v171 signed ANN neighbor-width experiment — 2026-11-22
+
+Opt-in native v171 source under `experiments/nancm/v171/`, **not promoted**. Matched exposed DEV 244 ANN-active contexts: 32/64 ANN recall 93, widened 512/1024 recall 160; native + lexical + widened ANN union ceiling 167. Full 96-beam strict word top-1 stays 27/244 across width arms. v170 16,018-byte 256-way replay unchanged; v167 active word model protected. Latest complete cumulative checkpoint held in v171 ChatGPT Library ZIP, not source-only Git. No new optimizer lineage or branch.

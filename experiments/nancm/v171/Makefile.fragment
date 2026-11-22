@@ -1,0 +1,9 @@
+.PHONY: v171 test-v171
+v171: bin/libwordfield171.so
+bin/libwordfield171.so: experiments/nancm/v171/wordfield171_api.cpp experiments/nancm/v169/wordfield168_embed_ann169.cpp experiments/nancm/v169/native_byte169.cpp experiments/nancm/v170/native_online170.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v171: v171 v169-byte-pack
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v171/test_ann_widen171.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v171/test_byte_parity171.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v171/bench_word171.py
