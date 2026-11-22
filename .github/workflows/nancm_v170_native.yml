@@ -1,0 +1,32 @@
+name: NaNCM v170 native source and ABI smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - "experiments/nancm/v169/**"
+      - "experiments/nancm/v170/**"
+      - ".github/workflows/nancm_v170_native.yml"
+  workflow_dispatch:
+jobs:
+  source-abi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile inherited native 256-way byte ABI
+        run: |
+          g++ -O2 -std=c++17 -fPIC -shared -Isrc -Iparent/src -Iparent/integration/v152_native \
+            experiments/nancm/v170/wordfield170_api.cpp -o /tmp/libwordfield170.so
+      - name: Verify new and inherited exported symbols
+        run: |
+          python3 - <<'PY'
+          import ctypes
+          L=ctypes.CDLL('/tmp/libwordfield170.so')
+          names=['wf148_open','wf148_begin','wf148_next','wf148_close',
+                 'wf169_byte_open','wf169_byte_next','wf169_byte_close',
+                 'wf170_byte_open','wf170_byte_next','wf170_byte_reset',
+                 'wf170_byte_set_adaptive','wf170_byte_last_eta','wf170_byte_close']
+          for x in names:
+              assert getattr(L,x),x
+          print('PASS',len(names),'native ABI symbols (source-only, no trained checkpoint)')
+          PY
