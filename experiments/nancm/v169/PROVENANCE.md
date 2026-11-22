@@ -1,0 +1,13 @@
+# v169 provenance
+
+Author: Justin Howard-Stanley, Independent Researcher, Santa Cruz, California, USA. Date: 2026-11-22 (US Pacific).
+
+Repository: `shemshallah/nanlm_experimental`, branch **master only**, new source inside `experiments/nancm/v169`. Base recovery: v168 cumulative 485-entry archive / trained v167 active word parent. New native C++ source is additive; old unmodified trained geometry/lexical cloud and optimizer checkpoints remain included in cumulative release.
+
+Data source: NaNROUTER GitHub Release `corpora-short-stories-0004`, original SHA-256 `d6ce3a23757e85fe1b9487ef984a5ba81db9c2dc6e962ac7c5df2960480e0054`. Local inherited corpus partition is a deterministic 500 TRAIN / 51 DEV / 64 TEST book-name split. New byte counts use `external_v163/v163_calibration_{0,1,2}.bin` (100 TRAIN books, 300 raw windows). Evaluation uses `external_book_gate/heldout_dev160.bin` and `heldout_test160.bin`, 24 independent books per window cohort and 8,015 / 8,003 fully scored raw bytes after skipping left-edge partial words. TEST windows were **already reused** in prior development. No user-private data, DEV examples or TEST labels were added to the byte n-gram sidecar or signed ANN index.
+
+The byte mixture strength `eta_inside=.5`, `eta_outside=.1` was tuned on DEV, then frozen before reused TEST. The v169 ANN exponent `.05` was chosen by TRAIN-book candidate calibration. The 100-book TRAIN calibration is **not independent of the v164 500-TRAIN-book memory index**, and the older model's full inherited corpus-overlap provenance remains unscreened; do not overstate generalization.
+
+Native sidecar format `N169BYT1` fingerprints (inherited trained model/geometry/cloud): `10657386406110969289 / 7997860904003825501 / 16896651846733574110`. Native sidecar SHA-256 `b0d40925cabd242e4a9d9f38cb3edc5d46ceb110fc945e781e9f71cb52149e80` (239,679 bytes). Inherited lexical checkpoint SHA-256 `e6e2305c045680ade98eae32ea903b7bc43314da529ffe668525201219379bdb`, signed ANN index `c542c09c9e2d2ea846884f2b5f2a56f5970c8085509134378bfc47f5a6d806f5`. TRAIN byte bridge JSON `b3816657affcc672b1a76e8a8591a8b7a86ae2b328336b16ce4fb46d86505d80`; n-gram JSON `2d91307f8debd44476218dd9ffbb64c4dc9fef321b2ee97e28c28fcac76709c7`.
+
+No optimizer updates were applied to inherited v166/v167 weights this round. Experimental raw continuation and routing checkpoints from v168 are retained as rejected variants. No external or purportedly untouched dataset was acquired during this round.

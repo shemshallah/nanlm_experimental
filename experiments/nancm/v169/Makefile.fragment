@@ -1,0 +1,16 @@
+# NaNCM v169 experimental signed lexical neighbor and NATIVE 256-byte symbiosis.
+# The protected v167 development baseline is NOT replaced.
+.PHONY: v169 v169-byte-pack test-v169 test-v169-byte test-v169-full
+v169: bin/libwordfield169.so
+bin/libwordfield169.so: experiments/nancm/v169/wordfield169_api.cpp experiments/nancm/v169/native_byte169.cpp experiments/nancm/v169/wordfield168_embed_ann169.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+v169-byte-pack: checkpoints/v169_native_byte_lattice.bin
+checkpoints/v169_native_byte_lattice.bin: checkpoints/v169_byte_ngram.json checkpoints/v169_byte_bridge.json experiments/nancm/v169/pack_byte169.py
+	python experiments/nancm/v169/pack_byte169.py
+test-v169: v169
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v169/test_native169.py
+test-v169-byte: v169 v169-byte-pack
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v169/test_native_byte169.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v169/test_streaming169.py
+test-v169-full: test-v169 test-v169-byte

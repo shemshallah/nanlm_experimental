@@ -1,0 +1,549 @@
+{
+  "name": "NaNCM v169 Native Symbiotic 256-Byte Inference",
+  "status": "EXPERIMENTAL_NOT_PROMOTED",
+  "active_development": "v167",
+  "native_word_abi": "wf148_open,beg,next,close unchanged",
+  "native_byte_api": "wf169_byte_open,next,close (256 probabilities)",
+  "architecture": [
+    "128+128 inherited S+/S- cloud",
+    "v166 12000-word lexical head",
+    "v168 199956 address signed ANN",
+    "v169 lexical-rescored ANN proposals (native)",
+    "v169 TRAIN-only case, punctuation, byte 0-3gram",
+    "v169 causal normalized 256-way mixture"
+  ],
+  "train_source": "100 NaNROUTER TRAIN books, 300 windows (~115k bytes), book-disjoint from DEV/TEST",
+  "selection": "DEV selected byte weights: inside .5 / outside .1; FIXED for reused TEST",
+  "word_beam_dev_480": {
+    "model": "NaNCM v169 symbiotic ANN native",
+    "split": "DEV",
+    "beta": 0.05,
+    "n": 480,
+    "top1": 46,
+    "top5": 93,
+    "top32": 158,
+    "bits_per_spelling_symbol": 2.539015417645692,
+    "active": 244,
+    "bybook": {
+      "0": [
+        3,
+        6,
+        9
+      ],
+      "1": [
+        2,
+        4,
+        5
+      ],
+      "2": [
+        1,
+        2,
+        4
+      ],
+      "3": [
+        5,
+        8,
+        12
+      ],
+      "4": [
+        0,
+        3,
+        5
+      ],
+      "5": [
+        0,
+        1,
+        3
+      ],
+      "6": [
+        0,
+        2,
+        7
+      ],
+      "7": [
+        2,
+        5,
+        7
+      ],
+      "8": [
+        1,
+        3,
+        7
+      ],
+      "9": [
+        3,
+        3,
+        6
+      ],
+      "10": [
+        2,
+        4,
+        5
+      ],
+      "11": [
+        2,
+        5,
+        8
+      ],
+      "12": [
+        2,
+        5,
+        9
+      ],
+      "13": [
+        0,
+        1,
+        3
+      ],
+      "14": [
+        0,
+        3,
+        6
+      ],
+      "15": [
+        3,
+        4,
+        6
+      ],
+      "16": [
+        3,
+        4,
+        9
+      ],
+      "17": [
+        1,
+        4,
+        7
+      ],
+      "18": [
+        2,
+        4,
+        7
+      ],
+      "19": [
+        1,
+        6,
+        7
+      ],
+      "20": [
+        5,
+        6,
+        9
+      ],
+      "21": [
+        1,
+        2,
+        4
+      ],
+      "22": [
+        4,
+        5,
+        7
+      ],
+      "23": [
+        3,
+        3,
+        6
+      ]
+    },
+    "seconds": 8.55
+  },
+  "word_beam_reused_test_480": {
+    "model": "NaNCM v169 symbiotic ANN native",
+    "split": "TEST",
+    "beta": 0.05,
+    "n": 480,
+    "top1": 47,
+    "top5": 103,
+    "top32": 165,
+    "bits_per_spelling_symbol": 2.4962770935585867,
+    "active": 317,
+    "bybook": {
+      "0": [
+        2,
+        3,
+        4
+      ],
+      "1": [
+        3,
+        7,
+        11
+      ],
+      "2": [
+        2,
+        5,
+        7
+      ],
+      "3": [
+        2,
+        7,
+        11
+      ],
+      "4": [
+        2,
+        4,
+        7
+      ],
+      "5": [
+        2,
+        4,
+        6
+      ],
+      "6": [
+        3,
+        4,
+        5
+      ],
+      "7": [
+        1,
+        1,
+        3
+      ],
+      "8": [
+        1,
+        3,
+        6
+      ],
+      "9": [
+        0,
+        1,
+        3
+      ],
+      "10": [
+        5,
+        8,
+        12
+      ],
+      "11": [
+        4,
+        6,
+        8
+      ],
+      "12": [
+        2,
+        6,
+        7
+      ],
+      "13": [
+        1,
+        3,
+        7
+      ],
+      "14": [
+        2,
+        4,
+        12
+      ],
+      "15": [
+        1,
+        3,
+        5
+      ],
+      "16": [
+        3,
+        5,
+        9
+      ],
+      "17": [
+        1,
+        3,
+        6
+      ],
+      "18": [
+        3,
+        4,
+        5
+      ],
+      "19": [
+        4,
+        7,
+        11
+      ],
+      "20": [
+        0,
+        4,
+        5
+      ],
+      "21": [
+        1,
+        2,
+        3
+      ],
+      "22": [
+        2,
+        5,
+        7
+      ],
+      "23": [
+        0,
+        4,
+        5
+      ]
+    },
+    "seconds": 8.94
+  },
+  "word_beam_dev_1394": {
+    "model": "NaNCM v169 symbiotic ANN native",
+    "split": "DEV",
+    "beta": 0.05,
+    "n": 1394,
+    "top1": 141,
+    "top5": 268,
+    "top32": 480,
+    "bits_per_spelling_symbol": 2.603934920569186,
+    "active": 708,
+    "bybook": {
+      "0": [
+        9,
+        13,
+        21
+      ],
+      "1": [
+        8,
+        18,
+        30
+      ],
+      "2": [
+        4,
+        6,
+        15
+      ],
+      "3": [
+        13,
+        19,
+        28
+      ],
+      "4": [
+        3,
+        13,
+        23
+      ],
+      "5": [
+        3,
+        6,
+        11
+      ],
+      "6": [
+        5,
+        9,
+        20
+      ],
+      "7": [
+        6,
+        11,
+        18
+      ],
+      "8": [
+        5,
+        9,
+        25
+      ],
+      "9": [
+        8,
+        10,
+        19
+      ],
+      "10": [
+        5,
+        9,
+        14
+      ],
+      "11": [
+        5,
+        13,
+        22
+      ],
+      "12": [
+        2,
+        7,
+        15
+      ],
+      "13": [
+        3,
+        6,
+        18
+      ],
+      "14": [
+        1,
+        6,
+        15
+      ],
+      "15": [
+        6,
+        12,
+        17
+      ],
+      "16": [
+        6,
+        12,
+        23
+      ],
+      "17": [
+        5,
+        11,
+        18
+      ],
+      "18": [
+        9,
+        15,
+        26
+      ],
+      "19": [
+        5,
+        12,
+        14
+      ],
+      "20": [
+        10,
+        20,
+        32
+      ],
+      "21": [
+        9,
+        11,
+        21
+      ],
+      "22": [
+        6,
+        11,
+        22
+      ],
+      "23": [
+        5,
+        9,
+        13
+      ]
+    },
+    "seconds": 23.63
+  },
+  "counterfactual_ann": {
+    "n": 244,
+    "books": 16,
+    "actual": {
+      "1": 21,
+      "5": 50,
+      "16": 66,
+      "32": 79,
+      "64": 93
+    },
+    "unrelated": {
+      "1": 4,
+      "5": 12,
+      "16": 18,
+      "32": 27,
+      "64": 44
+    },
+    "mean_log2_true_mass_actual": -26.436977401707402,
+    "mean_log2_true_mass_unrelated": -33.78059821593358,
+    "paired_better": 84,
+    "paired_worse": 19,
+    "time": 2.68,
+    "claim": "ANN branch only, not whole model; forced wrong donor from another book; target never in begin"
+  },
+  "native_rollbacks": {
+    "status": "PASS",
+    "exact_v168_rollback_vectors": 450,
+    "exact_v167_rollback_vectors": 300,
+    "active_normalized_vectors": 1440,
+    "future_suffix_exclusion_exact_vectors": 1440,
+    "docs_domain_exact_vectors": 4545,
+    "docs_domain_ann_admissions": 0,
+    "active_heldout_dev_positions": 244,
+    "invalid_settings_fail_closed": 5,
+    "native_full_256_byte_bpb": "not native; auxiliary bridge in byte_bridge169.py",
+    "promotion": "NOT_PROMOTED"
+  },
+  "byte_native_replay": {
+    "status": "PASS",
+    "native_parity_256way_vectors": 288,
+    "max_probability_abs_difference": 3.5555715482971095e-08,
+    "bad_sidecars_fail_closed": 2,
+    "native_api": "wf169_byte_open/next/close",
+    "inherited_signed_cloud_unchanged": true,
+    "bytepack_sha256": "b0d40925cabd242e4a9d9f38cb3edc5d46ceb110fc945e781e9f71cb52149e80",
+    "elapsed_seconds": 29.0,
+    "not_certified": "DEV chosen mixing coefficients and previously reused TEST books"
+  },
+  "replayed_full_native_byte_metrics": {
+    "dev": {
+      "n": 8015,
+      "bpb": 2.587375524068896
+    },
+    "reused_test": {
+      "n": 8003,
+      "bpb": 2.505834322627383
+    }
+  },
+  "byte_comparison": {
+    "dev": {
+      "split": "dev",
+      "selected_on": "DEV",
+      "weights": {
+        "within_ascii_word": 0.5,
+        "outside_ascii_word": 0.1
+      },
+      "n": 8015,
+      "native_lexical_signed_cloud": 2.8931429599137317,
+      "byte_ngram": 2.8449876353938532,
+      "joint_mixture": 2.5873755230537547,
+      "wins_vs_ngram": 24,
+      "bootstrap_95_delta_bpb": [
+        0.19311811037146048,
+        0.32235381150077375
+      ],
+      "note": "REUSED TEST: previously exposed, not pristine. 256-way causal byte distribution; all bytes scored equally, mixture of two normalized distributions."
+    },
+    "test": {
+      "split": "test",
+      "selected_on": "FROZEN_DEV",
+      "weights": {
+        "within_ascii_word": 0.5,
+        "outside_ascii_word": 0.1
+      },
+      "n": 8003,
+      "native_lexical_signed_cloud": 2.72664813748092,
+      "byte_ngram": 2.820094569449591,
+      "joint_mixture": 2.505834321265453,
+      "wins_vs_ngram": 24,
+      "bootstrap_95_delta_bpb": [
+        0.24817237457313326,
+        0.38250542915624397
+      ],
+      "note": "REUSED TEST: previously exposed, not pristine. 256-way causal byte distribution; all bytes scored equally, mixture of two normalized distributions."
+    }
+  },
+  "bytepack": {
+    "format": "N169BYT1",
+    "source": "100 NaNROUTER TRAIN books (300 windows)",
+    "model_fingerprints": [
+      10657386406110969289,
+      7997860904003825501,
+      16896651846733574110
+    ],
+    "byte_ngram_sha": "2d91307f8debd44476218dd9ffbb64c4dc9fef321b2ee97e28c28fcac76709c7",
+    "byte_bridge_sha": "b3816657affcc672b1a76e8a8591a8b7a86ae2b328336b16ce4fb46d86505d80",
+    "rows": [
+      9601,
+      519,
+      87
+    ],
+    "binary_size": 239679,
+    "binary_sha256": "b0d40925cabd242e4a9d9f38cb3edc5d46ceb110fc945e781e9f71cb52149e80"
+  },
+  "rejected_arms": [
+    "raw model training v168; first choice regression",
+    "v168 top3 expert router; DEV first choice regression",
+    "v169 portfolio reranker: TRAIN book validation 24->29 but DEV active positions 27->24",
+    "v169 local suffix cache: 26/1394 two-word matches, only 2 correct",
+    "v169 word-level rerank by byte-mixture on 100 positions: 12 parent top1 ->7"
+  ],
+  "open_gates": [
+    "new pristine independent-book test",
+    "full NaNROUTER Release raw books for large training",
+    "word top1 >=80%",
+    "256-byte +2/+3 true lookahead",
+    "Android/Termux cross-compilation",
+    "book near-duplicate and inherited-training-overlap audit"
+  ],
+  "claims": "First working native normalized next-byte architecture with 24-book paired DEV and previously reused TEST; not frontier or 80% next-word model."
+}
