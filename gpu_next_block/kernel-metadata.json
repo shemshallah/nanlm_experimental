@@ -1,6 +1,6 @@
 {
-  "id": "shem42/z4-causal-gpu18h",
-  "title": "Z4 causal GPU18h",
+  "id": "shem42/z4-causal-gpu18h-v2",
+  "title": "Z4 causal GPU18h v2",
   "code_file": "train.py",
   "language": "python",
   "kernel_type": "script",
@@ -11,8 +11,7 @@
   "dataset_sources": [],
   "competition_sources": [],
   "kernel_sources": [
-    "shem42/z4-causal-gpu12h",
-    "shem42/z4-corpus-150m-mirror"
+    "shem42/z4-run-inputs-18h"
   ],
   "model_sources": [],
   "category_ids": []
