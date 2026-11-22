@@ -1,0 +1,15 @@
+{
+  "experiment": "NaNCM v170 Native Prequential Signed Cloud",
+  "status": "EXPERIMENTAL_NOT_PROMOTED",
+  "active_whole_word_baseline": "v167",
+  "dev": {"bytes": 8015, "books": 24, "v169_bpb": 2.5873755230537565, "v170_native_bpb": 2.563848893529875, "gain_bpb": 0.02352662952388138},
+  "reused_test": {"bytes": 8003, "books": 24, "v169_bpb": 2.5058343212654415, "v170_native_bpb": 2.472756833747626, "gain_bpb": 0.03307748751781556},
+  "hyperparameter_selection": "DEV archived expert replay; frozen before reused TEST",
+  "decay": 0.9, "log_likelihood_gain": 0.2,
+  "mixture_bounds": [0.01, 0.95],
+  "native_exact_v169_rollback_vectors": 292, "maximum_rollback_difference": 0,
+  "native_reference_max_abs_probability_error": 5.5785276398268024e-08,
+  "native_evaluated_bytes": 16018,
+  "optimizer_state_modified": false, "cloud_weights_modified": false,
+  "fresh_test_certified": false, "strict_word_top1_improved": false
+}

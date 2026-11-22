@@ -1,0 +1,8 @@
+# Append to the complete v169 recovery Makefile (opt-in development).
+.PHONY: v170 test-v170
+v170: bin/libwordfield170.so
+bin/libwordfield170.so: experiments/nancm/v170/wordfield170_api.cpp experiments/nancm/v170/native_online170.cpp experiments/nancm/v169/wordfield169_api.cpp experiments/nancm/v169/native_byte169.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v170: v170 v169-byte-pack
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v170/test_native170.py
