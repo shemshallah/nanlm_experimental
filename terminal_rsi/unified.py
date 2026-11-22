@@ -89,6 +89,7 @@ def static_upgrade_parameter_count(cfg: Preset,
         2 * d + 1 +                           # feedback and refine scale
         d + 1 +                               # adaptive-depth head
         d + 1 +                               # per-token upgrade gate
+        2 +                                   # causal copy gates (5/12 byte)
         fast_weight_parameter_count(d) +       # low-rank weight-space RSI head
         rank_adapter_parameter_count(
             fast_adapter_input_width(cfg, word_vocab_size), rank=16) +  # side head
@@ -253,6 +254,10 @@ class TerminalRSI(nn.Module):
         # Per-token parent/upgrade mixing gate.  Zero-initialized so the
         # inherited v103 logits stay exact until this head learns.
         self.upgrade_gate = nn.Linear(d, 1)
+        # Learned trust in the causal 5-byte and 12-byte historic matches.
+        # The v103 parent already consumes these aux columns; the 100M branch
+        # previously ignored them completely.
+        self.copy_gate = nn.Parameter(torch.tensor([0.05, 0.05]))
         self.hierarchy = CausalHierarchy(d, word_vocab_size=self.word_vocab_size)
         adapter_dim = (d + 3 * self.hierarchy.bus_width + 256 + 256
                        + 2 * (TOKEN_VOCAB_SIZE + self.word_vocab_size)
@@ -301,7 +306,8 @@ class TerminalRSI(nn.Module):
         missing, unexpected = super().load_state_dict(
             migrated, strict=False, assign=assign)
         allowed = ("fast_weight.", "depth_head.", "fast_adapter.",
-                   "hierarchy.pair_memory.", "hierarchy.unit_heads.",
+                   "copy_gate", "hierarchy.pair_memory.",
+                   "hierarchy.unit_heads.",
                    "upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.hierarchy.pair_memory.",
                    "upgrades.hierarchy.unit_heads.")
@@ -325,7 +331,8 @@ class TerminalRSI(nn.Module):
             h = layer(h)
         return h
 
-    def forward(self, x: torch.Tensor, passes: Optional[int] = None) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor, passes: Optional[int] = None,
+                aux: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if x.dtype != torch.long or x.ndim != 2:
             raise ValueError("x must be [batch,time] torch.long byte indices")
         if x.shape[1] > self.cfg.context + 1:
@@ -411,6 +418,18 @@ class TerminalRSI(nn.Module):
         raw_next = torch.cat((raw_next[:, :-1], refined_last[:, None]), dim=1)
         base_last_logits = self.output[0](enhanced)[:, -1]
         predicted_surprise = F.softplus(self.critic(enhanced).squeeze(-1))
+        copy_logits = torch.zeros(
+            (b, 256), dtype=enhanced.dtype, device=enhanced.device)
+        if aux is not None and aux.shape == (b, 6):
+            aux_long = aux.to(device=enhanced.device, dtype=torch.long)
+            for slot, (byte_col, length_col, span) in enumerate(
+                    ((2, 3, 5.0), (4, 5, 12.0))):
+                candidate = aux_long[:, byte_col].clamp(0, 255)
+                length = aux_long[:, length_col].float().clamp(0, int(span))
+                weight = torch.tanh(self.copy_gate[slot]) * (length / span)
+                copy_logits.scatter_add_(
+                    1, candidate[:, None],
+                    (weight * 4.0).to(copy_logits.dtype)[:, None])
         moe_stats = [block.moe.last_load_balance.to(enhanced.device)
                      for block in self.backbone if block.moe is not None]
         moe_losses = [block.moe.load_balance_loss.to(enhanced.device)
@@ -435,6 +454,7 @@ class TerminalRSI(nn.Module):
             "unit_byte_raw": bus.unit_byte_raw,
             "unit_byte_logits": bus.unit_byte_logits,
             "adapter_input": adapter_input,
+            "copy_logits": copy_logits,
             "last_base_logits": base_last_logits,
             "last_refined_logits": refined_last,
             "gate_features": enhanced[:, -1],

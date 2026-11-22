@@ -46,6 +46,59 @@ class FastAdapterInitTests(unittest.TestCase):
         self.assertFalse(reopen_fast_adapter(model))
 
 
+class CopyHeadTests(unittest.TestCase):
+    def setUp(self):
+        self.patch = patch.dict(PRESETS, {"cpu": TINY})
+        self.patch.start()
+        torch.manual_seed(13)
+
+    def tearDown(self):
+        self.patch.stop()
+
+    def test_copy_logits_follow_the_causal_match_candidates(self):
+        model = VerbatimV103RSI("cpu")
+        history = torch.randint(0, 256, (2, 32))
+        aux = torch.zeros((2, 6), dtype=torch.int32)
+        aux[:, 2] = ord("a")
+        aux[:, 3] = 5
+        aux[:, 4] = ord("b")
+        aux[:, 5] = 12
+        out = model.upgrades(history, aux=aux)
+        copy = out["copy_logits"]
+        self.assertEqual(copy.shape, (2, 256))
+        self.assertGreater(float(copy[0, ord("a")]), 0.0)
+        self.assertGreater(float(copy[0, ord("b")]), 0.0)
+        self.assertAlmostEqual(float(copy[0].sum()),
+                               float(copy[0, ord("a")] + copy[0, ord("b")]),
+                               places=6)
+        empty = model.upgrades(history, aux=None)["copy_logits"]
+        self.assertEqual(float(empty.abs().max()), 0.0)
+
+    def test_copy_gate_receives_gradient(self):
+        from terminal_rsi.train_verbatim import train_one_batch
+        model = VerbatimV103RSI("cpu")
+        optimizer = build_v103_optimizer(model)
+        history = torch.randint(0, 256, (2, 32))
+        target = torch.tensor([ord("a"), ord("a")])
+        aux = torch.zeros((2, 6), dtype=torch.int32)
+        aux[:, 2] = target
+        aux[:, 3] = 5
+        train_one_batch(model, optimizer, history, target, aux,
+                        upgrade_loss_weight=1.0, microbatch=0)
+        self.assertIsNotNone(model.upgrades.copy_gate.grad)
+        self.assertGreater(
+            float(model.upgrades.copy_gate.grad.abs().max()), 0.0)
+
+    def test_legacy_checkpoint_missing_copy_gate_is_allowed(self):
+        source = VerbatimV103RSI("cpu")
+        state = source.state_dict()
+        state.pop("upgrades.copy_gate")
+        target = VerbatimV103RSI("cpu")
+        missing, unexpected = target.load_state_dict(state, strict=True)
+        self.assertIn("upgrades.copy_gate", missing)
+        self.assertFalse(unexpected)
+
+
 class VocabularyExpansionTests(unittest.TestCase):
     def setUp(self):
         self.patch = patch.dict(PRESETS, {"cpu": TINY})
@@ -102,6 +155,25 @@ class LegacyOptimizerMigrationTests(unittest.TestCase):
         expanded.zero_grad()
         (first.sum() + second.sum()).backward()
         expanded.step()
+        self.assertIn(second, expanded.state)
+
+    def test_two_groups_accept_two_allowed_parameters(self):
+        first = nn.Parameter(torch.tensor([1.0, 2.0]))
+        second = nn.Parameter(torch.tensor([3.0]))
+        extra_a = nn.Parameter(torch.zeros(2))
+        extra_b = nn.Parameter(torch.zeros(1))
+        old = torch.optim.AdamW([
+            {"params": [first]}, {"params": [second]}])
+        old.zero_grad()
+        (first.sum() + second.sum()).backward()
+        old.step()
+        expanded = torch.optim.AdamW([
+            {"params": [first, extra_a]}, {"params": [second, extra_b]}])
+        self.assertTrue(load_optimizer_allow_extra_params(
+            expanded, old.state_dict(), {extra_a, extra_b}))
+        self.assertEqual(len(expanded.param_groups[0]["params"]), 2)
+        self.assertEqual(len(expanded.param_groups[1]["params"]), 2)
+        self.assertIn(first, expanded.state)
         self.assertIn(second, expanded.state)
 
     def test_unexplained_extra_parameters_are_rejected(self):

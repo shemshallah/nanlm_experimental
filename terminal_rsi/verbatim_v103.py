@@ -180,10 +180,10 @@ class VerbatimV103RSI(nn.Module):
             if not torch.cuda.is_bf16_supported():
                 raise RuntimeError("Blackwell upgrade requires BF16-capable CUDA")
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                upgrade_out = upgrade_module(previous.long())
+                upgrade_out = upgrade_module(previous.long(), aux=aux)
                 current = upgrade_out["logits"][0, :, -1, :]
         else:
-            upgrade_out = upgrade_module(previous.long())
+            upgrade_out = upgrade_module(previous.long(), aux=aux)
             current = upgrade_out["logits"][0, :, -1, :]
         proposed = self._byte_to_conditional_bit_logits(current, target)
         # Distillation views: the parent's target-conditioned bit logits are
@@ -216,6 +216,11 @@ class VerbatimV103RSI(nn.Module):
         if unit_byte is not None:
             unit_bits = self._byte_to_conditional_bit_logits(unit_byte, target)
             final_logits = final_logits + unit_bits.to(final_logits.dtype)
+        copy_logits = upgrade_out.get("copy_logits")
+        if copy_logits is not None:
+            copy_bits = self._byte_to_conditional_bit_logits(copy_logits,
+                                                             target)
+            final_logits = final_logits + copy_bits.to(final_logits.dtype)
         word_logits = upgrade_out.get("unit_logits", {}).get("current_word")
         if word_logits is not None and self.word_bytes.numel() > 1:
             prior = word_prefix_byte_log_probs(
@@ -267,6 +272,7 @@ class VerbatimV103RSI(nn.Module):
             migrated, strict=False, assign=assign)
         allowed = ("upgrades.fast_weight.", "upgrades.depth_head.",
                    "upgrades.upgrade_gate.", "upgrades.fast_adapter.",
+                   "upgrades.copy_gate",
                    "word_bridge.", "word_bridge_scale.",
                    "word_ngram_scale.", "word_prior_gate.",
                    "upgrades.hierarchy.pair_memory.",
@@ -575,32 +581,24 @@ def load_optimizer_allow_extra_params(optimizer, state_dict, allowed_extra):
     saved = state_dict.get("param_groups") or []
     if len(current) != len(saved):
         raise ValueError("Optimizer group count changed unexpectedly") from failure
-    differences = []
-    for index, (group, saved_group) in enumerate(zip(current, saved)):
-        extra = len(group["params"]) - len(saved_group["params"])
-        if extra:
-            differences.append((index, extra, saved_group))
-    if len(differences) != 1 or differences[0][1] < 1:
-        raise ValueError("Optimizer groups changed beyond the fast adapter")
-    index, extra, saved_group = differences[0]
-    if any(len(group["params"]) != len(saved_group_other["params"])
-           for other, (group, saved_group_other) in enumerate(zip(current, saved))
-           if other != index):
-        raise ValueError("Optimizer groups changed beyond the fast adapter")
-    group = current[index]
-    full = list(group["params"])
     allowed = {id(parameter) for parameter in allowed_extra}
-    # The adapter was inserted in the middle of the side group by
-    # build_v103_optimizer, not appended at the end.  Remove exactly the
-    # allowed parameters and verify that the remaining order matches the
-    # checkpoint group before loading inherited Adam histories.
-    without_extra = [p for p in full if id(p) not in allowed]
-    if (len(without_extra) != len(saved_group["params"])
-            or len(full) - len(without_extra) != extra):
-        raise ValueError("Unexplained optimizer parameters cannot be migrated")
-    group["params"] = without_extra
+    # New parameters may have been inserted into more than one group (the
+    # adapter lives in the side group, the copy gate in recursive upgrades).
+    # Remove exactly the allowed parameters and verify that every remaining
+    # group matches the checkpoint before loading inherited Adam histories.
+    trimmed = []
+    for group, saved_group in zip(current, saved):
+        full = list(group["params"])
+        without_extra = [p for p in full if id(p) not in allowed]
+        if len(without_extra) != len(saved_group["params"]):
+            raise ValueError(
+                "Unexplained optimizer parameters cannot be migrated")
+        trimmed.append((full, without_extra))
+    for group, (full, without_extra) in zip(current, trimmed):
+        group["params"] = without_extra
     optimizer.load_state_dict(state_dict)
-    optimizer.param_groups[index]["params"] = full
+    for index, (full, without_extra) in enumerate(trimmed):
+        optimizer.param_groups[index]["params"] = full
     return True
 
 
@@ -628,7 +626,8 @@ def resume_combined(path: Path, model: VerbatimV103RSI, optimizer,
     model.load_state_dict(checkpoint["model"], strict=True)
     load_optimizer_allow_extra_params(
         optimizer, checkpoint["optimizer"],
-        model.upgrades.fast_adapter.parameters())
+        list(model.upgrades.fast_adapter.parameters())
+        + [model.upgrades.copy_gate])
     if len(optimizer.param_groups) < 3:
         raise ValueError("Optimizer group partition lost")
     state = checkpoint.get("training_state")
