@@ -1,5 +1,14 @@
 # NaNCM — active development baseline
 
+**2026-11-22 USER-DIRECTED DEVELOPMENT PROMOTION: v166 is now the active development baseline at V166_LEXICAL_BIRTH=0.05.** This is *not* production certification and does not assert a strict top-1 accuracy breakthrough. The previously active v158 checkpoint remains protected as rollback; v148 remains the legacy fallback. v164 remains the pretrained parent inside v166; the trained v165 signed concept tensors and optimizer moments are inherited by v166 and must not be reset.
+
+- Native shared library: `bin/libwordfield166.so`, unchanged `wf148_*` ABI. Configure parent model, geometry, signed cloud, v157 word/spelling heads, v162/v164 causal domain and distribution, then set `V166_LEXICAL_BIRTH=.05` and `V166_BIRTH_MODEL=checkpoints/v166_lexical_birth.bin`.
+- This conservative profile preserved DEV strict top-1 45/480 vs v164 45/480, improved top-5 84→86, and reduced spelling/EOS bits/symbol 2.880214→2.624520. Reused TEST top-1 remained 45/480, top-5 99→100, and spelling/EOS 2.924645→2.635121. Sampled books previously explored in development; not pristine certification.
+- High-strength .50 is a research ablation only: DEV top-1 45→40 (regression). Avoid promoting it as the default despite improved symbol loss and TEST top-5.
+- Unchanged original optimizers/checkpoints, exact opt-out v164 rollback, domain isolation (4,545 historical vectors), all historical lineages retained. Full 256-byte BPB, +2/+3, independent pristine TEST, OOV generation beyond 12k fixed words, Android/Termux remain open.
+
+## Historical baseline record (superseded as active)
+
 **Promoted by explicit user instruction on 2026-11-21:** NaNCM v158 Causal Whole-Word Cloud Pointer is the active **development** baseline. This is not a claim of independent-book certified production.
 
 - Preserve the earlier v148 fallback and all inherited 128+128 signed cloud weights / AdaGrad and AdamW optimizer histories.
