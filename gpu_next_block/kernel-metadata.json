@@ -12,7 +12,7 @@
   "competition_sources": [],
   "kernel_sources": [
     "shem42/z4-causal-gpu12h",
-    "shem42/z4-corpus-mirror"
+    "shem42/z4-corpus-150m-mirror"
   ],
   "model_sources": [],
   "category_ids": []

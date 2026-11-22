@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path("/kaggle/working/nanlm_experimental")
-DATA = Path("/kaggle/input/notebooks/shem42/z4-corpus-mirror/corpus")
+DATA = Path("/kaggle/input/notebooks/shem42/z4-corpus-150m-mirror/corpus")
 CKPT = Path("/kaggle/input/notebooks/shem42/z4-causal-gpu12h/runs/causal_gpu12h/final.pt")
 OUT = Path("/kaggle/working/runs/causal_gpu18h")
 
@@ -46,16 +46,6 @@ if not (DATA / "train.bin").is_file():
 if not CKPT.is_file():
     raise SystemExit(f"checkpoint missing at {CKPT}")
 
-manifest = json.loads((DATA / "manifest.json").read_text())
-for split in ("train", "valid", "test"):
-    manifest["bins"][split]["path"] = str(DATA / f"{split}.bin")
-manifest["layered_model"] = str(DATA / "tokenizer" / "layered_tokenizer.json")
-for value in manifest.get("domains", {}).values():
-    value.pop("path", None)
-    value.pop("test_text", None)
-    value.pop("valid_text", None)
-manifest_path = Path("/kaggle/working/frozen_manifest.json")
-manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
 OUT.mkdir(parents=True, exist_ok=True)
 
 base = [
@@ -64,7 +54,6 @@ base = [
     "--preset", "kaggle10m_small",
     "--corpus", str(DATA / "train.bin"),
     "--val-corpus", str(DATA / "valid.bin"),
-    "--data-manifest", str(manifest_path),
     "--layered-model", str(DATA / "tokenizer" / "layered_tokenizer.json"),
     "--batch-size", "8", "--ctx", "512", "--lr", "1e-4",
     "--resume", str(CKPT),
