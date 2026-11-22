@@ -47,6 +47,20 @@ eval was deleted to free a slot.
    and the weights datasets without delay; the CPU per-domain eval and the
    corpus mirrors use this.
 
+## AMP result
+
+The self-contained probe (`z4-gpu-amp-probe2`, checkpoint via kernel output,
+corpus generated from repo text) completed:
+
+| AMP | tok/s | non-finite skips |
+|---|---:|---:|
+| bf16 | 2,530 | 0 |
+| **fp16** | **4,669** | **0** |
+
+fp16 is **1.85×** faster on the T4, matching the trainer's own `auto` policy
+(fp16 for compute capability < 8.0). A 6-hour block at this rate covers about
+100.8M tokens instead of 51.6M.
+
 ## Consequence for training
 
 The next 6-hour block (`z4-causal-gpu18h`) uses **zero dataset sources**:
