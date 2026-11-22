@@ -2,7 +2,7 @@
 """NaNCM v160 book-disjoint association gate.
 Independent book split; this is NOT an evaluation of inherited native v158.
 """
-import collections, hashlib, json, os, re, sys, tarfile
+import collections, hashlib, json, os, re, sys, tarfile, struct
 from pathlib import Path
 import zstandard
 
@@ -69,6 +69,24 @@ def evaluate(books,index):
             "route_precision_pct":round(100*correct/max(1,active),4),
             "correct_per_total_pct":round(100*correct/max(1,n),4)}
 
+
+def export_native_windows(books,path,seed,count=24):
+    # One 384-byte window per independent book; native inference receives
+    # only preceding bytes when scoring a target.
+    candidates=[(name,raw) for name,raw in books if len(raw)>=512]
+    candidates.sort(key=lambda x:hashlib.sha256((seed+x[0]).encode()).hexdigest())
+    selected=candidates[:count]
+    out=bytearray(struct.pack("<II",len(selected),48))
+    manifest=[]
+    for name,raw in selected:
+        size=384;bound=len(raw)-size
+        offset=int(hashlib.sha256((seed+name+"WINDOW").encode()).hexdigest()[:12],16)%(bound+1)
+        window=raw[offset:offset+size]
+        out.extend(struct.pack("<I",size));out.extend(window)
+        manifest.append({"name":name,"offset":offset,"sha256":hashlib.sha256(window).hexdigest()})
+    path.write_bytes(out)
+    return manifest
+
 def main():
     archive=Path(sys.argv[1]); sha=Path(sys.argv[2]); out=Path(sys.argv[3]);out.mkdir(parents=True,exist_ok=True)
     expected=[]
@@ -87,6 +105,8 @@ def main():
         k.split(":",1)[0]+"\t"+k.split(":",1)[1]+"\t"+v[0]+"\t"+str(v[1])+"\t"+str(v[2])+"\n"
         for k,v in sorted(index.items())
     ))
+    dev_windows=export_native_windows(books["dev"],out/"heldout_dev160.bin","dev",24)
+    test_windows=export_native_windows(books["test"],out/"heldout_test160.bin","test",24)
     report={
         "source":"NaNROUTER short-stories batch 0004 GitHub Release",
         "archive":archive.name,"sha256":actual,"split_seed":"NaNCM-BOOK-SPLIT-20261121-v160",
@@ -94,6 +114,7 @@ def main():
         "books":{k:len(v) for k,v in books.items()},"exact_duplicates_removed":duplicates,
         "associations":len(index),"index_sha256":digest_file(p),
         "DEV":evaluate(books["dev"],index),"TEST":evaluate(books["test"],index),
+        "native_dev_windows":len(dev_windows),"native_test_windows":len(test_windows),
         "independent_books":True,
         "near_duplicate_screened":False,
         "full_native_v158_compared":False,
@@ -101,6 +122,7 @@ def main():
         "result_type":"corpus-only route diagnostic; not a model promotion"
     }
     (out/"REPORT.json").write_text(json.dumps(report,indent=2))
+    (out/"WINDOW_MANIFEST.json").write_text(json.dumps({"DEV":dev_windows,"TEST":test_windows},indent=2))
     (out/"SPLITS.json").write_text(json.dumps({k:[name for name,_ in v] for k,v in books.items()},indent=2))
     print(json.dumps(report,indent=2))
 if __name__=="__main__":main()
