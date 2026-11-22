@@ -1,0 +1,58 @@
+{
+  "method": "10,000 independent resamples of 24 whole books; rows fixed; approximate exploratory 95% percentile CI",
+  "splits": {
+    "dev": {
+      "1": {
+        "before": 45,
+        "after": 46,
+        "delta_correct": 1,
+        "delta_percentage_points": 0.2083,
+        "bootstrap_book_cluster_95pct_pp": [
+          0.0,
+          0.625
+        ],
+        "lost": 0,
+        "gained": 1
+      },
+      "5": {
+        "before": 86,
+        "after": 94,
+        "delta_correct": 8,
+        "delta_percentage_points": 1.6667,
+        "bootstrap_book_cluster_95pct_pp": [
+          0.417,
+          3.125
+        ],
+        "lost": 1,
+        "gained": 9
+      }
+    },
+    "test": {
+      "1": {
+        "before": 45,
+        "after": 46,
+        "delta_correct": 1,
+        "delta_percentage_points": 0.2083,
+        "bootstrap_book_cluster_95pct_pp": [
+          -0.625,
+          1.042
+        ],
+        "lost": 2,
+        "gained": 3
+      },
+      "5": {
+        "before": 100,
+        "after": 104,
+        "delta_correct": 4,
+        "delta_percentage_points": 0.8333,
+        "bootstrap_book_cluster_95pct_pp": [
+          -0.208,
+          1.875
+        ],
+        "lost": 3,
+        "gained": 7
+      }
+    }
+  },
+  "warning": "Historical DEV and TEST both reused; uncertainty intervals do not repair selection bias"
+}

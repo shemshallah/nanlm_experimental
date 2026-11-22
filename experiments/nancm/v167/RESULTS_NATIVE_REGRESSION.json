@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "v166_optout_exact_vectors": 951,
+  "historical_docs_exact_vectors_at_domain_1_4": 4545,
+  "docs_generator_admissions": 0,
+  "fail_closed": true,
+  "no_production_promotion": true
+}

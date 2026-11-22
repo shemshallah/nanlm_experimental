@@ -1,0 +1,16 @@
+{
+  "name": "agree50",
+  "mode": 1,
+  "min_domain": 1.4,
+  "alpha": 0.05,
+  "high_alpha": 0.5,
+  "trust_threshold": 0.5,
+  "active": 244,
+  "boosted": 81,
+  "n": 480,
+  "top1": 46,
+  "top5": 94,
+  "top32": 150,
+  "bits_per_spelling_symbol": 2.5585598608801043,
+  "seconds": 7.17
+}

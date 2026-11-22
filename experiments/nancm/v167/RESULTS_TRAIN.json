@@ -1,0 +1,89 @@
+{
+  "status": "candidate_not_promoted",
+  "source_v166": "/mnt/data/nancm_v165_work/checkpoints/v166_lexical_birth.pt",
+  "parent_sha": "40c20cd7395e5d0a36e4c2e14fdd4c5219f9cda4bf0415d4d30726c770dba13d",
+  "mode": "TRAIN-index full-distribution NLL + hard negative margin and KL to v166",
+  "train_index_loss_before": {
+    "train_index_context_split_nll": 6.2340784,
+    "modal_top1": 0.16016,
+    "contexts": 768
+  },
+  "best_train_index_loss_after": {
+    "train_index_context_split_nll": 6.0854825,
+    "modal_top1": 0.20964,
+    "contexts": 768
+  },
+  "steps_run": 350,
+  "best_step": 350,
+  "signed_adam_moments_preserved": true,
+  "native_sha256": "e426ff81bd56aa6a5c991ce9f76b40453aafaf5ba808d3b3d5b16241ffbee544",
+  "checkpoint_sha256": "fb784b10cefcde2b35a7b87358e7dcecf59edbb497fbb7b2d5d5b8892c87aa2e",
+  "history": [
+    {
+      "train_index_context_split_nll": 6.2337967,
+      "modal_top1": 0.16146,
+      "contexts": 768,
+      "step": 1,
+      "batch_nll": 6.77209,
+      "margin": 4.19963
+    },
+    {
+      "train_index_context_split_nll": 6.2184885,
+      "modal_top1": 0.17057,
+      "contexts": 768,
+      "step": 50,
+      "batch_nll": 6.03408,
+      "margin": 3.23847
+    },
+    {
+      "train_index_context_split_nll": 6.190851,
+      "modal_top1": 0.17969,
+      "contexts": 768,
+      "step": 100,
+      "batch_nll": 6.62938,
+      "margin": 3.84829
+    },
+    {
+      "train_index_context_split_nll": 6.1691013,
+      "modal_top1": 0.19531,
+      "contexts": 768,
+      "step": 150,
+      "batch_nll": 5.89734,
+      "margin": 2.92151
+    },
+    {
+      "train_index_context_split_nll": 6.1355443,
+      "modal_top1": 0.19271,
+      "contexts": 768,
+      "step": 200,
+      "batch_nll": 6.15724,
+      "margin": 3.40658
+    },
+    {
+      "train_index_context_split_nll": 6.122454,
+      "modal_top1": 0.19922,
+      "contexts": 768,
+      "step": 250,
+      "batch_nll": 5.85198,
+      "margin": 2.99936
+    },
+    {
+      "train_index_context_split_nll": 6.103007,
+      "modal_top1": 0.21094,
+      "contexts": 768,
+      "step": 300,
+      "batch_nll": 6.338,
+      "margin": 3.54722
+    },
+    {
+      "train_index_context_split_nll": 6.0854825,
+      "modal_top1": 0.20964,
+      "contexts": 768,
+      "step": 350,
+      "batch_nll": 5.94416,
+      "margin": 3.27932
+    }
+  ],
+  "seconds": 17.59,
+  "warning": "TRAIN-index context split not book-disjoint, DEV native gate and strict top-1 are required before promotion"
+}

@@ -1,0 +1,13 @@
+# Active NaNCM v167 module. The complete recovery archive contains its
+# inherited native wordfield164_embed165.cpp and signed-cloud checkpoints.
+.PHONY: v167 test-v167 test-v167-full
+v167: bin/libwordfield167.so
+bin/libwordfield167.so: experiments/nancm/v167/wordfield167_api.cpp src/wordfield164_embed165.cpp src/wordfield162_embed163.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v167: v167
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v167/test_native167.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v167/test_trust167.py
+test-v167-full: test-v167
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v166/test_native166.py --quick
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v166/test_doc_guard166.py

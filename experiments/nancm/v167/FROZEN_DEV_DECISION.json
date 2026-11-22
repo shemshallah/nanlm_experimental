@@ -1,0 +1,15 @@
+{
+  "title": "NaNCM v167 agreement-gated lexical birth",
+  "freeze_scope": "single v167 candidate selected using only the reused 480-word DEV sample; do not tune on TEST",
+  "chosen": {
+    "gate_mode": 1,
+    "V166_LEXICAL_BIRTH": 0.05,
+    "V167_HIGH_ALPHA": 0.5,
+    "V167_TRUST_THRESHOLD": 0.5,
+    "V167_DOMAIN_MIN": 1.4,
+    "checkpoint": "checkpoints/v166_lexical_birth.bin"
+  },
+  "dev": {"top1": 46, "top5": 94, "top32": 150, "bits_per_spelling_symbol": 2.5585598608801043},
+  "promoted_v166_dev": {"top1": 45, "top5": 86, "top32": 146, "bits_per_spelling_symbol": 2.624520143801102},
+  "caveat": "DEV sample previously explored many times. TEST windows also previously reused in v164-v166 development and are only corroborative, not pristine. No guarantee improvement generalizes to new books."
+}

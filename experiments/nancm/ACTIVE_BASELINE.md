@@ -1,4 +1,14 @@
-# NaNCM — active development baseline
+# NaNCM — Active development baseline v167
+
+**2026-11-22: v167 Agreement-Gated Signed Lexical Birth is the active DEVELOPMENT baseline.** This supersedes the user-promoted v166 .05 conservative profile, not its protected neural checkpoint. v167 still loads the exact same 12,000-word v166 checkpoint and full AdamW history, inherited from v165 128+128 signed cloud. It changes only causal admission and consensus-controlled lexical mixing; no original model weights are overwritten.
+
+Frozen profile: `V166_LEXICAL_BIRTH=.05 V166_BIRTH_MODEL=checkpoints/v166_lexical_birth.bin V167_GATE_MODE=1 V167_HIGH_ALPHA=.5 V167_TRUST_THRESHOLD=.5 V167_DOMAIN_MIN=1.4`. Native `bin/libwordfield167.so` and unchanged `wf148_*` ABI. Source/tests in `experiments/nancm/v167/`; cumulative recovery ZIP includes native trained sidecars and original optimizer checkpoints.
+
+DEV 480 independent-book sampled words: v166→v167 strict top-1 **45→46**, top-5 **86→94**, top-32 **146→150**, spelling/EOS bits/symbol **2.624520→2.558560**. Reused TEST sample: top-1 **45→46**, top-5 **100→104**, top-32 **159→162**, bits/symbol **2.635121→2.512776**. v167 enables generator at 244 DEV positions vs 219 for v166; 951 exact v166 rollback vectors and 4,545 docs-domain vectors pass. Top-1 lift is only 1/480 and confidence intervals are wide; **not production-certified**. Both book samples reused, not pristine. Full 256-byte BPB, +2/+3, Android, overlap audit, 80% word top-1 remain OPEN.
+
+Fallback lineage: v166 conservative .05 → v164 → v158 preserved checkpoint → v148 legacy fallback. The additional v167 margin-trained checkpoint is archived as rejected because book DEV top-5 regressed. No new branches; master only.
+
+## Historical promotion records
 
 **2026-11-22 USER-DIRECTED DEVELOPMENT PROMOTION: v166 is now the active development baseline at V166_LEXICAL_BIRTH=0.05.** This is *not* production certification and does not assert a strict top-1 accuracy breakthrough. The previously active v158 checkpoint remains protected as rollback; v148 remains the legacy fallback. v164 remains the pretrained parent inside v166; the trained v165 signed concept tensors and optimizer moments are inherited by v166 and must not be reset.
 

@@ -1,0 +1,16 @@
+{
+  "name": "frozen_agree50",
+  "mode": 1,
+  "min_domain": 1.4,
+  "alpha": 0.05,
+  "high_alpha": 0.5,
+  "trust_threshold": 0.5,
+  "active": 317,
+  "boosted": 132,
+  "n": 480,
+  "top1": 46,
+  "top5": 104,
+  "top32": 162,
+  "bits_per_spelling_symbol": 2.512775785175084,
+  "seconds": 7.29
+}

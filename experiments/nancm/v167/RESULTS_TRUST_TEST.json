@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "score_positions": 480,
+  "generator_active": 244,
+  "agreement_boosted": 81,
+  "normalized_27_symbol_vectors": 1440,
+  "future_suffix_ignored_bit_identically": 1440,
+  "signed_v166_checkpoint_sha": "e6e2305c045680ade98eae32ea903b7bc43314da529ffe668525201219379bdb",
+  "full_byte_BPB_tested": false
+}
