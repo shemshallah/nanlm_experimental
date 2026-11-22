@@ -2117,8 +2117,13 @@ def main(argv=None):
         receipt["dev_byte_top1_256"] = byte_256.get("top1")
         receipt["dev_byte_top5_256"] = byte_256.get("top5")
     if args.metrics_output:
-        _write_if_unchanged_or_new(args.metrics_output,
-            (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode())
+        # Metrics describe the completed leg, not a frozen DEV artifact, and
+        # repeated resume legs must be able to replace the previous receipt.
+        payload = (json.dumps(receipt, sort_keys=True, indent=2) + "\n").encode()
+        temporary = args.metrics_output.with_name(
+            args.metrics_output.name + ".tmp")
+        temporary.write_bytes(payload)
+        temporary.replace(args.metrics_output)
     print("Unified RSI CPU/T4/Blackwell training receipt:", json.dumps(receipt, indent=2))
     return receipt
 
