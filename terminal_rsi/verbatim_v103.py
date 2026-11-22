@@ -589,8 +589,15 @@ def load_optimizer_allow_extra_params(optimizer, state_dict, allowed_extra):
     trimmed = []
     for group, saved_group in zip(current, saved):
         full = list(group["params"])
+        saved_length = len(saved_group["params"])
+        if len(full) == saved_length:
+            trimmed.append((full, full))
+            continue
+        if len(full) < saved_length:
+            raise ValueError(
+                "Optimizer group shrank relative to the checkpoint")
         without_extra = [p for p in full if id(p) not in allowed]
-        if len(without_extra) != len(saved_group["params"]):
+        if len(without_extra) != saved_length:
             raise ValueError(
                 "Unexplained optimizer parameters cannot be migrated")
         trimmed.append((full, without_extra))
