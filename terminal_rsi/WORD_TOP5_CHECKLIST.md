@@ -699,3 +699,42 @@ Preserved in `shem42/trsi-100m-copy-2h-checkpoints` version 10:
 Resume needs a fresh Molab URL/token. Resume from the Kaggle `last.pt` with
 the same 80 MB pilot (`trsi_80m_deep_pilot`) and `--resume`, then run the
 remaining ~950 s plus final evaluation. Do not restart from step 0.
+
+## FINAL: 2-hour copy-head run (resumed and completed)
+
+Resumed exactly from the Kaggle step-1100 checkpoint after the first kernel
+died at 6243 s. Rebuilt pilot hashes matched the checkpoint
+(`train 6d987e…`, `dev 1f431b…`); the second leg ran 203 updates to step 1303.
+
+DEV on the rebuilt 80 MB corpus: **1.8683 BPB / 58.20% top-1 / 88.28% top-5**.
+Learned copy gates: **0.3512 / 0.4067**. Final checkpoint + metrics:
+`shem42/trsi-100m-copy-2h-checkpoints` version 12;
+paired evaluation JSONs: `shem42/trsi-100m-copy-2h-metrics`.
+
+Paired WikiText, same 8 excerpts x 64 positions:
+
+| metric | deep 4442 | copy 1303 | delta |
+|---|---:|---:|---:|
+| wt_test byte top-1 / top-5 | 52.15 / 80.08 | **53.32 / 80.86** | +1.17 / +0.78 |
+| wt_test token top-1 / top-5 | 36.70 / 77.68 | **37.61 / 79.82** | +0.91 / +2.14 |
+| wt_test word top-1 / top-5 | 5.36 / 33.93 | **10.71 / 30.36** | +5.35 / -3.57 |
+| wt_test word exact top-5 | 36.61 | **38.39** | +1.78 |
+| wt103_valid byte top-1 / top-5 | 52.73 / 78.12 | **53.71 / 80.66** | +0.98 / +2.54 |
+| wt103_valid token top-1 / top-5 | 36.19 / 78.73 | **38.41 / 79.37** | +2.22 / +0.64 |
+| wt103_valid word top-1 / top-5 | 10.38 / 28.30 | 8.49 / 28.30 | -1.89 / 0.00 |
+| wt103_valid word exact top-5 | 27.36 | **30.19** | +2.83 |
+| wt_test BPB | 2.5865 | **2.5847** | -0.0018 |
+| wt103_valid BPB | 2.5483 | **2.4774** | -0.0709 |
+
+Byte and token top-1/top-5 improved on both held-out sets, and word **exact**
+top-5 improved. The word *beam* top-5 is the remaining loss: the byte beam
+does not enumerate whole-word candidates well. The next real word lever is a
+16k vocabulary plus a lexicon/word-level beam, not more byte tuning.
+
+### Session lifetime
+
+The first 2-hour kernel died at 6243 s because the host keepalive process was
+killed (Android), after which Molab idled the kernel out. It was not the 12-hour
+platform cap. The replacement session resumed from the rolling checkpoint and
+finished the run. Keepalive now runs with `termux-wake-lock` and monitors the
+active run; long work should still use 60-90 minute legs plus exact resume.
