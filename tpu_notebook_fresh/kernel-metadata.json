@@ -1,0 +1,18 @@
+{
+  "id": "shem42/z4-tpu-causal-tpu20-v2",
+  "title": "Z4 TPU causal tpu20 v2",
+  "code_file": "train.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "shem42/z4-broad7h-bins"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": [],
+  "enable_tpu": true
+}

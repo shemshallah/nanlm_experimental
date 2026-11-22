@@ -1,0 +1,16 @@
+{
+  "id": "shem42/z4-input-probe",
+  "title": "Z4 input probe",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": ["shem42/z4-broad7h-bins", "shem42/z4-causal-60m-84m"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": []
+}
