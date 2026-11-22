@@ -738,3 +738,22 @@ killed (Android), after which Molab idled the kernel out. It was not the 12-hour
 platform cap. The replacement session resumed from the rolling checkpoint and
 finished the run. Keepalive now runs with `termux-wake-lock` and monitors the
 active run; long work should still use 60-90 minute legs plus exact resume.
+
+## 16k 6h run (partial, sandbox hard cap)
+
+Warm-started the 16k model from the 2h copy checkpoint
+(`--expand-init-vocab`, 16383 words, copy gates preserved). The run reached
+**step 750 / 4200 s of 21600 s** with train BPB ~1.60-1.75 and bit accuracy
+~94.2%. The rolling checkpoint is Kaggle
+`shem42/trsi-100m-16k-6h-checkpoints` version 4 (step 750).
+
+The Molab kernel then returned **HTTP 410 after ~2h47 from session creation**,
+while both the keepalive and the new watchdog were alive and pinging. This is
+a hard sandbox lifespan, not an idle timeout; the 12-hour figure in the FAQ is
+not the usable limit of this sandbox.
+
+Exact resume kit: `shem42/trsi-16k-6h-resume-kit` (80 MB pilot, corpus, BPE,
+launcher). Resume from step 750 with the 80 MB pilot and the same run directory;
+remaining training budget ~17400 s. The Kaggle GPU fallback test kernel stayed
+queued for >13 minutes, so Molab is the faster path once a fresh pair prompt is
+available.
