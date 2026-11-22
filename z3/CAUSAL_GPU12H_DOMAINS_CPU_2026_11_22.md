@@ -1,5 +1,9 @@
 # 12h checkpoint: interim per-domain table on CPU (2026-11-22)
 
+> Superseded by `z3/CAUSAL_GPU12H_DOMAINS_2026_11_22.md` (full 1M-token GPU
+> pass). The CPU Code value (0.9102) was a sample-composition artifact; the
+> GPU value is 1.0458.
+
 The GPU per-domain eval was blocked by the large-input mount incident, so the
 same 12h checkpoint (`step 30002`, 84,455,112 params, causal) was evaluated on
 a Kaggle CPU kernel.
