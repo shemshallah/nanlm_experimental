@@ -785,3 +785,29 @@ Generation samples at step 750 -> 1411:
 The model is still far from clean prose, but the 16k continuation is
 improving held-out BPB and top-1 while keeping top-5 stable. Session stopped
 after the requested 60 minutes; no further training is running.
+
+## 16k second 60-minute leg (step 1411 -> 2060)
+
+Resumed exactly from step 1411 and ran 649 updates in 3603 s.
+
+| metric | step 1411 | step 2060 |
+|---|---:|---:|
+| DEV BPB | 1.8346 | **1.7974** |
+| copy head on / off | — | **1.7974 / 1.8002** (+0.0029 BPB) |
+| copy gates | 0.335 / 0.521 | 0.336 / 0.530 |
+| fast-adapter delta | +0.0044 | (not re-measured after the failed receipt) |
+
+Checkpoint: `shem42/trsi-100m-16k-6h-checkpoints` version 9 (`last.pt` step
+2060). Corrected metrics and generation samples:
+`shem42/trsi-100m-16k-metrics`.
+
+The final 512-position top-1/top-5 receipt was lost because the trainer
+refused to overwrite the previous leg's `metrics.json`; the 8-probe top-k was
+87.5% / 100%. Fixed in `9d2bdcf` (metrics writes are now atomic replacements).
+The kernel hit the ~3-hour sandbox cap immediately after the final eval.
+
+Final samples at step 2060:
+
+- `"The "` -> `monstrous of a moment, and ... share a came out of the bird of the water an`
+- `"In the beginning, "` -> `all too the story, while ... he had gained up for him, told and the person`
+- `"The quick brown "` -> `so was to be be disolated ... to say. ... "We've to put on it with the river`
