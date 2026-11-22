@@ -1,0 +1,7 @@
+# NaNCM v168 source and data provenance
+
+- Parent: cumulative v167 recovery ZIP created 2026-11-22; only additions in `experiments/nancm/v168/`, `checkpoints/v168_*`, and `results/v168_*`, plus appended Makefile targets. Original v166 native sidecar hash: `e6e2305c045680ade98eae32ea903b7bc43314da529ffe668525201219379bdb`.
+- ANN address map: source v164 conditional TRAIN index SHA256 `2b3a749da2720495007a0825b84aeecbbc0eede667c16795347b3d566f624f9b`; book split inherited 500 TRAIN / 51 DEV / 64 TEST; approximate semantic nearest search using train context keys only.
+- Fingerprint sidecar SHA256 `c542c09c9e2d2ea846884f2b5f2a56f5970c8085509134378bfc47f5a6d806f5`; original native model/geometry/cloud fingerprint `[10657386406110969289, 7997860904003825501, 16896651846733574110]`.
+- Source corpus reference: NaNROUTER release `corpora-short-stories-0004`; inherited raw TRAIN calibration windows 100 distinct books. Original model pretraining near-duplicate overlap not fully audited. DEV 24 books with 1,394 available scored positions is not a new disjoint cohort beyond the 480 sample; TEST windows reused in earlier work.
+- No new experimental branch; commit sources on GitHub `master`, pretrained checkpoint bytes stored only in cumulative recovery ZIP.

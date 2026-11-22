@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "v167_optout_exact_27way_vectors": 450,
+  "active_normalized_27way_vectors": 1440,
+  "future_suffix_ignored_bit_identically": 1440,
+  "ann_active_dev_positions": 244,
+  "historical_doc_exact_vectors": 4545,
+  "historical_doc_ann_admissions": 0,
+  "invalid_config_fail_closed": 5,
+  "source_v166_sha256": "e6e2305c045680ade98eae32ea903b7bc43314da529ffe668525201219379bdb",
+  "signed_ann_sha256": "c542c09c9e2d2ea846884f2b5f2a56f5970c8085509134378bfc47f5a6d806f5",
+  "full_256_byte_BPB_measured": false,
+  "promotion": "NO"
+}

@@ -1,0 +1,8 @@
+# Append to cumulative NaNCM Makefile; active v167 build is unchanged.
+.PHONY: v168-ann test-v168-ann
+v168-ann: bin/libwordfield168_ann.so
+bin/libwordfield168_ann.so: experiments/nancm/v168/wordfield168_ann_api.cpp experiments/nancm/v168/wordfield168_api.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v168-ann: v168-ann
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v168/test_native_ann168.py

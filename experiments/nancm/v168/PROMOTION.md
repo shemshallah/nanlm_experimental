@@ -1,0 +1,3 @@
+# v168 promotion gate — NOT PROMOTED
+
+Current active **v167**. v168 signed-neighbor β=.05 is an opt-in research candidate only. Its measured DEV top-1 is tied and DEV top-5 slightly below v167; top-32 and spelling/EOS loss are better. A temporary raw-event-trained neural checkpoint and gate/reranker checkpoints are preserved as **rejected** candidates, not installed over production/development weights. All ancestor checkpoints and optimizers remain untouched. Promotion requires repeatable strict first-choice improvement on a clean new independent-book cohort, no significant BPB/top5 regressions, complete 256-byte next/+2/+3 suite, and exact rollback.
