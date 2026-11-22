@@ -683,3 +683,19 @@ generated. The 2-hour run is `trsi_100m_copy_2h`, warm-started from step 4442
 with `--reopen-gates 0.1`, copy head active, fast adapter trainable,
 lookahead 0.02 and critic 0.01. Rolling backups go to
 `shem42/trsi-100m-copy-2h-checkpoints`.
+
+## 2-hour copy-head run (interrupted at 87%)
+
+`trsi_100m_copy_2h` was warm-started from step 4442 on the rebuilt 80 MB
+corpus with the causal copy head open (15 gates), fast adapter trainable,
+lookahead 0.02 and critic 0.01. It reached **step 1143 at 6243 s / 7200 s**
+with train BPB ~1.69-1.96 and bit accuracy ~93%. The Molab kernel then
+returned HTTP 410 (session gone) before the final DEV/WikiText evaluation.
+
+Preserved in `shem42/trsi-100m-copy-2h-checkpoints` version 10:
+`last.pt` (1.39 GB), `train.log`, `launch.json`. No `metrics.json` or
+`final.pt` because the kernel died before the final eval.
+
+Resume needs a fresh Molab URL/token. Resume from the Kaggle `last.pt` with
+the same 80 MB pilot (`trsi_80m_deep_pilot`) and `--resume`, then run the
+remaining ~950 s plus final evaluation. Do not restart from step 0.
