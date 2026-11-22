@@ -14,8 +14,8 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path("/kaggle/working/nanlm_experimental")
-DATA = Path("/kaggle/input/datasets/shem42/z4-broad7h-bins")
-CKPT = Path("/kaggle/input/datasets/shem42/z4-causal-gpu12h-weights/final.pt")
+DATA = Path("/kaggle/input/notebooks/shem42/z4-corpus-mirror/corpus")
+CKPT = Path("/kaggle/input/notebooks/shem42/z4-causal-gpu12h/runs/causal_gpu12h/final.pt")
 OUT = Path("/kaggle/working/runs/causal_gpu18h")
 
 

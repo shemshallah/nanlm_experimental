@@ -8,12 +8,12 @@
   "enable_gpu": true,
   "enable_tpu": false,
   "enable_internet": true,
-  "dataset_sources": [
-    "shem42/z4-broad7h-bins",
-    "shem42/z4-causal-gpu12h-weights"
-  ],
+  "dataset_sources": [],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": [
+    "shem42/z4-causal-gpu12h",
+    "shem42/z4-corpus-mirror"
+  ],
   "model_sources": [],
   "category_ids": []
 }

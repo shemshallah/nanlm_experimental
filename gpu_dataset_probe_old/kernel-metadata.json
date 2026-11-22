@@ -1,0 +1,18 @@
+{
+  "id": "shem42/z4-gpu-dataset-probe-old",
+  "title": "Z4 GPU dataset probe old",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "shem42/z4-causal-gpu6h-weights"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "category_ids": []
+}
