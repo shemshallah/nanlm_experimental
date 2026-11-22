@@ -757,3 +757,31 @@ launcher). Resume from step 750 with the 80 MB pilot and the same run directory;
 remaining training budget ~17400 s. The Kaggle GPU fallback test kernel stayed
 queued for >13 minutes, so Molab is the faster path once a fresh pair prompt is
 available.
+
+## 16k 60-minute leg (final for this session)
+
+Resumed exactly from step 750 and ran 661 updates to **step 1411** (60 min).
+
+| metric | value |
+|---|---:|
+| DEV BPB | **1.8346** (from 1.8674) |
+| DEV byte top-1 | **62.11%** |
+| DEV byte top-5 | **87.50%** |
+| fast-adapter delta | **+0.0044 BPB** |
+| copy gates | 0.3354 / 0.5212 |
+| word-prior gate | 0.0839 |
+
+Saved as `shem42/trsi-100m-16k-6h-checkpoints` version 5, including
+`last.pt` (step 1411), `metrics.json`, `train.log`, and `generations.jsonl`.
+
+Generation samples at step 750 -> 1411:
+
+- `"The "` -> `son of the chair has ... done a tongue.` (750)
+- `"The "` -> `protection changes in ... Mary story her face ...` (900)
+- `"The "` -> `proposal inch of her ... accidents by the world.` (1050)
+- `"The "` -> `said, "I have been sorry to ... dear things while I've seen.` (1411)
+- `"The quick brown "` -> `when ... KINGO. Here will be to die to the beast ...` (1411)
+
+The model is still far from clean prose, but the 16k continuation is
+improving held-out BPB and top-1 while keeping top-5 stable. Session stopped
+after the requested 60 minutes; no further training is running.
