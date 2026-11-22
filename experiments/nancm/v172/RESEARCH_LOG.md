@@ -1,0 +1,8 @@
+# v172 experimental round log (2026-11-22, US Pacific)
+
+1. Restored and fingerprint-verified cumulative v171 library ZIP. Preserved v167 active word and v170 trained byte parameters.
+2. Developed 1–12 signed lexical/temporal rails with exact 1-rail v171 rollback and causal complete-word history. Six spatial rails recover 179/244, 12 spatiotemporal rails 178/244 at 512×1,024; strict full native word top-1 remains 27/244.
+3. Reconstructed 850 archived TRAIN candidate contexts with exact histories by replaying native gate; 850 first book/target pairs match the archived sequence. TRAIN book-split 670/180 contexts; causal-document reranker improves validation 30→34 top-1 but ties DEV 27→27; kept only as research.
+4. Recovered the inherited 12,000 lexical word embeddings and 128+128 oriented signed cloud from checkpoint bytes. Trained 32D conditional word teacher using 692,374 TRAIN-derived lexical-context labels; 8D→32D signed-geometry projection initialized at zero. Continued one optimizer from step 480 to step 6,000 with full AdamW state. DEV teacher NLL 11.7240→6.5282 nats on 227 in-vocabulary positions; top-1 11→16.
+5. Exported fingerprint-locked N172TCH1 binary, implemented native normalized mixture and C++-PyTorch parity. Native teacher mix gamma .4 selected using TRAIN book calibration 32/180 vs parent30; DEV regressed to 21 vs parent27, **not promoted**.
+6. Revalidated default native word and byte rollback; all full inherited model/optimizer checkpoints unchanged. No fresh-book or Android certification attempted; next priority is trainable large-corpus selection rather than retrieval breadth alone.

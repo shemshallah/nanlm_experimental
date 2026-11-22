@@ -62,3 +62,7 @@ The **active development baseline remains v158**. v162 is **opt-in research only
 ## v171 signed ANN neighbor-width experiment — 2026-11-22
 
 Opt-in native v171 source under `experiments/nancm/v171/`, **not promoted**. Matched exposed DEV 244 ANN-active contexts: 32/64 ANN recall 93, widened 512/1024 recall 160; native + lexical + widened ANN union ceiling 167. Full 96-beam strict word top-1 stays 27/244 across width arms. v170 16,018-byte 256-way replay unchanged; v167 active word model protected. Latest complete cumulative checkpoint held in v171 ChatGPT Library ZIP, not source-only Git. No new optimizer lineage or branch.
+
+## v172 signed multi-rail + trained 32D word teacher — 2026-11-22
+
+Native source, train, optimizer resume, exact 12k-word mixture and 256-byte rollback scripts are in `experiments/nancm/v172/`. New opt-in retrieval reaches ANN candidate recall 179/244 at 6 rails × 512 neighbors on exposed DEV, but strict 96-beam word top-1 remains 27/244. The signed geometric conditional word expert was trained to step 6000 on 692,374 TRAIN-derived conditional entries with AdamW history preserved. Frozen .40 native teacher mixture selected on TRAIN improved calibration 30→32/180 yet regressed exposed DEV 27→21/244. **Not promoted.** Active word v167 and experimental byte v170 remain unchanged. Cumulative trained checkpoints/optimizers only in latest Library recovery ZIP; no fresh-book certification.

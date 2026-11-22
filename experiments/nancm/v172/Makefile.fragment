@@ -1,0 +1,10 @@
+.PHONY: v172 test-v172 test-v172-quick
+v172: bin/libwordfield172.so
+bin/libwordfield172.so: experiments/nancm/v172/wordfield172_api.cpp experiments/nancm/v171/wordfield171_api.cpp experiments/nancm/v170/native_online170.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) $< -o $@
+test-v172-quick: v172
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v172/test_native_teacher172.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v172/test_teacher_wholeword_mixture172.py
+test-v172: test-v172-quick
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v172/test_byte_parity172.py

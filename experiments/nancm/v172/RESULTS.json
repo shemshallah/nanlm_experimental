@@ -1,0 +1,70 @@
+{
+  "round": "NaNCM v172 native causal multirail and signed neural word teacher",
+  "status": "EXPERIMENTAL_NOT_PROMOTED",
+  "active_word": "v167",
+  "protected_byte": "v170",
+  "train": {
+    "mapped_conditional_examples": 692374,
+    "retained_optimizer_step": 6000,
+    "teacher_vocab": 12000,
+    "dev_pretrained": {
+      "n": 227,
+      "nll_nats": 11.724023222398127,
+      "top1": 11,
+      "top5": 31
+    },
+    "dev_final": {
+      "n": 227,
+      "nll_nats": 6.528180496283039,
+      "top1": 16,
+      "top5": 43
+    },
+    "train_validation_not_book_disjoint": true
+  },
+  "retrieval_exposed_244": {
+    "single_rail_512_1024_ann_oracle": 165,
+    "six_spatial_rails_512_1024_ann_oracle": 179,
+    "twelve_spatiotemporal_rails_512_1024_ann_oracle": 178,
+    "strict_word_base_top1": 27,
+    "strict_word_sixrails_top1": 27,
+    "strict_word_twelverails_top1": 27
+  },
+  "native_teacher": {
+    "probability_parity": {
+      "status": "PASS",
+      "contexts": 21,
+      "max_teacher_probability_difference": 1.043081283569336e-07,
+      "max_root_mixture_difference": 1.3230220474724774e-08,
+      "native_12000_way_normalized": true,
+      "missing_optin_sidecar_fails_closed": true,
+      "disabled_parent_path_opens_without_sidecar": true,
+      "gating": "expert shares only if explicit V172_TEACHER_SHARE >0",
+      "provenance": "DEV exposed diagnostic only"
+    },
+    "word_probability_mix_identity": {
+      "status": "PASS",
+      "contexts": 7,
+      "word_checks": 196,
+      "max_absolute_mixture_mass_error": 2.218716099733342e-09,
+      "teacher_share": 0.4,
+      "normalized_whole_word_identity": true
+    },
+    "train_book_heldout_n": 180,
+    "train_book_heldout_base_top1": 30,
+    "train_book_heldout_gamma_0p4_top1": 32,
+    "dev_exposed_base_top1": 27,
+    "dev_exposed_gamma_0p4_top1": 21,
+    "promotion": "REJECT_GAMMA_0P4"
+  },
+  "native_byte_rollback": {
+    "dev_bpb": 2.563848893529875,
+    "reused_test_bpb": 2.472756833747626,
+    "bytes_dev": 8015,
+    "bytes_test": 8003,
+    "exact_v169_256way_vectors": 292,
+    "max_diff": 0.0
+  },
+  "fresh_book_test": false,
+  "old_optimizer_state_overwritten": false,
+  "notes": "No claim of 80% strict word accuracy; all cohorts exposed or nonbook-disjoint."
+}

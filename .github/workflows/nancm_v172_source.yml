@@ -1,0 +1,32 @@
+name: NaNCM v172 source and inherited API smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - "experiments/nancm/v172/**"
+      - ".github/workflows/nancm_v172_source.yml"
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check all v172 Python modules
+        run: python3 -m compileall -q experiments/nancm/v172
+      - name: Check bounded causal rail and normalized native teacher code
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('experiments/nancm/v172/wordfield172_api.cpp').read_text()
+          for phrase in ('V172_ANN_RAILS','1,12','V172_TEACHER_SHARE','N172TCH1',
+                         'wf172_teacher_distribution','parent_mass172','wordnext171_impl',
+                         'teacher_begin172','../v170/native_online170.cpp'):
+              assert phrase in p,phrase
+          assert 'std::array<double,12>rail_share' in p
+          print('PASS source invariants; trained numerical replay requires full recovery archive')
+          PY
+      - name: Run inherited v170 causal byte gate synthetic ABI smoke
+        run: |
+          g++ -O2 -std=c++17 -Iexperiments/nancm/v170 experiments/nancm/v170/test_source170.cpp -o /tmp/v172_source_smoke
+          /tmp/v172_source_smoke

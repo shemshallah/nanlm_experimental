@@ -1,0 +1,7 @@
+# v172 claim ledger
+
+**PASS:** v171 exact word rollback: 60 matched 27-way predictions and 60 complete ANN candidate lists at rail count 1, max probability difference zero. Native 12,000-word teacher distribution parity (21 DEV contexts, max abs error 1.04e−7) and normalized exact word mixture identity (196 words, max error 2.22e−9). Trained signed-cloud optimizer state retained in checkpoint. Malformed/missing teacher sidecar: fail closed. Causal content: only preceding complete words.
+
+**OBSERVED, exposed DEV:** 512-neighbor 1-rail ANN top1024 165/244; 6-rail 179/244; 12-rail 178/244. Strict 96-beam top-1 remains 27/244 at six and twelve rails. Gamma=.4 TRAIN-selected native whole-word teacher improves TRAIN calibration 30→32/180 but regresses DEV 27→21/244: rejected as default. Context-aware lexical reranker ties DEV 27/244: rejected as default.
+
+**TRAINED:** 692,374 TRAIN-derived conditional word pair entries; 6,000 optimizer updates, train context-key holdout word NLL improved. **Not book-disjoint validation:** preaggregated n-gram counts lack book source, shared-book leakage may remain. Native inference is from a new binary sidecar; its frozen PyTorch full AdamW checkpoint is archived. No source claims pristine-test certification, 80% next-word top-1, or Android ready.
