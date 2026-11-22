@@ -1,0 +1,89 @@
+{
+  "samples": 480,
+  "books": 24,
+  "rollback_vectors_exact": 686,
+  "active_domain_positions": null,
+  "strengths": {
+    "0.0": {
+      "bits_per_spelling_symbol": 2.8802140160864322,
+      "proposal_active": 0,
+      "candidate_hits": {
+        "5": 0,
+        "32": 0,
+        "64": 0,
+        "96": 0
+      },
+      "n": 480
+    },
+    "0.02": {
+      "bits_per_spelling_symbol": 2.6664929081682804,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    },
+    "0.05": {
+      "bits_per_spelling_symbol": 2.6245201438010946,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    },
+    "0.1": {
+      "bits_per_spelling_symbol": 2.5894950902119445,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    },
+    "0.2": {
+      "bits_per_spelling_symbol": 2.552436510034491,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    },
+    "0.35": {
+      "bits_per_spelling_symbol": 2.522743226144544,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    },
+    "0.5": {
+      "bits_per_spelling_symbol": 2.5058297396935116,
+      "proposal_active": 219,
+      "candidate_hits": {
+        "5": 40,
+        "32": 78,
+        "64": 95,
+        "96": 109
+      },
+      "n": 480
+    }
+  },
+  "fail_closed": true,
+  "status": "experimental",
+  "elapsed_s": 20.74,
+  "warning": "spelling/EOS bits/symbol, NOT full 256-byte BPB; repeated DEV sample only"
+}

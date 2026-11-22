@@ -1,0 +1,62 @@
+{
+  "status": "NOT_PROMOTED",
+  "v158": "protected active baseline",
+  "v164": "experimental predecessor",
+  "v165": "rejected train-index reranker",
+  "v166": "experimental whole-vocabulary signed lexical birth",
+  "dev": {
+    "base": {
+      "top1": 45,
+      "top5": 84,
+      "top32": 146,
+      "bits_symbol": 2.880214
+    },
+    "conservative": {
+      "alpha": 0.05,
+      "top1": 45,
+      "top5": 86,
+      "top32": 146,
+      "bits_symbol": 2.62452
+    },
+    "loss_first": {
+      "alpha": 0.5,
+      "top1": 40,
+      "top5": 91,
+      "top32": 153,
+      "bits_symbol": 2.50583
+    }
+  },
+  "test_reused": {
+    "base": {
+      "top1": 45,
+      "top5": 99,
+      "top32": 155,
+      "bits_symbol": 2.924645
+    },
+    "conservative": {
+      "alpha": 0.05,
+      "top1": 45,
+      "top5": 100,
+      "top32": 159,
+      "bits_symbol": 2.635121
+    },
+    "loss_first": {
+      "alpha": 0.5,
+      "top1": 46,
+      "top5": 104,
+      "top32": 175,
+      "bits_symbol": 2.486754
+    }
+  },
+  "native_rollback_exact_vectors": 686,
+  "historic_doc_exact_vectors": 4545,
+  "not_measured": [
+    "full_256_byte_BPB",
+    "next_plus2_plus3",
+    "BPE",
+    "long_context",
+    "new_untouched_test",
+    "android"
+  ],
+  "no_80_pct_claim": true
+}

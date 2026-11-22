@@ -1,0 +1,30 @@
+{
+  "split": "test",
+  "frozen_arms": {
+    "v164": 0.0,
+    "v166_top1_guarded": 0.05,
+    "v166_loss_first": 0.5
+  },
+  "samples": 480,
+  "books": 24,
+  "results": {
+    "v164": {
+      "bits_per_spelling_symbol": 2.9246447040837813,
+      "active_positions": 0
+    },
+    "v166_top1_guarded": {
+      "bits_per_spelling_symbol": 2.6351205426785294,
+      "active_positions": 272
+    },
+    "v166_loss_first": {
+      "bits_per_spelling_symbol": 2.486754162506258,
+      "active_positions": 272
+    }
+  },
+  "not_full_byte_bpb": true,
+  "relative_delta": {
+    "v166_top1_guarded": -9.899464403350589,
+    "v166_loss_first": -14.972435488183633
+  },
+  "elapsed_s": 6.94
+}

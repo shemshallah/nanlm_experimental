@@ -1,0 +1,10 @@
+# NaNCM v166 provenance and isolation
+
+- Parent: v165 complete research archive, recovered from ChatGPT Library, 76,248,868 bytes. No parent checkpoint was overwritten.
+- Parent v164 distribution: `checkpoints/v164_native_distribution.tsv`; first-line native model/geometry/cloud fingerprint locked; SHA256 `2b3a749da2720495007a0825b84aeecbbc0eede667c16795347b3d566f624f9b` for fingerprinted TSV. This index came from 500 TRAIN books of NaNROUTER `corpora-short-stories-0004`; 51 DEV, 64 TEST filenames are separated by deterministic file-name hash, but near-duplicate and inherited pretraining overlap are incompletely screened.
+- Fresh v166: full-softmax objective over 12,000 words. v165 model tensor values loaded from `checkpoints/v165_signed_cloud_train.pt`, plus/minus/lower/upper AdamW optimizer moments resumed by parameter identity. Train-only context-key split is not book-disjoint. 500 updates; optimizer and RNG histories preserved in new `.pt` sidecar; no historical checkpoint modification.
+- Output: `checkpoints/v166_lexical_birth.bin` (native inference), `checkpoints/v166_lexical_birth.pt` (full model + optimizer), `results/v166_train.json` (training history), exact working native v166 source and all regression scripts. The original 128+128 signed core is not replaced.
+- DEV selection: 24 windows × 20 positions, previously reused in v164. Two frozen settings before TEST: α=.05 top-1 conservative, α=.50 loss-first. See `FROZEN_DEV_SELECTION.json`.
+- TEST: a separate 24 TEST books ×20 positions, but this TEST cohort is reused and was exposed in v164 iteration, so not pristine blind certification. No checkpoint updates from DEV/TEST; test never chosen to re-fit α.
+- Scores are spelling/EOS conditional bits/symbol, not 256-byte bits/byte. Word top-k is native 96-beam length≤20, not exact MAP over the full language.
+- Candidate coverage in source Python evaluator counts whole-word presence in top-k among 12,000 global outputs; when the native domain gate is applied, the generator is active only on a subset of positions, and active candidate recall must not be confused with unconditional generator coverage.

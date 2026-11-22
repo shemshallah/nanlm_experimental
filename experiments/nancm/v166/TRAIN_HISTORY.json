@@ -1,0 +1,76 @@
+{
+  "status": "experimental",
+  "name": "NaNCM v166 lexical birth",
+  "train_source": "v164 TRAIN index, lossy top-8 distributional source",
+  "data": {
+    "groups": 199956,
+    "usable_groups": 199080,
+    "distinct_vocab": 12000,
+    "weighted_retained_train_count": 1476016
+  },
+  "steps": 500,
+  "best_train_index_context_split_val_nll": 6.232590198516846,
+  "history": [
+    {
+      "step": 1,
+      "train_nll": 7.13992,
+      "context_split_val_nll": 6.32622
+    },
+    {
+      "step": 50,
+      "train_nll": 6.75784,
+      "context_split_val_nll": 6.3197
+    },
+    {
+      "step": 100,
+      "train_nll": 6.47181,
+      "context_split_val_nll": 6.31172
+    },
+    {
+      "step": 150,
+      "train_nll": 6.63194,
+      "context_split_val_nll": 6.30012
+    },
+    {
+      "step": 200,
+      "train_nll": 6.62961,
+      "context_split_val_nll": 6.27873
+    },
+    {
+      "step": 250,
+      "train_nll": 6.55447,
+      "context_split_val_nll": 6.26424
+    },
+    {
+      "step": 300,
+      "train_nll": 6.65355,
+      "context_split_val_nll": 6.25459
+    },
+    {
+      "step": 350,
+      "train_nll": 6.10297,
+      "context_split_val_nll": 6.25
+    },
+    {
+      "step": 400,
+      "train_nll": 6.49059,
+      "context_split_val_nll": 6.24818
+    },
+    {
+      "step": 450,
+      "train_nll": 6.0301,
+      "context_split_val_nll": 6.24529
+    },
+    {
+      "step": 500,
+      "train_nll": 6.36987,
+      "context_split_val_nll": 6.23259
+    }
+  ],
+  "v165_signed_optimizer_state_inherited": true,
+  "train_index_sha256": "2b3a749da2720495007a0825b84aeecbbc0eede667c16795347b3d566f624f9b",
+  "native_sha256": "e6e2305c045680ade98eae32ea903b7bc43314da529ffe668525201219379bdb",
+  "checkpoint_sha256": "40c20cd7395e5d0a36e4c2e14fdd4c5219f9cda4bf0415d4d30726c770dba13d",
+  "elapsed_sec": 16.48,
+  "caveat": "No full native DEV inference evaluation yet; context split is NOT book-disjoint and is not promotion evidence."
+}

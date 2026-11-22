@@ -1,0 +1,46 @@
+{
+  "samples": 24,
+  "books": 24,
+  "rollback_vectors_exact": 110,
+  "active_domain_positions": null,
+  "strengths": {
+    "0.0": {
+      "bits_per_spelling_symbol": 3.1900614974397525,
+      "proposal_active": 0,
+      "candidate_hits": {
+        "5": 0,
+        "32": 0,
+        "64": 0,
+        "96": 0
+      },
+      "n": 24
+    },
+    "0.05": {
+      "bits_per_spelling_symbol": 2.979919001936625,
+      "proposal_active": 11,
+      "candidate_hits": {
+        "5": 3,
+        "32": 6,
+        "64": 7,
+        "96": 9
+      },
+      "n": 24
+    },
+    "0.5": {
+      "bits_per_spelling_symbol": 2.8252330711431397,
+      "proposal_active": 11,
+      "candidate_hits": {
+        "5": 3,
+        "32": 6,
+        "64": 7,
+        "96": 9
+      },
+      "n": 24
+    }
+  },
+  "fail_closed": true,
+  "status": "experimental",
+  "quick": true,
+  "elapsed_s": 7.72,
+  "warning": "spelling/EOS bits/symbol, NOT full 256-byte BPB; repeated DEV sample only"
+}

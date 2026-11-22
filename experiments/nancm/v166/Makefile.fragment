@@ -1,0 +1,12 @@
+# Append to root of v165 cumulative recovery archive; does not change default.
+.PHONY: v166 test-v166
+v166: bin/libwordfield166.so
+bin/libwordfield166.so: experiments/nancm/v166/wordfield166_api.cpp src/wordfield164_embed165.cpp src/wordfield162_embed163.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v166: v166
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v166/test_native166.py --quick
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v166/test_doc_guard166.py
+
+# Full frozen 480-position DEV sweep (separate, expensive):
+# OPENBLAS_NUM_THREADS=1 python experiments/nancm/v166/test_native166.py

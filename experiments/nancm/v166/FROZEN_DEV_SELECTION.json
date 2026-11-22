@@ -1,0 +1,11 @@
+{
+  "locked_before_test": true,
+  "split": "DEV 24 distinct books, 480 deterministic positions",
+  "selection_data": "NaNCM 500-book TRAIN-only v164 distribution index, 700-step inherited v165 cloud, 500-step v166 model; no DEV or TEST target used to update trainable parameters",
+  "arms": {
+    "top1_guarded": {"V166_LEXICAL_BIRTH": 0.05, "dev_top1": "45/480", "dev_top5": "86/480", "dev_spelling_eos_bits_symbol": 2.6245201438010946},
+    "loss_first": {"V166_LEXICAL_BIRTH": 0.5, "dev_top1": "40/480", "dev_top5": "91/480", "dev_spelling_eos_bits_symbol": 2.5058297396935116}
+  },
+  "reused_TEST_proviso": "The existing 24 TEST book windows were already evaluated in v164 research; TEST here is confirmatory only, not untouched certification.",
+  "production_status": "NOT_PROMOTED"
+}
