@@ -70,6 +70,40 @@ def evaluate(books,index):
             "correct_per_total_pct":round(100*correct/max(1,n),4)}
 
 
+
+def train_backoff(books):
+    # Distinct low-order conditional evidence: k=1 and k=2.
+    counts=collections.defaultdict(collections.Counter)
+    for name,data in books:
+        ws=tokens(data)[:3000]
+        for i in range(2,len(ws)):
+            if len(ws[i])>64:continue
+            for k in (1,2):
+                counts[(k," ".join(ws[i-k:i]))][ws[i]]+=1
+    idx={}
+    for (k,key),c in counts.items():
+        total=sum(c.values());word,n=c.most_common(1)[0]
+        if n >= (4 if k==1 else 2) and n/total >= (.08 if k==1 else .2):
+            idx[f"{k}:{key}"]=(word,n,total)
+    return idx
+
+def eval_backoff(books,idx):
+    # This is only the backoff route's next-word accuracy, not native fusion.
+    n=act=correct=0;ord_hits=collections.Counter()
+    for name,data in books:
+        ws=tokens(data)[:2500]
+        for i in range(16,len(ws)):
+            n+=1
+            for k in (2,1):
+                x=idx.get(f"{k}:"+" ".join(ws[i-k:i]))
+                if x:
+                    act+=1;correct+=int(x[0]==ws[i]);ord_hits[str(k)]+=1;break
+    return {"words":n,"active":act,"correct":correct,
+       "coverage_pct":round(100*act/max(1,n),4),
+       "precision_pct":round(100*correct/max(1,act),4),
+       "total_top1_contribution_pct":round(100*correct/max(1,n),4),
+       "order_activations":dict(ord_hits)}
+
 def export_native_windows(books,path,seed,count=24):
     # One 384-byte window per independent book; native inference receives
     # only preceding bytes when scoring a target.
@@ -105,6 +139,9 @@ def main():
         k.split(":",1)[0]+"\t"+k.split(":",1)[1]+"\t"+v[0]+"\t"+str(v[1])+"\t"+str(v[2])+"\n"
         for k,v in sorted(index.items())
     ))
+    backoff=train_backoff(books["train"])
+    (out/"v161_backoff.tsv").write_text("".join(k.split(":",1)[0]+"\t"+k.split(":",1)[1]+"\t"+v[0]+"\t"+str(v[1])+"\t"+str(v[2])+"\n" for k,v in sorted(backoff.items())))
+    backoff_dev=eval_backoff(books["dev"],backoff)
     dev_windows=export_native_windows(books["dev"],out/"heldout_dev160.bin","dev",24)
     test_windows=export_native_windows(books["test"],out/"heldout_test160.bin","test",24)
     report={
@@ -114,6 +151,7 @@ def main():
         "books":{k:len(v) for k,v in books.items()},"exact_duplicates_removed":duplicates,
         "associations":len(index),"index_sha256":digest_file(p),
         "DEV":evaluate(books["dev"],index),"TEST":evaluate(books["test"],index),
+        "v161_backoff_entries":len(backoff),"v161_backoff_DEV":backoff_dev,"v161_backoff_TEST":"NOT YET EVALUATED — select on DEV first",
         "native_dev_windows":len(dev_windows),"native_test_windows":len(test_windows),
         "independent_books":True,
         "near_duplicate_screened":False,
