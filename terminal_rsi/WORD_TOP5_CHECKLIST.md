@@ -840,3 +840,27 @@ Final samples at step 2595:
 The earlier 1.7974 BPB number came from step-2060 weights that died with the
 Molab kernel; it is not a preserved checkpoint. Use step 2595 as the current
 16k baseline.
+
+## 16k fourth 60-minute leg (step 2595 -> 3234)
+
+| metric | step 2595 | step 3234 |
+|---|---:|---:|
+| DEV BPB | 1.8333 | **1.7956** |
+| DEV byte top-1 | 62.11% | 59.38% |
+| DEV byte top-5 | 86.72% | **87.89%** |
+| fast-adapter delta | +0.0080 | **-0.0116** (harmful) |
+| copy gates | 0.327 / 0.517 | 0.312 / 0.513 |
+
+639 updates. Checkpoint: `shem42/trsi-100m-16k-6h-checkpoints` version 26
+(`last.pt`, `metrics.json`, step 3234). Metrics/generations:
+`shem42/trsi-100m-16k-metrics` version 3.
+
+The fast adapter has crossed into slightly harmful territory on this held-out
+DEV; the next leg should either freeze it or lower its LR. Top-5 improved while
+top-1 and BPB trade off.
+
+Final samples at step 3234:
+
+- `"The "` -> `faces held her of the ... books's hands." ... The face stumped from the flow`
+- `"In the beginning, "` -> `and that you know how you must have fancyard of ... the sea of that the door of t`
+- `"The quick brown "` -> `at the sergeant. She was shiny ... and the later of the left, and the lette`
