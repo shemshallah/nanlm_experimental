@@ -1,0 +1,8 @@
+{
+ "version":"v174", "title":"Dual-Polarity Causal NOW State", "status":"EXPERIMENTAL_NOT_PROMOTED",
+ "trained":{"model":"128D temporal signed rails plus frozen 128+128 S+/S- cloud and 32D lexical teacher", "vocab":12000,"updates_attempted":1700,"optimizer_resumed":true,"selected_step":800,"new_optimizer_groups":3,"new_optimizer_state_entries":15,"parent_optimizer_included":true,"train_contexts":11057,"train_books":78,"heldout_contexts":2887,"heldout_books":20},
+ "train_book_holdout":{"baseline_nll":6.091557538572581,"trained_nll":5.997822166133448,"baseline_top1":305,"trained_top1":333,"baseline_top5":675,"trained_top5":729,"book_bootstrap_nll_gain_95":[0.07294865479957563,0.11565524054030246],"book_bootstrap_top1_rate_gain_95":[0.0017348012238145648,0.019540736617612266],"inherited_teacher_pretraining_contaminates_pristine_holdout":true},
+ "reused_dev":{"standalone_in_vocab_n":227,"baseline_top1":14,"trained_top1":18,"baseline_top5":42,"trained_top5":44,"full_decoder_baseline_top1_of_244":27,"train_calibrated_fusion_top1_of_244":26,"promotion":false},
+ "native":{"probability_parity_histories":74,"probability_parity_max_abs_error":2.086162567138672e-07,"word_rollback_exact":240,"later_prefix_rollback_exact":144,"byte_rollback_exact":292,"byte_stream_positions":16018,"dev_bpb":2.563848893529875,"reused_test_bpb":2.472756833747626,"source_only_synthetic_smoke":"PASS"},
+ "selection":"training book split only; no DEV label use","claim":"new trainable signed 128D temporal state learns measurable word conditional information; full-system word strict top1 not improved","fresh_test":false
+}

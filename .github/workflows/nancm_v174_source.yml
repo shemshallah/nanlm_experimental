@@ -1,0 +1,35 @@
+name: NaNCM v174 native temporal source smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - "experiments/nancm/v174/**"
+      - ".github/workflows/nancm_v174_source.yml"
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python v174 train/pack/test source
+        run: python3 -m compileall -q experiments/nancm/v174
+      - name: Compile and execute native 12k-word synthetic sidecar smoke
+        run: |
+          g++ -O2 -std=c++17 -Wall -Wextra experiments/nancm/v174/test_source174.cpp -o /tmp/v174_test_source
+          /tmp/v174_test_source
+      - name: Verify inherited ABI and causal signed rail contracts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          w=Path('experiments/nancm/v174/wordfield174_api.cpp').read_text()
+          n=Path('experiments/nancm/v174/native_temporal174.cpp').read_text()
+          t=Path('experiments/nancm/v174/train_temporal_signed174.py').read_text()
+          assert '../v173/wordfield173_api.cpp' in w
+          for key in ('wf174_now_open','wf174_now_predict','wf174_now_word_name','N174NOW1','gru_pos','gru_neg'):
+              assert key in n,key
+          assert 'self.gru_pos=nn.GRU(48,dim,batch_first=True)' in t
+          assert 'self.gru_neg=nn.GRU(48,dim,batch_first=True)' in t
+          assert 'heldout_books' in t and 'optimizer_state_dict' in t
+          print('PASS source-only signed temporal architecture and ABI checks')
+          PY

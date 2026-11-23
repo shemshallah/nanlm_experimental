@@ -1,0 +1,11 @@
+# Research Log — 2026-11-22, v174
+
+1. Began from verified v173 Library ZIP, independently checked original archive file integrity; ignored corrupt alternate working ZIP.
+2. Read inherited 12k teacher checkpoint, frozen v173 step6880 and optimizer state. Reconstructed causal TRAIN-book histories, deduplicated overlapping word transitions, split by 98 book IDs into 78 TRAIN / 20 validation books. 11,057/2,887 contexts.
+3. Trained two 64D recurrent polarity rails on S+/S− geometry with 32D lexical embeddings, coupled by (h+, h−, h+*h−) into 32D lex output energy with exact 12k softmax CE. First 300-step checkpoint validation NLL 6.0250, 322/2887 top1. Resumed its optimizer for 1400 more attempted steps; best at global 800, NLL 5.9978, 333/2887 top1 and 729/2887 top5; later steps worse, rejected.
+4. Reused DEV, strictly *post-selection*: standalone in-vocab 14→18 /227, top5 42→44. Trained native-only 12k sidecar serialization, full native GRU/softmax. Matched 74 PyTorch probability vectors to 2.086e-7, top1 and top5 exact.
+5. Fused temporal teacher with preexisting native word proposal probabilities: heldout TRAIN-book 27→30 /196 selected alpha=.1 margin=.1, but exposed DEV 27→26 /244. Rejected fusion, preserved v167 active word.
+6. Book-block bootstrap over 20 validation books (5000 resamples) gave ΔNLL 95% [.07295,.11566] and Δtop1 fraction [.00173,.01954]. This is module-only holdout, not pristine end-to-end due inherited TRAIN aggregation.
+7. Native default-disabled v173/v170 paths preserved: 240 exact word root vectors and 144 later-prefix, 292 exact byte 256-way fallback and 16,018 byte stream with BPB bitwise historical parity.
+8. Built source-only C++ synthetic independent check to verify actual native parser, fail-closed, finite normalized 12000 probabilities without needing checkpoints. Wrote explicit promotion/rejection/anti-leakage ledger.
+9. Next: full-book NaNROUTER Releases training with book-disjoint data and a native exact mixture that improves strict word top1. Do not merely increase candidate count or claim 80%.

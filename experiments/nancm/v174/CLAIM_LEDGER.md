@@ -1,0 +1,9 @@
+# v174 Claim Ledger
+
+- **SUPPORTED / native implementation:** v174 uses two trainable 64D causal GRUs consuming both the inherited 128+128 signed geometrical channels and 32D lexical embeddings; normalized 12k-way softmax. Python and native sidecar parity verified to max 2.086e-7 on 74 histories.
+- **SUPPORTED / TRAIN-holdout result:** 20 TRAIN books excluded from v174 new-parameter optimization: 2,887 word contexts. NLL 6.09156→5.99782; top-1 305→333; top-5 675→729. Book-block bootstrap 95% ΔNLL [0.07295,0.11566], Δtop1 fraction [0.00173,0.01954]. **Not a pristine whole-model book holdout** because inherited teacher trained on aggregated TRAIN distributions.
+- **SUPPORTED / exposed DEV only:** in-vocabulary standalone expert top-1 14→18 / 227. Entire native 96-beam baseline remains 27 / 244; TRAIN-selected candidate fusion tested 26 / 244 and is **REJECTED**.
+- **SUPPORTED / regression:** 240 exact inherited native 27-way rollback, 144 later-prefix, 292 256-way byte rollback, 16,018 sequential byte distributions unchanged.
+- **SUPPORTED / recoverability:** latest cumulative ZIP retains v173 exact model+optimizer and v174 latest optimizer, 128+128 signed architecture, ANN, byte model, source/tests, research/claim/chat logs, SHA-256 manifest. Earlier archives deleted only after full verification and successful Library upload.
+- **NOT SUPPORTED:** 80% strict next-word accuracy; independently fresh test certification; improvement to current active full word decoder; new full-book training; production readiness.
+- **PROMOTION:** Opt-in research only. Strong standalone temporal expert package may be a publishable *partial architectural observation* with careful controls, but **not a verified system-level predictive promotion** or major open-problem closure.

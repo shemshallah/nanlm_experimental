@@ -1,0 +1,10 @@
+.PHONY: v174 test-v174
+v174: bin/libwordfield174.so
+bin/libwordfield174.so: experiments/nancm/v174/wordfield174_api.cpp experiments/nancm/v174/native_temporal174.cpp experiments/nancm/v173/wordfield173_api.cpp experiments/nancm/v172/wordfield172_api.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v174: v174
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v174/test_native_temporal174.py --full
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v174/test_rollback_word174.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v174/test_byte_rollback174.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v174/eval_book_holdout174.py
