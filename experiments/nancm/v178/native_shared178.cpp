@@ -61,7 +61,11 @@ static int begin_locked(Session*s,const unsigned char*past,size_t n){
   h->active_id=s->id;
   s->ready=true;
   return 0;
- }catch(...){s->hub->active_id=0;return -4;}
+ }catch(...){
+  std::lock_guard<std::mutex>g(s->hub->lock);
+  if(s->hub->active_id==s->id)s->hub->active_id=0;
+  return -4;
+ }
 }
 static int next_locked(Session*s,const unsigned char*prefix,size_t n,float*q,float*p){
  if(!s||!s->ready||(!prefix&&n)||n>40||!q||!p)return -1;

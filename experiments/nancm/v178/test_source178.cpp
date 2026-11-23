@@ -1,8 +1,12 @@
 // Source-only multi-session test. Real trained sidecars tested separately.
-// Import v177's synthetic 256-way verifier and run exact v176 comparisons.
-#define main inherited_v177_source_main
-#include "../v177/test_source_parallel177.cpp"
+// Import only the v176 synthetic stubs; no duplicate v177 main().
+#define main inherited_v176_source_main
+#include "../v176/test_source176.cpp"
 #undef main
+extern "C" void*wf176_hybrid_open_full(const char*t,const char*m,const char*g,const char*c,
+ const char*b,float e,const char*,const char*){
+ return wf176_hybrid_open(t,m,g,c,b,e);
+}
 #include "native_shared178.cpp"
 #include <thread>
 #include <atomic>
