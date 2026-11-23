@@ -3,8 +3,8 @@
   "date": "2026-11-23",
   "status": "RECOVERABLE, OPT-IN / NOT DEPLOYMENT-PROMOTED",
   "archive_name": "NaNCM_v178_SHARED_HUB_EXACT_VERIFIER_RECOVERY_20261123.zip",
-  "archive_size_bytes": 236012942,
-  "archive_sha256": "9c6aad97237ff4b054330ca713d7b9a91f9a32d360b6d1fb6a5fb2d98426580c",
+  "archive_size_bytes": 236013296,
+  "archive_sha256": "d7f67c4a17a96fc0f7d0a196971f80c3fa9da6713a60fe2f888665ea4022deeb",
   "archive_entry_count": 989,
   "sha256_entries_verified": 987,
   "parent_v177_sha256": "501a360d31be5e63f9da7e480432f640cbbae9e6b5e3b9e0cee39bc76ced5572",
@@ -24,5 +24,7 @@
   "source_ci_success_run": 45250088322,
   "library_independent_retrieval_verified": true,
   "library_cleanup": "Two former v177 archives retired after matching v178 retrieval",
-  "caveat": "No true parallel neural inference; protected v176/v170 byte law; 32-book VAL repeatedly explored; no new pristine TEST, improved BPB, or end-to-end cold speedup claim"
+  "caveat": "No true parallel neural inference; protected v176/v170 byte law; 32-book VAL repeatedly explored; no new pristine TEST, improved BPB, or end-to-end cold speedup claim",
+  "reproducible_two_independent_builds": true,
+  "archive_test_crc_pass": true
 }

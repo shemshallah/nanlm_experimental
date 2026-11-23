@@ -38,7 +38,9 @@ def main() -> None:
         raise RuntimeError('Parent SHA mismatch or missing archive; refuse publication')
     new = {}
     for path in sorted((ROOT/'experiments/nancm/v178').iterdir()):
-        if path.is_file():
+        if path.is_file() and path.name != 'RELEASE_178.json':
+            # RELEASE_178.json records the completed ZIP digest; embedding it
+            # would create a circular content hash. Keep it beside the ZIP.
             new[str(path.relative_to(ROOT))] = path.read_bytes()
     for name in ('libwordfield178.so', 'test_source178'):
         p = ROOT/'bin'/name
@@ -46,6 +48,9 @@ def main() -> None:
             raise RuntimeError('Missing compiled native artifact '+name)
         new[str(p.relative_to(ROOT))] = p.read_bytes()
     for path in sorted((ROOT/'results').glob('v178_*.json')):
+        if path.name == 'v178_release_integrity.json':
+            # Generated after sealing the ZIP. Exclude on repeated builds.
+            continue
         new[str(path.relative_to(ROOT))] = path.read_bytes()
     new['Makefile'] = (ROOT/'Makefile').read_bytes()
     if b'experiments/nancm/v178/Makefile.fragment' not in new['Makefile']:
@@ -107,7 +112,14 @@ def main() -> None:
     with zipfile.ZipFile(TEMP, 'w', compression=zipfile.ZIP_DEFLATED,
                          compresslevel=1, allowZip64=True) as archive:
         for name, content in inventory.items():
-            archive.writestr(name, content)
+            # Pin ZIP metadata: ZipFile.writestr(name, ...) otherwise inserts
+            # wall-clock DOS timestamps, changing the archive hash each build.
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, content, compress_type=zipfile.ZIP_DEFLATED,
+                             compresslevel=1)
     with zipfile.ZipFile(TEMP, 'r') as archive:
         if archive.testzip() is not None:
             raise RuntimeError('v178 output ZIP failed CRC')
