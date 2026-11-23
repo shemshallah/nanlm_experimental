@@ -1,0 +1,1 @@
+User requested continuation after verified v178 exact shared hub. This round designed and tested v179 fork-based true multi-context parallel inference, preserving inherited model/optimizer lineage and archiving a reproducible cumulative recovery checkpoint.

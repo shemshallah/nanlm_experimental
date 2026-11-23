@@ -1,0 +1,1 @@
+See `experiments/nancm/v179/CLAIM_LEDGER.md`. v179 is opt-in parallel CPU inference only, not a model accuracy/BPB promotion. Exact inherited word+byte law and seeded sampling passed; 3.313x–3.479x whole-context throughput with four COW workers across 48 reused VAL-book contexts; no fresh TEST.

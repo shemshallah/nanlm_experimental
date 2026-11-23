@@ -1,0 +1,33 @@
+name: NaNCM v179 parallel COW native verifier
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v179/**'
+      - '.github/workflows/nancm_v179_source.yml'
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run fork COW native synthetic regression
+        run: |
+          g++ -O2 -std=c++17 -pthread -Iexperiments/nancm/v179 experiments/nancm/v179/test_source179.cpp -o /tmp/nancm179
+          /tmp/nancm179
+      - name: Python syntax and claim consistency
+        run: |
+          python3 -m compileall -q experiments/nancm/v179
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('experiments/nancm/v179')
+          data=json.loads((p/'RESULTS.json').read_text())
+          assert data['full_context_4worker_min_speedup'] > 3.0
+          assert data['pool_pss_delta_kib_4workers'] < 4096
+          assert 'single_threaded_parent' in (p/'native_fork179.cpp').read_text()
+          assert 'wf176_hybrid_begin(full_model' in (p/'native_fork179.cpp').read_text()
+          assert 'wf176_hybrid_sample(full_model' in (p/'native_fork179.cpp').read_text()
+          print('PASS v179 source and documented opt-in CPU speed/memory gates')
+          PY

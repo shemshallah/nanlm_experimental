@@ -1,0 +1,14 @@
+# v179: optional fork/COW parallel independent-context verifier and benchmark.
+.PHONY: v179 v179-source-smoke v179-standalone test-v179
+v179: bin/libwordfield179.so
+bin/libwordfield179.so: experiments/nancm/v179/wordfield179_api.cpp experiments/nancm/v179/native_fork179.cpp experiments/nancm/v179/full179_api.h experiments/nancm/v178/wordfield178_api.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -pthread -shared $(CPPFLAGS) -Isrc $< -o $@
+v179-source-smoke:
+	mkdir -p bin
+	$(CXX) -O2 -std=c++17 -pthread -Iexperiments/nancm/v179 experiments/nancm/v179/test_source179.cpp -o bin/test_source179
+	./bin/test_source179
+v179-standalone: v179
+	$(CXX) -O2 -std=c++17 -pthread experiments/nancm/v179/native_trained179.cpp -o bin/native_trained179 -Lbin -lwordfield179 -Wl,-rpath,'$$ORIGIN'
+test-v179: v179-source-smoke v179-standalone
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v179/prepare_real179.py --n 16 --workers 4

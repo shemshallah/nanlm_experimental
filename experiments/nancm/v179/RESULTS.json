@@ -1,0 +1,51 @@
+{
+  "after_48_contexts_pool_pss_kib_4workers": 280679,
+  "architecture": "single model load then POSIX fork/COW immutable pages; child-private complete v176 predictor/verifier/sampler",
+  "complete_context_word_names_probs_and_samples_exact": 48,
+  "complete_context_word_score_checks_per_run": 240,
+  "cpu_entitlement": "5 visible logical CPUs, cgroup quota 4 CPU cores, memory limit 4 GiB",
+  "date": "2026-11-23",
+  "entropy_bpb": "unchanged by execution architecture; not remeasured as an improvement",
+  "fork_safety": "only single-threaded native parent allowed; /proc/self/task gate; not invoked inside Python/Torch process",
+  "full_context_1worker_48book_speedup": 0.983403,
+  "full_context_2workers_48book_speedup": 1.86682,
+  "full_context_4worker_48book_speedups": [
+    3.31257,
+    3.36427,
+    3.4789
+  ],
+  "full_context_4worker_max_speedup": 3.4789,
+  "full_context_4worker_mean_speedup": 3.3852466666666667,
+  "full_context_4worker_min_speedup": 3.31257,
+  "full_context_timing": "per-run mean of 2 serial full-context passes versus 3 parallel full-context passes; full-context includes word begin, top-five verifier and one identical seeded speculative sample; model load excluded",
+  "initial_pool_pss_kib_4workers": 277218,
+  "many_context_parent_prepared_4workers_48book_speedup": 1.7424,
+  "model_weights": "inherited v178/v177/v176; unchanged",
+  "optimizer_history": "inherited unchanged",
+  "pool_pss_delta_kib_4workers": 3461,
+  "promotion": "opt-in parallel multi-context only; single-stream v178/v176 default remains unchanged",
+  "replications": [
+    {
+      "after_full_context_pss_kib": 280679,
+      "parent_plus_workers_initial_pss_kib": 277218,
+      "speedup": 3.31257
+    },
+    {
+      "after_full_context_pss_kib": 280697,
+      "parent_plus_workers_initial_pss_kib": 277217,
+      "speedup": 3.36427
+    },
+    {
+      "after_full_context_pss_kib": 280697,
+      "parent_plus_workers_initial_pss_kib": 277216,
+      "speedup": 3.4789
+    }
+  ],
+  "seeded_single_stream_samples_exact_per_run": 384,
+  "single_context_prefill": "still slower or near parity; not deployed",
+  "source_test": "native synthetic fork worker test PASS, including 256 seeded samples and full-context parity",
+  "trained_contexts_per_run": 48,
+  "trained_split": "48 distinct books from repeatedly explored 55-book VAL; no fresh TEST",
+  "vector_pairs_256way_exact_per_run": 240,
+  "version": 179
+}

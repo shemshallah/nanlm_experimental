@@ -1,0 +1,1 @@
+See `experiments/nancm/v179/RESULTS.json`. Main result: three four-worker 48-book full-context throughput ratios 3.31257x, 3.36427x, 3.4789x; 240 exact 256-way P/Q vectors, 384 identical single-stream seeded samples per 48-book run, plus 48 exact full-context word/probability/sampler results. No BPB change or fresh TEST.
