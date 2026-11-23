@@ -1,18 +1,16 @@
-// Source-only multi-session test. Real trained sidecars tested separately.
-// Import only the v176 synthetic stubs; no duplicate v177 main().
+// Source-only synthetic parity, session isolation, cache reset and lifetime.
 #define main inherited_v176_source_main
 #include "../v176/test_source176.cpp"
 #undef main
-extern "C" void*wf176_hybrid_open_full(const char*t,const char*m,const char*g,const char*c,
- const char*b,float e,const char*,const char*){
+extern "C" void*wf176_hybrid_open_full(const char*t,const char*m,const char*g,
+ const char*c,const char*b,float e,const char*,const char*){
  return wf176_hybrid_open(t,m,g,c,b,e);
 }
 #include "native_shared178.cpp"
 #include <thread>
 #include <atomic>
 int main(){
- void*hub=wf178_hub_open_full("x","x","x","x","x",.35f,"x","x");
- assert(hub);
+ void*hub=wf178_hub_open_full("x","x","x","x","x",.35f,"x","x");assert(hub);
  const std::string h1="first book context ",h2="different book context ";
  void*s1=wf178_session_open(hub,(const unsigned char*)h1.data(),h1.size());
  void*s2=wf178_session_open(hub,(const unsigned char*)h2.data(),h2.size());
@@ -51,10 +49,7 @@ int main(){
       !(q[(unsigned char)' ']>=p[(unsigned char)' ']))fail.fetch_add(1);
   }
  };
- std::thread a(concurrent,s1),b(concurrent,s2);
- a.join();b.join();assert(fail.load()==0);
- // Prior 300 speculative samples can exhaust the 256-node cap.
- // Reset before asserting that *all* top-five prefixes fit and stay cached.
+ std::thread a(concurrent,s1),b(concurrent,s2);a.join();b.join();assert(fail.load()==0);
  assert(wf178_session_begin(s1,(const unsigned char*)h1.data(),h1.size())==0);
  float scores[5]{};int raw=0,unique=0;
  assert(wf178_session_prepare_top5(s1,scores,&raw,&unique)==0);
@@ -73,10 +68,9 @@ int main(){
  assert(wf178_session_begin(s1,(const unsigned char*)h2.data(),h2.size())==0);
  assert(wf178_session_stats(s1,&m,&h,&n)==0&&m==0&&h==0&&n==0);
  check(s1,h2);
- // Ownership: close hub handle while two sessions still retain its one model.
  wf178_hub_close(hub);
  float qq[256]{},pp[256]{};
  assert(wf178_session_next(s1,nullptr,0,qq,pp)==0);
  wf178_session_close(s1);wf178_session_close(s2);wf176_hybrid_close(old);
- puts("PASS v178 one-model shared hub, interleaved sessions, concurrent cache queries, 256-way parity, 300 exact samples, fail-closed batch, reset, lifetime");
+ puts("PASS v178 shared-model lifetime, concurrent sessions, exact P/Q, sampling, resets");
 }

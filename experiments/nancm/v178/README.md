@@ -1,24 +1,9 @@
-# NaNCM v178 — Clone-free shared verifier hub (experimental)
+# NaNCM v178 — shared verifier hub, real trained parity
 
-**2026-11-23. Source implementation, default disabled.** Inherits the full v177 implementation and existing v176 probability law without modifying native weight files, the 128+128 S+/S− cloud, word specialist, BPE head, or optimizer histories.
+Research opt-in (default disabled), 2026-11-23. The single C++ model instance is shared by multiple independently resettable causal sessions. Each session stores its own history, top-five word snapshot and 256-entry prefix P/Q cache. The mutex protects oracle misses, so true parallel neural inference is not implemented. Exact inherited v176 P/Q and sampling law are preserved.
 
-## What is actually shared
+See CLAIM_LEDGER.md, RESEARCH_LOG.md, PROVENANCE.md, RESULTS.json, test_trained178.py and bench_cold178.py.
 
-One v176 full model handle owns one v170 byte predictor and one v175 word predictor. A `wf178_hub_open_full(...)` constructs exactly one inherited model. Each `wf178_session_open(hub,past,n)` owns only a history, five-word snapshot, and a bounded 256-node prefix cache. A session may change contexts independently with `wf178_session_begin`. Its `next`, `batch`, `top5`, `prepare_top5` and `sample` exports preserve the original v176 256-way P and Q (and seeded rejection sampling). The hub handle may be closed after session creation because sessions retain the shared model via reference counting. No model instance is copied for each session.
+Real native tests using unmodified trained model sidecars recovered from verified v177 parent ZIP: 32 distinct VAL books, 64 alternating session visits, 1,960 exact 256-way P/Q pairs, 256 identical seeded samples, 320 identical word top-five entries, one model instance shared by 32 sessions (180,224 bytes incremental resident memory for sessions). 32-context first-pass microbenchmark incl begin 20.349ms v176 vs 20.105ms v178; not a reliable speed win. Repeated identical prefix queries: 0.3358ms vs 0.01682ms per context; warm cache speeds query reuse but not demonstrated full decoding throughput. No new weights or optimizers.
 
-**Crucial limitation:** the inherited WF148→WF170 stack has mutable, request-dependent causal state. All oracle cache misses and model switches are therefore guarded by a single hub mutex, and a switch reinstates the correct session history via `wf176_hybrid_begin`. Only cached hits can execute concurrently without touching the oracle. This version establishes bounded-RAM multi-context correctness, **not** true simultaneous model inference, latency speedup, or a mathematically novel compression result. Serializing oracle misses and reinitializing on context switches can make interleaved cold requests slower. It is a compatibility bridge toward physically separating immutable tables from transient causal state.
-
-## C ABI
-
-`wf178_hub_open_full(teacher,model,geometry,cloud,bytepack,escape,crosslevel,bpe)` / `wf178_hub_close`; `wf178_hub_stats(hub,&model_instances,&live_sessions)`; `wf178_session_open(hub,past,n)` / `wf178_session_close` / `wf178_session_begin`; `wf178_session_next(session,prefix,n,q,p)`; `wf178_session_batch(session,bytes,bytes_len,offsets,lengths,count,outq,outp)`; `wf178_session_prepare_top5(session,scores5,&raw,&unique)`; `wf178_session_sample(session,seed,maxbytes,out,capacity,&written,&accepted,&rejected)`; `wf178_session_top5`; `wf178_session_stats`.
-
-Up to 512 prefixes per batch; up to 40 bytes each; a maximum of 256 cached prefix distributions per session; up to 1,000,000 bytes of history. Caller must not concurrently close a session while its methods are running, or close the hub handle while opening a session. Concurrent methods on live sessions are guarded by per-session locks.
-
-## Promotion gates
-
-1. Source-only synthetic concurrency, reset, bounds, and full P/Q parity.
-2. Real inherited sidecars on book-disjoint contexts: byte-for-byte 256-dimensional P/Q parity after alternating histories, top-five rank/probability parity, identical seeded speculative samples, full recovery of original byte ABI.
-3. RSS delta (one hub + N sessions versus per-worker full model clones), p50/p95 cold/alternating/hot latency, throughput, and exact acceptance behavior.
-4. Default promotion **only** after speed, memory and correctness gates. Do not equate one-model RSS with true parallel speed.
-
-Use `make v178-source-smoke` to run source-only tests; `make v178 && python experiments/nancm/v178/test_trained178.py --n 12` for trained sidecars. GitHub contains source only; no trained sidecar is committed.
+Build `make v178`; execute `make v178-source-smoke` for source CI and `python experiments/nancm/v178/test_trained178.py --n 32` / `python experiments/nancm/v178/bench_cold178.py --n 32` for checkpoint gates. GitHub master is source only. CI source pass run #45250088322. No claimed frontier accuracy improvement.

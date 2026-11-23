@@ -1,0 +1,10 @@
+{
+  "version":178,"date":"2026-11-23","parent_sha256":"501a360d31be5e63f9da7e480432f640cbbae9e6b5e3b9e0cee39bc76ced5572",
+  "architecture":"one shared v176 model with refcounted hub, session-specific histories, top-five snapshots, 256-entry P/Q prefix caches, serial miss lock",
+  "trained_checkpoint_changed":false,"byte_probability_law":"exact inherited v176/v170",
+  "source_ci":{"run":45250088322,"conclusion":"success"},
+  "trained_parity":{"book_distinct_val":32,"alternating_session_visits":64,"full_256way_pq_pairs_identical":1960,"seeded_spec_samples_identical":256,"top5_entries_identical":320,"model_instances":1,"sessions_created":32,"session_rss_incremental_bytes":180224},
+  "cold_warm_cpu":{"book_distinct_val":32,"pairs_exact":854,"first_pass_ms_v176_including_begin":20.349164656256136,"first_pass_ms_v178_including_begin":20.10524431251426,"first_pass_speedup":1.0121321750658883,"warm_ms_v176":0.3358445937635679,"warm_ms_v178":0.016819687484570522,"warm_query_speedup":19.967350408362442},
+  "promotion":"OPT-IN; exact/memory pass, cold speedup not established, parallel oracle not implemented",
+  "caveats":"Previously explored validation books; no fresh unseen TEST, no end-to-end BPB or streaming throughput, warm query microbenchmark only; no precision or statistical stability claim for 1% cold timing difference."
+}
