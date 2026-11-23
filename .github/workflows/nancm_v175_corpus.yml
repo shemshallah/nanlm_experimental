@@ -1,0 +1,48 @@
+name: NaNCM v175 full-book corpus preparation (Release 0003)
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v175/prepare_release_books175.py'
+      - 'experiments/nancm/v175/vocab175.txt'
+      - 'experiments/nancm/v175/inherited_gutenberg_ids175.txt'
+      - '.github/workflows/nancm_v175_corpus.yml'
+  workflow_dispatch:
+jobs:
+  stage-book-disjoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deterministic parser dependencies
+        run: python3 -m pip install --disable-pip-version-check numpy zstandard
+      - name: Download exactly the NaNROUTER Releases short-story batch 0003
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/nancm175
+          base="https://github.com/shemshallah/NaNROUTER/releases/download/corpora-short-stories-0003"
+          curl -fL --retry 5 --retry-delay 4 --connect-timeout 20 --max-time 900 "$base/short_stories-0003.tar.zst" -o /tmp/nancm175/short_stories-0003.tar.zst
+          curl -fL --retry 5 --retry-delay 4 "$base/short_stories-0003.SHA256SUMS" -o /tmp/nancm175/short_stories-0003.SHA256SUMS
+          cat /tmp/nancm175/short_stories-0003.SHA256SUMS
+          cd /tmp/nancm175
+          sha256sum -c short_stories-0003.SHA256SUMS
+      - name: Fingerprint, exclude all 615 inherited books and group-split full books
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/nancm175/artifact
+          python3 experiments/nancm/v175/prepare_release_books175.py \
+            --archive /tmp/nancm175/short_stories-0003.tar.zst \
+            --vocab experiments/nancm/v175/vocab175.txt \
+            --excluded experiments/nancm/v175/inherited_gutenberg_ids175.txt \
+            --out /tmp/nancm175/artifact \
+            --max-books 500 --per-book 240 --release-tag corpora-short-stories-0003
+          cd /tmp/nancm175/artifact
+          sha256sum -c SHA256SUMS
+          python3 -c "import json; m=json.load(open('manifest175.json')); print('V175 SPLIT',m['data'])"
+      - name: Upload compact causal datasets, split and original book hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: nancm175-release3-book-disjoint
+          path: /tmp/nancm175/artifact/
+          compression-level: 0
+          retention-days: 7
