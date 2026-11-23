@@ -1,0 +1,129 @@
+{
+  "version": "v175",
+  "date": "2026-11-22",
+  "author": "Justin Howard-Stanley",
+  "affiliation": "Independent Researcher, Santa Cruz, California, USA",
+  "status": "PROMOTED_AS_BEST_STANDALONE_12K_SIGNED_TEMPORAL_EXPERIMENT_ONLY; NOT_ACTIVE_OPEN_VOCAB_DECODER",
+  "architecture": "frozen inherited 128+128 S+/S- geometry, 32D word embeddings, dual 64D GRUs over last 48 words, trained 1-3 gram causal copy-pointer on earlier witnessed continuations, normalized 12k whole-word logits",
+  "dataset": {
+    "source_release": "corpora-short-stories-0003",
+    "tar_sha256": "15e7b5937a8ae8f5dc41f9f4b650202f9a88fb2a299daee38653c6a3d4ba8a20",
+    "legacy_book_ids_exclusion_list": 615,
+    "source_books_selected": 500,
+    "train_books": 396,
+    "val_books": 55,
+    "test_books": 49,
+    "train_contexts": 95040,
+    "val_contexts": 13200,
+    "test_contexts": 11760,
+    "target_policy": "in-vocabulary 12k only",
+    "split": "deterministic book-disjoint; inherited teacher pretraining not fully audited"
+  },
+  "training": {
+    "attempted_v175_updates": 5080,
+    "selected_v175_updates": 4955,
+    "total_step_with_v174": 5755,
+    "selector": "val NLL only",
+    "optimizer_groups": 4,
+    "optimizer_moment_slots": 19,
+    "parent_optimizer_exact": true,
+    "parent_v173_optimizer_exact": true
+  },
+  "heldout_val": {
+    "n": 13200,
+    "books": 55,
+    "old12_top1": 1445.0,
+    "old48_top1": 1445.0,
+    "new_noecho_top1": 1548.0,
+    "new_echo_top1": 1573.0,
+    "old12_top5": 3307.0,
+    "old48_top5": 3308.0,
+    "new_noecho_top5": 3545.0,
+    "new_echo_top5": 3596.0,
+    "old12_nll": 6.070958819287991,
+    "old48_nll": 6.070981197312993,
+    "new_noecho_nll": 5.955495236657561,
+    "new_echo_nll": 5.939310672378407
+  },
+  "test_reused_after_prior_pilots": {
+    "n": 11760,
+    "books": 49,
+    "old12_top1": 1242.0,
+    "old48_top1": 1241.0,
+    "new_noecho_top1": 1325.0,
+    "new_echo_top1": 1364.0,
+    "old12_top5": 2918.0,
+    "old48_top5": 2918.0,
+    "new_noecho_top5": 3050.0,
+    "new_echo_top5": 3123.0,
+    "old12_nll": 6.133045727964553,
+    "old48_nll": 6.1330394030355,
+    "new_noecho_nll": 6.027953653078629,
+    "new_echo_nll": 6.004215416115488
+  },
+  "test_gain_nll": 0.12883031184906457,
+  "test_gain_top1": 122,
+  "test_gain_top5": 205,
+  "test_book_bootstrap": {
+    "parent12_to_v175_nll_gain_95": [
+      0.11125648693785843,
+      0.12874612675933017,
+      0.14633257503829558
+    ],
+    "parent12_to_v175_top1_rate_gain_95": [
+      0.005952380952380952,
+      0.010459183673469388,
+      0.01505314625850341
+    ],
+    "echo_ablation_nll_gain_95": [
+      0.015675257075773285,
+      0.02332014811362365,
+      0.032705923250373206
+    ],
+    "bootstrap_reps": 3000,
+    "unit": "book"
+  },
+  "causal_copy_test": {
+    "eligibility": 0.2967687074829932,
+    "correct_target_in_copy_pool": 399,
+    "trained_noecho_top1": 1325,
+    "trained_echo_top1": 1364,
+    "echo_increment_top1": 39,
+    "copyable_top1_before": 106,
+    "copyable_top1_after": 190,
+    "wrong_copy_top1_before": 225,
+    "wrong_copy_top1_after": 180,
+    "correct_history_minus_unrelated_advantage_nats": 0.041035115559895835
+  },
+  "native": {
+    "v175_full_word_distributions_pytorch_parity": 80,
+    "max_abs_error": 5.066394805908203e-07,
+    "word_rank_top1_top5_exact": 80,
+    "inherited_v174_exact_12k_distribution_rollback": 25,
+    "inherited_v169_256_way_exact_rollback": 292,
+    "inherited_byte_stream_positions": 16018,
+    "byte_dev_bpb": 2.563848893529875,
+    "byte_reused_test_bpb": 2.472756833747626
+  },
+  "git_master_commits": [
+    "65d58fe772320c9d563a6fd8cf1f9fcca6a1dc4f",
+    "d36feab0073faba308a680bf69cee382ecf94871"
+  ],
+  "github_actions": {
+    "corpus_stage": 45094346173,
+    "source_smoke": 45095193869
+  },
+  "promotion": {
+    "standalone_signed_temporal_research_specialist": "v175 selected step4955 (yes, better held-out v175 NLL and top1)",
+    "active_native_word_baseline": "v167 protected / unchanged",
+    "active_experimental_byte": "v170 protected / unchanged",
+    "full_unified_open_vocab": "NO promotion without matched full-beam first-choice test"
+  },
+  "critical_caveats": [
+    "TEST had already been examined after earlier v175 pilots; repeated-TEST diagnostics not pristine after selection",
+    "Inherited teacher possible overlap with NaNROUTER corpus from earlier aggregate pretraining not ruled out",
+    "Evaluated only target words represented in inherited 12k vocabulary; not total next-word accuracy",
+    "Book-block bootstrap is conditional on the selected archived cohorts, not general population guarantee",
+    "Standalone normalized 12k word predictor is not the 96-beam open vocabulary decoder"
+  ]
+}
