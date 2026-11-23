@@ -1,0 +1,10 @@
+.PHONY: v175 test-v175
+v175: bin/libwordfield175.so
+bin/libwordfield175.so: experiments/nancm/v175/wordfield175_api.cpp experiments/nancm/v175/native_temporal175.cpp experiments/nancm/v174/wordfield174_api.cpp experiments/nancm/v174/native_temporal174.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+test-v175: v175
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v175/test_native175.py --n 50
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v175/test_byte_rollback175.py
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v175/eval_book_disjoint175.py --split val
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v175/eval_book_disjoint175.py --split test

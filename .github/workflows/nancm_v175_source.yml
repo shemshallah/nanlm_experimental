@@ -1,0 +1,42 @@
+name: NaNCM v175 signed causal episodic native smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v175/**'
+      - '.github/workflows/nancm_v175_source.yml'
+  workflow_dispatch:
+jobs:
+  source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check syntax of v175 data/train/test/evaluation modules
+        run: python3 -m compileall -q experiments/nancm/v175
+      - name: Compile and execute native normalized 12k-word causal pointer synthetic smoke
+        run: |
+          g++ -O2 -std=c++17 -Wall -Wextra -Iexperiments/nancm/v175 experiments/nancm/v175/test_source175.cpp -o /tmp/nancm175_smoke
+          /tmp/nancm175_smoke
+      - name: Verify the exact inherited default ABI and 48-word causal replay
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('experiments/nancm/v175')
+          v=(p/'wordfield175_api.cpp').read_text()
+          n=(p/'native_temporal175.cpp').read_text()
+          train=(p/'train_long175.py').read_text()
+          prep=(p/'prepare_release_books175.py').read_text()
+          assert '../v174/wordfield174_api.cpp' in v
+          for s in ('N175NOW1','wf175_now_open','wf175_now_predict','length!=48','count!=28',
+                    'scores[47]','hist[i+1]','copy_log_strength'):
+              assert s in n,s
+          for s in ('old[\'optimizer_state_dict\']','optimizer.load_state_dict','--skip-test','--resume'):
+              assert s in train,s
+          assert 'disjoint_checked' in prep and 'legacy_ids' in prep
+          vocab=(p/'vocab175.txt').read_text().splitlines()
+          excluded=(p/'inherited_gutenberg_ids175.txt').read_text().splitlines()
+          assert len(vocab)==12000 and len(set(vocab))==12000
+          assert len(excluded)==615 and len(set(excluded))==615
+          print('PASS inherited native ABI / 48-word causal pointer / optimizer continuity / exclusion list')
+          PY
