@@ -1,0 +1,26 @@
+{
+  "archive_bytes": 236507452,
+  "archive_entries": 1028,
+  "archive_name": "NaNCM_v179_COW_PARALLEL_FULLCONTEXT_RECOVERY_20261123.zip",
+  "archive_sha256": "bac062c4ece8cdd7099e08d1ca5c37e7f186b41615ea35337678c38127d3af4c",
+  "date": "2026-11-23",
+  "full_context_4worker_speedup_mean": 3.3852466666666667,
+  "inherited_byte_unchanged": 988,
+  "inherited_parent_entries": 989,
+  "new_pristine_TEST": false,
+  "previous_makefile_location": "ancestry/v178/Makefile",
+  "promotion": "parallel batch execution opt-in; single-stream decoder unchanged",
+  "replicate_speedups": [
+    3.31257,
+    3.36427,
+    3.4789
+  ],
+  "reproducible": true,
+  "sha256_checked_entries": 1026,
+  "source_ci_run": 45258785004,
+  "source_commit": "5ecf2dcad3654f145be341ba8fbdd3a71827c0ea",
+  "status": "RECOVERABLE OPT-IN PARALLEL INFERENCE",
+  "trained_book_contexts": 48,
+  "trained_checkpoints_optimizer_moments_unchanged": true,
+  "version": 179
+}
