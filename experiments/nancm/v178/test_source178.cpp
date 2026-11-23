@@ -53,6 +53,9 @@ int main(){
  };
  std::thread a(concurrent,s1),b(concurrent,s2);
  a.join();b.join();assert(fail.load()==0);
+ // Prior 300 speculative samples can exhaust the 256-node cap.
+ // Reset before asserting that *all* top-five prefixes fit and stay cached.
+ assert(wf178_session_begin(s1,(const unsigned char*)h1.data(),h1.size())==0);
  float scores[5]{};int raw=0,unique=0;
  assert(wf178_session_prepare_top5(s1,scores,&raw,&unique)==0);
  assert(raw>unique);
