@@ -1,0 +1,12 @@
+# v178 opt-in hub: one model, multiple request-private causal caches.
+.PHONY: v178 v178-source-smoke test-v178
+v178: bin/libwordfield178.so
+bin/libwordfield178.so: experiments/nancm/v178/wordfield178_api.cpp experiments/nancm/v178/native_shared178.cpp experiments/nancm/v177/wordfield177_api.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -pthread -shared $(CPPFLAGS) -Isrc $< -o $@
+v178-source-smoke:
+	mkdir -p bin
+	$(CXX) -O2 -std=c++17 -pthread -Iexperiments/nancm/v178 experiments/nancm/v178/test_source178.cpp -o bin/test_source178
+	./bin/test_source178
+test-v178: v178 v178-source-smoke
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v178/test_trained178.py --n 12

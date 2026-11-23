@@ -1,0 +1,33 @@
+name: NaNCM v178 clone-free shared verifier hub
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v178/**'
+      - '.github/workflows/nancm_v178_source.yml'
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native v178 source parity, interleaving, concurrency, lifetime
+        run: |
+          g++ -O2 -std=c++17 -pthread -Wall -Wextra -Iexperiments/nancm/v178 experiments/nancm/v178/test_source178.cpp -o /tmp/nancm178
+          /tmp/nancm178
+      - name: v178 Python syntax and protected inheritance checks
+        run: |
+          python3 -m compileall -q experiments/nancm/v178
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('experiments/nancm/v178')
+          src=(p/'native_shared178.cpp').read_text()
+          assert 'wf176_hybrid_next' in src
+          assert 'wf176_hybrid_begin' in src
+          assert 'std::mutex' in src
+          assert 'std::shared_ptr' in src
+          assert 'wf170_byte_open' not in src
+          assert '#include "../v177/wordfield177_api.cpp"' in (p/'wordfield178_api.cpp').read_text()
+          print('PASS v178 preserves exact old byte oracle and creates no private model copies')
+          PY
