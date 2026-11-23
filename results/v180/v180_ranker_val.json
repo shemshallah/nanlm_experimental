@@ -1,0 +1,21 @@
+{
+  "n": 13200,
+  "top1": 1792,
+  "top1_percent": 13.575757575757578,
+  "oracle": 8370,
+  "oracle_percent": 63.40909090909091,
+  "parent_top1": 1687,
+  "parent_percent": 12.780303030303031,
+  "gain": 105,
+  "benchmark": "55 reused book-disjoint NaNROUTER Release3 VAL books, vocab-conditioned 12k targets",
+  "cutoff": 64,
+  "ngram_order": 4,
+  "tree_count": 80,
+  "leaves": 15,
+  "seconds": 7.87337701100023,
+  "train_parent_pretrained_on_fit": true,
+  "validation_already_explored": true,
+  "test_untouched": true,
+  "full_decoder_promoted": false,
+  "byte_probabilities_unchanged": true
+}

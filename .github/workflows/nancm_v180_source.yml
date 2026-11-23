@@ -1,0 +1,21 @@
+name: NaNCM v180 native causal word memory and signed-cloud source smoke
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v180/**'
+      - '.github/workflows/nancm_v180_source.yml'
+      - 'Makefile'
+  workflow_dispatch:
+jobs:
+  v180-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native source-only word memory regression
+        run: make v180-source-smoke
+      - name: Compile full inherited signed-cloud + v180 API without model data
+        run: make -B v180
+      - name: Python syntax smoke (no trained assets needed)
+        run: python3 -m py_compile experiments/nancm/v180/*.py

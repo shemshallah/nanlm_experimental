@@ -177,3 +177,6 @@ include experiments/nancm/v178/Makefile.fragment
 
 # v179 opt-in COW workers
 include experiments/nancm/v179/Makefile.fragment
+
+# Latest opt-in whole-word accuracy research; inherits v179 exact byte law.
+include experiments/nancm/v180/Makefile.fragment

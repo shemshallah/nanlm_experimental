@@ -1,0 +1,36 @@
+{
+  "version": 180,
+  "normalized": true,
+  "candidate_residual_exact": true,
+  "selection_metric": "TRAIN-only book subset NLL",
+  "train_examples": 19200,
+  "val_examples": 13200,
+  "gamma": [
+    0.1,
+    0.1,
+    0.1,
+    0.1
+  ],
+  "train": {
+    "top1": 3528,
+    "nll": 4.640262539678976,
+    "n": 19200
+  },
+  "val": {
+    "top1": 1893,
+    "nll": 5.7136939375308895,
+    "n": 13200
+  },
+  "val_baseline": {
+    "top1": 1687,
+    "nll": 5.817159933841347,
+    "n": 13200
+  },
+  "val_gain_top1": 206,
+  "val_gain_nll": 0.10346599631045716,
+  "corpus": "NaNROUTER Release3 55-book reused VAL",
+  "test_used": false,
+  "parent_v176_frozen": true,
+  "note": "Complete word-level normalized distribution. Does not claim end-to-end byte BPB nor open-vocabulary calibration.",
+  "elapsed_seconds": 1.7650441819996558
+}

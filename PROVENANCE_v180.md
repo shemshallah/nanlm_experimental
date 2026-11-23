@@ -1,0 +1,7 @@
+# Provenance v180
+
+Source of word data: inherited NaNROUTER GitHub Releases corpus-short-stories-0003, reconstituted from book-positioned 48-word TRAIN histories. Parent `results/v175_release3/{train,val,test}.npz` preserved; only `train.npz` contributes word-memory counts. Word order and signed cloud lineage inherited intact; checkpoint `checkpoints/v175_signed_episodic_48.pt`, BPE/counterfactual sidecars and AdamW histories unchanged.
+
+TRAIN rebuilt stream `results/v180/train_observed_stream.bin` SHA-256 `450e62e419131777417a7b2e959f7cb4fd3905ace94cfb61613099ca782f2548` (3,115,680 observed positions); no overlap conflicts. `prepare_stream180.py` refuses VAL/TEST construction, and all training counts are taken exclusively from this stream. TRAIN book heldout labels used only for candidate/gate calibration. The older inherited neural teacher was trained partly on these TRAIN books, so ranker comparisons are not out-of-distribution for the parent.
+
+VAL books are identity-disjoint from new TRAIN books, but the 55-book cohort was repeatedly inspected in prior experiments. The v175 teacher's earlier training corpus coverage is not fully audited. TEST remained uninspected this round. All accuracy statements refer only to in-vocabulary targets in the 12k lexicon. All previous byte model tensors/checkpoints, native verifiers, v179 COW process logic, and optimizer moments are inherited unmodified. New runtime memory allocation is opt-in, not an Android-tested deployment.

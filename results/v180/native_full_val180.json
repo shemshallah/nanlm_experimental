@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "samples": 13200,
+  "source": "reused independent-book NaNROUTER Release3 VAL (no TEST)",
+  "max_complete_vector_parity_abs_err": 9.536743161842054e-08,
+  "max_parent_target_saved_abs_err": 0.0,
+  "trained_ngram_context_sizes": [
+    10620,
+    525966,
+    1453295,
+    1870824
+  ],
+  "native_word_top1": 1893,
+  "native_parent_top1": 1687,
+  "native_word_nll": 5.7136939369246145,
+  "native_parent_nll": 5.817159933841381,
+  "byte_model": "inherited unchanged",
+  "model_weights": "inherited unchanged",
+  "elapsed_seconds": 125.7047735720007
+}

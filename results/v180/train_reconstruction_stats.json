@@ -1,0 +1,21 @@
+{
+  "split": "train",
+  "samples": 95040,
+  "books": 396,
+  "total_positions": 5334646,
+  "observed_positions": 3115680,
+  "unseen_gaps": 2218966,
+  "oov_positions": 223910,
+  "overlap_asserts": 1541280,
+  "conflicts": 0,
+  "valid_ngrams": {
+    "1": 2650489,
+    "2": 2434402,
+    "3": 2240054,
+    "4": 2063853,
+    "5": 1903858
+  },
+  "file": "results/v180/train_observed_stream.bin",
+  "sha256": "450e62e419131777417a7b2e959f7cb4fd3905ace94cfb61613099ca782f2548",
+  "bytes": 10672472
+}

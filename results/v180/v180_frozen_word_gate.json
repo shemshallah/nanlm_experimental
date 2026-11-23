@@ -1,0 +1,40 @@
+{
+  "status": "reused_VAL_diagnostic_unpromoted",
+  "books": 55,
+  "positions": 13200,
+  "parent_top1": 1687,
+  "v180_top1": 1893,
+  "parent_top5": 3826,
+  "v180_top5": 4161,
+  "parent_word_nll": 5.817159951672057,
+  "v180_word_nll": 5.7136939375308895,
+  "gain_top1": 206,
+  "gain_top5": 335,
+  "gain_nll": 0.1034660141411674,
+  "paired_book_bootstrap_reps": 3000,
+  "top1_gain_95": [
+    0.012119318181818182,
+    0.015681818181818182,
+    0.019015151515151516
+  ],
+  "nll_gain_95": [
+    0.09002604639222221,
+    0.10384400072962527,
+    0.11676554483241665
+  ],
+  "top5_gain_95": [
+    0.02083143939393939,
+    0.025454545454545455,
+    0.030075757575757575
+  ],
+  "top5_computation": "unique candidate words from exact normalized top64 neural plus top2 order1-4; all remaining words retain common scale and cannot exceed original top64",
+  "train_selected_gamma": [
+    0.1,
+    0.1,
+    0.1,
+    0.1
+  ],
+  "training_corpus_transition_count": 2650489,
+  "test_used": false,
+  "inherited_model_weights_and_optimizers_unchanged": true
+}

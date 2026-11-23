@@ -1,0 +1,10 @@
+# v180 accepted word-only experimental normalized memory; inherited defaults safe.
+.PHONY: v180 v180-source-smoke
+v180: bin/libwordfield180.so
+bin/libwordfield180.so: experiments/nancm/v180/wordfield180_api.cpp experiments/nancm/v180/native_fusion180.cpp experiments/nancm/v180/native_memory180.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -pthread -shared $(CPPFLAGS) -Isrc $< -o $@
+v180-source-smoke:
+	mkdir -p bin
+	$(CXX) -O2 -std=c++17 -pthread -Iexperiments/nancm/v180 experiments/nancm/v180/test_source180.cpp -o bin/test_source180
+	./bin/test_source180
