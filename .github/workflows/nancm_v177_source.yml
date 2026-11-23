@@ -14,23 +14,32 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify Python 3 syntax
         run: python3 -m compileall -q experiments/nancm/v177
-      - name: Compile C++ synthetic byte verifier with immutable inherited v176 stubs
+      - name: Compile and execute exact native sequential prefix DAG
         run: |
-          g++ -O2 -std=c++17 -Iexperiments/nancm/v177 experiments/nancm/v177/test_source177.cpp -o /tmp/nancm177_native_test
-          /tmp/nancm177_native_test
-      - name: Exact five-macro/escape probability and arithmetic round-trip
+          g++ -O2 -std=c++17 -Iexperiments/nancm/v177 experiments/nancm/v177/test_source177.cpp -o /tmp/nancm177_serial
+          /tmp/nancm177_serial
+      - name: Compile and execute two private byte-worker smoke
+        run: |
+          g++ -O2 -std=c++17 -pthread -Iexperiments/nancm/v177 experiments/nancm/v177/test_source_parallel177.cpp -o /tmp/nancm177_parallel
+          /tmp/nancm177_parallel
+      - name: Verify six-macro exclusion-law exact arithmetic coding
         run: |
           PYTHONPATH=experiments/nancm/v176:experiments/nancm/v177 python3 experiments/nancm/v177/test_macro_code177.py
-      - name: Validate source-only ABI/caching bounds and no protected checkpoint overwrite
+      - name: Verify exact inherited ABI and document performance rejection
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          src=Path('experiments/nancm/v177/native_lattice177.cpp').read_text()
-          for x in ('wf177_verify_batch','wf177_prepare_top5','wf177_sample','wf177_stats','nodes.size()<256','std::mt19937_64'):
+          import json
+          p=Path('experiments/nancm/v177')
+          src=(p/'native_lattice177.cpp').read_text()
+          par=(p/'native_parallel177.cpp').read_text()
+          for x in ('wf177_verify_batch','wf177_prepare_top5','wf177_sample','nodes.size()<256'):
               assert x in src,x
-          assert '#include "../v176/wordfield176_api.cpp"' in Path('experiments/nancm/v177/wordfield177_api.cpp').read_text()
-          macro=Path('experiments/nancm/v177/macro_code177.py').read_text()
-          for x in ('P(s)*P(b|s)', 'self.escape', 'self.subtree','def conditional','def encode','def decode'):
-              assert x in macro,x
-          print('PASS native source, reversible protected byte law and bounded cache')
+          for x in ('std::thread','wf170_byte_set_adaptive','wf177_parallel_prefill_top5'):
+              assert x in par,x
+          assert '#include "../v176/wordfield176_api.cpp"' in (p/'wordfield177_api.cpp').read_text()
+          data=json.loads((p/'RESULTS.json').read_text())
+          assert data['parallel_rejected']['relative_throughput'] < 1.0
+          assert data['cold_cpu']['relative_throughput'] < 1.0
+          print('PASS exact P law, serial fallback, and rejected high-RAM worker')
           PY

@@ -1,39 +1,73 @@
 {
-  "version":177,
-  "date":"2026-11-23",
-  "parent":"v176 signed+BPE wordtop5 speculative third coding",
-  "architecture":"bounded 256-node prefix DAG; 512-prefix native multi-position batch; 6-symbol exclusion-conditioned arithmetic macro coding",
-  "probability_law":"inherited v170 256-way P, bit-identical in tested contexts",
-  "model_training":"none; inherited v176/v175/v174/v173 checkpoints and optimizer histories unchanged",
-  "native":{
-    "validation_contexts":50,"exact_256way_distributions":1219,
-    "identical_seeded_speculative_samples":500,"topfive_rankings_identical":250,
-    "legacy_exact_byte_rollback_vectors":48,"max_rollback_abs_error":0.0,
-    "underlying_verifier_parallel":false
+  "version": 177,
+  "date": "2026-11-23",
+  "parent": "v176 signed+BPE wordtop5 speculative third coding",
+  "architecture": "bounded 256-node prefix DAG; 512-prefix native multi-position batch; 6-symbol exclusion-conditioned arithmetic macro coding",
+  "probability_law": "inherited v170 256-way P, bit-identical in tested contexts",
+  "model_training": "none; inherited v176/v175/v174/v173 checkpoints and optimizer histories unchanged",
+  "native": {
+    "validation_contexts": 50,
+    "exact_256way_distributions": 1219,
+    "identical_seeded_speculative_samples": 500,
+    "topfive_rankings_identical": 250,
+    "legacy_exact_byte_rollback_vectors": 48,
+    "max_rollback_abs_error": 0.0,
+    "underlying_verifier_parallel": false
   },
-  "warm_cpu":{
-    "contexts":32,"samples":512,"naive_prefix_queries":562,"unique_topfive_prefixes":400,
-    "shared_prefix_reduction_fraction":0.2882562277580071,
-    "v176_ms_per_draft":2.966402052736683,"v177_ms_per_draft":2.711532136727257,
-    "relative_speedup":1.093994798201819,"same_context_repeated_drafts":true
+  "warm_cpu": {
+    "contexts": 32,
+    "samples": 512,
+    "naive_prefix_queries": 562,
+    "unique_topfive_prefixes": 400,
+    "shared_prefix_reduction_fraction": 0.2882562277580071,
+    "v176_ms_per_draft": 2.966402052736683,
+    "v177_ms_per_draft": 2.711532136727257,
+    "relative_speedup": 1.093994798201819,
+    "same_context_repeated_drafts": true
   },
-  "cold_cpu":{
-    "contexts":96,"single_draft_each":true,"same_seed_outputs":96,
-    "v176_seconds_including_begin":1.748889849000534,
-    "v177_seconds_including_begin":1.8121191300001556,
-    "relative_throughput":0.9651075473169272
+  "cold_cpu": {
+    "contexts": 96,
+    "single_draft_each": true,
+    "same_seed_outputs": 96,
+    "v176_seconds_including_begin": 1.748889849000534,
+    "v177_seconds_including_begin": 1.8121191300001556,
+    "relative_throughput": 0.9651075473169272
   },
-  "macro_code":{
-    "synthetic_lossless_roundtrips":184,"model_real_lossless_roundtrips":60,
-    "model_top5_target_hits":16,"model_byte_symbols":268,
-    "macro_coded_symbols":275,"byte_coder_bits":682,"macro_coder_bits":680,
-    "interpretation":"exact law; no demonstrated entropy or streaming acceleration"
+  "macro_code": {
+    "synthetic_lossless_roundtrips": 184,
+    "model_real_lossless_roundtrips": 60,
+    "model_top5_target_hits": 16,
+    "model_byte_symbols": 268,
+    "macro_coded_symbols": 275,
+    "byte_coder_bits": 682,
+    "macro_coder_bits": 680,
+    "interpretation": "exact law; no demonstrated entropy or streaming acceleration"
   },
-  "rerank_rejected":{
-    "train_books":396,"train_examples":396,"train_top1_parent":63,"train_top1_candidate":78,
-    "validation_books":55,"validation_examples":550,"val_top1_parent":80,"val_top1_candidate":80,
-    "val_conditional_topfive_nll_parent":1.2975163870467001,
-    "val_conditional_topfive_nll_candidate":1.3292764505082912
+  "rerank_rejected": {
+    "train_books": 396,
+    "train_examples": 396,
+    "train_top1_parent": 63,
+    "train_top1_candidate": 78,
+    "validation_books": 55,
+    "validation_examples": 550,
+    "val_top1_parent": 80,
+    "val_top1_candidate": 80,
+    "val_conditional_topfive_nll_parent": 1.2975163870467001,
+    "val_conditional_topfive_nll_candidate": 1.3292764505082912
   },
-  "evaluation_caveats":"VAL has been repeatedly explored; historical DEV/TEST and old original pretraining exposure unknown; no end-to-end full text BPB or general streaming speed win"
+  "evaluation_caveats": "VAL has been repeatedly explored; historical DEV/TEST and old original pretraining exposure unknown; no end-to-end full text BPB or general streaming speed win",
+  "parallel_rejected": {
+    "workers": 2,
+    "native_val_histories_exact": 12,
+    "native_256way_distributions_exact": 218,
+    "identical_seeded_samples": 96,
+    "training_weights_unchanged": true,
+    "benchmark_val_histories": 32,
+    "serial_context_ms": 19.685362187459532,
+    "parallel_context_ms": 24.899414124988084,
+    "relative_throughput": 0.790595396688634,
+    "parallel_open_seconds": 6.379508959999839,
+    "incremental_resident_bytes": 794316800,
+    "promotion": "REJECTED: slower and 794MB extra resident memory; exact probability parity pass"
+  }
 }

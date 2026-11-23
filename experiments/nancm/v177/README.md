@@ -42,3 +42,10 @@ python experiments/nancm/v177/eval_rerank177.py --train 396 --val 550
 ```
 
 Full native runs require all inherited trained sidecars in the cumulative recovery ZIP. GitHub is source-only.
+
+
+## Optional two-thread experimental path: rejected
+
+`native_parallel177.cpp` adds a distinct `wf177_parallel_*` API, using **separate private causal v170 byte-model handles** per worker and a deterministic prefix-task queue. It does perform genuine simultaneous verifier calls, unlike the default serial v177 batch. On **12** real VAL histories with two workers: **218 exact 256-way Q/P vectors**, **96 exact seeded sampling outputs**, and **12 exact five-word likelihood scores** versus v176.
+
+The performance gate decisively rejected this design: on 32 matched VAL histories, serial prefill took **19.69 ms/context**, two-worker parallel prefill **24.90 ms/context** (0.791× throughput). Opening the two cloned model states added **6.38 s** and about **794 MB RSS**. The cloned states therefore cannot be deployed to the Android target, even though the distributions are exact. The parallel functions are opt-in and allocate no clones unless explicitly requested. **No parallel speedup claim.** The next engineering target is shared immutable weights with lightweight worker-specific mutable states.

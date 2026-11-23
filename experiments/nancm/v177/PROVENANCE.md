@@ -9,3 +9,10 @@ Native test `test_native177.py` verifies literal byte-exact P/Q vectors vs froze
 `macro_code177.py` deliberately trades one exact macro arithmetic coding event for exact exclusion-conditioned byte escape. It does not alter the original byte probability law in real arithmetic. Finite precision length differences and header omission must not be confused with true corpus compression gains.
 
 Archive manifest enumerates each retained file, SHA-256; parent original root Makefile and README are preserved separately. Only release ZIP is to be kept in ChatGPT Library after successor upload/readback verification; other independent architecture archives untouched.
+
+
+## Optional two-thread experimental path: rejected
+
+`native_parallel177.cpp` adds a distinct `wf177_parallel_*` API, using **separate private causal v170 byte-model handles** per worker and a deterministic prefix-task queue. It does perform genuine simultaneous verifier calls, unlike the default serial v177 batch. On **12** real VAL histories with two workers: **218 exact 256-way Q/P vectors**, **96 exact seeded sampling outputs**, and **12 exact five-word likelihood scores** versus v176.
+
+The performance gate decisively rejected this design: on 32 matched VAL histories, serial prefill took **19.69 ms/context**, two-worker parallel prefill **24.90 ms/context** (0.791× throughput). Opening the two cloned model states added **6.38 s** and about **794 MB RSS**. The cloned states therefore cannot be deployed to the Android target, even though the distributions are exact. The parallel functions are opt-in and allocate no clones unless explicitly requested. **No parallel speedup claim.** The next engineering target is shared immutable weights with lightweight worker-specific mutable states.
