@@ -1,0 +1,38 @@
+name: NaNCM v176 symbiotic signed word/BPE/byte speculative third code
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v176/**'
+      - '.github/workflows/nancm_v176_source.yml'
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check source-only v176 Python modules
+        run: python3 -m compileall -q experiments/nancm/v176
+      - name: Compile native synthetic top-five draft and exact byte verifier
+        run: |
+          g++ -O2 -std=c++17 -Wall -Iexperiments/nancm/v176 experiments/nancm/v176/test_source176.cpp -o /tmp/test_source176
+          /tmp/test_source176
+      - name: Exact reversible 32-bit arithmetic range coder smoke
+        run: |
+          PYTHONPATH=experiments/nancm/v176 python3 experiments/nancm/v176/test_range_code176.py
+      - name: Exhaustive speculative acceptance and 90k target-law sampling
+        run: |
+          PYTHONPATH=experiments/nancm/v176 python3 experiments/nancm/v176/test_third_code176.py
+      - name: Assert no default byte/word decoder replacement
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('experiments/nancm/v176/wordfield176_api.cpp').read_text()
+          t=Path('experiments/nancm/v176/native_third176.cpp').read_text()
+          assert '#include "../v175/wordfield175_api.cpp"' in s
+          assert 'wf176_hybrid_open_full' in Path('experiments/nancm/v176/native_crosslevel176.cpp').read_text()
+          for marker in ('wf176_hybrid_next','wf176_spec_accept','wf176_hybrid_sample','wf176_hybrid_verify_top5','wf170_byte_next'):
+              assert marker in t,marker
+          print('PASS source-only inherited ABI; full trained parity requires the cumulative Library ZIP')
+          PY

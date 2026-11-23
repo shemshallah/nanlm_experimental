@@ -1,0 +1,236 @@
+{
+  "project": "NaNCM v176 / signed temporal \u00d7 counterfactual copy \u00d7 BPE \u00d7 byte-verified third coding",
+  "date": "2026-11-23",
+  "status": "trained standalone 12k word specialist; byte/top5 speculative mode experimental opt-in, no active open-vocabulary promotion",
+  "parent": "v175 checkpoint, inherited 128+128 S+/S- signed cloud; 48-word recurrent and causal copy; all 19 optimizer state entries retained",
+  "sources": {
+    "v133_user_archive": "source_reference/v133_uploaded/v133/nancm.py",
+    "v133_has_trained_weights": false,
+    "v175_train_books": 396,
+    "validation_books": 55,
+    "reused_test_books": 49,
+    "train_target_examples": 95040,
+    "val_examples": 13200,
+    "reused_test_examples": 11760
+  },
+  "word": {
+    "val": {
+      "parent": {
+        "nll": 5.939310685360071,
+        "t1": 1573,
+        "t5": 3596
+      },
+      "hybrid": {
+        "nll": 5.817159923206676,
+        "t1": 1687,
+        "t5": 3826
+      }
+    },
+    "reused_test": {
+      "parent": {
+        "nll": 6.004215405263057,
+        "t1": 1364,
+        "t5": 3123
+      },
+      "hybrid": {
+        "nll": 5.882440284158097,
+        "t1": 1483,
+        "t5": 3354
+      }
+    },
+    "BPE_weight_selected_val": 0.35,
+    "letter_weight_selected_val": 0.5,
+    "whole_vocab": 12000,
+    "in_vocab_only": true,
+    "parent_ancestral_corpus_unknown": true,
+    "test_previously_exposed": true,
+    "bootstrap": {
+      "val": {
+        "books": 55,
+        "reps": 5000,
+        "nll_gain_95": [
+          0.10524872111565892,
+          0.12162844214897026,
+          0.14150418801937495
+        ],
+        "top1_rate_gain_95": [
+          0.004924242424242424,
+          0.008636363636363636,
+          0.012272727272727272
+        ]
+      },
+      "reused_test": {
+        "books": 49,
+        "reps": 5000,
+        "nll_gain_95": [
+          0.10824005687721838,
+          0.12186454935875617,
+          0.13537254282559083
+        ],
+        "top1_rate_gain_95": [
+          0.006547619047619048,
+          0.01011904761904762,
+          0.01369047619047619
+        ]
+      }
+    }
+  },
+  "architecture": {
+    "proposal": "complete word top5; 1600-learned-merge BPE prefix trie",
+    "verifier": "inherited normalized v170 native 256-byte predictor; opt-in third coder leaves v170 byte law unchanged",
+    "escape": 0.35,
+    "exact_speculative_law": "draw Q, accept min(1,P/Q), reject draw residual (P-Q)_+",
+    "arithmetic_coder": "lossless time-varying 256-byte verifier P; quantized positive frequencies",
+    "complexity": "verifier currently sequential; no measured walltime speedup"
+  },
+  "checkpoints": {
+    "v176_counterfactual_word_gate.pt": {
+      "size": 4737,
+      "sha256": "e90cfcf35b8153c3bccb3a92d3e868b5a763db8a564e93103434830ddeb8a320"
+    },
+    "v176_native_crosslevel.bin": {
+      "size": 6743516,
+      "sha256": "9e0c5dc94928c1d7013bb309e242c06080e029d6d2aede748d2bfc3a34989c00"
+    },
+    "v176_v133_style_bpe.json": {
+      "size": 16221,
+      "sha256": "5f49eb35b9674da4e5c0b820a79b455b63ed129a7acf475d406099fa39d7dc57"
+    },
+    "v176_native_bpefirst.bin": {
+      "size": 1341692,
+      "sha256": "85068e447c9d713f117621f6e94c65ccf99f016242f28842fbd38b3b274f7b80"
+    }
+  },
+  "finite_pareto_tests": {
+    "v176_crosslevel_native_bpe_parity.json": {
+      "status": "PASS",
+      "bpe_enabled": true,
+      "sampled_val_histories": 1000,
+      "max_native_pytorch_error": 8.344650268554688e-07,
+      "abs_tolerance": 2e-05,
+      "normalized_12k_vectors": 1000,
+      "exact_top1_top5_rank_vectors": 1000,
+      "legacy_v175_bitexact_12k_rollback": 1000,
+      "val_sample_top1": 123,
+      "val_sample_top5": 290,
+      "signed_parent_fingerprint_match": true,
+      "word_dataset_cohort": "NaNROUTER Release3 55 val books",
+      "test_not_inspected": true
+    },
+    "v176_byte_rollback.json": {
+      "status": "PASS",
+      "exact_256way_byte_rollback_vectors": 144,
+      "max_abs_error": 0.0,
+      "adaptive_disabled_on_both": true,
+      "old_archive_dev_test_exposed": true,
+      "no_model_weight_changes": true
+    },
+    "v176_speculative_native_pilot.json": {
+      "status": "PASS",
+      "attempts": 160,
+      "accepted": 411,
+      "emitted": 501,
+      "rejected": 90,
+      "exact_word_top5_hits": 51,
+      "mean_accepted_bytes": 2.56875,
+      "mean_emitted_bytes": 3.13125,
+      "no_parallel_verifier_speedup_claim": true
+    },
+    "v176_wordstart_byte_coding.json": {
+      "name": "v176 word top5 speculative first-letter entropy under native byte oracle",
+      "validation": {
+        "split": "val",
+        "n": 280,
+        "books": 55,
+        "alpha_metrics": {
+          "0.0": {
+            "nll_nats_per_firstletter": 2.8118878010442514,
+            "bits_per_firstletter": 4.0566965861027136
+          },
+          "0.05": {
+            "nll_nats_per_firstletter": 2.7943918621267416,
+            "bits_per_firstletter": 4.031455281790726
+          },
+          "0.1": {
+            "nll_nats_per_firstletter": 2.7811276570869587,
+            "bits_per_firstletter": 4.012319078958497
+          },
+          "0.2": {
+            "nll_nats_per_firstletter": 2.763843881600989,
+            "bits_per_firstletter": 3.9873838617770505
+          },
+          "0.35": {
+            "nll_nats_per_firstletter": 2.75564511021368,
+            "bits_per_firstletter": 3.975555534955197
+          },
+          "0.5": {
+            "nll_nats_per_firstletter": 2.7652820992238993,
+            "bits_per_firstletter": 3.989458771209342
+          },
+          "0.7": {
+            "nll_nats_per_firstletter": 2.805320337507209,
+            "bits_per_firstletter": 4.047221739026604
+          },
+          "1.0": {
+            "nll_nats_per_firstletter": 2.9402503275963148,
+            "bits_per_firstletter": 4.2418845665953535
+          }
+        },
+        "surrogate_byte_context": true,
+        "word_firstletter_target": "real label",
+        "prior_contiguous_byte_bpb": false,
+        "firstletter_byte_baseline_top1": 46,
+        "firstletter_word_top5_proposal_top1": 61
+      },
+      "selected_mix_alpha": 0.35,
+      "reused_test": {
+        "split": "test",
+        "n": 220,
+        "books": 49,
+        "alpha_metrics": {
+          "0.0": {
+            "nll_nats_per_firstletter": 2.860652198715819,
+            "bits_per_firstletter": 4.127048740795422
+          },
+          "0.05": {
+            "nll_nats_per_firstletter": 2.8446395513598848,
+            "bits_per_firstletter": 4.1039473738635115
+          },
+          "0.1": {
+            "nll_nats_per_firstletter": 2.833061899130147,
+            "bits_per_firstletter": 4.087244352406532
+          },
+          "0.2": {
+            "nll_nats_per_firstletter": 2.8197885925644317,
+            "bits_per_firstletter": 4.068095018847975
+          },
+          "0.35": {
+            "nll_nats_per_firstletter": 2.8187521495947196,
+            "bits_per_firstletter": 4.066599747715408
+          },
+          "0.5": {
+            "nll_nats_per_firstletter": 2.8366182521847105,
+            "bits_per_firstletter": 4.092375085322001
+          },
+          "0.7": {
+            "nll_nats_per_firstletter": 2.8893479475368906,
+            "bits_per_firstletter": 4.168447955314177
+          },
+          "1.0": {
+            "nll_nats_per_firstletter": 3.048920505765114,
+            "bits_per_firstletter": 4.398662493732
+          }
+        },
+        "surrogate_byte_context": true,
+        "word_firstletter_target": "real label",
+        "prior_contiguous_byte_bpb": false,
+        "firstletter_byte_baseline_top1": 39,
+        "firstletter_word_top5_proposal_top1": 41
+      },
+      "test_previously_exposed": true,
+      "status": "diagnostic not production",
+      "source": "NaNROUTER Release0003 real next-word labels + reconstructed 48-word raw histories",
+      "elapsed_s": 14.38964230900001
+    }
+  }
+}

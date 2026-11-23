@@ -1,0 +1,13 @@
+.PHONY: v176 v176-source-smoke test-v176
+v176: bin/libwordfield176.so
+bin/libwordfield176.so: experiments/nancm/v176/wordfield176_api.cpp experiments/nancm/v176/native_third176.cpp experiments/nancm/v176/native_crosslevel176.cpp experiments/nancm/v175/native_temporal175.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+v176-source-smoke:
+	$(CXX) -O2 -std=c++17 -Iexperiments/nancm/v176 experiments/nancm/v176/test_source176.cpp -o bin/test_source176
+	./bin/test_source176
+	PYTHONPATH=experiments/nancm/v176 python experiments/nancm/v176/test_third_code176.py
+	PYTHONPATH=experiments/nancm/v176 python experiments/nancm/v176/test_range_code176.py
+test-v176: v176 v176-source-smoke
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v176/test_crosslevel176.py --n 100 --bpe
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v176/test_byte_parity176.py --n 100
