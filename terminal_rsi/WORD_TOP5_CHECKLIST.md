@@ -811,3 +811,32 @@ Final samples at step 2060:
 - `"The "` -> `monstrous of a moment, and ... share a came out of the bird of the water an`
 - `"In the beginning, "` -> `all too the story, while ... he had gained up for him, told and the person`
 - `"The quick brown "` -> `so was to be be disolated ... to say. ... "We've to put on it with the river`
+
+## 16k third 60-minute leg (step 1961 -> 2595)
+
+The Kaggle dataset's step-2060 "manual" checkpoint was never uploaded; the
+actual preserved checkpoint at that point was **step 1961**. The next hour
+therefore resumed from 1961 and finished at **step 2595** (634 updates).
+
+| metric | value |
+|---|---:|
+| DEV BPB | **1.8333** |
+| DEV byte top-1 | **62.11%** |
+| DEV byte top-5 | **86.72%** |
+| fast-adapter delta | **+0.0080 BPB** |
+| copy gates | 0.327 / 0.517 |
+| word-prior gate | 0.173 |
+
+Checkpoint: `shem42/trsi-100m-16k-6h-checkpoints` version 15
+(`last.pt`, step 2595). Metrics/generations:
+`shem42/trsi-100m-16k-metrics` version 2.
+
+Final samples at step 2595:
+
+- `"The "` -> `way and shakes the lost ... time over on on the season. How is no more while the`
+- `"In the beginning, "` -> `and the little life of the ... children's words was discerned to remain to`
+- `"The quick brown "` -> `team, and again. The ... part was to the sovereign of the covenant where the song`
+
+The earlier 1.7974 BPB number came from step-2060 weights that died with the
+Molab kernel; it is not a preserved checkpoint. Use step 2595 as the current
+16k baseline.
