@@ -1,0 +1,17 @@
+# NaNCM v177 opt-in persistent prefix-DAG and lossless six-symbol macro code.
+# The v170 P law and all pretrained v176/v175 word weights/optimizers are frozen.
+.PHONY: v177 v177-source-smoke test-v177
+v177: bin/libwordfield177.so
+bin/libwordfield177.so: experiments/nancm/v177/wordfield177_api.cpp experiments/nancm/v177/native_lattice177.cpp experiments/nancm/v176/wordfield176_api.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) -shared $(CPPFLAGS) -Isrc $< -o $@
+v177-source-smoke:
+	$(CXX) -O2 -std=c++17 -Iexperiments/nancm/v177 experiments/nancm/v177/test_source177.cpp -o bin/test_source177
+	./bin/test_source177
+	PYTHONPATH=experiments/nancm/v176:experiments/nancm/v177 python experiments/nancm/v177/test_macro_code177.py
+test-v177: v177 v177-source-smoke
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v177/test_native177.py --n 30
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v177/test_byte_parity177.py --n 100
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v177/test_real_macro177.py --n 40
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v177/bench_batch177.py --n 20 --samples 10
+	OPENBLAS_NUM_THREADS=1 python experiments/nancm/v177/bench_stream177.py --n 48

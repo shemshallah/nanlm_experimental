@@ -1,0 +1,9 @@
+# v177 research log
+
+1. Recovered full v176 trainable hybrid, original 128+128 signed geometry and 12k word/BPE/byte sidecars intact. Reviewed v170 `wf170_byte_next`: prequential trust is disabled only in third coder, so arbitrary prefix evaluation cannot leak future bytes.
+2. Built persistent bounded prefix-DAG cache in private `wf177` handle, with row-major 256-way batched query API. C++ synthetic and native signed hybrid tests passed. No parallel hidden-state compute. Measured both raw independent prefix calls and v176's already-existing within-call sharing; do not misattribute old improvement to new code.
+3. First benchmark 64 contexts/1,920 seeded samples (pre AB/BA stabilization): 562? historical `v177_cpu_batch_benchmark.json` was later overwritten. Final matched 32 contexts/512 AB/BA trials: warmed sample 1.094×. Cold 96 contexts/one sample each: 0.965×, a regression. The single-pass goal remains open.
+4. Counterfactual byte-informed top-five reranking with 396 TRAIN-book examples selected a negative verifier coefficient; the fixed model tied 80→80 of 550 VAL examples and increased conditional top-five loss. Rejected.
+5. Invented six-event arithmetic macro code, with escape conditioned on not completing any of five proposal strings. Derived exact mass conservation and proved through 184 synthetic and 60 trained native byte-oracle roundtrips. Observed 680 vs 682 bits on 60 words in a header-free microbenchmark, too small and quantized to infer compression improvement.
+6. Repeated old 256-way byte equality on 48 vectors. Attempt at a complete 16,018-byte reference replay hit the runtime bound and produced no completed result, documented as not rerun.
+7. v177 is opt-in infrastructure; default v167 open-vocab and v170 byte path protected. Archive/checkpoint/optimizer inheritance verified before cleanup; no promotion to end-to-end speed or accuracy.

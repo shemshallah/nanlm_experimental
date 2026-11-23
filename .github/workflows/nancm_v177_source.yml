@@ -1,0 +1,36 @@
+name: NaNCM v177 exact prefix-DAG and six-event macro coder
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'experiments/nancm/v177/**'
+      - '.github/workflows/nancm_v177_source.yml'
+  workflow_dispatch:
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python 3 syntax
+        run: python3 -m compileall -q experiments/nancm/v177
+      - name: Compile C++ synthetic byte verifier with immutable inherited v176 stubs
+        run: |
+          g++ -O2 -std=c++17 -Iexperiments/nancm/v177 experiments/nancm/v177/test_source177.cpp -o /tmp/nancm177_native_test
+          /tmp/nancm177_native_test
+      - name: Exact five-macro/escape probability and arithmetic round-trip
+        run: |
+          PYTHONPATH=experiments/nancm/v176:experiments/nancm/v177 python3 experiments/nancm/v177/test_macro_code177.py
+      - name: Validate source-only ABI/caching bounds and no protected checkpoint overwrite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('experiments/nancm/v177/native_lattice177.cpp').read_text()
+          for x in ('wf177_verify_batch','wf177_prepare_top5','wf177_sample','wf177_stats','nodes.size()<256','std::mt19937_64'):
+              assert x in src,x
+          assert '#include "../v176/wordfield176_api.cpp"' in Path('experiments/nancm/v177/wordfield177_api.cpp').read_text()
+          macro=Path('experiments/nancm/v177/macro_code177.py').read_text()
+          for x in ('P(s)*P(b|s)', 'self.escape', 'self.subtree','def conditional','def encode','def decode'):
+              assert x in macro,x
+          print('PASS native source, reversible protected byte law and bounded cache')
+          PY
