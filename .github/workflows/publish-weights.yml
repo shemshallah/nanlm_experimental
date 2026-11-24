@@ -1,0 +1,59 @@
+name: Publish weights to GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag, e.g. z4-causal-84m-269m-tokens"
+        required: true
+      release_name:
+        description: "Human-readable release title"
+        required: true
+      kernel_slug:
+        description: "Kaggle kernel slug, e.g. shem42/z4-causal-gpu18h-v2"
+        required: true
+      run_dir:
+        description: "Run directory inside the kernel output, e.g. causal_gpu18h"
+        required: true
+      asset_prefix:
+        description: "Prefix for release assets, e.g. z4-causal-84m-269m"
+        required: true
+      notes:
+        description: "Release notes (Markdown)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Kaggle client
+        run: pip install --quiet kaggle requests
+
+      - name: Download checkpoint assets from Kaggle
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KERNEL_SLUG: ${{ inputs.kernel_slug }}
+          RUN_DIR: ${{ inputs.run_dir }}
+          ASSET_PREFIX: ${{ inputs.asset_prefix }}
+        run: python .github/scripts/download_kernel_assets.py
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          printf '%s\n' "$NOTES" > release-notes.md
+          gh release create "${{ inputs.release_tag }}" \
+            --title "${{ inputs.release_name }}" \
+            --notes-file release-notes.md \
+            dist/*

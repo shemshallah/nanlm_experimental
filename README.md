@@ -68,6 +68,10 @@ This is a **research workbench**, not a single installable, production-ready lan
 
 Older experiments and unsuccessful trials are retained deliberately. A positive result in one track is not automatically evidence that another track improved.
 
+### Z4 causal 84M checkpoints
+
+Public 84M Z4 weights are published as GitHub Releases and mirrored on Kaggle: **[WEIGHTS.md](WEIGHTS.md)**. PTB is the clean OOD benchmark; the current 269M-token checkpoint is **1.6849 PTB BPB / 30.01% top-1**.
+
 ## Getting started
 
 The repository is **source-and-reports first**. Large trained checkpoints, optimizer histories, and corpus Release assets are not automatically included in a Git clone. The native source smoke test below does **not** require the full trained model.
