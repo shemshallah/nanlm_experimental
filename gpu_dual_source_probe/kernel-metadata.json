@@ -1,0 +1,16 @@
+{
+  "id": "shem42/z4-gpu-dual-source-probe",
+  "title": "Z4 GPU dual source probe",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": ["shem42/z4-causal-gpu12h", "shem42/z4-corpus-150m-mirror"],
+  "model_sources": [],
+  "category_ids": []
+}
