@@ -1,0 +1,11 @@
+name: KVM probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "cpu: $(grep -m1 -E 'vmx|svm' /proc/cpuinfo || echo none)"
+          if [ -e /dev/kvm ]; then echo KVM_YES; ls -l /dev/kvm; else echo KVM_NO; fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-system-x86 >/dev/null
+          qemu-system-x86_64 --version | head -1
