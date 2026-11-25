@@ -52,6 +52,7 @@ jobs:
           sh tools/lds_gate.sh
           sh tools/kabi_gate.sh
           sh tools/kabi_proc_gate.sh
+          sh tools/kabi_sched_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
 
@@ -83,5 +84,6 @@ jobs:
           sh tools/lds_gate.sh
           sh tools/kabi_gate.sh
           sh tools/kabi_proc_gate.sh
+          sh tools/kabi_sched_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
