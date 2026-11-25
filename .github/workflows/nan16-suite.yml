@@ -90,6 +90,8 @@ jobs:
           S1_QEMU_TIMEOUT=900 N16I_S1_RUNNER="$S1" sh tools/n16i_s1_gate.sh
           echo "== NaN SVC filesystem"
           S1_QEMU_TIMEOUT=300 NANFS_SVC_RUNNER="$S1" sh tools/nanfs_svc_gate.sh
+          echo "== NaN POSIX metadata"
+          S1_QEMU_TIMEOUT=300 NANFS_META_RUNNER="$S1" sh tools/nanfs_meta_gate.sh
 
       - name: Official slices
         if: inputs.mode == 'slices' || inputs.mode == 'veryquick' || inputs.mode == 'oracle'
