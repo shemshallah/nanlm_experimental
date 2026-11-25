@@ -8,7 +8,7 @@ on:
         required: true
         default: ci/nan16-suite-final
       mode:
-        description: select1 | slices | veryquick
+        description: select1 | slices | veryquick | oracle
         required: true
         default: select1
       mem:
@@ -44,12 +44,18 @@ jobs:
         working-directory: nan0s
         run: sh tools/fetch_tcl_sqlite_suite.sh "$RUNNER_TEMP/tcl-sqlite"
 
+      - name: Build portable nan_cli (oracle mode only)
+        if: inputs.mode == 'oracle'
+        working-directory: nan0s
+        run: make -C aarch64/android -j2
+
       - name: Build official testfixture (select1 gate)
         working-directory: nan0s
         env:
           TCL_SRC: ${{ runner.temp }}/tcl-sqlite/tcl9.0.3
           SQLITE_SRC: ${{ runner.temp }}/tcl-sqlite/sqlite-src-3540100
-          TCL_NAN16_TESTFIXTURE_RUNNER: ${{ github.workspace }}/nan0s/tools/s1_runner.sh
+          TCL_NAN16_TESTFIXTURE_RUNNER: ${{ inputs.mode == 'oracle' && format('{0}/nan0s/aarch64/android/nan_cli', github.workspace) || format('{0}/nan0s/tools/s1_runner.sh', github.workspace) }}
+          TCL_NAN16_TESTFIXTURE_ALLOW_ORACLE: ${{ inputs.mode == 'oracle' && '1' || '0' }}
           TCL_NAN16_TESTFIXTURE_MEM: ${{ inputs.mem }}
           S1_QEMU_TIMEOUT: "3600"
           TCL_NAN16_TESTFIXTURE_STEPS: "20000000000"
@@ -58,17 +64,24 @@ jobs:
         run: sh tools/nan16_testfixture_gate.sh | tee testfixture-build.log
 
       - name: Official slices
-        if: inputs.mode == 'slices' || inputs.mode == 'veryquick'
+        if: inputs.mode == 'slices' || inputs.mode == 'veryquick' || inputs.mode == 'oracle'
         working-directory: nan0s
         env:
           S1_QEMU_TIMEOUT: "3600"
         run: |
           set -u
           mkdir -p out
+          if [ "$MODE" = oracle ]; then
+            RUN="$PWD/aarch64/android/nan_cli"; CLOCK="--clock steps:100000"
+            echo "ORACLE MODE: nan16.c C model, not S1" | tee out/MODE
+          else
+            RUN="$PWD/tools/s1_runner.sh"; CLOCK=""
+            echo "S1 MODE: raw NaN16 on x86_64 S1" | tee out/MODE
+          fi
           run() {
             name=$1; path=$2; steps=$3
             mkdir -p "out/$name"
-            ./tools/s1_runner.sh --img product-final.bin --mem "$MEM" --steps "$steps" \
+            "$RUN" --img product-final.bin --mem "$MEM" --steps "$steps" $CLOCK \
               --guest-script "$path" \
               --guest-stdout "out/$name/out" --guest-stderr "out/$name/err" \
               --peek 0x100:1 > "out/$name/peek" 2> "out/$name/run.err" || true
@@ -86,6 +99,20 @@ jobs:
           run cksumvfs       /sqlite/test/cksumvfs.test                 80000000000
           run symlink        /sqlite/test/symlink.test                  10000000000
           run wal            /sqlite/test/wal.test                      40000000000
+
+      - name: veryquick aggregate (nan_cli oracle, not S1)
+        if: inputs.mode == 'oracle'
+        working-directory: nan0s
+        env:
+          NAN16_CLI: ${{ github.workspace }}/nan0s/aarch64/android/nan_cli
+          NAN16_SUITE_MEM: ${{ inputs.mem }}
+          NAN16_CLOCK: steps:100000
+          NAN16_SUITE_CHECKPOINT_SECONDS: "60"
+        run: |
+          mkdir -p suite
+          echo "ORACLE MODE: nan16.c C model, not S1" | tee suite/MODE
+          sh tools/nan16_suite_resume.sh product-final.bin suite/veryquick.nan1 \
+            /sqlite/test/veryquick.test suite | tee suite/summary.log
 
       - name: veryquick aggregate (one S1 process, raw NaN)
         if: inputs.mode == 'veryquick'
