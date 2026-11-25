@@ -92,6 +92,12 @@ jobs:
           S1_QEMU_TIMEOUT=300 NANFS_SVC_RUNNER="$S1" sh tools/nanfs_svc_gate.sh
           echo "== NaN POSIX metadata"
           S1_QEMU_TIMEOUT=300 NANFS_META_RUNNER="$S1" sh tools/nanfs_meta_gate.sh
+          echo "== nan0s guest on x86_64 S1"
+          NAN0S_GUEST_RUNNER="$S1" sh tools/nan0s_guest_gate.sh
+          echo "== NaN-coded 64-bit core"
+          sh tools/qgate64core.sh
+          echo "== NaN-coded 64-bit program"
+          sh tools/qgate64prog.sh
 
       - name: Official slices
         if: inputs.mode == 'slices' || inputs.mode == 'veryquick' || inputs.mode == 'oracle'
