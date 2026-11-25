@@ -29,7 +29,7 @@ jobs:
       - name: Install gate tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gawk qemu-system-x86
+          sudo apt-get install -y gawk qemu-system-x86 clang lld llvm
       - name: Build host nan_cli
         working-directory: nan0s
         run: make -C aarch64/android nan_cli
@@ -50,6 +50,10 @@ jobs:
           sh tools/ndbg_img.sh
           sh tools/ndbg_term.sh
           sh tools/lds_gate.sh
+          sh tools/kabi_gate.sh
+          sh tools/kabi_proc_gate.sh
+          sh tools/s1_guest_gate.sh
+          sh tools/s1_big_guest_gate.sh
 
   ndbg-rich:
     runs-on: ubuntu-latest
@@ -64,7 +68,7 @@ jobs:
       - name: Install gate tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gawk qemu-system-x86
+          sudo apt-get install -y gawk qemu-system-x86 clang lld llvm
       - name: Build host nan_cli
         working-directory: ndbg
         run: make -C aarch64/android nan_cli
@@ -77,3 +81,7 @@ jobs:
           sh tools/ndbg_img.sh
           sh tools/ndbg_gui.sh
           sh tools/lds_gate.sh
+          sh tools/kabi_gate.sh
+          sh tools/kabi_proc_gate.sh
+          sh tools/s1_guest_gate.sh
+          sh tools/s1_big_guest_gate.sh
