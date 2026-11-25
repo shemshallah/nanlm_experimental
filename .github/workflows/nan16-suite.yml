@@ -92,6 +92,10 @@ jobs:
           S1_QEMU_TIMEOUT=300 NANFS_SVC_RUNNER="$S1" sh tools/nanfs_svc_gate.sh
           echo "== existing nan0s guest on x86_64 S1"
           S1_QEMU_TIMEOUT=300 sh tools/nan0s_existing_s1_gate.sh
+          echo "== 64-bit GUI desktop + Terminal"
+          S1_QEMU_TIMEOUT=300 sh tools/nan0s_gui64_gate.sh
+          echo "== NaN kernel scheduler"
+          S1_QEMU_TIMEOUT=300 sh tools/nansched_gate.sh
           echo "== NaN POSIX metadata"
           S1_QEMU_TIMEOUT=300 NANFS_META_RUNNER="$S1" sh tools/nanfs_meta_gate.sh
           echo "== nan0s guest on x86_64 S1"
