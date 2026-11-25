@@ -7,6 +7,10 @@ on:
         description: nan0s branch, tag, or commit
         required: true
         default: main
+      ndbg_ref:
+        description: ndbg branch, tag, or commit
+        required: true
+        default: main
 
 permissions:
   contents: read
@@ -45,3 +49,29 @@ jobs:
           sh tools/ndbg_mon.sh
           sh tools/ndbg_img.sh
           sh tools/ndbg_term.sh
+
+  ndbg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out ndbg
+        uses: actions/checkout@v4
+        with:
+          repository: shemshallah/ndbg
+          ref: ${{ inputs.ndbg_ref }}
+          path: ndbg
+      - name: Install gate tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gawk qemu-system-x86
+      - name: Build host nan_cli
+        working-directory: ndbg
+        run: make -C aarch64/android nan_cli
+      - name: Run ndbg gates
+        working-directory: ndbg
+        run: |
+          sh tools/ndbg.sh
+          sh tools/ndbg_diff.sh
+          sh tools/ndbg_mon.sh
+          sh tools/ndbg_img.sh
+          sh tools/ndbg_gui.sh
