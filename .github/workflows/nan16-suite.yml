@@ -94,6 +94,8 @@ jobs:
           S1_QEMU_TIMEOUT=300 NANFS_META_RUNNER="$S1" sh tools/nanfs_meta_gate.sh
           echo "== nan0s guest on x86_64 S1"
           NAN0S_GUEST_RUNNER="$S1" sh tools/nan0s_guest_gate.sh
+          echo "== 64-bit NaN CLI"
+          NANCLI64_RUNNER="$S1" sh tools/nancli64_gate.sh
           echo "== NaN-coded 64-bit core"
           sh tools/qgate64core.sh
           echo "== NaN-coded 64-bit program"
