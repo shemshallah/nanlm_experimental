@@ -9,6 +9,8 @@ jobs:
           sudo apt-get install -y -qq qemu-system-x86 cpu-checker
           ls -l /dev/kvm || true
           sudo kvm-ok || true
+          sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
           echo "--- accel kvm ---"
           timeout 8 qemu-system-x86_64 -accel kvm -cpu host -m 256 -display none -serial none -monitor none -no-reboot -S 2>&1; echo "accel_rc=$?"
           echo "--- enable-kvm max ---"
