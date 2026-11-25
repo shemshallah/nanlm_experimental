@@ -27,6 +27,7 @@ jobs:
       NAN0S_REF: ${{ inputs.ref }}
       MODE: ${{ inputs.mode }}
       MEM: ${{ inputs.mem }}
+      S1_QEMU_ACCEL: kvm
     steps:
       - name: Checkout nan0s
         uses: actions/checkout@v4
