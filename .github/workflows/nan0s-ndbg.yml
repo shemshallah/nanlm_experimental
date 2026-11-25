@@ -49,6 +49,7 @@ jobs:
           sh tools/ndbg_mon.sh
           sh tools/ndbg_img.sh
           sh tools/ndbg_term.sh
+          sh tools/lds_gate.sh
 
   ndbg-rich:
     runs-on: ubuntu-latest
@@ -75,3 +76,4 @@ jobs:
           sh tools/ndbg_mon.sh
           sh tools/ndbg_img.sh
           sh tools/ndbg_gui.sh
+          sh tools/lds_gate.sh
