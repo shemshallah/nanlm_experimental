@@ -98,6 +98,8 @@ jobs:
           S1_QEMU_TIMEOUT=300 sh tools/nansched_gate.sh
           echo "== 512-process + thread scheduler stress"
           S1_QEMU_TIMEOUT=300 sh tools/nansched_stress_gate.sh
+          echo "== x86_64 SMP prototype (2/4 CPUs)"
+          NANSMP_TIMEOUT=300 sh tools/nansmp_gate.sh
           echo "== NaN POSIX metadata"
           S1_QEMU_TIMEOUT=300 NANFS_META_RUNNER="$S1" sh tools/nanfs_meta_gate.sh
           echo "== nan0s guest on x86_64 S1"
