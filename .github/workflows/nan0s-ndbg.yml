@@ -65,6 +65,8 @@ jobs:
           sh tools/cbare_fs_gate.sh
           sh tools/cbare_sqlite_gate.sh
           sh tools/nfs2_capacity_gate.sh
+          sh tools/nanfs_svc_gate.sh
+          sh tools/n16i_s1_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
 
