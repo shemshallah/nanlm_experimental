@@ -64,6 +64,20 @@ jobs:
           TCL_NAN16_TESTFIXTURE_OUT: ${{ github.workspace }}/nan0s/product-final.bin
         run: sh tools/nan16_testfixture_gate.sh | tee testfixture-build.log
 
+      - name: NaN system gates on S1 (raw NaN guests)
+        working-directory: nan0s
+        env:
+          NANPROC_RUNNER: ${{ github.workspace }}/nan0s/tools/s1_runner.sh
+          S1_QEMU_ACCEL: kvm
+          S1_QEMU_TIMEOUT: "600"
+        run: |
+          for g in kabi_proc kabi_spawn kabi_sched kabi_sleep kabi_load kabi_kill; do
+            echo "== $g"
+            sh "tools/${g}_gate.sh"
+          done
+          echo "== nanproc"
+          sh tools/nanproc_gate.sh
+
       - name: Official slices
         if: inputs.mode == 'slices' || inputs.mode == 'veryquick' || inputs.mode == 'oracle'
         working-directory: nan0s
