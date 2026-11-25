@@ -63,6 +63,8 @@ jobs:
           NANTHR_X64_RUNNER=tools/s1_image_runner.sh sh tools/nanthr_gate.sh --require-x64
           sh tools/cbare_gate.sh
           sh tools/cbare_fs_gate.sh
+          sh tools/cbare_sqlite_gate.sh
+          sh tools/nfs2_capacity_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
 
