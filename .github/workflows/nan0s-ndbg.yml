@@ -29,6 +29,14 @@ jobs:
       - name: Build host nan_cli
         working-directory: nan0s
         run: make -C aarch64/android nan_cli
+      - name: Build the unified image
+        working-directory: nan0s
+        run: sh tools/build.sh
+      - name: Run compiler smoke gates
+        working-directory: nan0s
+        run: |
+          sh tools/ncc_lex.sh
+          sh tools/ncc_m1.sh
       - name: Run NANDBG gates
         working-directory: nan0s
         run: |
