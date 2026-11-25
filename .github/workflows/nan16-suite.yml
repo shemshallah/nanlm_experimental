@@ -96,6 +96,8 @@ jobs:
           NAN0S_GUEST_RUNNER="$S1" sh tools/nan0s_guest_gate.sh
           echo "== 64-bit NaN CLI"
           NANCLI64_RUNNER="$S1" sh tools/nancli64_gate.sh
+          echo "== NaN pipes"
+          NANPIPE_RUNNER="$S1" sh tools/nanpipe_gate.sh
           echo "== NaN-coded 64-bit core"
           sh tools/qgate64core.sh
           echo "== NaN-coded 64-bit program"
