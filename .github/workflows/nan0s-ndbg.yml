@@ -56,6 +56,7 @@ jobs:
           sh tools/kabi_spawn_gate.sh
           sh tools/kabi_load_gate.sh
           sh tools/kabi_sleep_gate.sh
+          sh tools/kabi_kill_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
 
@@ -91,5 +92,6 @@ jobs:
           sh tools/kabi_spawn_gate.sh
           sh tools/kabi_load_gate.sh
           sh tools/kabi_sleep_gate.sh
+          sh tools/kabi_kill_gate.sh
           sh tools/s1_guest_gate.sh
           sh tools/s1_big_guest_gate.sh
