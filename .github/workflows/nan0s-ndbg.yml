@@ -50,6 +50,7 @@ jobs:
           sh tools/ndbg_img.sh
           sh tools/ndbg_term.sh
           sh tools/raw_only_gate.sh
+          sh tools/xgold_gate.sh
           sh tools/lds_gate.sh
           sh tools/kabi_gate.sh
           sh tools/kabi_proc_gate.sh
@@ -87,6 +88,7 @@ jobs:
           sh tools/ndbg_img.sh
           sh tools/ndbg_gui.sh
           sh tools/raw_only_gate.sh
+          sh tools/xgold_gate.sh
           sh tools/lds_gate.sh
           sh tools/kabi_gate.sh
           sh tools/kabi_proc_gate.sh
