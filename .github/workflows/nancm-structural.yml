@@ -1,4 +1,4 @@
-name: NaNCM v28 normalized contextual word and escape fusion
+name: NaNCM v29 stage 1 coordinate exchange
 on:
   push:
     branches: [nancm-structural-base]
@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: shemshallah/NaNROUTER
@@ -37,6 +37,8 @@ jobs:
         run: |
           python -m pip install numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Standalone coordinate exchange preflight
+        run: python nancm_structural/coordinate_exchange.py
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Recover verified recurrent v24 artifact
@@ -55,14 +57,18 @@ jobs:
         run: |
           timeout 2400 gh run watch 45896486886 -R ${{ github.repository }} --exit-status
           gh run download 45896486886 -R ${{ github.repository }} -n structural-metrics -D symbiotic
+      - name: Recover verified v28 fusion artifact
+        run: |
+          timeout 3600 gh run watch 45896650014 -R ${{ github.repository }} --exit-status
+          gh run download 45896650014 -R ${{ github.repository }} -n structural-metrics -D fusion
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid28.py
+        run: python -m py_compile nancm_structural/hybrid29.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid28.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid29.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            fusion-word-field.npz
+            coordinate-word-field.npz
