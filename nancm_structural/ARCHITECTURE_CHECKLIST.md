@@ -5,16 +5,19 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 ## Stage 1 — Geometry (v29, in progress)
 - [x] 256 points / all 32,640 pair addresses (v26 verified).
 - [x] Independently nonlinear support and opposition (v26 gradient tests).
-- [x] Eight-coordinate bidirectional recurrence implemented (v27, corpus validation pending).
+- [x] Eight-coordinate bidirectional recurrence implemented (v27 corpus run completed; causal control failed and promotion withheld).
 - [x] Signed point-local coordinate exchange implemented (v29, standalone CPU preflight passed).
 - [ ] Verify exact zero-extension prediction and prefix parity on actual v28 checkpoint.
 - [ ] Verify every new gradient; compare exchange-on/off and wrong-history controls.
 - [ ] Match held-out full-word NLL, spelling/EOS, certified word top-1/top-5; require loss improvement and no meaningful rank regression before promotion.
 - [ ] Check bounded recurrence and per-channel utilization.
 
-## Stage 2 — Temporality
-- [ ] Persistent state across observed words, explicit reset at document boundaries.
-- [ ] Multi-timescale recurrence, truncated BPTT with carried detached state.
+## Stage 2 — Temporality (v30 implementation; parent acceptance pending)
+- [x] Persistent signed rotating state across observed words; reset at document boundaries implemented in v30.
+- [x] Differentiable 96-word closed-form scan and streaming state update agree in isolated CPU preflight (1.39e-17 max error).
+- [ ] Verify integrated stream/prefix law and session restore on corpus checkpoint.
+- [x] Four trainable decay timescales, independent signed phase and amplitude implemented.
+- [ ] Extend 96-word bounded differentiable scan to carried-state chunk training and longer held-out horizons.
 - [ ] Compare 6/32/128/512+ word horizons; shuffle and reset ablations; suffix invariance.
 - [ ] Save session state and recurrent optimizer state; resume equivalence.
 
@@ -68,3 +71,6 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - v24, v25, v26 workflows succeeded. v26 word top-1 68/360, top-5 145/360, spelling/EOS 1.842414 bits/symbol. Known-word calibration NLL 6.459613 -> 6.448943. Rank tradeoff remains; no blanket promotion.
 - v27 workflow 45896486886; v28 workflow 45896650014 pending when v29 was authored.
 - v29 standalone exchange: float64 finite differences max abs error 3.40e-17; zero extension exact; cross-coordinate activation nonzero; joint theoretical fixed-input contraction bound .905. This is not a corpus benchmark.
+
+- v27 corpus complete: field top-1 63/360, top-5 149/360, calibration NLL 6.448943 -> 6.461300. Shuffled-history control slightly better than actual; no promotion.
+- v29 run 45897647647 active; v30 code staged in sequence, dependent on v29 checkpoint. Experimental lineage is not accepted production lineage.

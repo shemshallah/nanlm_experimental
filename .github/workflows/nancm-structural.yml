@@ -1,4 +1,4 @@
-name: NaNCM v29 stage 1 coordinate exchange
+name: NaNCM v30 stage 2 signed temporal phasor memory
 on:
   push:
     branches: [nancm-structural-base]
@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: shemshallah/NaNROUTER
@@ -39,6 +39,8 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Standalone coordinate exchange preflight
         run: python nancm_structural/coordinate_exchange.py
+      - name: Standalone temporal preflight
+        run: python nancm_structural/temporal_phasor.py
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Recover verified recurrent v24 artifact
@@ -61,14 +63,18 @@ jobs:
         run: |
           timeout 3600 gh run watch 45896650014 -R ${{ github.repository }} --exit-status
           gh run download 45896650014 -R ${{ github.repository }} -n structural-metrics -D fusion
+      - name: Recover verified v29 coordinate artifact
+        run: |
+          timeout 4800 gh run watch 45897647647 -R ${{ github.repository }} --exit-status
+          gh run download 45897647647 -R ${{ github.repository }} -n structural-metrics -D coordinate
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid29.py
+        run: python -m py_compile nancm_structural/hybrid30.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid29.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid30.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            coordinate-word-field.npz
+            temporal-word-field.npz
