@@ -73,7 +73,16 @@ jobs:
           gh run download 45903532512 -R ${{ github.repository }} -n structural-metrics -D resonance
           gh run download 45905463861 -R ${{ github.repository }} -n structural-metrics -D attractor
           gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
-          mkdir -p results/{v38,v39,v40,v44}
+          mkdir -p results/{v38,v39,v40,v44,v49}
+      - name: v49 dense scout local parity and learning preflight
+        id: v49_checks
+        continue-on-error: true
+        run: PYTHONPATH=tests/nancm_scout:tests/nancm_retention:tests/nancm_folded:tests/nancm_event_credit python tests/nancm_event_credit/test_dense_scout.py
+      - name: v49 full-vocabulary raw-event credit on recovered v37
+        id: v49
+        if: steps.v49_checks.outcome == 'success'
+        continue-on-error: true
+        run: python -u tests/nancm_event_credit/pilot49.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --out results/v49/metrics.json
       - name: Retention and causal-basis preflights
         id: retention_checks
         continue-on-error: true
@@ -111,6 +120,8 @@ jobs:
         shell: bash
         run: |
           echo "v44=${{ steps.v44.outcome }} v38=${{ steps.v38.outcome }} v39=${{ steps.v39.outcome }} v40=${{ steps.v40.outcome }}"
+          echo "v49=${{ steps.v49.outcome }}"
+          test "${{ steps.v49.outcome }}" = success
           test "${{ steps.v44.outcome }}" = success
           test "${{ steps.v38.outcome }}" = success
           test "${{ steps.v39.outcome }}" = success

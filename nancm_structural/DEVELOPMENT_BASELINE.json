@@ -1,0 +1,28 @@
+{
+  "architecture_baseline": "v48",
+  "architecture_commit": "cbbcabf1b4fa06f8e5931fce36eb9ddd867c0156",
+  "fit_integrity_commit": "02f3571bbe09dbe8a2be95f5153f7acaaa21eb53",
+  "promotion_scope": "development architecture only; no underperforming scout weights promoted",
+  "verified_parent": {
+    "version": "v37",
+    "commit": "803a70a1369cc60e574fa5d0669135754f0feb35",
+    "run": 45907255211,
+    "step": 7998,
+    "production_promotion": false
+  },
+  "v48_corpus": {
+    "run": 45912532334,
+    "reference_books": 384,
+    "reference_words": 1961325,
+    "vocabulary": 49960,
+    "fit_targets": 1152,
+    "selection_targets": 768,
+    "dev_targets": 1728,
+    "dev_count32": 822,
+    "dev_scout32": 528,
+    "dev_count160": 1074,
+    "dev_expanded160": 1070,
+    "scout_weights_accepted": false
+  },
+  "next": "v49 dense full-vocabulary event credit; preserve checkpoint and parity"
+}

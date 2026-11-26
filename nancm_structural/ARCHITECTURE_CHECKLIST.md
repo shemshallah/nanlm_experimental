@@ -138,3 +138,9 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Eight persistent signed edge rails, 64/1024 word windows, shared frozen 16D lexical code mapped to 128 upper points, exact-key collision control; local mechanism recall/eviction/restore executed.
 - [x] Independent completed-v36 corpus diagnostic queued; equal-budget exact-only vs full geometric transport, wrong-document control, full-support prefix normalization, inherited digest check. This is a component experiment, not a replacement checkpoint lineage.
 - [ ] Demonstrate word accuracy/NLL and true-history advantage, then feed useful graph state into v40 recurrent triangles and the v39 event law; test raw/token parity and long-range admission.
+
+## v48 development baseline / v49 dense discovery
+- [x] v48 unindexed full-vocabulary scout corpus benchmark complete, weights rejected at matched candidate budget; development architecture promoted by user, immutable v37 retained.
+- [x] v49 dense inherited-coordinate scout, adaptive retention and signed root field readout under exact folded/raw event likelihood; local numerical checks and constructed learning test passed.
+- [ ] v49 integrated corpus verification, held-out gain against independently trained context-only control and parent, wrong-context advantage, byte/token marginal parity, codec, checkpoint digest.
+- [ ] Integrate useful dense discovery into recurrent triangle/partition mechanisms; no promotion based on synthetic accuracy.
