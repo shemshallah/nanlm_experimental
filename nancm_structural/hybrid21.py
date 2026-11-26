@@ -62,7 +62,7 @@ def seed(ref,history):
 def predictions(ref,cal,state):
     six,key,base=ref.six(state);old=H.Mixture(six,cal.weights(key))
     d,lam,n=state.retrieve(base)
-    return old,H.BasePrefix(d),lam,n
+    return old,H.Mixture((H.BasePrefix(d),),(1.,)),lam,n
 def mix(a,b,p):return H.Mixture((a,b),(1-p,p))
 
 def fit(ref,cal,docs):
