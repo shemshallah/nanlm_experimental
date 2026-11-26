@@ -1,0 +1,92 @@
+{
+  "training_updates": 0,
+  "reference_words": 71351,
+  "corpus_sha256": "9d051aa46d4983252de8998cd04a3e60ecc57c1e15577acf44f1872af3bacd97",
+  "signed_parameters": 522240,
+  "router_parameters": 81,
+  "optimizer_probe": {
+    "synthetic_updates_per_clone": 2,
+    "resume_exact": true,
+    "corruption_rejected": true,
+    "nonfinite_gradient_atomic_rejection": true,
+    "real_model_updates": 0
+  },
+  "gradient_probe": {
+    "checks": [
+      {
+        "channel": "plus",
+        "index": 131432,
+        "analytic": -6.504782656917523e-7,
+        "numeric": -6.504810023955088e-7,
+        "relative_error": 0.0000042072001278607586
+      },
+      {
+        "channel": "minus",
+        "index": 131432,
+        "analytic": 7.871792922475958e-7,
+        "numeric": 7.871825857819204e-7,
+        "relative_error": 0.000004183952216488773
+      },
+      {
+        "channel": "gate",
+        "index": 36,
+        "analytic": 0.03757701854100365,
+        "numeric": 0.03757701119573298,
+        "relative_error": 1.9547241784133786e-7
+      },
+      {
+        "channel": "plus",
+        "index": 86338,
+        "analytic": 0.000009060860882312119,
+        "numeric": 0.000009060866856813732,
+        "relative_error": 6.593741754717556e-7
+      },
+      {
+        "channel": "minus",
+        "index": 86634,
+        "analytic": -0.000004239550505363686,
+        "numeric": -0.000004239568074382305,
+        "relative_error": 0.000004144058618922538
+      },
+      {
+        "channel": "gate",
+        "index": 36,
+        "analytic": 0.06006115332968905,
+        "numeric": 0.06006112034673272,
+        "relative_error": 5.491562266606317e-7
+      },
+      {
+        "channel": "plus",
+        "index": 28820,
+        "analytic": 0.0000021949443317304896,
+        "numeric": 0.0000021949531137099854,
+        "relative_error": 0.0000040009872834645646
+      },
+      {
+        "channel": "minus",
+        "index": 28820,
+        "analytic": -0.0000027266142635230776,
+        "numeric": -0.000002726622017057423,
+        "relative_error": 0.0000028436410682485013
+      },
+      {
+        "channel": "gate",
+        "index": 9,
+        "analytic": -0.16305043524083568,
+        "numeric": -0.16305013605012464,
+        "relative_error": 0.0000018349580643408335
+      }
+    ],
+    "max_relative_error": 0.0000042072001278607586,
+    "zero_gate_parity_boundaries": 54,
+    "max_parity_error": 0,
+    "parameters_unchanged": true
+  },
+  "checkpoint_sha256": "31e80f9caccca69222567acc7ae62985b004732841d894f8693fe028d8d5431d",
+  "checkpoint_bytes": 2089569,
+  "graph": {
+    "attempts": 231,
+    "converged": 231
+  },
+  "signed_checkpoint_sha256": "61a5abbbcb1f963032368eaa64d63d6924bcfe70aa3cf95b7b5682f4dcd042cb"
+}
