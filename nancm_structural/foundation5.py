@@ -26,9 +26,11 @@ def fixed(active,scale,forcing,tol=1e-12):
 class DiffFoundation(F.Foundation):
     def __init__(self,*a):
         super().__init__(*a);self.capture=False;self.trace=None
+    def solve_linear(self,active,scale,forcing):
+        return fixed(active,scale,forcing)
     def solve_field(self,edges,anchor,signs):
         active,scale=operator(edges,self.params,signs)
-        x,ok=fixed(active,scale,{k:.65*v for k,v in anchor.items()})
+        x,ok=self.solve_linear(active,scale,{k:.65*v for k,v in anchor.items()})
         assert not ok or math.sqrt(B.dot(x,x))<=1+1e-9
         return x,ok
     def record_field(self,edges,anchor,x,top,s,bg,changed,budget,signs):
@@ -47,7 +49,7 @@ class DiffFoundation(F.Foundation):
                 for t in range(8):
                     k=(i,t);g[k]=g.get(k,0.)+coeff*a*((d==t)+.125)
         active,scale=operator(edges,self.params,signs)
-        adj,ok=fixed(active,scale,g);assert ok
+        adj,ok=self.solve_linear(active,scale,g);assert ok
         gp=C.Counter();gm=C.Counter()
         for k,i,j,a,b,v in active:
             common=.35/scale*(adj.get(i,0.)*x.get(j,0.)+adj.get(j,0.)*x.get(i,0.))*(1-v*v)
