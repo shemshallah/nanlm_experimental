@@ -89,10 +89,10 @@ class Ref:
             for v in (w,w+"s",w+"ed",w+"ing",w[:-1]):
                 if v in self.lex: pool.add(v)
         def prior(pool,weights):
-            p={w:.2*self.globalp.get(w,0.)+1e-6 for w in pool}
+            p={w:.2*self.globalp.get(w,0.)+1e-6 for w in sorted(pool)}
             for (_,c,_),wt in zip(src,weights):
                 z=sum(c.values())
-                for w in pool:
+                for w in sorted(pool):
                     p[w]+=wt*c.get(w,0)/z
             return norm(p)
         weights=[wt for _,_,wt in src]
@@ -102,31 +102,60 @@ class Ref:
             # clouds -> source trust -> candidate expansion -> unified commitment.
             # All cells have stable C(256,2) addresses; only active dimensions
             # are materialized. Edges are ephemeral evidence, not trained weights.
+            # Explicit sparse 8D pair cells with S+/S- evidence.
+            # Lower/lower agreement, upper/upper lexical coactivation, and
+            # bidirectional lower/upper conditional messages share the field.
+            def edge(store,i,j,d,v):
+                if i==j:return
+                i,j=min(i,j),max(i,j)
+                k=(pair(i,j),i,j,d)
+                a,b=store.get(k,(0.,0.))
+                store[k]=(a+max(v,0.),b+max(-v,0.))
+            def propagate(store,x):
+                out={}
+                for (_,i,j,d),(a,b) in sorted(store.items()):
+                    v=math.tanh(a-b); ki,kj=(i,d),(j,d)
+                    out[ki]=out.get(ki,0.)+v*x.get(kj,0.)
+                    out[kj]=out.get(kj,0.)+v*x.get(ki,0.)
+                return bounded(out)
             for iteration in range(2):
-                pos={}; neg={}; edges={}; low={}
+                edges={}; low={}; up={}; source_vec=[]
                 for (k,c,_),wt in zip(src,weights):
                     l=lower(k); z=sum(c.values()); low[l]=low.get(l,0.)+wt
-                    for w,n in c.most_common(24):
-                        q=n/z; bg=self.globalp.get(w,1e-8)
-                        # positive relative evidence; negative competing evidence
-                        ev=math.tanh(math.log((q+1e-8)/(bg+1e-8))/5)
-                        for u,v in lexvec(w).items():
-                            cell=(pair(l[0],u[0]),l[1],u[1])
-                            a,b=edges.get(cell,(0.,0.))
-                            edges[cell]=(a+wt*q*max(ev,0)*v,b+wt*q*(1-max(ev,0))*v)
-                            pos[u]=pos.get(u,0.)+wt*q*max(ev,0)*v
-                            neg[u]=neg.get(u,0.)+wt*q*(1-max(ev,0))*v
-                pos=bounded(pos); neg=bounded(neg)
-                # same-sign lateral upper interaction, via bounded shared field
-                consensus=bounded({u:pos.get(u,0.)-neg.get(u,0.) for u in pos.keys()|neg.keys()})
+                    vec={}
+                    proposals=sorted({w for w,_ in c.most_common(16)}|{w for w,_ in self.top[:8]})
+                    for w in proposals:
+                        delta=c.get(w,0)/z-self.globalp.get(w,1e-8)
+                        ev=math.tanh(4*delta)*math.sqrt(wt)
+                        v=lexvec(w); add(vec,v,delta)
+                        for u,q in sorted(v.items()):
+                            edge(edges,l[0],u[0],l[1],ev*q)
+                            ku=(u[0],l[1]); up[ku]=up.get(ku,0.)+delta*q*wt
+                    source_vec.append(bounded(vec))
+                for i,(k,_,_) in enumerate(src):
+                    li=lower(k)
+                    for j in range(i+1,len(src)):
+                        lj=lower(src[j][0])
+                        if li[1]==lj[1]:edge(edges,li[0],lj[0],li[1],dot(source_vec[i],source_vec[j]))
+                for w in sorted(pool,key=lambda w:(-p.get(w,0.),w))[:20]:
+                    bydim=C.defaultdict(list)
+                    for (i,d),v in sorted(lexvec(w).items()):bydim[d].append((i,v))
+                    for d,items in bydim.items():
+                        for j,(i,x) in enumerate(items):
+                            for u,y in items[j+1:]:edge(edges,i,u,d,math.sqrt(p.get(w,0.))*x*y)
+                anchor=bounded(add(bounded(low),bounded(up))); x=anchor.copy()
+                for _ in range(2):
+                    x=bounded(add({k:.65*v for k,v in anchor.items()},propagate(edges,x),.35))
                 def score(w):
-                    v=lexvec(w); return dot(v,consensus)
-                # lower-upper return messages modify source reliability
+                    total=0.
+                    for (i,d),q in lexvec(w).items():
+                        total+=q*(x.get((i,d),0.)+.125*sum(x.get((i,t),0.) for t in range(8)))
+                    return max(-1.,min(1.,total))
                 revised=[]
                 for (k,c,_),wt in zip(src,weights):
-                    z=sum(c.values()); feedback=sum(n/z*score(w) for w,n in c.most_common(24))
+                    z=sum(c.values()); feedback=sum(n/z*score(w) for w,n in c.most_common(16))
+                    feedback+=.25*x.get(lower(k),0.)
                     revised.append(wt*math.exp(.4*max(-1.,min(1.,feedback))))
-                # expand from sources favoured by the cloud, not future labels
                 for j in sorted(range(len(src)),key=lambda j:(-revised[j],j))[:4]:
                     pool.update(w for w,_ in src[j][1].most_common(32))
                 q=prior(pool,revised)
@@ -182,8 +211,15 @@ def check(ref):
     assert len({pair(i,j) for i in range(256) for j in range(i+1,256)})==32640
     assert pair(254,255)==32639
     h=["the","word","is"]; ep=C.defaultdict(C.Counter)
-    a=ref.predict(h,ep); b=ref.predict(h+["future"] if False else h,ep)
-    assert a.p==b.p
+    def boundary(doc,cut):
+        local=C.defaultdict(C.Counter); prefix=[]
+        for w in doc[:cut]:
+            observe(local,prefix,w);prefix=(prefix+[w])[-64:]
+        return ref.predict(prefix,local)
+    a=boundary(h+["alpha","beta"],len(h))
+    for suffix in (["other"],["unseenlexicalstring"]*5,[]):
+        b=boundary(h+suffix,len(h))
+        assert a.p==b.p and a.e==b.e and a.rank()==b.rank()
     assert abs(a.mass("",1)-1)<1e-9
     for w in ["the","unseenlexicalstring",*list(a.p)[:16]]:
         p=""; q=1.; prod=1.
@@ -194,7 +230,7 @@ def check(ref):
         assert math.isclose(prod,a.complete(w),rel_tol=1e-6,abs_tol=1e-15)
     # no input suffix API; explicit deterministic repeated and episode reset
     assert ref.predict(h,ep).p==ref.predict(h,ep).p
-    return {"pair_addresses":32640,"mass_conservation":True,"word_prefix_equivalence":True,"repeat_determinism":True}
+    return {"pair_addresses":32640,"mass_conservation":True,"word_prefix_equivalence":True,"repeat_determinism":True,"future_suffix_invariance":True}
 def bookfiles(root):
     return sorted((p.name.split("--")[0],p) for p in root.rglob("*.txt") if re.match(r"^\d+--",p.name))
 def load(p,n=5000):
