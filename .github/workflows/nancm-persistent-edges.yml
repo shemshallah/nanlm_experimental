@@ -1,0 +1,132 @@
+name: NaNCM v41 persistent signed edge diagnostic
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_graph/**', '.github/workflows/nancm-persistent-edges.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: shemshallah/NaNROUTER
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify actual NaNROUTER releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/{lex,stories,sentences,paragraphs,wiki,domain}
+          get_archive() {
+            local dir="$1" tag="$2" asset="$3" sum="$4"
+            (cd "data/$dir"; gh release download "$tag" -R "$REPO" -p "$asset" -p "$sum"; sha256sum -c "$sum"; tar --zstd -xf "$asset"; rm "$asset")
+          }
+          get_archive lex wordlist-google-10000-english google-10000-english.tar.zst google-10000-english.SHA256SUMS
+          get_archive stories corpora-short-stories-0001 short_stories-0001.tar.zst short_stories-0001.SHA256SUMS
+          get_archive sentences corpora-sentences-0001 sentences-0001.tar.zst sentences-0001.SHA256SUMS
+          get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
+          (cd data/wiki; gh release download wikitext103 -R "$REPO" -p wiki.valid.raw -p SHA256SUMS; grep 'wiki.valid.raw$' SHA256SUMS | sha256sum -c -)
+          (cd data/domain; gh release download corpora-chemistry -R "$REPO" -p chemistry.txt -p SHA256SUMS; sha256sum -c SHA256SUMS)
+      - name: Compile native solver
+        run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
+      - name: Install numerical dependency
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Standalone coordinate exchange preflight
+        run: python nancm_structural/coordinate_exchange.py
+      - name: Standalone temporal preflight
+        run: python nancm_structural/temporal_phasor.py
+      - name: Standalone relational geometry preflight
+        run: python nancm_structural/triangle_field.py
+      - name: Standalone lexical geometry preflight
+        run: python nancm_structural/lexical_geometry.py
+      - name: Standalone raw byte preflight
+        run: |
+          python nancm_structural/byte_geometry.py
+          python nancm_structural/raw_byte_law.py
+      - name: Standalone subword geometry preflight
+        run: python nancm_structural/subword_geometry.py
+      - name: Standalone selective resonance preflight
+        run: python nancm_structural/selective_resonance.py
+      - name: Standalone attractor memory preflight
+        run: python nancm_structural/attractor_memory.py
+      - name: Standalone joint credit and byte bridge
+        run: |
+          python nancm_structural/joint_credit.py
+          python nancm_structural/word_byte_bridge.py
+      - name: Standalone probability and transport checks
+        run: |
+          python nancm_structural/symbiotic_law.py
+          python nancm_structural/mass_credit.py
+      - name: Standalone feedback geometry checks
+        run: python nancm_structural/feedback_geometry.py
+      - name: Recover exact v23 field artifact
+        run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
+      - name: Recover verified recurrent v24 artifact
+        run: |
+          timeout 900 gh run watch 45895870940 -R ${{ github.repository }} --exit-status
+          gh run download 45895870940 -R ${{ github.repository }} -n structural-metrics -D recurrent
+      - name: Recover verified direct-word v25 artifact
+        run: |
+          timeout 1200 gh run watch 45895935296 -R ${{ github.repository }} --exit-status
+          gh run download 45895935296 -R ${{ github.repository }} -n structural-metrics -D direct
+      - name: Recover verified v26 dual field artifact
+        run: |
+          timeout 1500 gh run watch 45896025621 -R ${{ github.repository }} --exit-status
+          gh run download 45896025621 -R ${{ github.repository }} -n structural-metrics -D dual
+      - name: Recover verified v27 symbiotic field artifact
+        run: |
+          timeout 2400 gh run watch 45896486886 -R ${{ github.repository }} --exit-status
+          gh run download 45896486886 -R ${{ github.repository }} -n structural-metrics -D symbiotic
+      - name: Recover verified v28 fusion artifact
+        run: |
+          timeout 3600 gh run watch 45896650014 -R ${{ github.repository }} --exit-status
+          gh run download 45896650014 -R ${{ github.repository }} -n structural-metrics -D fusion
+      - name: Recover verified v29 coordinate artifact
+        run: |
+          timeout 4800 gh run watch 45897647647 -R ${{ github.repository }} --exit-status
+          gh run download 45897647647 -R ${{ github.repository }} -n structural-metrics -D coordinate
+      - name: Recover verified v30 temporal artifact
+        run: |
+          timeout 5400 gh run watch 45898299393 -R ${{ github.repository }} --exit-status
+          gh run download 45898299393 -R ${{ github.repository }} -n structural-metrics -D temporal
+      - name: Recover verified v31 relational artifact
+        run: |
+          timeout 6000 gh run watch 45899583988 -R ${{ github.repository }} --exit-status
+          gh run download 45899583988 -R ${{ github.repository }} -n structural-metrics -D relational
+      - name: Recover verified v32 lexical artifact
+        run: |
+          timeout 7200 gh run watch 45900374675 -R ${{ github.repository }} --exit-status
+          gh run download 45900374675 -R ${{ github.repository }} -n structural-metrics -D lexical
+      - name: Recover verified v33 raw byte artifact
+        run: |
+          timeout 7200 gh run watch 45900657376 -R ${{ github.repository }} --exit-status
+          gh run download 45900657376 -R ${{ github.repository }} -n structural-metrics -D byte
+      - name: Recover verified v34 subword artifact
+        run: |
+          timeout 7200 gh run watch 45903248640 -R ${{ github.repository }} --exit-status
+          gh run download 45903248640 -R ${{ github.repository }} -n structural-metrics -D subword
+      - name: Recover verified v35 resonance artifact
+        run: |
+          timeout 7200 gh run watch 45903532512 -R ${{ github.repository }} --exit-status
+          gh run download 45903532512 -R ${{ github.repository }} -n structural-metrics -D resonance
+      - name: Recover verified v36 attractor artifact
+        run: |
+          timeout 7200 gh run watch 45905463861 -R ${{ github.repository }} --exit-status
+          gh run download 45905463861 -R ${{ github.repository }} -n structural-metrics -D attractor
+      - name: Persistent edge local preflight
+        run: python tests/nancm_graph/persistent_edges.py
+      - name: Corpus graph diagnostic on completed v36
+        run: python -u tests/nancm_graph/pilot.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --out graph-metrics.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: persistent-edge-diagnostic
+          path: |
+            graph-metrics.json
+            graph-metrics.npz

@@ -133,3 +133,8 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Integrated feedback into portable recurrent solver; same feedback contributes to canonical word transport and raw event root readout. Frozen inherited v37 + v39 transport hashes; independent feedback Adam groups and calibration-only scale including zero.
 - [ ] Integrated gradient, exact empty memory, matched parent/forced/wrong-memory/triangle-routing-off tests; matched canonical word-event and token/byte probability tests and codec. Workflow depends on v39; no results yet.
 - [ ] Learn feedback using actual raw-event likelihood as well as word likelihood; memory admission and persistent edge state across words; trained long-range control; GPU hardware parity. v40 trainable feedback is word-likelihood trained, raw effect evaluated only.
+
+## v41 persistent cross-half graph diagnostic
+- [x] Eight persistent signed edge rails, 64/1024 word windows, shared frozen 16D lexical code mapped to 128 upper points, exact-key collision control; local mechanism recall/eviction/restore executed.
+- [x] Independent completed-v36 corpus diagnostic queued; equal-budget exact-only vs full geometric transport, wrong-document control, full-support prefix normalization, inherited digest check. This is a component experiment, not a replacement checkpoint lineage.
+- [ ] Demonstrate word accuracy/NLL and true-history advantage, then feed useful graph state into v40 recurrent triangles and the v39 event law; test raw/token parity and long-range admission.
