@@ -35,10 +35,14 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [ ] Train class and within-class competition on deployed normalized law; OOV escape.
 - [ ] Hard negative and confusable word discrimination; report exact word rank and NLL.
 
-## Stage 5 — Byte processing
-- [ ] Raw 256-way causal byte head with byte-to-field feedback, punctuation/case/whitespace preserved.
-- [ ] Exact normalization, prefix/word consistency and byte codec roundtrip.
-- [ ] Report true bits/byte and byte top-1/top-5, not spelling/EOS proxy.
+## Stage 5 — Byte processing (v33 experimental implementation)
+- [x] Raw 256-way causal byte head, tied byte codebook and lower/upper signed-field excitation; raw bytes retain all punctuation/case/whitespace.
+- [x] Standalone byte geometry CPU preflight: six nonzero gradients, max abs finite difference discrepancy 2.37887e-11, zero residual baseline parity.
+- [ ] Integrated corpus and checkpoint gradient verification; compare full, byte-local, input-off, wrong-word-context and count-only laws.
+- [x] Positive normalized byte probabilities and rational interval encoder/decoder implemented.
+- [ ] Verify real adaptive raw-byte codec and normalized distribution on corpus.
+- [ ] Derive consistent cross-level raw-byte/word marginals (separate laws in v33).
+- [ ] Report true bits/byte and byte top-1/top-5 on held-out corpus; report word regression separately.
 
 ## Stage 6 — Subword processing
 - [ ] Trainable compositional subword encoding, reversible byte segmentation.
@@ -85,3 +89,5 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 - v30 corpus complete: calibration NLL 6.185081 -> 6.183417, field top-1 95/360, top-5 165/360, spelling/EOS 1.732560. Wrong-history vs true-history difference negligible; no promotion.
 - v32 local PyTorch preflight: four nonzero gradients, max abs finite difference error 2.06809e-10, exact zero extension and analytic readout gradient parity. Full corpus pending. Tied codebook starts from inherited lexical vectors plus small seeded noise; readout/intake projection weights start zero.
+
+- v33 adds 256 byte embeddings plus masked pad, signed-field intake and tied output; standalone PyTorch CPU test executed, integrated raw corpus pending. Count-only baseline fitted on 96 reference books; byte pilot samples separate 288 TRAIN books; calibration and held-out book IDs retained. No full training.
