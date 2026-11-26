@@ -1,4 +1,4 @@
-name: NaNCM v27 bidirectional eight-coordinate signed field
+name: NaNCM v28 normalized contextual word and escape fusion
 on:
   push:
     branches: [nancm-structural-base]
@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 100
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: shemshallah/NaNROUTER
@@ -51,14 +51,18 @@ jobs:
         run: |
           timeout 1500 gh run watch 45896025621 -R ${{ github.repository }} --exit-status
           gh run download 45896025621 -R ${{ github.repository }} -n structural-metrics -D dual
+      - name: Recover verified v27 symbiotic field artifact
+        run: |
+          timeout 2400 gh run watch 45896486886 -R ${{ github.repository }} --exit-status
+          gh run download 45896486886 -R ${{ github.repository }} -n structural-metrics -D symbiotic
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid27.py
+        run: python -m py_compile nancm_structural/hybrid28.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid27.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid28.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            symbiotic-word-field.npz
+            fusion-word-field.npz
