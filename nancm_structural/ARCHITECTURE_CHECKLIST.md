@@ -126,3 +126,10 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [ ] Complete book-disjoint corpus benchmark, compare strongest expanded retrieval baseline, wrong memory and field feature ablations, long-context and raw event metrics, codec roundtrip. Exact duplicate hash check does not prove snippet-level content disjointness.
 - [ ] General Unicode/case word segmentation and learned raw-field state at each event prefix; v39 canonical event rank is restricted to lowercase ASCII followed by space; raw escape remains full support.
 - [ ] Independently trained matched compute corpus controls, final untouched TEST and GPU hardware gates.
+
+## v40 reciprocal field experiment
+- [x] 11 new groups (45,324 parameters): independent signed candidate attention, eight-rail excitation, lower/upper signed projections, memory-conditioned triangle routing, dense feedback readout and tied lexical lift.
+- [x] Executed standalone CPU test: max gradient discrepancy 5.776537971916018e-11; all eleven gradients nonzero; empty memory/zero lift parity; routing .99938548–1.00057321 in test, theoretical multiplier .98–1.02.
+- [x] Integrated feedback into portable recurrent solver; same feedback contributes to canonical word transport and raw event root readout. Frozen inherited v37 + v39 transport hashes; independent feedback Adam groups and calibration-only scale including zero.
+- [ ] Integrated gradient, exact empty memory, matched parent/forced/wrong-memory/triangle-routing-off tests; matched canonical word-event and token/byte probability tests and codec. Workflow depends on v39; no results yet.
+- [ ] Learn feedback using actual raw-event likelihood as well as word likelihood; memory admission and persistent edge state across words; trained long-range control; GPU hardware parity. v40 trainable feedback is word-likelihood trained, raw effect evaluated only.

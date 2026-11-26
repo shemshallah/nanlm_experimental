@@ -1,4 +1,4 @@
-name: NaNCM v39 conserved symbiotic event law and memory transport
+name: NaNCM v40 reciprocal signed field feedback
 on:
   push:
     branches: [nancm-structural-base]
@@ -63,6 +63,8 @@ jobs:
         run: |
           python nancm_structural/symbiotic_law.py
           python nancm_structural/mass_credit.py
+      - name: Standalone feedback geometry checks
+        run: python nancm_structural/feedback_geometry.py
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Recover verified recurrent v24 artifact
@@ -121,10 +123,14 @@ jobs:
         run: |
           timeout 7200 gh run watch 45907255211 -R ${{ github.repository }} --exit-status
           gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
+      - name: Recover verified v39 transport artifact
+        run: |
+          timeout 7200 gh run watch 45908268647 -R ${{ github.repository }} --exit-status
+          gh run download 45908268647 -R ${{ github.repository }} -n structural-metrics -D transport
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid39.py
+        run: python -m py_compile nancm_structural/hybrid40.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid39.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --profile cpu --threads 4 --smoke-seconds 120 --out metrics.json
+        run: python -u nancm_structural/hybrid40.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --transport transport/symbiotic-transport.npz --profile cpu --threads 4 --smoke-seconds 120 --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -132,5 +138,5 @@ jobs:
           path: |
             metrics.json
             split_manifest.json
-            symbiotic-transport.npz
-            symbiotic-transport.json
+            reciprocal-field.npz
+            reciprocal-field.json
