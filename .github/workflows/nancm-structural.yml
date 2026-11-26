@@ -1,4 +1,4 @@
-name: NaNCM v25 repaired direct word field
+name: NaNCM v26 full-pair dual signed word field
 on:
   push:
     branches: [nancm-structural-base]
@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: shemshallah/NaNROUTER
@@ -41,12 +41,16 @@ jobs:
         run: |
           timeout 900 gh run watch 45895870940 -R ${{ github.repository }} --exit-status
           gh run download 45895870940 -R ${{ github.repository }} -n structural-metrics -D recurrent
+      - name: Recover verified direct-word v25 artifact
+        run: |
+          timeout 1200 gh run watch 45895935296 -R ${{ github.repository }} --exit-status
+          gh run download 45895935296 -R ${{ github.repository }} -n structural-metrics -D direct
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid25.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid26.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            direct-word-field.npz
+            dual-word-field.npz
