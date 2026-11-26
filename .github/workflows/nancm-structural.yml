@@ -1,4 +1,4 @@
-name: NaNCM v20 compact corpus-scale role memory
+name: NaNCM v21 long-document associative memory
 on:
   push:
     branches: [nancm-structural-base]
@@ -35,7 +35,7 @@ jobs:
       - name: Install numerical dependency
         run: python -m pip install numpy
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid20.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/hybrid21.py --data data --lib nancm_structural/libsigned.so --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
