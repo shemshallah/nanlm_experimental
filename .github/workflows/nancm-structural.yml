@@ -1,4 +1,4 @@
-name: NaNCM v10 unified training contract
+name: NaNCM alignment reference-scale diagnostic
 on:
   push:
     branches: [nancm-structural-base]
@@ -30,15 +30,10 @@ jobs:
           get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
           (cd data/wiki; gh release download wikitext103 -R "$REPO" -p wiki.valid.raw -p SHA256SUMS; grep 'wiki.valid.raw$' SHA256SUMS | sha256sum -c -)
           (cd data/domain; gh release download corpora-chemistry -R "$REPO" -p chemistry.txt -p SHA256SUMS; sha256sum -c SHA256SUMS)
-      - name: Compile native solver
-        run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/foundation10.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/transport_scale.py --data data --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
-          path: |
-            metrics.json
-            signed-init.bin
-            unified-init.bin
+          path: metrics.json
