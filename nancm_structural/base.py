@@ -54,6 +54,8 @@ class Ref:
                 self.char[p[-2:]][c]+=n
                 p+=c
         self.globalp=norm(self.uni)
+        self.total_words=sum(self.uni.values())
+        self.unknown=max(.02,min(.35,sum(n==1 for n in self.uni.values())/max(1,self.total_words)))
         self.top=self.uni.most_common(32)
     @lru_cache(maxsize=2048)
     def charprob(self,p):
@@ -83,7 +85,7 @@ class Ref:
         return out
     def predict(self,h,episode=None,mode="unified"):
         src=self.sources(h,episode); pool={w for w,_ in self.top}
-        for _,c,_ in src: pool.update(w for w,_ in c.most_common(12))
+        for _,c,_ in src: pool.update(w for w,_ in c.most_common(12 if mode=="retrieval" else 32))
         # lexical entries admit alternatives but are never interpreted as text sequences
         for w in h[-4:]:
             for v in (w,w+"s",w+"ed",w+"ing",w[:-1]):
@@ -95,8 +97,33 @@ class Ref:
                 for w in sorted(pool):
                     p[w]+=wt*c.get(w,0)/z
             return norm(p)
+        def hierarchical(pool,weights):
+            # The untruncated distribution is normalized by construction.
+            # Compute its mass on the admitted set; the remainder is ESC.
+            keys_sorted=sorted(pool)
+            unknown=self.unknown
+            q={w:(1-unknown)*self.globalp.get(w,0.)+unknown*self.baseword(w) for w in keys_sorted}
+            totals=[sum(c.values()) for _,c,_ in src]
+            def mix(indices,cap):
+                if not indices:return
+                reliabilities=[]
+                for j in indices:
+                    _,c,orig=src[j]; n=sum(c.values())
+                    reliabilities.append(min(.95,n/(n+len(c)+4)*weights[j]/max(orig,1e-12)))
+                z=sum(reliabilities)
+                if z<=0:return
+                lam=min(cap,z/len(indices))
+                for w in keys_sorted:
+                    conditional=sum(r*src[j][1].get(w,0)/totals[j] for j,r in zip(indices,reliabilities))/z
+                    q[w]=(1-lam)*q[w]+lam*conditional
+            for stage,cap in (("discourse",.18),("local1",.90),("skip",.45),("local2",.95),("local3",.95),("local4",.95),("episode",.80)):
+                mix([j for j,(key,_,_) in enumerate(src) if key[0]==stage],cap)
+            mass=math.fsum(q.values())
+            assert -1e-9<=mass<=1+1e-9
+            return norm(q),max(.001,min(.999,1-mass))
         weights=[wt for _,_,wt in src]
-        p=prior(pool,weights)
+        if mode=="retrieval":p=prior(pool,weights); escape=.35 if not src else .20
+        else:p,escape=hierarchical(pool,weights)
         if mode=="unified" and src:
             # Bounded feedback: lower context evidence -> signed upper lexical
             # clouds -> source trust -> candidate expansion -> unified commitment.
@@ -157,13 +184,12 @@ class Ref:
                     feedback+=.25*x.get(lower(k),0.)
                     revised.append(wt*math.exp(.4*max(-1.,min(1.,feedback))))
                 for j in sorted(range(len(src)),key=lambda j:(-revised[j],j))[:4]:
-                    pool.update(w for w,_ in src[j][1].most_common(32))
-                q=prior(pool,revised)
+                    pool.update(w for w,_ in src[j][1].most_common(48))
+                q,escape=hierarchical(pool,revised)
                 q=norm({w:v*math.exp(.7*score(w)) for w,v in q.items()})
                 p=norm({w:.5*p.get(w,0.)+.5*q[w] for w in sorted(pool)})
                 weights=revised
-        # fixed conservative escape, no learned gate or calibration on DEV
-        escape=.35 if not src else .20
+        # ESC is fixed for the historical baseline and residual mass for the hierarchy.
         return Lattice(self,p,escape)
 class Lattice:
     """Candidate mass plus disjoint open spelling escape. Exact prefix marginal."""
@@ -256,6 +282,78 @@ def evaldocs(ref,docs,mode,limit=72):
     n=m["n"];s=m["symbols"]
     if not n:raise ValueError("empty eval")
     return dict(m,word_top1=m["top1"]/n,word_top5=m["top5"]/n,candidate_recall=m["candidate"]/n,rank_certification=m["certified"]/n,normalized_spelling_bps=m["bits"]/s,char_top1=m["char1"]/s,char_top5=m["char5"]/s,seconds=time.monotonic()-start)
+class RawByte:
+    """All 256 bytes, causal case/punctuation projection of word lattice."""
+    def __init__(self,docs):
+        self.counts=C.defaultdict(C.Counter)
+        for doc in docs:
+            h=b""
+            for b in doc:
+                for n in range(min(3,len(h))+1):
+                    self.counts[h[-n:] if n else b""][b]+=1
+                h=(h+bytes([b]))[-3:]
+    @lru_cache(maxsize=65536)
+    def probs(self,h):
+        c=self.counts[b""]; z=sum(c.values())+25.6
+        p=[(c.get(i,0)+.1)/z for i in range(256)]
+        for n in range(1,min(3,len(h))+1):
+            c=self.counts.get(h[-n:])
+            if not c:continue
+            z=sum(c.values()); lam=z/(z+len(c)+4)
+            p=[(1-lam)*q+lam*c.get(i,0)/z for i,q in enumerate(p)]
+        return p
+LETTERS=set(range(65,91))|set(range(97,123))
+NONLETTERS=sorted(set(range(256))-LETTERS)
+class ByteSession:
+    def __init__(self,ref,raw,mode):
+        self.ref=ref;self.raw=raw;self.mode=mode
+        self.h=[];self.ep=C.defaultdict(C.Counter);self.tail=b""
+        self.prefix="";self.bp=1.;self.lattice=None
+    def probs(self):
+        base=self.raw.probs(self.tail)
+        if self.mode=="byte_only":return base
+        if self.lattice is None:self.lattice=self.ref.predict(self.h,self.ep,self.mode)
+        d=self.lattice.next(self.prefix,self.bp)
+        if not d:return base
+        p=[0.]*256
+        non=math.fsum(base[i] for i in NONLETTERS)
+        end=d[EOS] if self.prefix else non
+        for i in NONLETTERS:p[i]=end*base[i]/non
+        for c in A:
+            lo,hi=ord(c),ord(c.upper()); z=base[lo]+base[hi]
+            mass=d[c] if self.prefix else (1-end)*d[c]
+            p[lo]=mass*base[lo]/z;p[hi]=mass*base[hi]/z
+        return p
+    def observe(self,b):
+        if b in LETTERS:
+            c=chr(b).lower()
+            self.bp*=self.ref.charprob(self.prefix)[c];self.prefix+=c
+        elif self.prefix:
+            observe(self.ep,self.h,self.prefix);self.h=(self.h+[self.prefix])[-64:]
+            self.prefix="";self.bp=1.;self.lattice=None
+        self.tail=(self.tail+bytes([b]))[-3:]
+def byteeval(ref,raw,docs,mode):
+    n=one=five=0;bits=err=0.;start=time.monotonic()
+    for doc in docs:
+        s=ByteSession(ref,raw,mode)
+        for i,b in enumerate(doc[:768]):
+            p=s.probs();err=max(err,abs(math.fsum(p)-1))
+            assert len(p)==256 and min(p)>=0 and all(math.isfinite(x) for x in p)
+            if i>=64:
+                order=sorted(range(256),key=lambda j:(-p[j],j))[:5]
+                n+=1;one+=b==order[0];five+=b in order
+                bits-=math.log2(max(p[b],1e-300))
+            s.observe(b)
+    return {"bytes":n,"raw_bpb":bits/n,"byte_top1":one/n,"byte_top5":five/n,"max_mass_error":err,"seconds":time.monotonic()-start}
+def rawcheck(ref,raw,doc):
+    # Full 256-way future suffix invariance over real bytes.
+    def at(data,k):
+        s=ByteSession(ref,raw,"unified")
+        for b in data[:k]:s.probs();s.observe(b)
+        return s.probs()
+    for k in (1,8,31,64):
+        assert at(doc,k)==at(doc[:k]+b"completely different suffix",k)
+    return True
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--data",type=pathlib.Path,required=True);ap.add_argument("--out",type=pathlib.Path,default=pathlib.Path("metrics.json"));a=ap.parse_args();r=a.data
     groups={k:bookfiles(r/k) for k in ("stories","sentences","paragraphs")}
@@ -270,19 +368,28 @@ def main():
     if len(lex)<1000:raise ValueError("lexical release not unpacked")
     docs=[load(p,3000) for _,p in tr]
     ref=Ref(docs,lex)
+    rawdocs=[p.read_bytes()[:36000] for _,p in tr]; raw=RawByte(rawdocs)
     res={"training_updates":0,"reference_index_words":sum(map(len,docs)),"reference_book_ids":[i for i,_ in tr],"lexicon_words":len(lex),"checks":check(ref),"evaluations":{},"scope":"lowercase ASCII words with EOS; spelling BPS is not raw-byte BPB"}
     # do not tune on these diagnostics; untouched split 9 not used
     for k,files in groups.items():
         picked=[(i,p) for i,p in files if split(i) in (7,8)][:5]
         if len(picked)<3:raise ValueError("insufficient DEV "+k)
         samples=[load(p,300) for _,p in picked]
-        res["evaluations"][k]={"book_ids":[i for i,_ in picked],**{mode:evaldocs(ref,samples,mode) for mode in ("retrieval","unified")}}
+        res["evaluations"][k]={"book_ids":[i for i,_ in picked],**{mode:evaldocs(ref,samples,mode) for mode in ("retrieval","hierarchical","unified")}}
         print(k,json.dumps(res["evaluations"][k]),flush=True)
     for k,p in (("wikitext",r/"wiki"/"wiki.valid.raw"),("chemistry",r/"domain"/"chemistry.txt")):
         # contiguous bounded diagnostic windows; no reference ingestion
         text=p.read_text(encoding="utf-8",errors="replace")
         samples=[words(text[i:i+8000])[:400] for i in range(0,min(len(text),40000),8000)]
-        res["evaluations"][k]={mode:evaldocs(ref,samples,mode) for mode in ("retrieval","unified")}
+        res["evaluations"][k]={mode:evaldocs(ref,samples,mode) for mode in ("retrieval","hierarchical","unified")}
         print(k,json.dumps(res["evaluations"][k]),flush=True)
+    # Raw byte paths preserve casing, punctuation, whitespace and UTF-8 bytes.
+    rawtests=[p.read_bytes()[:768] for i,p in groups["stories"] if split(i) in (7,8)][:5]
+    with (r/"wiki"/"wiki.valid.raw").open("rb") as f:rawtests.append(f.read(768))
+    with (r/"domain"/"chemistry.txt").open("rb") as f:rawtests.append(f.read(768))
+    res["raw_reference_bytes"]=sum(map(len,rawdocs))
+    res["checks"]["raw_future_invariance"]=rawcheck(ref,raw,rawtests[0])
+    res["raw_byte_probe"]={mode:byteeval(ref,raw,rawtests,mode) for mode in ("byte_only","retrieval","hierarchical","unified")}
+    print("RAW",json.dumps(res["raw_byte_probe"]),flush=True)
     a.out.write_text(json.dumps(res,indent=2));print("FINAL",json.dumps(res),flush=True)
 if __name__=="__main__":main()
