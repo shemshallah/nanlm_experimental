@@ -15,7 +15,7 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 ## Stage 2 — Temporality (v30 implementation; parent acceptance pending)
 - [x] Persistent signed rotating state across observed words; reset at document boundaries implemented in v30.
 - [x] Differentiable 96-word closed-form scan and streaming state update agree in isolated CPU preflight (1.39e-17 max error).
-- [ ] Verify integrated stream/prefix law and session restore on corpus checkpoint.
+- [x] v30 integrated stream law and session restore checks passed (short history).
 - [x] Four trainable decay timescales, independent signed phase and amplitude implemented.
 - [ ] Extend 96-word bounded differentiable scan to carried-state chunk training and longer held-out horizons.
 - [ ] Compare 6/32/128/512+ word horizons; shuffle and reset ablations; suffix invariance.
@@ -29,8 +29,9 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Same-parameter pair-operator, triangle-off and edge-reset ablations implemented.
 - [ ] Run independently trained matched-budget pair-only control; verify held-out improvement and resource cost.
 
-## Stage 4 — Lexical representation
-- [ ] Learned word-to-field and field-to-word embeddings with shared contextual credit.
+## Stage 4 — Lexical representation (v32 experimental implementation)
+- [x] Tied trainable 16-D lexical codebook with eight causal intake rails and lower/upper excitation; shared output scoring; standalone CPU preflight passed.
+- [ ] Integrated checkpoint and corpus gradient/likelihood verification.
 - [ ] Train class and within-class competition on deployed normalized law; OOV escape.
 - [ ] Hard negative and confusable word discrimination; report exact word rank and NLL.
 
@@ -81,3 +82,6 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - v28 full-word calibration NLL 6.539287 -> 6.187458; field top-1 96/360, top-5 164/360, spelling/EOS 1.733220. Retrieval gate mean .7143. Exact deployed likelihood and prefix factorization passed.
 - v29 calibration NLL 6.187458 -> 6.185081, field top-1 94/360, top-5 165/360, spelling/EOS 1.733857; exchange-off delta only .00003414 NLL on 256 calibration targets; promotion withheld.
 - v31 local triangle preflight: max finite difference error 3.81e-19, all points covered, zero parity, stateful edge sensitivity, pair control distinct. Corpus pending; no stage acceptance.
+
+- v30 corpus complete: calibration NLL 6.185081 -> 6.183417, field top-1 95/360, top-5 165/360, spelling/EOS 1.732560. Wrong-history vs true-history difference negligible; no promotion.
+- v32 local PyTorch preflight: four nonzero gradients, max abs finite difference error 2.06809e-10, exact zero extension and analytic readout gradient parity. Full corpus pending. Tied codebook starts from inherited lexical vectors plus small seeded noise; readout/intake projection weights start zero.
