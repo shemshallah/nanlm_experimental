@@ -120,10 +120,11 @@ class Recurrent(P.Field):
           **self.p,**{"m_"+k:v for k,v in self.m.items()},**{"v_"+k:v for k,v in self.v.items()})
 
 def branches(ref,small,large,sem,field,state,cal,oldprior):
-    old,count,parent=P.branches(ref,small,large,sem,field.frozen,state,cal,oldprior)
-    # Both old and new class readouts use exactly the same lexical emission.
     orig,key=V.branches(ref,small,large,state,cal)
     base=orig[1].law
+    old=H.Mixture(orig,oldprior[1].get(key,oldprior[0]))
+    count=sem.law(state.h,base,True)
+    parent=sem.law(state.h,base,True,field.frozen.probs(state.h))
     recurrent=sem.law(state.h,base,True,field.probs(state.h))
     return (old,count,parent,recurrent),key
 def fit(ref,small,large,sem,field,cal,oldprior,docs):
@@ -182,6 +183,7 @@ def main():
     phase2=field.train_phase(data,512,False);post=field.loss(valid);train={"rec_only":phase1,"joint":phase2,"middle_nll":mid};diagnostics=field.diagnostics(valid)
     movement={k:float(np.linalg.norm(v-initial[k])) for k,v in field.p.items()}
     print("FIELD",json.dumps({"before":pre,"after":post,"movement":movement,"train":train,"gradient_check":gradcheck}),flush=True)
+    field.save(a.out.with_name("recurrent-class-field.npz"))
     prior=fit(ref,small,large,sem,field,cal,oldprior,cdocs);frozen=json.dumps([prior[0],{str(k):v for k,v in prior[1].items()}],sort_keys=True)
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];story=[B.load(p,300) for _,p in picked]
     def at(d):

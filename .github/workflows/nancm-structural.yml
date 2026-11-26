@@ -1,4 +1,4 @@
-name: NaNCM v25 direct word signed field
+name: NaNCM v24 repaired recurrent field
 on:
   push:
     branches: [nancm-structural-base]
@@ -37,16 +37,12 @@ jobs:
         run: python -m pip install numpy
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
-      - name: Recover verified recurrent v24 artifact
-        run: |
-          timeout 720 gh run watch 45895517810 -R ${{ github.repository }} --exit-status
-          gh run download 45895517810 -R ${{ github.repository }} -n structural-metrics -D recurrent
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid25.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid24.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            direct-word-field.npz
+            recurrent-class-field.npz
