@@ -31,23 +31,26 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 ## Stage 4 — Lexical representation (v32 experimental implementation)
 - [x] Tied trainable 16-D lexical codebook with eight causal intake rails and lower/upper excitation; shared output scoring; standalone CPU preflight passed.
-- [ ] Integrated checkpoint and corpus gradient/likelihood verification.
+- [x] v32 integrated gradients and deployed likelihood passed; fresh-window and calibration regression, no promotion.
 - [ ] Train class and within-class competition on deployed normalized law; OOV escape.
 - [ ] Hard negative and confusable word discrimination; report exact word rank and NLL.
 
 ## Stage 5 — Byte processing (v33 experimental implementation)
 - [x] Raw 256-way causal byte head, tied byte codebook and lower/upper signed-field excitation; raw bytes retain all punctuation/case/whitespace.
 - [x] Standalone byte geometry CPU preflight: six nonzero gradients, max abs finite difference discrepancy 2.37887e-11, zero residual baseline parity.
-- [ ] Integrated corpus and checkpoint gradient verification; compare full, byte-local, input-off, wrong-word-context and count-only laws.
+- [x] v33 integrated gradients and controls passed; full field BPB worse than count-only across all three domains.
 - [x] Positive normalized byte probabilities and rational interval encoder/decoder implemented.
-- [ ] Verify real adaptive raw-byte codec and normalized distribution on corpus.
+- [x] v33 real adaptive codec 16/16 exact roundtrip and positive normalization.
 - [ ] Derive consistent cross-level raw-byte/word marginals (separate laws in v33).
-- [ ] Report true bits/byte and byte top-1/top-5 on held-out corpus; report word regression separately.
+- [x] v33 actual raw-byte metrics and matched 360 word regressions reported.
 
-## Stage 6 — Subword processing
-- [ ] Trainable compositional subword encoding, reversible byte segmentation.
-- [ ] Field-mediated interaction with lexical and byte representations.
-- [ ] Token top-1/top-5 and exact segmentation/word probability tests.
+## Stage 6 — Subword processing (v34 experimental implementation)
+- [x] Complete prefix tree, 2,296 leaves; tied byte compositions, exact segmentation with explicit pending suffix; local CPU test passed.
+- [ ] Learn adaptive prefix-tree topology; expand beyond two-byte leaves.
+- [x] Composed token intake into both signed halves; shared byte codebook and field-conditioned token second-byte distribution.
+- [ ] Joint raw-word marginal consistency; token input causal controls.
+- [x] Implement exact token ranking over all leaves and first-byte marginal checks, byte-level metrics and calibration-only trust.
+- [ ] Corpus benchmark, deployed codec roundtrip, checkpoint reload including token metadata.
 
 ## Stage 7 — Attention
 - [ ] Field-native selective resonance with positive support and negative suppression.
@@ -91,3 +94,6 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - v32 local PyTorch preflight: four nonzero gradients, max abs finite difference error 2.06809e-10, exact zero extension and analytic readout gradient parity. Full corpus pending. Tied codebook starts from inherited lexical vectors plus small seeded noise; readout/intake projection weights start zero.
 
 - v33 adds 256 byte embeddings plus masked pad, signed-field intake and tied output; standalone PyTorch CPU test executed, integrated raw corpus pending. Count-only baseline fitted on 96 reference books; byte pilot samples separate 288 TRAIN books; calibration and held-out book IDs retained. No full training.
+
+- v31 corpus completed, triangle-off NLL difference approximately 2.8e-7 (no demonstrated benefit). v32 top1 104/360 vs 96/360, fresh BPS and cal NLL regressed. v33 full field raw BPB 2.380073/2.850099/2.606159 vs count 2.348478/2.837475/2.580441; word top1 102/360. No promotion.
+- v34 local CPU compositional test: finite difference max 1.15577e-8; 2296 leaves normalized; exact first-byte marginals; 270 bytes reconstructed including incomplete final prefix. Integrated corpus pending. Calibration gate may select zero; do not describe that as learned field improvement.
