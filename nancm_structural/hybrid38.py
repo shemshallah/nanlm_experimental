@@ -78,9 +78,9 @@ class Portable(U37.Unified):
             if anchor is not None:raise RuntimeError('persistent edge hook requires the portable kernel')
             return R5.Resonance._extension(self,x,hidden)
         device=self.device
-        cpu={k:torch.tensor(self.p[k],requires_grad=True) for k in (*self.new_keys,*self.coord_keys,*self.temporal_keys,*self.triangle_keys,*self.word_keys[:3],*self.byte_keys,*self.sub_keys,*self.res_keys)}
+        cpu={k:torch.tensor(self.p[k],requires_grad=anchor is None) for k in (*self.new_keys,*self.coord_keys,*self.temporal_keys,*self.triangle_keys,*self.word_keys[:3],*self.byte_keys,*self.sub_keys,*self.res_keys)}
         p={k:v.to(device) for k,v in cpu.items()}
-        host=torch.tensor(hidden,requires_grad=True);h=host.to(device)
+        host=torch.tensor(hidden,requires_grad=anchor is None);h=host.to(device)
         ti,tj,topo=self.indices()
         def norm(a,scale):
             return scale*a/(1+a.abs().sum(-1,keepdim=True))
