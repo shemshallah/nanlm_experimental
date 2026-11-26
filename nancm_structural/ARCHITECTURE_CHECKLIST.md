@@ -52,10 +52,11 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Implement exact token ranking over all leaves and first-byte marginal checks, byte-level metrics and calibration-only trust.
 - [ ] Corpus benchmark, deployed codec roundtrip, checkpoint reload including token metadata.
 
-## Stage 7 — Attention
-- [ ] Field-native selective resonance with positive support and negative suppression.
-- [ ] Causal context selection, normalized trust, matched-compute controls.
-- [ ] Counterfactual irrelevant/related context, latency and retrieval coverage.
+## Stage 7 — Attention (v35 implemented, corpus pending)
+- [x] Anchor-conditioned competitive point allocation, signed opposition, bounded recurrent routing and dense signed readout implemented; local CPU preflight passed.
+- [x] Same-parameter uniform attention and resonance-off controls; contrastive correct-versus-other-book extended history objective implemented.
+- [ ] Independently train uniform routing control at matched budget; compare held-out causal benefit.
+- [ ] Corpus results, true-vs-wrong history gap, latency and retrieval coverage; related-history control still required.
 
 ## Stage 8 — Conceptual memory
 - [ ] Persistent attractor state and long-range associative recall.
@@ -97,3 +98,5 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 - v31 corpus completed, triangle-off NLL difference approximately 2.8e-7 (no demonstrated benefit). v32 top1 104/360 vs 96/360, fresh BPS and cal NLL regressed. v33 full field raw BPB 2.380073/2.850099/2.606159 vs count 2.348478/2.837475/2.580441; word top1 102/360. No promotion.
 - v34 local CPU compositional test: finite difference max 1.15577e-8; 2296 leaves normalized; exact first-byte marginals; 270 bytes reconstructed including incomplete final prefix. Integrated corpus pending. Calibration gate may select zero; do not describe that as learned field improvement.
+
+- v35 local float64 preflight executed: all five groups nonzero, maximum gradient error 1.83536e-13; exact zero route/readout parity. v35 adds 71,680 parameters, frozen inherited phase and joint alternating word/token phase. v34 corpus dependency pending when committed. No promotion.

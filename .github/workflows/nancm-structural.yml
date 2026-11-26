@@ -1,4 +1,4 @@
-name: NaNCM v34 stage 6 compositional prefix token field
+name: NaNCM v35 stage 7 selective signed resonance
 on:
   push:
     branches: [nancm-structural-base]
@@ -10,7 +10,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: shemshallah/NaNROUTER
@@ -51,6 +51,8 @@ jobs:
           python nancm_structural/raw_byte_law.py
       - name: Standalone subword geometry preflight
         run: python nancm_structural/subword_geometry.py
+      - name: Standalone selective resonance preflight
+        run: python nancm_structural/selective_resonance.py
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Recover verified recurrent v24 artifact
@@ -93,15 +95,19 @@ jobs:
         run: |
           timeout 7200 gh run watch 45900657376 -R ${{ github.repository }} --exit-status
           gh run download 45900657376 -R ${{ github.repository }} -n structural-metrics -D byte
+      - name: Recover verified v34 subword artifact
+        run: |
+          timeout 7200 gh run watch 45903248640 -R ${{ github.repository }} --exit-status
+          gh run download 45903248640 -R ${{ github.repository }} -n structural-metrics -D subword
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid34.py
+        run: python -m py_compile nancm_structural/hybrid35.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid34.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid35.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            subword-field.npz
-            subword-field.token.json
+            resonance-field.npz
+            resonance-field.token.json
