@@ -1,7 +1,7 @@
 """v44 differentiable memory retention, signed credit and folded event parity."""
 import sys,pathlib
 root=pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(root/'nancm_graph'));sys.path.insert(0,str(root/'nancm_folded'))
+sys.path.insert(0,str(root/'nancm_folded'));sys.path.insert(0,str(root/'nancm_graph'))
 from learned_pilot import *
 from adaptive_retention import Retention
 from causal_basis import AdaptiveGraph
