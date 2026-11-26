@@ -118,3 +118,11 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - v37 local executed CPU gradient surgery: 1000 conflicting random pairs, minimum directional dot 0, exact opposed cancellation. Word-event bridge isolated reference max absolute event discrepancy 1.3877787807814457e-17. v37 uses 192 attempted joint transactions and 128 memory refit steps; only accepted joint steps increment the checkpoint counter. Calibration chooses word ablation, token trust, memory scale, and bridge weight. No GPU/full training.
 
 - v36 long memory candidate48 correct 119/320 vs unrelated 86/320; mean gate .000074487, no word-rank improvement. v38 implements a host/device-autograd bridge for recurrent propagation only, not a full GPU-native trainer. GPU profiles require actual CUDA hardware; no GPU results yet.
+
+## v39 corrective symbiosis and validation
+- [x] One raw event prefix law supplies byte, adaptive token and canonical word-event ranks. Finite word probability transport normalizes exact complement; local test prefix error 1.1102230246251565e-16.
+- [x] 14 feature normalized likelihood with analytic gradients, local max error 6.431610799495502e-11. Memory candidates, dense field candidates and expanded retrieval candidates compete over one probability budget.
+- [x] Frozen v37 parameter and optimizer digest checks; new tiny transport checkpoint binds v37 SHA. Separate 8 calibration fit / 4 selection books, original calibrator uses all 12; full file SHA and ID manifests, bucket 9 untouched.
+- [ ] Complete book-disjoint corpus benchmark, compare strongest expanded retrieval baseline, wrong memory and field feature ablations, long-context and raw event metrics, codec roundtrip. Exact duplicate hash check does not prove snippet-level content disjointness.
+- [ ] General Unicode/case word segmentation and learned raw-field state at each event prefix; v39 canonical event rank is restricted to lowercase ASCII followed by space; raw escape remains full support.
+- [ ] Independently trained matched compute corpus controls, final untouched TEST and GPU hardware gates.

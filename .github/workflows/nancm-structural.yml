@@ -1,4 +1,4 @@
-name: NaNCM v38 stage 10 portable field CPU parity
+name: NaNCM v39 conserved symbiotic event law and memory transport
 on:
   push:
     branches: [nancm-structural-base]
@@ -59,6 +59,10 @@ jobs:
         run: |
           python nancm_structural/joint_credit.py
           python nancm_structural/word_byte_bridge.py
+      - name: Standalone probability and transport checks
+        run: |
+          python nancm_structural/symbiotic_law.py
+          python nancm_structural/mass_credit.py
       - name: Recover exact v23 field artifact
         run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Recover verified recurrent v24 artifact
@@ -118,12 +122,15 @@ jobs:
           timeout 7200 gh run watch 45907255211 -R ${{ github.repository }} --exit-status
           gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid38.py
+        run: python -m py_compile nancm_structural/hybrid39.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid38.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --profile cpu --threads 4 --smoke-seconds 120 --out metrics.json
+        run: python -u nancm_structural/hybrid39.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --profile cpu --threads 4 --smoke-seconds 120 --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
+            split_manifest.json
+            symbiotic-transport.npz
+            symbiotic-transport.json
