@@ -1,4 +1,4 @@
-name: NaNCM v12 reference-calibrated contrast
+name: NaNCM v13 palindromic spelling hybrid
 on:
   push:
     branches: [nancm-structural-base]
@@ -32,8 +32,10 @@ jobs:
           (cd data/domain; gh release download corpora-chemistry -R "$REPO" -p chemistry.txt -p SHA256SUMS; sha256sum -c SHA256SUMS)
       - name: Compile native solver
         run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
+      - name: Install numerical dependency
+        run: python -m pip install numpy
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/discrimination12.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/hybrid13.py --data data --lib nancm_structural/libsigned.so --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -41,3 +43,4 @@ jobs:
           path: |
             metrics.json
             signed-init.bin
+            mirror-counts.npz
