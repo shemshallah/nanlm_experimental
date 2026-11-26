@@ -50,7 +50,8 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Composed token intake into both signed halves; shared byte codebook and field-conditioned token second-byte distribution.
 - [ ] Joint raw-word marginal consistency; token input causal controls.
 - [x] Implement exact token ranking over all leaves and first-byte marginal checks, byte-level metrics and calibration-only trust.
-- [ ] Corpus benchmark, deployed codec roundtrip, checkpoint reload including token metadata.
+- [x] v34 corpus and adaptive codec passed; token metadata loaded by v35 implementation.
+- [ ] Full checkpoint reload and acceptance; v34 causal effect negligible.
 
 ## Stage 7 — Attention (v35 implemented, corpus pending)
 - [x] Anchor-conditioned competitive point allocation, signed opposition, bounded recurrent routing and dense signed readout implemented; local CPU preflight passed.
@@ -58,10 +59,13 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [ ] Independently train uniform routing control at matched budget; compare held-out causal benefit.
 - [ ] Corpus results, true-vs-wrong history gap, latency and retrieval coverage; related-history control still required.
 
-## Stage 8 — Conceptual memory
-- [ ] Persistent attractor state and long-range associative recall.
-- [ ] Admission/eviction without future leakage or cross-book state contamination.
-- [ ] Correct/unrelated/paraphrased history, long-range query tests.
+## Stage 8 — Conceptual memory (v36 experimental implementation)
+- [x] Document-local 1,024-entry bounded associative store; learned lexical, identity and role keys; field-conditioned support/opposition retrieval and normalized sparse word mixture implemented.
+- [ ] Trainable admission/eviction, bidirectional memory-to-field recurrence and persistent long-horizon state beyond 1,024 entries.
+- [x] Causal observe-after-predict admission, FIFO eviction, session reset/restore implemented; standalone CPU checks passed.
+- [ ] Integrated corpus session and checkpoint reload verification.
+- [x] Correct vs different-document memory, uniform and exact-match controls, candidate recall at minimum ages 32/128/512, long-window corpus benchmark implemented.
+- [ ] Paraphrase controls, independently trained alternatives, acceptance on untouched TEST.
 
 ## Stage 9 — Unified learning
 - [ ] Exact deployed likelihood for words/prefixes, raw byte and subword heads.
@@ -100,3 +104,6 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - v34 local CPU compositional test: finite difference max 1.15577e-8; 2296 leaves normalized; exact first-byte marginals; 270 bytes reconstructed including incomplete final prefix. Integrated corpus pending. Calibration gate may select zero; do not describe that as learned field improvement.
 
 - v35 local float64 preflight executed: all five groups nonzero, maximum gradient error 1.83536e-13; exact zero route/readout parity. v35 adds 71,680 parameters, frozen inherited phase and joint alternating word/token phase. v34 corpus dependency pending when committed. No promotion.
+
+- v34 actual BPB stories 2.394602 vs count 2.384496; sentences 2.763233 vs 2.766971; paragraphs 2.549439 vs 2.548609. Gate .125/.75; codec 16/16; no promotion.
+- v36 standalone local CPU preflight executed: recovered 'answer' after intervening noise, exact state restore, bounded FIFO eviction, empty law, max finite difference error 1.580835462533514e-11. Integrated field-conditioned memory gradient and corpus checks pending. Frozen inherited weights/Adam state during memory pilot; calibration scale includes zero.
