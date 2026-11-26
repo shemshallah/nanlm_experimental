@@ -1,4 +1,4 @@
-name: NaNCM structural corpus diagnostics
+name: NaNCM v5 differentiable field diagnostics
 on:
   push:
     branches: [nancm-structural-base]
@@ -31,7 +31,7 @@ jobs:
           (cd data/wiki; gh release download wikitext103 -R "$REPO" -p wiki.valid.raw -p SHA256SUMS; grep 'wiki.valid.raw$' SHA256SUMS | sha256sum -c -)
           (cd data/domain; gh release download corpora-chemistry -R "$REPO" -p chemistry.txt -p SHA256SUMS; sha256sum -c SHA256SUMS)
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/foundation4.py --data data --out metrics.json
+        run: python -u nancm_structural/foundation5.py --data data --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

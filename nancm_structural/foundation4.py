@@ -101,6 +101,10 @@ class Foundation(B.Ref):
             v[k]=v.get(k,0.)+(1 if h>>16&1 else -1)*x
         z=math.sqrt(B.dot(v,v))
         return {k:x/z for k,x in v.items()} if z else {}
+    def solve_field(self,edges,anchor,signs):
+        return B.stable_field(edges,anchor,self.params,signs)
+    def record_field(self,edges,anchor,x,top,s,bg,changed,budget,signs):
+        pass
     def field(self,h,src,s,bg,mode):
         # Independent support/refutation relative to lower-order distribution.
         # Restrict graph work, never truncate probability support.
@@ -136,7 +140,7 @@ class Foundation(B.Ref):
                     for r,q in a[i+1:]:edge(u,r,d,math.sqrt(s[w])*v*q)
         anchor=B.bounded(B.add(B.bounded(lo),B.bounded(up)))
         signs=(mode!="minus",mode!="plus")
-        x,ok=B.stable_field(edges,anchor,self.params,signs)
+        x,ok=self.solve_field(edges,anchor,signs)
         self.diag["attempts"]+=1;self.diag["converged"]+=ok
         if not ok:return s,bg
         # Change only conditional mass in the selected subspace. All other
@@ -146,6 +150,7 @@ class Foundation(B.Ref):
             v=self.semantic(w)
             return max(-1.,min(1.,sum(q*(x.get((i,d),0.)+.125*sum(x.get((i,t),0.) for t in range(8))) for (i,d),q in v.items())))
         changed=B.norm({w:s[w]*math.exp(.75*score(w)) for w in top})
+        self.record_field(edges,anchor,x,top,s,bg,changed,budget,signs)
         result=dict(s)
         for w in top:result[w]=budget*changed[w]
         return result,bg
