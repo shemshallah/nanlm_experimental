@@ -99,7 +99,7 @@ class Lexical(R.Recurrent):
                     self.steps[k]+=1;j=self.steps[k]
                     self.m[k]=.9*self.m[k]+.1*g[k];self.v[k]=.999*self.v[k]+.001*g[k]*g[k]
                     self.p[k]-=.001*(self.m[k]/(1-.9**j))/(np.sqrt(self.v[k]/(1-.999**j))+1e-8)
-                    if k in ("plus","minus","rec_plus","rec_minus"):np.clip(self.p[k],0.,3.,out=self.p[k])
+                    if k in ("plus","minus","rec_plus","rec_minus") or k.startswith("dual_"):np.clip(self.p[k],0.,3.,out=self.p[k])
                     assert np.isfinite(self.p[k]).all()
             if t%64==0 or t==steps-1:trace.append([t+1,loss])
         return {"steps":steps,"sampled_targets":steps*64,"lex_only":lex_only,"trace":trace,"seconds":time.monotonic()-start}
@@ -198,6 +198,7 @@ def main():
     train={"lex_only":phase1,"joint":phase2,"middle":mid,"train_oov":train_oov,"calibration_oov":valid_oov}
     diagnostics=field.diagnostics(valid);movement={"lexical_l2":float(np.linalg.norm(field.lex)),"classes_updated":int(np.count_nonzero(field.lt))}
     print("DIRECT_WORD",json.dumps({"before":pre,"after":post,"training":train,"movement":movement,"gradient_check":gradcheck}),flush=True)
+    field.save(a.out.with_name("direct-word-field.npz"))
     prior=fit(ref,small,large,sem,field,cal,oldprior,cdocs);frozen=json.dumps([prior[0],{str(k):v for k,v in prior[1].items()}],sort_keys=True)
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];story=[B.load(p,300) for _,p in picked]
     def at(d):
