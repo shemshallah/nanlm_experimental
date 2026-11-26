@@ -101,8 +101,10 @@ class Semantic:
             if s:p=(1-mass)*p+mass*d/s
         p[~self.class_active]=0;p/=p.sum()
         return p
-    def law(self,h,base,contextual):
-        p=self.classlaw(h);d=p[self.cls[1:]]*self.emission
+    def law(self,h,base,contextual,classprob=None):
+        p=self.classlaw(h) if classprob is None else np.asarray(classprob,dtype=np.float64)
+        assert abs(p.sum()-1)<1e-9 and np.all(p[~self.class_active]==0)
+        d=p[self.cls[1:]]*self.emission
         if contextual:
             # Within-class contextual emission: allocate each class's probability
             # among its words using actual observed lexical/role follow counts.

@@ -1,4 +1,4 @@
-name: NaNCM v22 latent semantic grammar
+name: NaNCM v23 trainable signed latent class field
 on:
   push:
     branches: [nancm-structural-base]
@@ -35,9 +35,11 @@ jobs:
       - name: Install numerical dependency
         run: python -m pip install numpy
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid22.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/hybrid23.py --data data --lib nancm_structural/libsigned.so --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
-          path: metrics.json
+          path: |
+            metrics.json
+            disposable-class-field.npz
