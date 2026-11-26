@@ -1,4 +1,4 @@
-name: NaNCM v18 six-route hybrid and candidate oracle
+name: NaNCM v19 unified byte-word gate
 on:
   push:
     branches: [nancm-structural-base]
@@ -32,15 +32,14 @@ jobs:
           (cd data/domain; gh release download corpora-chemistry -R "$REPO" -p chemistry.txt -p SHA256SUMS; sha256sum -c SHA256SUMS)
       - name: Compile native solver
         run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
+      - name: Compile bounded native bit context mixer
+        run: g++ -O3 -std=c++17 -shared -fPIC nancm_structural/byte_context.cpp -o nancm_structural/libbytecontext.so
       - name: Install numerical dependency
         run: python -m pip install numpy
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid18.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/hybrid19.py --data data --lib nancm_structural/libsigned.so --cm nancm_structural/libbytecontext.so --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
-          path: |
-            metrics.json
-            disposable-head.npz
-            signed-init.bin
+          path: metrics.json
