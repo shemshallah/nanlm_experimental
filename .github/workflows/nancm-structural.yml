@@ -1,4 +1,4 @@
-name: NaNCM v8 exact ranking and shared context
+name: NaNCM v9 contextual transport
 on:
   push:
     branches: [nancm-structural-base]
@@ -33,7 +33,7 @@ jobs:
       - name: Compile native solver
         run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/foundation8.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/foundation9.py --data data --lib nancm_structural/libsigned.so --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

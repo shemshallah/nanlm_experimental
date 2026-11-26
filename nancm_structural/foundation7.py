@@ -87,6 +87,9 @@ class Competition(N.NativeFoundation):
         episode=self.law(epis,phrase)
         a=self.analog(h[-1]) if h else {}
         analog=self.law([(a,.35 if h and self.uni[h[-1]]<8 else .16)],local)
+        return self.reconcile(h,(local,phrase,syntax,topic,episode,analog))
+    def reconcile(self,h,laws):
+        local,phrase,syntax,topic,episode,analog=laws
         # Single coherent conditional pool for signed support/refutation.
         # Competing experts supply distinct context evidence; the graph
         # can move mass only within this pool, preserving the background.
