@@ -145,6 +145,7 @@ class Trial(Adaptive):
         torch.save({"parent_sha256":parent,"scale":self.scale46,"event_weight":weight,"model":self.model.state_dict(),"optimizer":self.opt.state_dict(),"updates":128},path)
 
 def main():
+    from fit_split import cohorts
     ap=argparse.ArgumentParser()
     for k in ("data","lib","parent","recurrent","direct","dual","symbiotic","fusion","coordinate","temporal","relational","lexical","byte","subword","resonance","attractor","unified"):
         ap.add_argument("--"+k,type=pathlib.Path,required=True)
@@ -168,7 +169,7 @@ def main():
         out.update({"lexical:"+k:hashlib.sha256(getattr(field,k).tobytes()).hexdigest() for k in ("lex","lm","lv","lt","proj")})
         return out
     initial=digest();steps=field.steps.copy();start_step=field.step;rng_state=json.dumps(field.rng.bit_generator.state,sort_keys=True)
-    fitbooks=extra[12::24];selectbooks=calbooks
+    primary,fitbooks,selectbooks,split_report=cohorts(books,tr,calbooks,extra)
     def first(p):
         with p.open("rb") as f:return f.read(16384)
     rawdocs=[first(p) for _,p in tr];exp.backoff=A.Backoff(rawdocs);exp.surface=FE.Surface(rawdocs)
@@ -190,6 +191,7 @@ def main():
         write_metrics(a.out,out,"domain:"+name)
     raw=first(picked[0][1]);out["codec"]=exp.codec(raw[:128],raw[128:144],event_weight)
     assert steps==field.steps and initial==digest() and field.step==start_step and json.dumps(field.rng.bit_generator.state,sort_keys=True)==rng_state
+    out["split_integrity"]=split_report
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
     write_metrics(a.out,out,'evaluated')
     exp.save46(a.out.with_suffix(".pt"),field.v37_sha,event_weight)

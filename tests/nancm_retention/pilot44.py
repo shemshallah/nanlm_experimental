@@ -120,6 +120,7 @@ class Adaptive(Learned):
         code=A.encode(root,target,predict);cache.clear();assert A.decode(root,code,len(target),predict)==target
         return {"bytes":len(target),"bits":code[1],"roundtrip":True}
 def main():
+    from fit_split import cohorts
     ap=argparse.ArgumentParser()
     for k in ("data","lib","parent","recurrent","direct","dual","symbiotic","fusion","coordinate","temporal","relational","lexical","byte","subword","resonance","attractor"):
         ap.add_argument("--"+k,type=pathlib.Path,required=True)
@@ -140,11 +141,11 @@ def main():
     exp=Adaptive(field,ref,small,large,cal)
     digest=lambda: {k:hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items()}
     initial=digest();steps=field.steps.copy()
-    fitbooks=extra[::24];selectbooks=calbooks;fit=exp.fit([B.load(p,512) for _,p in fitbooks],[B.load(p,512) for _,p in selectbooks])
+    fitbooks,_,selectbooks,split_report=cohorts(books,tr,calbooks,extra);fit=exp.fit([B.load(p,512) for _,p in fitbooks],[B.load(p,512) for _,p in selectbooks])
     def first(p):
         with p.open("rb") as f:return f.read(16384)
     rawdocs=[first(p) for _,p in tr];exp.backoff=A.Backoff(rawdocs);exp.surface=FE.Surface(rawdocs)
-    event_weight,rawfit=exp.fit_events(calbooks)
+    event_weight,rawfit=exp.fit_events(selectbooks)
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];assert len(picked)==5
     used={i for i,p in picked};forbidden={i for i,p in tr+extra+calbooks};assert not used&forbidden
     story=[B.load(p,1200) for _,p in picked];out={"parent_sha256":field.v36_sha,"fit":fit,"raw_fit":rawfit,"fresh":{}}
@@ -163,6 +164,7 @@ def main():
         write_metrics(a.out,out,"domain:"+name)
     raw=first(picked[0][1]);out["codec"]=exp.codec(raw[:128],raw[128:144],event_weight)
     assert steps==field.steps and initial==digest()
+    out["split_integrity"]=split_report
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
     write_metrics(a.out,out,'evaluated')
     exp.save(a.out.with_suffix(".pt"),field.v36_sha)

@@ -82,6 +82,7 @@ class JointEvent(Adaptive):
         torch.save({"parent_sha256":parent,"retention_sha256":self.retention_sha,"retention_metrics_sha256":self.retention_metrics_sha,"mix":self.mix,"scale":self.scale,"event_weight":weight,"parent_optimizer_steps":self.parent_optimizer_steps,"updates_added":192,"models":{k:v.state_dict() for k,v in self.models.items()},"optimizers":{k:v.state_dict() for k,v in self.optimizers.items()}},path)
 
 def main():
+    from fit_split import cohorts
     ap=argparse.ArgumentParser()
     for k in ("data","lib","parent","recurrent","direct","dual","symbiotic","fusion","coordinate","temporal","relational","lexical","byte","subword","resonance","attractor"):
         ap.add_argument("--"+k,type=pathlib.Path,required=True)
@@ -103,10 +104,13 @@ def main():
     exp=JointEvent(field,ref,small,large,cal)
     digest=lambda: {k:hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items()}
     initial=digest();steps=field.steps.copy()
-    fitbooks=extra[12::24];selectbooks=calbooks
+    primary,fitbooks,selectbooks,split_report=cohorts(books,tr,calbooks,extra)
     def first(p):
         with p.open("rb") as f:return f.read(16384)
     rawdocs=[first(p) for _,p in tr];exp.backoff=A.Backoff(rawdocs);exp.surface=FE.Surface(rawdocs)
+    parent_report=json.loads(a.retention_metrics.read_text())
+    assert parent_report.get('split_integrity',{}).get('unindexed_fit') is True, 'Refit v44 without indexed fitting targets before continuation'
+    assert set(parent_report['fit_ids'])=={i for i,p in primary}
     event_weight,fit=exp.resume(a.retention,a.retention_metrics,fitbooks,selectbooks)
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];assert len(picked)==5
     used={i for i,p in picked};forbidden={i for i,p in tr+extra+calbooks};assert not used&forbidden
@@ -123,6 +127,7 @@ def main():
         write_metrics(a.out,out,"domain:"+name)
     raw=first(picked[0][1]);out["codec"]=exp.codec(raw[:128],raw[128:144],event_weight)
     assert steps==field.steps and initial==digest()
+    out["split_integrity"]=split_report
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
     write_metrics(a.out,out,'evaluated')
     exp.save45(a.out.with_suffix(".pt"),field.v36_sha,event_weight)
