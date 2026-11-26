@@ -67,10 +67,13 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Correct vs different-document memory, uniform and exact-match controls, candidate recall at minimum ages 32/128/512, long-window corpus benchmark implemented.
 - [ ] Paraphrase controls, independently trained alternatives, acceptance on untouched TEST.
 
-## Stage 9 — Unified learning
-- [ ] Exact deployed likelihood for words/prefixes, raw byte and subword heads.
-- [ ] Joint optimization through all enabled pathways, monitor gradient scales and interference.
-- [ ] Checkpoint replay/rollback tests and matched multi-level ablations.
+## Stage 9 — Unified learning (v37 experimental implementation)
+- [x] Bayesian canonical lowercase word-event/raw-byte bridge with exact event likelihood and raw escape; isolated CPU preflight passed.
+- [ ] General raw-word marginal (case, punctuation, Unicode) and bridge-derived token ranking; separate existing token law retained.
+- [x] Per-group symmetric gradient projection and transactional Adam proposal with both sampled word/token loss gates; explicit conflict counts and rollback assertions.
+- [ ] End-to-end memory gradient through shared field, independently trained control, generalization tests. Memory currently refitted on refreshed cached states.
+- [x] v37 calibration-only resonance/input ablations and bridge trust grid; retained inherited moments and frozen word code; failed transactions restore parameters and moments.
+- [ ] Integrated corpus and reload/rollback verification.
 
 ## Stage 10 — GPU engineering
 - [ ] Vectorized/batched sparse propagation and fused kernels where profiled.
@@ -107,3 +110,6 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 - v34 actual BPB stories 2.394602 vs count 2.384496; sentences 2.763233 vs 2.766971; paragraphs 2.549439 vs 2.548609. Gate .125/.75; codec 16/16; no promotion.
 - v36 standalone local CPU preflight executed: recovered 'answer' after intervening noise, exact state restore, bounded FIFO eviction, empty law, max finite difference error 1.580835462533514e-11. Integrated field-conditioned memory gradient and corpus checks pending. Frozen inherited weights/Adam state during memory pilot; calibration scale includes zero.
+
+- v35 actual corpus: 93/360 top1 vs 102/360 parent; cal NLL 6.355028 vs 6.247382. True vs wrong history disadvantage .122762 nats; resonance-off improves .158653 nats. No promotion.
+- v37 local executed CPU gradient surgery: 1000 conflicting random pairs, minimum directional dot 0, exact opposed cancellation. Word-event bridge isolated reference max absolute event discrepancy 1.3877787807814457e-17. v37 uses 192 attempted joint transactions and 128 memory refit steps; only accepted joint steps increment the checkpoint counter. Calibration chooses word ablation, token trust, memory scale, and bridge weight. No GPU/full training.
