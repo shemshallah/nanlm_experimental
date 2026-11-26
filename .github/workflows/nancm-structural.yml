@@ -1,4 +1,4 @@
-name: NaNCM v37 stage 9 transactional unified learning
+name: NaNCM v38 stage 10 portable field CPU parity
 on:
   push:
     branches: [nancm-structural-base]
@@ -113,17 +113,17 @@ jobs:
         run: |
           timeout 7200 gh run watch 45905463861 -R ${{ github.repository }} --exit-status
           gh run download 45905463861 -R ${{ github.repository }} -n structural-metrics -D attractor
+      - name: Recover verified v37 unified artifact
+        run: |
+          timeout 7200 gh run watch 45907255211 -R ${{ github.repository }} --exit-status
+          gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
       - name: Compile and import structural extension
-        run: python -m py_compile nancm_structural/hybrid37.py
+        run: python -m py_compile nancm_structural/hybrid38.py
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid37.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --out metrics.json
+        run: python -u nancm_structural/hybrid38.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --profile cpu --threads 4 --smoke-seconds 120 --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            unified-field.npz
-            unified-field.token.json
-            unified-field.memory.json
-            unified-field.unified.json

@@ -75,10 +75,13 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] v37 calibration-only resonance/input ablations and bridge trust grid; retained inherited moments and frozen word code; failed transactions restore parameters and moments.
 - [ ] Integrated corpus and reload/rollback verification.
 
-## Stage 10 — GPU engineering
-- [ ] Vectorized/batched sparse propagation and fused kernels where profiled.
-- [ ] CPU/T4/Blackwell settings on same checkpoint schema; dtype and probability parity.
-- [ ] Throughput, VRAM, time-to-quality and 10-minute GPU smoke gate; no long training.
+## Stage 10 — GPU engineering (v38 portable FP32 pilot)
+- [x] Portable batched recurrent operator; explicit device placement for inputs and sparse topology; cached device indices.
+- [ ] Profile and fuse kernels; persistent device parameter/optimizer storage. Host analytic optimizer still uses NumPy.
+- [x] CPU/T4/Blackwell profiles; FP32, TF32 disabled, strict hardware check, shared verified v37 checkpoint and metadata.
+- [ ] Run full CPU parity and real T4/Blackwell forward/backward parity on hardware.
+- [x] Bounded forward/backward smoke CLI reports throughput, peak CUDA allocated/reserved bytes, gradient/loss/probability parity and unchanged checkpoint; no optimizer update.
+- [ ] Execute GPU smoke and time-to-quality benchmarks; no full training until gates.
 
 ## Stage 11 — Final validation
 - [ ] Frozen corpus manifest with book IDs, hashes, train/cal/DEV/TEST isolation; cross-domain and untouched TEST.
@@ -113,3 +116,5 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 - v35 actual corpus: 93/360 top1 vs 102/360 parent; cal NLL 6.355028 vs 6.247382. True vs wrong history disadvantage .122762 nats; resonance-off improves .158653 nats. No promotion.
 - v37 local executed CPU gradient surgery: 1000 conflicting random pairs, minimum directional dot 0, exact opposed cancellation. Word-event bridge isolated reference max absolute event discrepancy 1.3877787807814457e-17. v37 uses 192 attempted joint transactions and 128 memory refit steps; only accepted joint steps increment the checkpoint counter. Calibration chooses word ablation, token trust, memory scale, and bridge weight. No GPU/full training.
+
+- v36 long memory candidate48 correct 119/320 vs unrelated 86/320; mean gate .000074487, no word-rank improvement. v38 implements a host/device-autograd bridge for recurrent propagation only, not a full GPU-native trainer. GPU profiles require actual CUDA hardware; no GPU results yet.
