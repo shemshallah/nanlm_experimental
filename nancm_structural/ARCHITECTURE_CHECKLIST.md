@@ -7,10 +7,10 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [x] Independently nonlinear support and opposition (v26 gradient tests).
 - [x] Eight-coordinate bidirectional recurrence implemented (v27 corpus run completed; causal control failed and promotion withheld).
 - [x] Signed point-local coordinate exchange implemented (v29, standalone CPU preflight passed).
-- [ ] Verify exact zero-extension prediction and prefix parity on actual v28 checkpoint.
-- [ ] Verify every new gradient; compare exchange-on/off and wrong-history controls.
+- [x] v29 exact zero-extension prediction and prefix parity on actual v28 checkpoint.
+- [x] v29 gradients and exchange-off / wrong-history diagnostic completed; direct effect small.
 - [ ] Match held-out full-word NLL, spelling/EOS, certified word top-1/top-5; require loss improvement and no meaningful rank regression before promotion.
-- [ ] Check bounded recurrence and per-channel utilization.
+- [x] v29 bounded recurrence and channel utilization verified.
 
 ## Stage 2 — Temporality (v30 implementation; parent acceptance pending)
 - [x] Persistent signed rotating state across observed words; reset at document boundaries implemented in v30.
@@ -21,10 +21,13 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 - [ ] Compare 6/32/128/512+ word horizons; shuffle and reset ablations; suffix invariance.
 - [ ] Save session state and recurrent optimizer state; resume equivalence.
 
-## Stage 3 — Higher-order geometry
-- [ ] Stateful signed edge dynamics with conserved address mapping.
-- [ ] Sparse/factorized triangle interactions over C(256,3)=2,763,520 possible triples.
-- [ ] Compare matched parameter/compute pair-only control and triangle ablation; measure active triples and memory.
+## Stage 3 — Higher-order geometry (v31 implementation; corpus pending)
+- [x] Signed dynamic edge state during recurrent solver passes implemented; deterministic pair ordering.
+- [ ] Persistent edge state across observed words (currently only solver-local).
+- [x] Sparse 1,024-triangle incidence on all 256 points; 2,816 edges; 49,152 new parameters; local CPU zero parity/gradient/control preflight passed.
+- [ ] Expand or learn active triangle selection, preserve full combinatorial address map.
+- [x] Same-parameter pair-operator, triangle-off and edge-reset ablations implemented.
+- [ ] Run independently trained matched-budget pair-only control; verify held-out improvement and resource cost.
 
 ## Stage 4 — Lexical representation
 - [ ] Learned word-to-field and field-to-word embeddings with shared contextual credit.
@@ -74,3 +77,7 @@ One cumulative checkpoint lineage. Preserve inherited parameters, Adam moments, 
 
 - v27 corpus complete: field top-1 63/360, top-5 149/360, calibration NLL 6.448943 -> 6.461300. Shuffled-history control slightly better than actual; no promotion.
 - v29 run 45897647647 active; v30 code staged in sequence, dependent on v29 checkpoint. Experimental lineage is not accepted production lineage.
+
+- v28 full-word calibration NLL 6.539287 -> 6.187458; field top-1 96/360, top-5 164/360, spelling/EOS 1.733220. Retrieval gate mean .7143. Exact deployed likelihood and prefix factorization passed.
+- v29 calibration NLL 6.187458 -> 6.185081, field top-1 94/360, top-5 165/360, spelling/EOS 1.733857; exchange-off delta only .00003414 NLL on 256 calibration targets; promotion withheld.
+- v31 local triangle preflight: max finite difference error 3.81e-19, all points covered, zero parity, stateful edge sensitivity, pair control distinct. Corpus pending; no stage acceptance.
