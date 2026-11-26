@@ -1,0 +1,184 @@
+{
+  "training_updates": 0,
+  "reference_words": 71351,
+  "parity": {
+    "boundaries": 120,
+    "max_probability_error": 0,
+    "rank_parity": true,
+    "certified": 120,
+    "python_seconds": 5.447728955000088,
+    "native_seconds": 5.173639521999974
+  },
+  "gradient_probe": {
+    "checks": [
+      {
+        "channel": "S+",
+        "address": 149554,
+        "analytic": -2.0810503369897949e-7,
+        "finite_difference": -2.0810841938612157e-7,
+        "relative_error": 0.000016268861932971974
+      },
+      {
+        "channel": "S-",
+        "address": 149570,
+        "analytic": 8.922891685959428e-8,
+        "finite_difference": 8.923040084596323e-8,
+        "relative_error": 0.000016630950381009955
+      },
+      {
+        "channel": "S+",
+        "address": 142615,
+        "analytic": 0.00000575296810459152,
+        "finite_difference": 0.000005753056897539466,
+        "relative_error": 0.000015434046547342056
+      },
+      {
+        "channel": "S-",
+        "address": 142727,
+        "analytic": -0.000004656380546239762,
+        "finite_difference": -0.000004656451535467454,
+        "relative_error": 0.00001524534877061817
+      },
+      {
+        "channel": "S+",
+        "address": 150060,
+        "analytic": -0.0000021613776130144916,
+        "finite_difference": -0.0000021612338578502754,
+        "relative_error": 0.00006651089719380524
+      },
+      {
+        "channel": "S-",
+        "address": 149292,
+        "analytic": -0.000009287918507129319,
+        "finite_difference": -0.000009287673648217254,
+        "relative_error": 0.00002636316327249383
+      },
+      {
+        "channel": "S+",
+        "address": 154748,
+        "analytic": 0.0000706973418413818,
+        "finite_difference": 0.0000706987348886301,
+        "relative_error": 0.00001970399117460537
+      },
+      {
+        "channel": "S-",
+        "address": 154748,
+        "analytic": -0.00010801877752046631,
+        "finite_difference": -0.00010801838752350079,
+        "relative_error": 0.000003610455278923074
+      },
+      {
+        "channel": "S+",
+        "address": 187645,
+        "analytic": 1.4249220760205293e-7,
+        "finite_difference": 1.424945939021427e-7,
+        "relative_error": 0.000016746600866900664
+      },
+      {
+        "channel": "S-",
+        "address": 187645,
+        "analytic": -2.4430258956451353e-7,
+        "finite_difference": -2.4430644174344707e-7,
+        "relative_error": 0.000015767815641889326
+      }
+    ],
+    "max_relative_error": 0.00006651089719380524,
+    "parameters_unchanged": true
+  },
+  "word": {
+    "retrieval": {
+      "n": 360,
+      "top1": 113,
+      "top5": 155,
+      "certified": 360,
+      "conditional_support": 213,
+      "shortlist32": 206,
+      "shortlist128": 213,
+      "bits": 4319.28334170417,
+      "symbols": 1878,
+      "mass_error": 5.551115123125783e-16,
+      "word_top1": 0.3138888888888889,
+      "word_top5": 0.4305555555555556,
+      "spelling_bps": 2.2999378816316134,
+      "seconds": 1.0909081580000048
+    },
+    "analog": {
+      "n": 360,
+      "top1": 116,
+      "top5": 160,
+      "certified": 360,
+      "conditional_support": 313,
+      "shortlist32": 207,
+      "shortlist128": 234,
+      "bits": 3661.6410587019213,
+      "symbols": 1878,
+      "mass_error": 3.11972669919669e-13,
+      "word_top1": 0.32222222222222224,
+      "word_top5": 0.4444444444444444,
+      "spelling_bps": 1.9497556223119923,
+      "seconds": 13.54004617199999
+    },
+    "signed": {
+      "n": 360,
+      "top1": 117,
+      "top5": 157,
+      "certified": 360,
+      "conditional_support": 313,
+      "shortlist32": 207,
+      "shortlist128": 234,
+      "bits": 3659.821261655084,
+      "symbols": 1878,
+      "mass_error": 3.284039706841213e-13,
+      "word_top1": 0.325,
+      "word_top5": 0.4361111111111111,
+      "spelling_bps": 1.9487866142998318,
+      "seconds": 19.354697994000006
+    }
+  },
+  "bytecheck": {
+    "segment_mixture_identity": true,
+    "future_suffix_invariance": true
+  },
+  "byte": {
+    "byte_only": {
+      "bytes": 4928,
+      "raw_bpb": 3.0823483896120094,
+      "byte_top1": 0.4395292207792208,
+      "byte_top5": 0.7794237012987013,
+      "mass_error": 2.220446049250313e-16,
+      "seconds": 0.5650659759999996
+    },
+    "signed": {
+      "bytes": 4928,
+      "raw_bpb": 2.434789952651964,
+      "byte_top1": 0.5811688311688312,
+      "byte_top5": 0.828125,
+      "mass_error": 3.361755318564974e-13,
+      "seconds": 42.51087161199999
+    },
+    "bayes": {
+      "bytes": 4928,
+      "raw_bpb": 2.396455232565867,
+      "byte_top1": 0.5864448051948052,
+      "byte_top5": 0.8348214285714286,
+      "mass_error": 1.680877659282487e-13,
+      "seconds": 42.680451868000006
+    }
+  },
+  "native": {
+    "calls": 2456,
+    "solver_seconds_including_marshalling": 4.359956862000388,
+    "iterations": {
+      "3": 19,
+      "4": 500,
+      "5": 558,
+      "6": 1199,
+      "7": 180
+    }
+  },
+  "graph": {
+    "attempts": 2451,
+    "converged": 2451
+  },
+  "checkpoint_sha256": "61a5abbbcb1f963032368eaa64d63d6924bcfe70aa3cf95b7b5682f4dcd042cb"
+}
