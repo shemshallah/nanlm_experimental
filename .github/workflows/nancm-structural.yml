@@ -1,4 +1,4 @@
-name: NaNCM v23 trainable signed latent class field
+name: NaNCM v24 resumed recurrent signed class field
 on:
   push:
     branches: [nancm-structural-base]
@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   benchmark:
     runs-on: ubuntu-latest
@@ -34,12 +35,14 @@ jobs:
         run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
       - name: Install numerical dependency
         run: python -m pip install numpy
+      - name: Recover exact v23 field artifact
+        run: gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D parent
       - name: Frozen structural benchmark
-        run: python -u nancm_structural/hybrid23.py --data data --lib nancm_structural/libsigned.so --out metrics.json
+        run: python -u nancm_structural/hybrid24.py --data data --lib nancm_structural/libsigned.so --parent parent/disposable-class-field.npz --out metrics.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: structural-metrics
           path: |
             metrics.json
-            disposable-class-field.npz
+            recurrent-class-field.npz
