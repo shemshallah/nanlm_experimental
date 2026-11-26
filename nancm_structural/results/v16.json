@@ -1,0 +1,107 @@
+{
+  "gradient_updates": 0,
+  "reference_words": 285255,
+  "raw_reference_bytes": 1521544,
+  "native_fit_seconds": 1.476514655999992,
+  "checks": {
+    "future_invariance": true,
+    "native_determinism": true,
+    "native_mass": true
+  },
+  "modes": {
+    "old_byte_only": {
+      "bytes": 4928,
+      "raw_bpb": 2.963526998119032,
+      "byte_top1": 0.45353084415584416,
+      "byte_top5": 0.7932224025974026,
+      "mass_error": 2.220446049250313e-16,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 102,
+        "all5": 356
+      },
+      "teacher_forced_raw_word_top1": 0.11710677382319173,
+      "teacher_forced_raw_word_top5": 0.4087256027554535,
+      "seconds": 0.412647512999996
+    },
+    "native_only": {
+      "bytes": 4928,
+      "raw_bpb": 2.7389403911399395,
+      "byte_top1": 0.4772727272727273,
+      "byte_top5": 0.7901785714285714,
+      "mass_error": 4.440892098500626e-16,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 116,
+        "all5": 374
+      },
+      "teacher_forced_raw_word_top1": 0.13318025258323765,
+      "teacher_forced_raw_word_top5": 0.4293915040183697,
+      "seconds": 0.469626176999995
+    },
+    "old_signed": {
+      "bytes": 4928,
+      "raw_bpb": 2.2500728957965674,
+      "byte_top1": 0.6105925324675324,
+      "byte_top5": 0.8522727272727273,
+      "mass_error": 8.58202398035246e-14,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 247,
+        "all5": 474
+      },
+      "teacher_forced_raw_word_top1": 0.2835820895522388,
+      "teacher_forced_raw_word_top5": 0.5442020665901263,
+      "seconds": 17.87960210099999
+    },
+    "native_signed": {
+      "bytes": 4928,
+      "raw_bpb": 2.136315570325513,
+      "byte_top1": 0.6124188311688312,
+      "byte_top5": 0.8480113636363636,
+      "mass_error": 8.604228440844963e-14,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 244,
+        "all5": 475
+      },
+      "teacher_forced_raw_word_top1": 0.2801377726750861,
+      "teacher_forced_raw_word_top5": 0.5453501722158438,
+      "seconds": 14.590044949000003
+    },
+    "native_static": {
+      "bytes": 4928,
+      "raw_bpb": 2.146414217524802,
+      "byte_top1": 0.6105925324675324,
+      "byte_top5": 0.8486201298701299,
+      "mass_error": 6.439293542825908e-14,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 238,
+        "all5": 481
+      },
+      "teacher_forced_raw_word_top1": 0.27324913892078073,
+      "teacher_forced_raw_word_top5": 0.5522388059701493,
+      "seconds": 16.422410114000016
+    },
+    "native_adaptive": {
+      "bytes": 4928,
+      "raw_bpb": 2.134374832721376,
+      "byte_top1": 0.6128246753246753,
+      "byte_top5": 0.8471996753246753,
+      "mass_error": 8.1601392309949e-14,
+      "raw_ascii_units": {
+        "n": 871,
+        "all1": 244,
+        "all5": 476
+      },
+      "teacher_forced_raw_word_top1": 0.2801377726750861,
+      "teacher_forced_raw_word_top5": 0.5464982778415615,
+      "seconds": 16.468845295999984
+    }
+  },
+  "graph": {
+    "attempts": 4844,
+    "converged": 4844
+  }
+}
