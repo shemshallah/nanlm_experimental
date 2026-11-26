@@ -8,6 +8,7 @@ import hybrid36 as R6, hybrid37 as U37, hybrid15 as H, hybrid20 as V, hybrid22 a
 import base as B, foundation6 as N, raw_byte_law as A
 import folded_event as FE
 import numpy as np
+from metric_io import write_metrics
 import torch
 import argparse,collections as C,hashlib,heapq,json,math,time
 
@@ -129,6 +130,7 @@ def main():
     initial=digest();steps=field.steps.copy()
     selected,fit=model.fit(rows(calbooks,4201,12))
     out={"parent_sha256":field.v36_sha,"fit":fit,"domains":{}}
+    write_metrics(a.out,out,"calibration")
     forbidden={i for i,p in tr+extra+calbooks};used=set();first_dev=None
     for name,files in groups.items():
         chosen=[]
@@ -139,8 +141,9 @@ def main():
         assert len(chosen)==6
         if first_dev is None:first_dev=chosen[0][1]
         out["domains"][name]={"ids":[i for i,p in chosen],"metrics":model.evaluate(rows(chosen,4202,12),selected)}
+        write_metrics(a.out,out,"domain:"+name)
     raw=first(first_dev);out["codec"]=model.codec(raw[:128],raw[128:144],selected)
     assert steps==field.steps and initial==digest();out["inherited_unchanged"]=True
     out["raw_order"]=3;out["cap"]=64;out["calibration_ids"]=[i for i,p in calbooks]
-    a.out.write_text(json.dumps(out,indent=2));print("FINAL",json.dumps(out),flush=True)
+    write_metrics(a.out,out)
 if __name__=="__main__":main()

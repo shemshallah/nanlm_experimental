@@ -120,10 +120,11 @@ def main():
             if len(chosen)==6:break
         assert len(chosen)==6
         out["fresh"][name]={"ids":[i for i,p in chosen],"raw":exp.raw_eval(chosen,event_weight)}
+        write_metrics(a.out,out,"domain:"+name)
     raw=first(picked[0][1]);out["codec"]=exp.codec(raw[:128],raw[128:144],event_weight)
     assert steps==field.steps and initial==digest()
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
-    a.out.write_text(json.dumps(out,indent=2))
+    write_metrics(a.out,out,'evaluated')
     exp.save45(a.out.with_suffix(".pt"),field.v36_sha,event_weight)
-    print("FINAL",json.dumps(out),flush=True)
+    write_metrics(a.out,out)
 if __name__=="__main__":main()

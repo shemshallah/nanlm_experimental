@@ -6,6 +6,7 @@ import base as B, foundation6 as N, temporal_phasor as T, coordinate_exchange as
 import argparse, collections as C, hashlib, json, math, pathlib, time
 import torch
 import numpy as np
+from metric_io import write_metrics
 
 KMAX=S39.KMAX
 class Reciprocal(S39.Symbiosis):
@@ -282,8 +283,9 @@ def main():
         try:parent=field.raw_eval(rows,ref,small,large,cal,backoff)
         finally:field.fb_scale=scale
         result["fresh"][name]={"word":word,"raw":raw,"parent_raw":parent}
+        write_metrics(a.out,result,"domain:"+name)
     raw=first(picked[0][1]);result["codec"]=field.codec_check(raw[:128],raw[128:144],ref,small,large,cal,backoff)
     assert steps==field.steps and all(initial[k]==hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items())
     result["inherited_unchanged"]=True;result["manifest_sha256"]=hashlib.sha256(a.out.with_name("split_manifest.json").read_bytes()).hexdigest()
-    field.save40(a.out.with_name("reciprocal-field.npz"));a.out.write_text(json.dumps(result,indent=2));print("FINAL",json.dumps(result),flush=True)
+    field.save40(a.out.with_name("reciprocal-field.npz"));write_metrics(a.out,result)
 if __name__=="__main__":main()

@@ -5,6 +5,7 @@ import base as B, foundation6 as N, raw_byte_law as A, subword_geometry as Y, sy
 import argparse, collections as C, hashlib, heapq, json, math, pathlib, time
 import torch
 import numpy as np
+from metric_io import write_metrics
 KMAX=80
 
 class Symbiosis(P38.Portable):
@@ -244,8 +245,9 @@ def main():
     result={"parent_sha256":field.v37_sha,"fit":fit,"raw_fit":rawfit,"short":field.word_eval39(story,ref,small,large,cal),"long":field.word_eval39(story,ref,small,large,cal,True),"fresh":{}}
     for name,files in fresh.items():
         result["fresh"][name]={"word":field.word_eval39([B.load(p,300) for _,p in files],ref,small,large,cal,limit=32),"raw":field.raw_eval(field.event_rows(files,3903,12),ref,small,large,cal,backoff)}
+        write_metrics(a.out,result,"domain:"+name)
     raw=first(picked[0][1]);result["codec"]=field.codec_check(raw[:128],raw[128:144],ref,small,large,cal,backoff)
     assert steps==field.steps and all(initial[k]==hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items())
     result["inherited_unchanged"]=True;result["manifest_sha256"]=hashlib.sha256(a.out.with_name("split_manifest.json").read_bytes()).hexdigest()
-    field.save39(a.out.with_name("symbiotic-transport.npz"));a.out.write_text(json.dumps(result,indent=2));print("FINAL",json.dumps(result),flush=True)
+    field.save39(a.out.with_name("symbiotic-transport.npz"));write_metrics(a.out,result)
 if __name__=="__main__":main()

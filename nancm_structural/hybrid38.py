@@ -3,7 +3,9 @@ Run via CPU, T4 or Blackwell profile. No checkpoint training or promotion."""
 import hybrid37 as U37, hybrid35 as R5, hybrid26 as D, hybrid23 as P, hybrid22 as Z, hybrid20 as V, hybrid18 as U
 import base as B, foundation6 as N, temporal_phasor as T, coordinate_exchange as E, triangle_field as G, lexical_geometry as J, byte_geometry as K, subword_geometry as Y, selective_resonance as RZ, attractor_memory as AM, raw_byte_law as A
 import torch
+from persistent_triangle import blend as persistent_edge_blend
 import numpy as np
+from metric_io import write_metrics
 import argparse, json, pathlib, time, hashlib, math
 PROFILES={"cpu":{"device":"cpu","batches":[1,8,16,32]},
           "t4":{"device":"cuda","batches":[1,8,16,32,64]},
@@ -71,7 +73,10 @@ class Portable(U37.Unified):
             self.index_cache[key]=(torch.as_tensor(self.ti,dtype=torch.long,device=self.device),torch.as_tensor(self.tj,dtype=torch.long,device=self.device),tuple(x.to(self.device) for x in self.topology))
         return self.index_cache[key]
     def _extension(self,x,hidden):
-        if self.profile=='legacy':return R5.Resonance._extension(self,x,hidden)
+        anchor=getattr(self,'edge_anchor',None)
+        if self.profile=='legacy':
+            if anchor is not None:raise RuntimeError('persistent edge hook requires the portable kernel')
+            return R5.Resonance._extension(self,x,hidden)
         device=self.device
         cpu={k:torch.tensor(self.p[k],requires_grad=True) for k in (*self.new_keys,*self.coord_keys,*self.temporal_keys,*self.triangle_keys,*self.word_keys[:3],*self.byte_keys,*self.sub_keys,*self.res_keys)}
         p={k:v.to(device) for k,v in cpu.items()}
@@ -111,6 +116,7 @@ class Portable(U37.Unified):
             comp=Y.compose(tc,p["byte_code"],p["sub_pair"])
             s=s+.7*(comp@p["sub_lower"]).tanh()
             z=z+.7*(comp@p["sub_upper"]).tanh()
+        persistent=anchor(s,z,topo[1]) if anchor is not None else None
         anchors=torch.cat((s,z),-1).tanh()
         gate=RZ.allocation(anchors,p["res_support"],p["res_oppose"])
         uniform=self.res_mode=="uniform"
@@ -123,7 +129,12 @@ class Portable(U37.Unified):
         def advance(lo,hi,edges):
             points=torch.cat((lo,hi),-1)
             edges=G.edge_update(points,None if self.edge_reset else edges,topo[1])
-            msg=G.message(edges,p["tri_plus"],p["tri_minus"],topo,self.triangle_mode)
+            if persistent is None:
+                msg=G.message(edges,p["tri_plus"],p["tri_minus"],topo,self.triangle_mode)
+            else:
+                seed,gate,dp,dm=persistent
+                edges=persistent_edge_blend(edges,seed,gate)
+                msg=G.message(edges,p["tri_plus"]+dp,p["tri_minus"]+dm,topo,self.triangle_mode)
             return ((s+ routing[:,:,:128]*transfer(lo,lo,lp,ln)+routing[:,:,:128]*transfer(hi,hi,lu,lv)+routing[:,:,:128]*E.exchange(lo,xp,xn)+routing[:,:,:128]*msg[:,:,:128]).tanh(),
                     (z+ routing[:,:,128:]*transfer(hi,hi,up,un)+routing[:,:,128:]*transfer(lo,lo,ul,uv)+routing[:,:,128:]*E.exchange(hi,yp,yn)+routing[:,:,128:]*msg[:,:,128:]).tanh(),edges)
         for _ in range(4):lo,hi,edges=advance(lo,hi,edges)
@@ -200,5 +211,5 @@ def main():
     token,_=field.token_data(calbooks,backoff,12,3801)
     word,_=field.worddata(cdocs,cap=96)
     result=field.probe(word,token,a.profile,a.smoke_seconds)
-    a.out.write_text(json.dumps(result,indent=2));print("FINAL",json.dumps(result),flush=True)
+    write_metrics(a.out,result)
 if __name__=="__main__":main()

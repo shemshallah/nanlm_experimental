@@ -8,6 +8,7 @@ import hybrid36 as R6, hybrid37 as U37, hybrid15 as H, hybrid20 as V, hybrid22 a
 import base as B, foundation6 as N, symbiotic_law as SL, mass_credit as MC, raw_byte_law as A
 from persistent_edges import Graph,WINDOWS
 import numpy as np
+from metric_io import write_metrics
 import torch
 import argparse,collections as C,hashlib,heapq,json,math,time
 DIM=25
@@ -123,7 +124,10 @@ def main():
     fitbooks=calbooks[:8];selectbooks=calbooks[8:];fit=exp.fit([B.load(p,1200) for _,p in fitbooks],[B.load(p,1200) for _,p in selectbooks])
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];assert len(picked)==5
     used={i for i,p in picked};forbidden={i for i,p in tr+extra+calbooks};assert not used&forbidden
-    story=[B.load(p,1200) for _,p in picked];out={"parent_sha256":field.v36_sha,"fit":fit,"short":exp.evaluate(story),"long":exp.evaluate(story,True),"fresh":{}}
+    story=[B.load(p,1200) for _,p in picked];out={"parent_sha256":field.v36_sha,"fit":fit,"fresh":{}}
+    write_metrics(a.out,out,"calibration")
+    out["short"]=exp.evaluate(story);write_metrics(a.out,out,"short")
+    out["long"]=exp.evaluate(story,True);write_metrics(a.out,out,"long")
     for name,files in groups.items():
         chosen=[]
         for i,p in sorted(files,key=lambda t:B.digest("v4-window:"+t[0])):
@@ -133,10 +137,11 @@ def main():
             if len(chosen)==6:break
         assert len(chosen)==6
         out["fresh"][name]={"ids":[i for i,p in chosen],"metrics":exp.evaluate([B.load(p,300) for _,p in chosen],limit=32)}
+        write_metrics(a.out,out,"domain:"+name)
     assert steps==field.steps and initial==digest()
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
-    a.out.write_text(json.dumps(out,indent=2))
+    write_metrics(a.out,out,'evaluated')
     # Keep mechanism coefficients only; never promote or overwrite lineage.
     np.savez(a.out.with_suffix(".npz"),parent_sha256=np.asarray(field.v36_sha),mix=exp.mix,**{name+"_"+k:v for name,(t,m,z) in exp.params.items() for k,v in (("theta",t),("m",m),("v",z),("scale",np.asarray(exp.scale[name])))})
-    print("FINAL",json.dumps(out),flush=True)
+    write_metrics(a.out,out)
 if __name__=="__main__":main()

@@ -73,7 +73,10 @@ def main():
     fitbooks=extra[::24];selectbooks=calbooks;fit=exp.fit([B.load(p,512) for _,p in fitbooks],[B.load(p,512) for _,p in selectbooks])
     picked=[(i,p) for i,p in groups["stories"] if split(i) in (7,8)][:5];assert len(picked)==5
     used={i for i,p in picked};forbidden={i for i,p in tr+extra+calbooks};assert not used&forbidden
-    story=[B.load(p,1200) for _,p in picked];out={"parent_sha256":field.v36_sha,"fit":fit,"short":exp.evaluate(story),"long":exp.evaluate(story,True),"fresh":{}}
+    story=[B.load(p,1200) for _,p in picked];out={"parent_sha256":field.v36_sha,"fit":fit,"fresh":{}}
+    write_metrics(a.out,out,"calibration")
+    out["short"]=exp.evaluate(story);write_metrics(a.out,out,"short")
+    out["long"]=exp.evaluate(story,True);write_metrics(a.out,out,"long")
     for name,files in groups.items():
         chosen=[]
         for i,p in sorted(files,key=lambda t:B.digest("v4-window:"+t[0])):
@@ -83,9 +86,10 @@ def main():
             if len(chosen)==6:break
         assert len(chosen)==6
         out["fresh"][name]={"ids":[i for i,p in chosen],"metrics":exp.evaluate([B.load(p,300) for _,p in chosen],limit=32)}
+        write_metrics(a.out,out,"domain:"+name)
     assert steps==field.steps and initial==digest()
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
-    a.out.write_text(json.dumps(out,indent=2))
+    write_metrics(a.out,out,'evaluated')
     exp.save(a.out.with_suffix(".pt"),field.v36_sha)
-    print("FINAL",json.dumps(out),flush=True)
+    write_metrics(a.out,out)
 if __name__=="__main__":main()
