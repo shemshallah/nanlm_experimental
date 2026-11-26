@@ -16,7 +16,7 @@ class PersistentField(P38.Portable):
         if scale:
             self.edge_anchor=lambda s,z,pairs:anchor(s,z,residual.to(s.device),counts.to(s.device),pairs,scale)
         try:
-            _,_,_,tape=self.tape(x)
+            _,_,_,tape=self.tape(np.asarray(x,dtype=np.uint32))
             return tape[1],float(tape[4])
         finally:
             self.edge_anchor=None;self.stream_override=None
@@ -163,8 +163,11 @@ def main():
     field=PersistentField(sem,a.parent,a.recurrent,a.direct,a.dual,a.symbiotic,a.fusion,a.coordinate,a.temporal,a.relational,a.lexical,a.byte,a.subword,a.resonance,a.attractor,a.unified,len(data[1]))
     field.configure("cpu");field.bind(ref,small,large,cal)
     exp=Trial(field,ref,small,large,cal)
-    digest=lambda: {k:hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items()}
-    initial=digest();steps=field.steps.copy()
+    def digest():
+        out={k:hashlib.sha256(v.tobytes()+field.m[k].tobytes()+field.v[k].tobytes()).hexdigest() for k,v in field.p.items()}
+        out.update({"lexical:"+k:hashlib.sha256(getattr(field,k).tobytes()).hexdigest() for k in ("lex","lm","lv","lt","proj")})
+        return out
+    initial=digest();steps=field.steps.copy();start_step=field.step;rng_state=json.dumps(field.rng.bit_generator.state,sort_keys=True)
     fitbooks=extra[12::24];selectbooks=calbooks
     def first(p):
         with p.open("rb") as f:return f.read(16384)
@@ -186,7 +189,7 @@ def main():
         out["fresh"][name]={"ids":[i for i,p in chosen],"raw":exp.raw_eval(chosen,event_weight)}
         write_metrics(a.out,out,"domain:"+name)
     raw=first(picked[0][1]);out["codec"]=exp.codec(raw[:128],raw[128:144],event_weight)
-    assert steps==field.steps and initial==digest()
+    assert steps==field.steps and initial==digest() and field.step==start_step and json.dumps(field.rng.bit_generator.state,sort_keys=True)==rng_state
     out["inherited_unchanged"]=True;out["fit_ids"]=[i for i,p in fitbooks];out["selection_ids"]=[i for i,p in selectbooks];out["dev_ids"]=[i for i,p in picked];out["windows"]=list(WINDOWS)
     write_metrics(a.out,out,'evaluated')
     exp.save46(a.out.with_suffix(".pt"),field.v37_sha,event_weight)
