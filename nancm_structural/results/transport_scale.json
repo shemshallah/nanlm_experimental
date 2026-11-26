@@ -1,0 +1,489 @@
+{
+  "training_updates": 0,
+  "reference_scale": {
+    "24": {
+      "reference_words": 71351,
+      "reference_ids": [
+        "10020",
+        "10130",
+        "10135",
+        "10150",
+        "1036",
+        "10360",
+        "10454",
+        "10458",
+        "10466",
+        "10471",
+        "1048",
+        "10556",
+        "10562",
+        "10565",
+        "10568",
+        "10569",
+        "10570",
+        "10571",
+        "10573",
+        "10577",
+        "10624",
+        "1063",
+        "10659",
+        "1069"
+      ],
+      "context_rows": 71327,
+      "build_seconds": 2.2627376800000008,
+      "stories": {
+        "modes": {
+          "exact": {
+            "n": 360,
+            "top1": 116,
+            "top5": 159,
+            "certified": 360,
+            "bits": 3656.223518126203,
+            "symbols": 1878,
+            "shortlist128": 233,
+            "word_top1": 0.32222222222222224,
+            "word_top5": 0.44166666666666665,
+            "spelling_bps": 1.9468708829213008
+          },
+          "aligned": {
+            "n": 360,
+            "top1": 118,
+            "top5": 155,
+            "certified": 360,
+            "bits": 3716.5517101381492,
+            "symbols": 1878,
+            "shortlist128": 231,
+            "word_top1": 0.3277777777777778,
+            "word_top5": 0.4305555555555556,
+            "spelling_bps": 1.978994520840335
+          }
+        },
+        "alignment": {
+          "n": 360,
+          "trust": 140.8133263889849,
+          "alignment_available": 310,
+          "alignment_top5": 131,
+          "alignment_support": 152
+        },
+        "seconds": 18.590369496999998
+      },
+      "fresh": {
+        "stories": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 15,
+              "top5": 41,
+              "certified": 192,
+              "bits": 2368.8745666590517,
+              "symbols": 1013,
+              "shortlist128": 112,
+              "word_top1": 0.078125,
+              "word_top5": 0.21354166666666666,
+              "spelling_bps": 2.338474399465994
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 17,
+              "top5": 43,
+              "certified": 192,
+              "bits": 2423.5720079450657,
+              "symbols": 1013,
+              "shortlist128": 109,
+              "word_top1": 0.08854166666666667,
+              "word_top5": 0.22395833333333334,
+              "spelling_bps": 2.392469899254754
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 58.739553133486964,
+            "alignment_available": 165,
+            "alignment_top5": 32,
+            "alignment_support": 54
+          },
+          "seconds": 10.810131839999997
+        },
+        "sentences": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 16,
+              "top5": 43,
+              "certified": 192,
+              "bits": 2451.172840332156,
+              "symbols": 1020,
+              "shortlist128": 114,
+              "word_top1": 0.08333333333333333,
+              "word_top5": 0.22395833333333334,
+              "spelling_bps": 2.4031106277766234
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 14,
+              "top5": 44,
+              "certified": 192,
+              "bits": 2505.2667009208526,
+              "symbols": 1020,
+              "shortlist128": 114,
+              "word_top1": 0.07291666666666667,
+              "word_top5": 0.22916666666666666,
+              "spelling_bps": 2.4561438244322082
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 56.64786212090371,
+            "alignment_available": 163,
+            "alignment_top5": 27,
+            "alignment_support": 49
+          },
+          "seconds": 10.564087152000013
+        },
+        "paragraphs": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 16,
+              "top5": 35,
+              "certified": 192,
+              "bits": 2525.821151409346,
+              "symbols": 1066,
+              "shortlist128": 99,
+              "word_top1": 0.08333333333333333,
+              "word_top5": 0.18229166666666666,
+              "spelling_bps": 2.3694382283389737
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 18,
+              "top5": 34,
+              "certified": 192,
+              "bits": 2583.191370392611,
+              "symbols": 1066,
+              "shortlist128": 99,
+              "word_top1": 0.09375,
+              "word_top5": 0.17708333333333334,
+              "spelling_bps": 2.4232564450212113
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 52.40250866963749,
+            "alignment_available": 155,
+            "alignment_top5": 24,
+            "alignment_support": 44
+          },
+          "seconds": 10.207025703999989
+        }
+      },
+      "counterfactual": {
+        "exact_correct": 11.557359437667776,
+        "aligned_correct": 11.721602558397118,
+        "exact_unrelated": 15.44334464255921,
+        "aligned_unrelated": 16.146728910691063
+      },
+      "transport_stats": {
+        "queries": 793,
+        "neighbors": 36263,
+        "books": 12472,
+        "high_alignment": 95
+      }
+    },
+    "96": {
+      "reference_words": 285255,
+      "reference_ids": [
+        "10020",
+        "10130",
+        "10135",
+        "10150",
+        "1036",
+        "10360",
+        "10454",
+        "10458",
+        "10466",
+        "10471",
+        "1048",
+        "10556",
+        "10562",
+        "10565",
+        "10568",
+        "10569",
+        "10570",
+        "10571",
+        "10573",
+        "10577",
+        "10624",
+        "1063",
+        "10659",
+        "1069",
+        "10723",
+        "10735",
+        "10744",
+        "10781",
+        "10783",
+        "10784",
+        "10785",
+        "10786",
+        "10787",
+        "10789",
+        "10790",
+        "10793",
+        "10806",
+        "10832",
+        "10838",
+        "10839",
+        "10915",
+        "10926",
+        "10947",
+        "1096",
+        "10981",
+        "11019",
+        "11032",
+        "11045",
+        "11092",
+        "11129",
+        "11156",
+        "11180",
+        "11181",
+        "11183",
+        "11187",
+        "11190",
+        "11191",
+        "11227",
+        "11231",
+        "11235",
+        "11237",
+        "11252",
+        "11309",
+        "11319",
+        "11330",
+        "11334",
+        "11378",
+        "11392",
+        "11406",
+        "11436",
+        "11452",
+        "11471",
+        "11474",
+        "11475",
+        "11476",
+        "11479",
+        "11480",
+        "11482",
+        "11501",
+        "11512",
+        "11514",
+        "11592",
+        "11666",
+        "11721",
+        "11870",
+        "11877",
+        "1189",
+        "11930",
+        "11949",
+        "1197",
+        "11989",
+        "1202",
+        "12067",
+        "1208",
+        "12094",
+        "12095"
+      ],
+      "context_rows": 285159,
+      "build_seconds": 8.17160048400001,
+      "stories": {
+        "modes": {
+          "exact": {
+            "n": 360,
+            "top1": 112,
+            "top5": 160,
+            "certified": 360,
+            "bits": 3497.7784344972365,
+            "symbols": 1878,
+            "shortlist128": 239,
+            "word_top1": 0.3111111111111111,
+            "word_top5": 0.4444444444444444,
+            "spelling_bps": 1.8625018288057702
+          },
+          "aligned": {
+            "n": 360,
+            "top1": 119,
+            "top5": 156,
+            "certified": 360,
+            "bits": 3562.5025488821125,
+            "symbols": 1878,
+            "shortlist128": 234,
+            "word_top1": 0.33055555555555555,
+            "word_top5": 0.43333333333333335,
+            "spelling_bps": 1.8969662134622538
+          }
+        },
+        "alignment": {
+          "n": 360,
+          "trust": 161.37389903829927,
+          "alignment_available": 331,
+          "alignment_top5": 143,
+          "alignment_support": 165
+        },
+        "seconds": 44.134409594999994
+      },
+      "fresh": {
+        "stories": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 20,
+              "top5": 42,
+              "certified": 192,
+              "bits": 2252.84228131003,
+              "symbols": 1013,
+              "shortlist128": 118,
+              "word_top1": 0.10416666666666667,
+              "word_top5": 0.21875,
+              "spelling_bps": 2.2239311760217473
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 20,
+              "top5": 41,
+              "certified": 192,
+              "bits": 2313.6987265462694,
+              "symbols": 1013,
+              "shortlist128": 118,
+              "word_top1": 0.10416666666666667,
+              "word_top5": 0.21354166666666666,
+              "spelling_bps": 2.2840066402233656
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 68.16554819309962,
+            "alignment_available": 174,
+            "alignment_top5": 37,
+            "alignment_support": 61
+          },
+          "seconds": 25.134593279
+        },
+        "sentences": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 17,
+              "top5": 40,
+              "certified": 192,
+              "bits": 2324.1887462992217,
+              "symbols": 1020,
+              "shortlist128": 119,
+              "word_top1": 0.08854166666666667,
+              "word_top5": 0.20833333333333334,
+              "spelling_bps": 2.2786164179404134
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 17,
+              "top5": 39,
+              "certified": 192,
+              "bits": 2382.294902398602,
+              "symbols": 1020,
+              "shortlist128": 117,
+              "word_top1": 0.08854166666666667,
+              "word_top5": 0.203125,
+              "spelling_bps": 2.335583237645688
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 65.64800858813912,
+            "alignment_available": 174,
+            "alignment_top5": 26,
+            "alignment_support": 57
+          },
+          "seconds": 23.934253012
+        },
+        "paragraphs": {
+          "modes": {
+            "exact": {
+              "n": 192,
+              "top1": 22,
+              "top5": 36,
+              "certified": 192,
+              "bits": 2436.252027540524,
+              "symbols": 1066,
+              "shortlist128": 102,
+              "word_top1": 0.11458333333333333,
+              "word_top5": 0.1875,
+              "spelling_bps": 2.28541465998173
+            },
+            "aligned": {
+              "n": 192,
+              "top1": 22,
+              "top5": 33,
+              "certified": 192,
+              "bits": 2508.1206703005996,
+              "symbols": 1066,
+              "shortlist128": 100,
+              "word_top1": 0.11458333333333333,
+              "word_top5": 0.171875,
+              "spelling_bps": 2.3528336494377107
+            }
+          },
+          "alignment": {
+            "n": 192,
+            "trust": 62.38159369307941,
+            "alignment_available": 171,
+            "alignment_top5": 27,
+            "alignment_support": 46
+          },
+          "seconds": 24.410110023000016
+        }
+      },
+      "counterfactual": {
+        "exact_correct": 10.563035296653002,
+        "aligned_correct": 10.776808060068578,
+        "exact_unrelated": 15.256367658322384,
+        "aligned_unrelated": 16.087370316500063
+      },
+      "transport_stats": {
+        "queries": 850,
+        "neighbors": 42784,
+        "books": 29964,
+        "high_alignment": 114
+      }
+    }
+  },
+  "fresh_ids": {
+    "stories": [
+      "14256",
+      "5277",
+      "15592",
+      "3200",
+      "1064",
+      "339"
+    ],
+    "sentences": [
+      "1087",
+      "497",
+      "1122",
+      "1226",
+      "1113",
+      "592"
+    ],
+    "paragraphs": [
+      "414",
+      "862",
+      "77",
+      "448",
+      "13",
+      "1221"
+    ]
+  },
+  "story_ids": [
+    "10234",
+    "10446",
+    "10561",
+    "10563",
+    "10564"
+  ],
+  "scope": "isolated v9 alignment operator blended into exact full-support law; no signed graph in this diagnostic"
+}
