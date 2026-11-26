@@ -1,5 +1,5 @@
 """NaNCM structural foundation, no gradient training. Python reference."""
-import argparse, collections as C, hashlib, heapq, json, math, pathlib, re, time
+import argparse, collections as C, hashlib, heapq, json, math, pathlib, re, time, array, struct, sys
 from functools import lru_cache
 A="abcdefghijklmnopqrstuvwxyz"
 EOS=" "
@@ -39,9 +39,64 @@ def keys(h):
     return out
 def lower(key):
     h=addr(repr(key)); return (h%128,(h>>8)%8)
+class SignedParameters:
+    """Persistent S+/S- gains: 32640 x 8 per channel, exact identity at zero."""
+    N=32640*8
+    def __init__(self):
+        self.plus=array.array("f",[0.])*self.N
+        self.minus=array.array("f",[0.])*self.N
+    def gain(self,slot,d,a,b,signs=(True,True)):
+        k=slot*8+d
+        pa=self.plus[k]; pb=self.minus[k]
+        if not math.isfinite(pa) or not math.isfinite(pb):raise ValueError("nonfinite field parameter")
+        return math.tanh((a*math.exp(max(-4.,min(4.,pa))) if signs[0] else 0.)-(b*math.exp(max(-4.,min(4.,pb))) if signs[1] else 0.))
+    def payload(self):
+        values=[]
+        for x in (self.plus,self.minus):
+            y=array.array("f",x)
+            if sys.byteorder!="little":y.byteswap()
+            values.append(y.tobytes())
+        return b"NCMSIGN1"+struct.pack("<III",256,8,self.N)+b"".join(values)
+    def save(self,path):
+        payload=self.payload();path.write_bytes(payload)
+        return hashlib.sha256(payload).hexdigest()
+    @classmethod
+    def load(cls,path):
+        data=path.read_bytes()
+        if len(data)!=20+8*cls.N or data[:20]!=b"NCMSIGN1"+struct.pack("<III",256,8,cls.N):raise ValueError("bad field checkpoint")
+        result=cls()
+        for off,channel in ((20,"plus"),(20+4*cls.N,"minus")):
+            x=array.array("f");x.frombytes(data[off:off+4*cls.N])
+            if sys.byteorder!="little":x.byteswap()
+            if not all(map(math.isfinite,x)):raise ValueError("nonfinite field checkpoint")
+            setattr(result,channel,x)
+        return result
+def stable_field(edges,anchor,params,signs=(True,True),tol=1e-5,max_passes=12):
+    # Symmetric graph with row-absolute-sum bound >= spectral norm.
+    # Projected update x <- P(.65 anchor + .35 W x) has contraction <= .35
+    # for a fixed graph. Outer retrieval expansion is separately capped.
+    row=C.Counter(); active=[]
+    for (slot,i,j,d),(a,b) in sorted(edges.items()):
+        v=params.gain(slot,d,a,b,signs)
+        if not v:continue
+        ki,kj=(i,d),(j,d);row[ki]+=abs(v);row[kj]+=abs(v);active.append((ki,kj,v))
+    scale=max(1.,max(row.values(),default=0.))
+    x=anchor.copy()
+    for _ in range(max_passes):
+        msg={}
+        for ki,kj,v in active:
+            msg[ki]=msg.get(ki,0.)+v*x.get(kj,0.)
+            msg[kj]=msg.get(kj,0.)+v*x.get(ki,0.)
+        q=bounded(add({k:.65*v for k,v in anchor.items()},msg,.35/scale))
+        delta=math.sqrt(sum((q.get(k,0.)-x.get(k,0.))**2 for k in q.keys()|x.keys()))
+        if not math.isfinite(delta):return anchor.copy(),False
+        x=q
+        if delta<=tol:return x,True
+    # deterministic rollback if fixed-graph convergence not certified
+    return anchor.copy(),False
 class Ref:
     def __init__(self,docs,lex):
-        self.lex=set(lex); self.uni=C.Counter(); self.idx=C.defaultdict(C.Counter); self.char=C.defaultdict(C.Counter)
+        self.params=SignedParameters();self.graph_stats=C.Counter();self.lex=set(lex); self.uni=C.Counter(); self.idx=C.defaultdict(C.Counter); self.char=C.defaultdict(C.Counter)
         for doc in docs:
             h=[]
             for w in doc:
@@ -124,7 +179,7 @@ class Ref:
         weights=[wt for _,_,wt in src]
         if mode=="retrieval":p=prior(pool,weights); escape=.35 if not src else .20
         else:p,escape=hierarchical(pool,weights)
-        if mode=="unified" and src:
+        if mode in ("unified","plus_only","minus_only") and src:
             # Bounded feedback: lower context evidence -> signed upper lexical
             # clouds -> source trust -> candidate expansion -> unified commitment.
             # All cells have stable C(256,2) addresses; only active dimensions
@@ -138,13 +193,6 @@ class Ref:
                 k=(pair(i,j),i,j,d)
                 a,b=store.get(k,(0.,0.))
                 store[k]=(a+max(v,0.),b+max(-v,0.))
-            def propagate(store,x):
-                out={}
-                for (_,i,j,d),(a,b) in sorted(store.items()):
-                    v=math.tanh(a-b); ki,kj=(i,d),(j,d)
-                    out[ki]=out.get(ki,0.)+v*x.get(kj,0.)
-                    out[kj]=out.get(kj,0.)+v*x.get(ki,0.)
-                return bounded(out)
             for iteration in range(2):
                 edges={}; low={}; up={}; source_vec=[]
                 for (k,c,_),wt in zip(src,weights):
@@ -170,9 +218,14 @@ class Ref:
                     for d,items in bydim.items():
                         for j,(i,x) in enumerate(items):
                             for u,y in items[j+1:]:edge(edges,i,u,d,math.sqrt(p.get(w,0.))*x*y)
-                anchor=bounded(add(bounded(low),bounded(up))); x=anchor.copy()
-                for _ in range(2):
-                    x=bounded(add({k:.65*v for k,v in anchor.items()},propagate(edges,x),.35))
+                anchor=bounded(add(bounded(low),bounded(up)))
+                signs=(mode!="minus_only",mode!="plus_only")
+                x,converged=stable_field(edges,anchor,self.params,signs)
+                self.graph_stats["attempts"]+=1
+                self.graph_stats["converged"]+=converged
+                if not converged:
+                    self.graph_stats["rollbacks"]+=1
+                    break
                 def score(w):
                     total=0.
                     for (i,d),q in lexvec(w).items():
@@ -354,6 +407,29 @@ def rawcheck(ref,raw,doc):
     for k in (1,8,31,64):
         assert at(doc,k)==at(doc[:k]+b"completely different suffix",k)
     return True
+def fieldcheck(ref,path):
+    import tempfile
+    # Known active two-node graph; sign isolation and finite perturbation
+    # of each persistent signed channel. No optimizer or updates to final state.
+    i,j,d=0,128,3; slot=pair(i,j); index=slot*8+d
+    E={(slot,i,j,d):(1.,.4)}
+    anchor={(i,d):1.}
+    a,ok=stable_field(E,anchor,ref.params);assert ok
+    plus,okp=stable_field(E,anchor,ref.params,(True,False))
+    minus,okm=stable_field(E,anchor,ref.params,(False,True))
+    assert okp and okm and plus!=minus and a!=plus and a!=minus
+    diffs=[]
+    for channel in (ref.params.plus,ref.params.minus):
+        channel[index]=.01
+        b,ok=stable_field(E,anchor,ref.params)
+        channel[index]=0.
+        assert ok and a!=b
+        diffs.append((b[(j,d)]-a[(j,d)])/.01)
+    sha=ref.params.save(path)
+    loaded=SignedParameters.load(path)
+    assert loaded.payload()==ref.params.payload()
+    assert stable_field(E,anchor,loaded)==stable_field(E,anchor,ref.params)
+    return {"signed_parameter_count":2*SignedParameters.N,"zero_checkpoint_sha256":sha,"checkpoint_roundtrip":True,"plus_minus_separate":True,"finite_difference_sensitivities":diffs,"fixed_graph_convergence":True}
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--data",type=pathlib.Path,required=True);ap.add_argument("--out",type=pathlib.Path,default=pathlib.Path("metrics.json"));a=ap.parse_args();r=a.data
     groups={k:bookfiles(r/k) for k in ("stories","sentences","paragraphs")}
@@ -388,8 +464,14 @@ def main():
     with (r/"wiki"/"wiki.valid.raw").open("rb") as f:rawtests.append(f.read(768))
     with (r/"domain"/"chemistry.txt").open("rb") as f:rawtests.append(f.read(768))
     res["raw_reference_bytes"]=sum(map(len,rawdocs))
+    res["checks"]["persistent_signed_field"]=fieldcheck(ref,a.out.with_name("signed-init.bin"))
     res["checks"]["raw_future_invariance"]=rawcheck(ref,raw,rawtests[0])
     res["raw_byte_probe"]={mode:byteeval(ref,raw,rawtests,mode) for mode in ("byte_only","retrieval","hierarchical","unified")}
     print("RAW",json.dumps(res["raw_byte_probe"]),flush=True)
+    # Paired directional ablation on real short-story prefixes; not promotion.
+    ab=[load(p,150) for i,p in groups["stories"] if split(i) in (7,8)][:3]
+    res["signed_ablation"]={mode:evaldocs(ref,ab,mode,24) for mode in ("hierarchical","unified","plus_only","minus_only")}
+    res["graph_convergence"]=dict(ref.graph_stats)
+    print("ABLATION",json.dumps(res["signed_ablation"]),flush=True)
     a.out.write_text(json.dumps(res,indent=2));print("FINAL",json.dumps(res),flush=True)
 if __name__=="__main__":main()
