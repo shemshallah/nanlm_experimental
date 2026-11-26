@@ -20,6 +20,7 @@ def shape(w):
 
 class Competition(N.NativeFoundation):
     names=("local","phrase","syntax","topic","episode","analog","signed")
+    lattice=F.FullLattice
     def __init__(self,docs,lex,kernel):
         super().__init__(docs,lex,kernel)
         self.long=C.defaultdict(C.Counter);self.pattern=C.defaultdict(C.Counter)
@@ -35,12 +36,12 @@ class Competition(N.NativeFoundation):
                     self.pattern[(shape(doc[i-2]),shape(doc[i-1]))][w]+=1
                 if i>=3:self.pattern[(shape(doc[i-3]),shape(doc[i-2]),doc[i-1])][w]+=1
         c=normalized({w:len(v) for w,v in self.cont.items()})
-        self.continuation=F.FullLattice(self,{w:.75*q for w,q in c.items()},.25)
+        self.continuation=self.lattice(self,{w:.75*q for w,q in c.items()},.25)
     def law(self,parts,base=None):
         s,bg=({},1.) if base is None else (dict(base.s),base.bg)
         for c,lam in parts:
             if c and lam>0:s,bg=update(s,bg,normalized(c),lam)
-        return F.FullLattice(self,s,bg)
+        return self.lattice(self,s,bg)
     def discount(self,c):
         if not c:return {},0.
         n=sum(c.values());d=.6
@@ -96,7 +97,7 @@ class Competition(N.NativeFoundation):
         for l in (local,phrase,syntax,topic,episode,analog):
             B.add(s,l.s,1/6);bg+=l.bg/6
         s,bg=self.field(h,sources,s,bg,"signed") if sources else (s,bg)
-        signed=F.FullLattice(self,s,bg)
+        signed=self.lattice(self,s,bg)
         return (local,phrase,syntax,topic,episode,analog,signed)
 
 class Session:
@@ -118,7 +119,7 @@ class Session:
         s={};bg=0.
         for l,q in zip(self.cache,self.weights):
             B.add(s,l.s,q);bg+=q*l.bg
-        self.prob=F.FullLattice(self.ref,s,bg)
+        self.prob=self.ref.lattice(self.ref,s,bg)
         return self.prob
     def observe(self,w):
         self.predict()
