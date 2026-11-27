@@ -1,8 +1,8 @@
 {
-  "architecture_baseline": "v48",
-  "architecture_commit": "cbbcabf1b4fa06f8e5931fce36eb9ddd867c0156",
+  "architecture_baseline": "v59",
+  "architecture_commit": "e4b955d2990179296965c1b684dc397511387189",
   "fit_integrity_commit": "02f3571bbe09dbe8a2be95f5153f7acaaa21eb53",
-  "promotion_scope": "development architecture only; no underperforming scout weights promoted",
+  "promotion_scope": "User-authorized development architecture promotion of stable prefix conservation. No production checkpoint promotion; v59 integrated corpus run pending at promotion.",
   "verified_parent": {
     "version": "v37",
     "commit": "803a70a1369cc60e574fa5d0669135754f0feb35",
@@ -24,5 +24,29 @@
     "dev_expanded160": 1070,
     "scout_weights_accepted": false
   },
-  "next": "v49 dense full-vocabulary event credit; preserve checkpoint and parity"
+  "next": "v60 persistent causal switching; complete native v59 bridge before integrating new credit",
+  "previous_architecture_baseline": {
+    "version": "v48",
+    "commit": "cbbcabf1b4fa06f8e5931fce36eb9ddd867c0156"
+  },
+  "verified_word_component": {
+    "version": "v55",
+    "commit": "5993263e99e1807082bd32a8831725254930f188",
+    "run": 45919146461,
+    "screened_dev_run": 45921654373,
+    "top1_hits": 444,
+    "top5_hits": 874,
+    "targets": 2880,
+    "historical_calibration_overlap": true
+  },
+  "v59": {
+    "run": 45927769016,
+    "status_at_promotion": "in_progress",
+    "rare_prefix_test": {
+      "vocabulary": 49960,
+      "prefixes": 2049,
+      "old_failures": 512,
+      "new_failures": 0
+    }
+  }
 }
