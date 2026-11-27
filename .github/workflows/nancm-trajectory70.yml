@@ -1,0 +1,90 @@
+name: NaNCM v70 trainable recurrent path posterior
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_trajectory70/**', '.github/workflows/nancm-trajectory70.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-trajectory70
+  cancel-in-progress: false
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python tests/nancm_crossfit/test_crossfit.py
+          python -m py_compile tests/nancm_crossfit/pilot51.py
+      - name: Download actual public corpus releases and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/{lex,stories,sentences,paragraphs}
+          get_archive() {
+            local dir="$1" tag="$2" asset="$3" sum="$4"
+            (
+              cd "data/$dir"
+              local base="https://github.com/shemshallah/NaNROUTER/releases/download/$tag"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$asset" -o "$asset"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$sum" -o "$sum"
+              sha256sum -c "$sum"
+              tar --zstd -xf "$asset"
+              rm "$asset"
+            )
+          }
+          get_archive lex wordlist-google-10000-english google-10000-english.tar.zst google-10000-english.SHA256SUMS
+          get_archive stories corpora-short-stories-0001 short_stories-0001.tar.zst short_stories-0001.SHA256SUMS
+          get_archive sentences corpora-sentences-0001 sentences-0001.tar.zst sentences-0001.SHA256SUMS
+          get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
+      - name: Recover completed v50 checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45914210629 -R ${{ github.repository }} -n hierarchical-field-diagnostic -D parent
+      - name: Recover completed v53 memory credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45916534576 -R ${{ github.repository }} -n analogy-cooperative-diagnostic -D analogy
+      - name: Recover completed v55 contrastive credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45919146461 -R ${{ github.repository }} -n contrastive-cooperative-diagnostic -D contrast
+      - name: Recover exact v57 screened manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45921654373 -R ${{ github.repository }} -n clean-backoff-diagnostic -D screen
+      - name: Exact open-vocabulary and folded-event preflight
+        run: |
+          PYTHONPATH=tests/nancm_folded python tests/nancm_open_bridge/test_open.py
+          python tests/nancm_open_bridge/test_skew.py
+      - name: Bayesian switching exact path-enumeration preflight
+        run: python tests/nancm_switching/test_switch.py
+      - name: Differentiable conserved event credit preflight
+        run: PYTHONPATH=tests/nancm_switching python tests/nancm_geometric_credit/test_credit.py
+      - name: Recover completed v61 trained transition and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45928293939 -R ${{ github.repository }} -n transition-diagnostic -D transition
+      - name: Exact joint gradient and chunk-continuation preflight
+        run: PYTHONPATH=tests/nancm_transition:tests/nancm_geometric_credit python tests/nancm_joint/test_joint.py
+      - name: Actual open-vocabulary bound preflight
+        run: PYTHONPATH=tests/nancm_open_bridge:tests/nancm_folded python tests/nancm_rank_audit/test_bound.py
+      - name: Persistent trajectory unit tests and syntax checks
+        run: |
+          PYTHONPATH=tests/nancm_trajectory python tests/nancm_trajectory70/field70.py
+          python -m py_compile tests/nancm_trajectory70/pilot70.py
+      - name: Train recurrent path allocation and test matched corpus
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_trajectory70/pilot70.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --transition transition/transition.pt --transition-metrics transition/transition.json --out results/trajectory70.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trajectory70-diagnostic
+          path: |
+            results/trajectory70.json
+            results/trajectory70.pt
