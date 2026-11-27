@@ -49,7 +49,7 @@ def hierarchy(levels,vocab,discount=.65):
     # Condition the sparse donor on the union of represented continuations.
     q={};support=0.;depth=0
     for k,ids,counts in levels:
-        keep=np.array([int(i)>0 and bool(vocab[int(i)]) for i in ids])
+        keep=np.array([int(i)>0 and 0<len(vocab[int(i)])<=63 for i in ids])
         ids=ids[keep];counts=np.asarray(counts[keep],np.float64)
         if not len(ids):continue
         n=float(counts.sum());mass=np.maximum(counts-discount,0)/n
@@ -121,6 +121,15 @@ def selftest():
         for k,ids,counts in c.exact.query(query):
             q=query[-k:];expected=Counter(int(d[j]) for d in docs for j in range(k,len(d)) if tuple(d[j-k:j])==q)
             assert dict(zip(ids,counts))==expected,(q,ids,counts,expected)
+    rng=np.random.default_rng(76)
+    synthetic=[rng.integers(1,7,size=100) for _ in range(7)]
+    idx=Suffix(synthetic,8)
+    for _ in range(200):
+        doc=synthetic[int(rng.integers(len(synthetic)))]
+        j=int(rng.integers(8,len(doc)));k=int(rng.integers(1,9))
+        key=tuple(map(int,doc[j-k:j]))
+        expected=Counter(int(d[t]) for d in synthetic for t in range(k,len(d)) if tuple(d[t-k:t])==key)
+        assert dict(zip(*idx.counts(key)))==expected
     assert dict(zip(*c.exact.counts((1,2,3))))=={4:1,5:1,6:1}
     assert dict(zip(*c.exact.counts((5,1))))=={} # no crossing books
     laws=c.query(b'a b c d a b c ')
