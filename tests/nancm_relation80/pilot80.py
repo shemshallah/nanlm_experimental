@@ -127,7 +127,10 @@ def evaluate80(run,args,raw,surface,core,scale,bank,net,ancestry,contexts,gate,c
                     # Diagnostic only: isolate word ranking before/after
                     # the inherited raw/lexical Bayesian mixture.
                     for nm,weight in [('raw',0.),('lexical',1.)]:
-                        rr,cert0,_=FE.Event(law,raw,prefix,surface,weight).rank(budget=1200)
+                        audit_event=FE.Event(law,raw,prefix,surface,0.)
+                        # Pure lexical is legal for ranking, not for the full-support byte decoder.
+                        audit_event.weight=weight
+                        rr,cert0,_=audit_event.rank(budget=1200)
                         z[nm+'_certified']+=int(cert0)
                         z[nm+'_t1']+=int(cert0 and target==rr[0])
                         z[nm+'_t5']+=int(cert0 and target in rr)
