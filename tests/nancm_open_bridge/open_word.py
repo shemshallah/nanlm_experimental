@@ -44,15 +44,19 @@ class Lift:
     def __init__(self,outside,p):
         self.outside=outside;self.words=outside.words;p=np.asarray(p,np.float64)
         assert p.shape==(len(self.words)+1,) and np.isfinite(p).all() and p.min()>=0 and abs(math.fsum(p)-1)<1e-8
-        p=p/math.fsum(p);self.unknown=float(p[0]);self.p=p[1:].copy();self.cum=np.r_[0.,np.cumsum(self.p)]
+        p=p/math.fsum(p);self.unknown=float(p[0]);self.p=p[1:].copy();self.prefix_cache={}
     def complete(self,w):
         i=bisect.bisect_left(self.words,w)
         return float(self.p[i]) if i<len(self.words) and self.words[i]==w else self.unknown*self.outside.complete(w)
     def mass(self,p):
         if not p:return 1.
-        a=bisect.bisect_left(self.words,p);b=bisect.bisect_left(self.words,p+'{');m=float(self.cum[b]-self.cum[a])
-        if m<1e-10:m=math.fsum(self.p[a:b])
-        return m+self.unknown*self.outside.mass(p)
+        if p in self.prefix_cache:return self.prefix_cache[p]
+        a=bisect.bisect_left(self.words,p);b=bisect.bisect_left(self.words,p+'{')
+        # Never subtract cumulative totals: even a 1e-9 interval near one
+        # can have >1e-8 relative error. All summands nonnegative.
+        m=math.fsum(self.p[a:b])+self.unknown*self.outside.mass(p)
+        if len(self.prefix_cache)<32768:self.prefix_cache[p]=m
+        return m
 class Blend:
     def __init__(self,parent,child,g):self.parent=parent;self.child=child;self.g=float(g)
     def mass(self,p):return (1-self.g)*self.parent.mass(p)+self.g*self.child.mass(p)

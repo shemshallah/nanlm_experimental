@@ -83,7 +83,7 @@ class Event:
                 m=b*self.word.mass(s+chr(c))/den;case=self.surface.letter(p,c)
                 q[c]+=m*case[0];q[c-32]+=m*case[1]
             if p:q+=b*self.word.complete(s)/den*self.surface.delimiter(p)
-        q/=(a+b);assert abs(q.sum()-1)<1e-8 and q.min()>0
+        q/=(a+b);assert abs(q.sum()-1)<1e-8 and q.min()>0,(p,float(q.sum()),float(q.min()),float(a),float(b),type(self.word).__name__)
         return q
     def tokens(self,p,split=frozenset(b' etaoinr')):
         q=self.next(p);out={}

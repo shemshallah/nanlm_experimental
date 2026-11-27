@@ -1,4 +1,4 @@
-name: NaNCM v58 open-vocabulary bridge and recurrent integration
+name: NaNCM v59 stable open vocabulary and recurrent integration
 on:
   push:
     branches: [nancm-structural-base]
@@ -60,9 +60,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh run download 45921654373 -R ${{ github.repository }} -n clean-backoff-diagnostic -D screen
       - name: Exact open-vocabulary and folded-event preflight
-        run: PYTHONPATH=tests/nancm_folded python tests/nancm_open_bridge/test_open.py
+        run: |
+          PYTHONPATH=tests/nancm_folded python tests/nancm_open_bridge/test_open.py
+          python tests/nancm_open_bridge/test_skew.py
       - name: Full vocabulary folded word-byte-token corpus bridge
-        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_open_bridge/pilot58.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --out results/bridge.json
+        id: folded_bridge
+        continue-on-error: true
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_open_bridge/pilot59.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --out results/bridge.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,9 +105,17 @@ jobs:
           gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
           mkdir -p results
       - name: Actual v37 native recurrent literal event integration
-        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_open_bridge/pilot58.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --lib nancm_structural/libsigned.so --parent recurrent_parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --native --out results/native.json
+        id: native_bridge
+        continue-on-error: true
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_open_bridge/pilot59.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --lib nancm_structural/libsigned.so --parent recurrent_parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --native --out results/native.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: recurrent-open-bridge
           path: results/native.json
+      - name: Require both integration stages
+        if: always()
+        run: |
+          echo "folded=${{ steps.folded_bridge.outcome }} native=${{ steps.native_bridge.outcome }}"
+          test "${{ steps.folded_bridge.outcome }}" = success
+          test "${{ steps.native_bridge.outcome }}" = success
