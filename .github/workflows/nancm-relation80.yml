@@ -9,7 +9,7 @@ permissions:
   actions: read
 concurrency:
   group: nancm-relation80
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   scout:
     runs-on: ubuntu-latest
