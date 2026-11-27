@@ -7,7 +7,7 @@ from torch import nn
 from trajectory69 import Sparse
 
 def words(root):
-    return tuple(x.decode('ascii').lower() for x in re.findall(rb'[A-Za-z]+',root))
+    return tuple(x.decode('ascii').lower() for x in re.findall(rb'[A-Za-z]+(?=[^A-Za-z])',root))
 
 def normalize(d):
     z=math.fsum(d.values())
