@@ -1,0 +1,125 @@
+name: NaNCM v68 native signed successor transport
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_rank_audit/transport68.py', 'tests/nancm_rank_audit/pilot68_native.py', '.github/workflows/nancm-native-transport.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-native-transport
+  cancel-in-progress: false
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python tests/nancm_crossfit/test_crossfit.py
+          python -m py_compile tests/nancm_crossfit/pilot51.py
+      - name: Download actual public corpus releases and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/{lex,stories,sentences,paragraphs}
+          get_archive() {
+            local dir="$1" tag="$2" asset="$3" sum="$4"
+            (
+              cd "data/$dir"
+              local base="https://github.com/shemshallah/NaNROUTER/releases/download/$tag"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$asset" -o "$asset"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$sum" -o "$sum"
+              sha256sum -c "$sum"
+              tar --zstd -xf "$asset"
+              rm "$asset"
+            )
+          }
+          get_archive lex wordlist-google-10000-english google-10000-english.tar.zst google-10000-english.SHA256SUMS
+          get_archive stories corpora-short-stories-0001 short_stories-0001.tar.zst short_stories-0001.SHA256SUMS
+          get_archive sentences corpora-sentences-0001 sentences-0001.tar.zst sentences-0001.SHA256SUMS
+          get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
+      - name: Recover completed v50 checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45914210629 -R ${{ github.repository }} -n hierarchical-field-diagnostic -D parent
+      - name: Recover completed v53 memory credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45916534576 -R ${{ github.repository }} -n analogy-cooperative-diagnostic -D analogy
+      - name: Recover completed v55 contrastive credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45919146461 -R ${{ github.repository }} -n contrastive-cooperative-diagnostic -D contrast
+      - name: Recover exact v57 screened manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45921654373 -R ${{ github.repository }} -n clean-backoff-diagnostic -D screen
+      - name: Exact open-vocabulary and folded-event preflight
+        run: |
+          PYTHONPATH=tests/nancm_folded python tests/nancm_open_bridge/test_open.py
+          python tests/nancm_open_bridge/test_skew.py
+      - name: Full-history prefix memo and exhaustive rank preflight
+        run: python tests/nancm_native_stream/test_native_prefix.py
+      - name: Recover verified v59 native replay metrics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45927769016 -R ${{ github.repository }} -n recurrent-open-bridge -D native_baseline
+      - name: Recover verified v61 temporal transition
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45928293939 -R ${{ github.repository }} -n transition-diagnostic -D transition
+      - name: Tighter native rank exhaustive preflight
+        run: PYTHONPATH=tests/nancm_native_stream python tests/nancm_rank_audit/test_tight_native.py
+      - name: Signed transport and syntax preflight
+        run: |
+          python tests/nancm_rank_audit/transport68.py
+          python -m py_compile tests/nancm_rank_audit/pilot68_native.py
+      - name: Recover completed v64 native rank audits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45931441739 -R ${{ github.repository }} -n native-stream-diagnostic -D native_stream
+      - name: Compile recurrent kernel
+        run: g++ -O3 -std=c++17 -shared -fPIC -fno-fast-math -ffp-contract=off nancm_structural/signed_solver.cpp -o nancm_structural/libsigned.so
+      - name: Recover completed immutable checkpoint chain once
+        id: prepare_native
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Respect the installation's primary API limit. No gh run watch.
+          read -r remaining reset <<< "$(gh api rate_limit --jq '[.resources.core.remaining,.resources.core.reset] | @tsv')"
+          if [ "$remaining" -lt 120 ]; then
+            delay=$((reset-$(date +%s)+10))
+            if [ "$delay" -gt 3600 ]; then echo "API reset exceeds bounded wait"; exit 1; fi
+            if [ "$delay" -gt 0 ]; then sleep "$delay"; fi
+          fi
+          gh run download 45894184906 -R ${{ github.repository }} -n structural-metrics -D recurrent_parent
+          gh run download 45895870940 -R ${{ github.repository }} -n structural-metrics -D recurrent
+          gh run download 45895935296 -R ${{ github.repository }} -n structural-metrics -D direct
+          gh run download 45896025621 -R ${{ github.repository }} -n structural-metrics -D dual
+          gh run download 45896486886 -R ${{ github.repository }} -n structural-metrics -D symbiotic
+          gh run download 45896650014 -R ${{ github.repository }} -n structural-metrics -D fusion
+          gh run download 45897647647 -R ${{ github.repository }} -n structural-metrics -D coordinate
+          gh run download 45898299393 -R ${{ github.repository }} -n structural-metrics -D temporal
+          gh run download 45899583988 -R ${{ github.repository }} -n structural-metrics -D relational
+          gh run download 45900374675 -R ${{ github.repository }} -n structural-metrics -D lexical
+          gh run download 45900657376 -R ${{ github.repository }} -n structural-metrics -D byte
+          gh run download 45903248640 -R ${{ github.repository }} -n structural-metrics -D subword
+          gh run download 45903532512 -R ${{ github.repository }} -n structural-metrics -D resonance
+          gh run download 45905463861 -R ${{ github.repository }} -n structural-metrics -D attractor
+          gh run download 45907255211 -R ${{ github.repository }} -n structural-metrics -D unified
+          mkdir -p results
+      - name: Calibrate signed transport and test matched native streams
+        id: native_bridge
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_rank_audit/pilot68_native.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --lib nancm_structural/libsigned.so --parent recurrent_parent/disposable-class-field.npz --recurrent recurrent/recurrent-class-field.npz --direct direct/direct-word-field.npz --dual dual/dual-word-field.npz --symbiotic symbiotic/symbiotic-word-field.npz --fusion fusion/fusion-word-field.npz --coordinate coordinate/coordinate-word-field.npz --temporal temporal/temporal-word-field.npz --relational relational/relational-word-field.npz --lexical lexical/lexical-geometry-field.npz --byte byte/raw-byte-field.npz --subword subword/subword-field.npz --resonance resonance/resonance-field.npz --attractor attractor/attractor-field.npz --unified unified/unified-field.npz --native --native-metrics native_baseline/native.json --transition transition/transition.pt --transition-metrics transition/transition.json --native-stream-metrics native_stream/native-stream.json --out results/native-transport.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-transport-diagnostic
+          path: results/native-rank.json
