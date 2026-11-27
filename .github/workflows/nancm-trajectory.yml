@@ -86,4 +86,4 @@ jobs:
         with:
           name: trajectory-diagnostic
           path: |
-            results/rank-audit.json
+            results/trajectory.json
