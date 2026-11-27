@@ -1,0 +1,63 @@
+name: NaNCM v51 leave-book-out cooperative learning
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_crossfit/**', '.github/workflows/nancm-crossfit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-crossfit
+  cancel-in-progress: false
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python tests/nancm_crossfit/test_crossfit.py
+          python -m py_compile tests/nancm_crossfit/pilot51.py
+      - name: Download actual public corpus releases and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/{lex,stories,sentences,paragraphs}
+          get_archive() {
+            local dir="$1" tag="$2" asset="$3" sum="$4"
+            (
+              cd "data/$dir"
+              local base="https://github.com/shemshallah/NaNROUTER/releases/download/$tag"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$asset" -o "$asset"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$sum" -o "$sum"
+              sha256sum -c "$sum"
+              tar --zstd -xf "$asset"
+              rm "$asset"
+            )
+          }
+          get_archive lex wordlist-google-10000-english google-10000-english.tar.zst google-10000-english.SHA256SUMS
+          get_archive stories corpora-short-stories-0001 short_stories-0001.tar.zst short_stories-0001.SHA256SUMS
+          get_archive sentences corpora-sentences-0001 sentences-0001.tar.zst sentences-0001.SHA256SUMS
+          get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
+      - name: Corpus crossfit audit (no checkpoint dependency)
+        if: github.event_name == 'push'
+        run: python -u tests/nancm_crossfit/pilot51.py --data data --out crossfit-metrics.json
+      - name: Recover completed v50 checkpoint
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45914210629 -R ${{ github.repository }} -n hierarchical-field-diagnostic -D parent
+      - name: Resume v50 optimizer on exact cross-fitted mixture likelihood
+        if: github.event_name == 'workflow_dispatch'
+        run: python -u tests/nancm_crossfit/pilot51.py --data data --checkpoint parent/hierarchical-metrics.pt --parent-metrics parent/hierarchical-metrics.json --out crossfit-metrics.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crossfit-cooperative-diagnostic
+          path: |
+            crossfit-metrics.json
+            crossfit-metrics.pt
