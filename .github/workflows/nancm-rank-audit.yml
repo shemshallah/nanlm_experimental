@@ -1,4 +1,4 @@
-name: NaNCM v66 certified rank bounds and word error audit
+name: NaNCM v67 deployed-likelihood replay and word error audit
 on:
   push:
     branches: [nancm-structural-base]
@@ -76,7 +76,7 @@ jobs:
       - name: Actual open-vocabulary bound preflight
         run: PYTHONPATH=tests/nancm_open_bridge:tests/nancm_folded python tests/nancm_rank_audit/test_bound.py
       - name: Matched v61 exact rank replay and word failure attribution
-        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_rank_audit/pilot66.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --transition transition/transition.pt --transition-metrics transition/transition.json --out results/rank-audit.json
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_rank_audit/pilot67.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --transition transition/transition.pt --transition-metrics transition/transition.json --out results/rank-audit.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
