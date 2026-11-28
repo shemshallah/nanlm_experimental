@@ -1,0 +1,43 @@
+name: NaNCM v106 natural answer and replay audit
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_natural_audit106/**', '.github/workflows/nancm-natural-audit106.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-natural-audit106
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99:tests/nancm_chat100:tests/nancm_chat103:tests/nancm_chat106
+      OMP_NUM_THREADS: '4'
+      OPENBLAS_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies and verify lexical metrics
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python tests/nancm_natural_audit106/audit106.py --selftest
+      - name: Recover exact original v104 and v106 checkpoints
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          timeout 90m gh run watch 46177595715 -R "${{ github.repository }}" --exit-status --interval 20
+          gh run download 46175095454 -R "${{ github.repository }}" -n chat104-checkpoint-and-recovery-generation -D v104
+          gh run download 46177595715 -R "${{ github.repository }}" -n chat106-checkpoint-and-admission-generation -D v106
+          curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
+      - name: Replay archived output and test independent short answers
+        run: python -u tests/nancm_natural_audit106/audit106.py --v104 v104/chat104.pt --v104-metrics v104/chat104.json --v106 v106/chat106.pt --v106-metrics v106/chat106.json --data dolly.jsonl --out results/natural106.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural106-answer-audit
+          path: results/natural106.json
+          if-no-files-found: error
