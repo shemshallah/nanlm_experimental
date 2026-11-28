@@ -2,7 +2,7 @@
   "architecture_baseline": "v86",
   "architecture_commit": "ae7d4ac7625ee44087413749ae6693db74deb351",
   "fit_integrity_commit": "02f3571bbe09dbe8a2be95f5153f7acaaa21eb53",
-  "promotion_scope": "User-authorized development promotion of the v86 integrated architecture; v81 is the verified active word-accuracy checkpoint pending the v86 benchmark. Production certification is not asserted. Preserve v78 rollback and all optimizer histories.",
+  "promotion_scope": "User-authorized v86 development promotion; completed combined checkpoint improves over v81 in all three BPB domains and aggregate word accuracy. Historical v79 replay drift blocks production certification.",
   "verified_parent": {
     "version": "v37",
     "commit": "803a70a1369cc60e574fa5d0669135754f0feb35",
@@ -24,7 +24,7 @@
     "dev_expanded160": 1070,
     "scout_weights_accepted": false
   },
-  "next": "v87 joint causal sequence optimization of v86 contextual allocation and v81 conditional gate, resume both optimizers; use selected v86 calibration arm if certified, preserve rollback otherwise.",
+  "next": "v87 joint optimizer continuation and v88 signed candidate evidence diagnostic; no replacement without matched corpus gains and preserve ancestry.",
   "previous_architecture_baseline": {
     "version": "v59",
     "commit": "e4b955d2990179296965c1b684dc397511387189"
@@ -50,6 +50,52 @@
     }
   },
   "active_development_checkpoint": {
+    "version": "v86",
+    "run": 46088656440,
+    "artifact_id": 15240960984,
+    "artifact_name": "integrate86-diagnostic",
+    "artifact_sha256": "1abf01838a74d9408d928f5516069829b53024d7c6b48a7e07eae1c5a044d04a",
+    "checkpoint": "integrate86.pt",
+    "calibration_arm": [
+      "exact",
+      1,
+      1
+    ],
+    "certified_words": 1279,
+    "word_top1_hits": 223,
+    "word_top5_hits": 392,
+    "bpb": {
+      "stories": 2.572769533866821,
+      "sentences": 2.386426981125355,
+      "paragraphs": 2.8838199744872375
+    },
+    "strict_historical_replay": false,
+    "strict_v78_v81_replay": true,
+    "v79_max_abs_replay_delta": 6.324901926646476e-7,
+    "development_only": true
+  },
+  "v79": {
+    "run": 46080380743,
+    "artifact_name": "escape79-diagnostic",
+    "reference_words": 6247065,
+    "optimizer_steps": 512,
+    "word_top1_hits": 210,
+    "word_top5_hits": 365,
+    "strict_historical_replay": false,
+    "retained_for_integration": true
+  },
+  "v86": {
+    "run": 46088656440,
+    "status": "completed",
+    "production_promotion": false
+  },
+  "rollback": {
+    "version": "v78",
+    "run": 46062821887,
+    "artifact_name": "address78-diagnostic",
+    "checkpoint_sha256": "bbdfccb7e9d8c2e3c9ea859f177254695cf37e97d7d1eb9de9124bdeebc703e3"
+  },
+  "previous_development_checkpoint": {
     "version": "v81",
     "run": 46083349364,
     "artifact_id": 15239167355,
@@ -69,25 +115,9 @@
     },
     "known_tradeoff": "Stories and paragraphs BPB regress versus v78; user-authorized word-accuracy development promotion only."
   },
-  "v79": {
-    "run": 46080380743,
-    "artifact_name": "escape79-diagnostic",
-    "reference_words": 6247065,
-    "optimizer_steps": 512,
-    "word_top1_hits": 210,
-    "word_top5_hits": 365,
-    "strict_historical_replay": false,
-    "retained_for_integration": true
-  },
-  "v86": {
-    "run": 46088656440,
-    "status_at_promotion": "in_progress",
-    "production_promotion": false
-  },
-  "rollback": {
-    "version": "v78",
-    "run": 46062821887,
-    "artifact_name": "address78-diagnostic",
-    "checkpoint_sha256": "bbdfccb7e9d8c2e3c9ea859f177254695cf37e97d7d1eb9de9124bdeebc703e3"
+  "v85": {
+    "run": 46088622226,
+    "parity": true,
+    "paired_speedup": 1.1952045033232868
   }
 }
