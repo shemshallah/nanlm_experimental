@@ -37,7 +37,7 @@ def main():
     for k in keys:ap.add_argument('--'+k,type=pathlib.Path)
     ap.add_argument('--prompt',type=str);ap.add_argument('--max-bytes',type=int,default=96)
     ap.add_argument('--chat-steps',type=int,default=768);ap.add_argument('--v96',type=pathlib.Path,required=True);ap.add_argument('--v96-metrics',type=pathlib.Path,required=True)
-    for k in ('v97','v99','v99-metrics'):ap.add_argument('--'+k,type=pathlib.Path,required=True)
+    for k in ('chat-data','v97','v99','v99-metrics'):ap.add_argument('--'+k,type=pathlib.Path,required=True)
     a=ap.parse_args();torch.set_num_threads(4)
     groups={k:B.bookfiles(a.data/k) for k in ('stories','sentences','paragraphs')};split=lambda i:int(B.digest('NaNCM-structural-v1:'+i)[:8],16)%10
     books=[(i,p) for i,p in groups['stories'] if split(i)<7];tr=books[:96];calbooks=books[96:108];extra=books[108:396];assert len(extra)==288

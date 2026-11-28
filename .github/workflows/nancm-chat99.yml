@@ -33,9 +33,16 @@ jobs:
         run: |
           gh run download 46166514016 -R ${{ github.repository }} -n chat97-checkpoint-and-generation -D v97
           curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
-      - name: Resume v97 AdamW state and learn signed transport
+      - name: Verify integration argument contract
         run: |
-          PYTHONPATH=tests/nancm_chat96:tests/nancm_chat97 OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_chat99/train99.py --parent v97/chat97.pt --parent-metrics v97/chat97.json --data dolly.jsonl --steps 512 --out results/chat99.json
+          python tests/nancm_chat99/pilot99.py --help | grep -- --chat-data
+      - name: Recover trained v99 without repeating training
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46169634494 -R ${{ github.repository }} -n chat99-checkpoint-and-grounding -D results
+          test -s results/chat99.pt && test -s results/chat99.json
+          sha256sum results/chat99.pt results/chat99.json
       - uses: actions/upload-artifact@v4
         with:
           name: chat99-checkpoint-and-grounding
