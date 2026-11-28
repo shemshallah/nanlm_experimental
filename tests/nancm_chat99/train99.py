@@ -134,10 +134,20 @@ def main():
     for group in opt.param_groups: group['lr']=.0005
     fresh=[params[n] for n in missing.missing_keys]
     opt.add_param_group({'params':fresh,'lr':.002,'weight_decay':.01})
+    # Compare identical inference execution modes. PyTorch can select a
+    # different fused GRU kernel for a trainable model in training mode.
+    for name,tensor in parent.state_dict().items():
+        assert torch.equal(tensor,model.state_dict()[name]),name
+    model.eval().requires_grad_(False)
     model.scale99=0.
     with torch.no_grad():
-        x,y,p=batch(human[:4]);assert torch.equal(model(x,p),parent(x,p))
+        x,y,p=batch(human[:4])
+        inherited=model(x,p);expected=parent(x,p)
+        delta=float((inherited-expected).abs().max())
+        print('CHAT99_INHERITANCE '+json.dumps({'bitwise':torch.equal(inherited,expected),'max_abs_logit_delta':delta}),flush=True)
+        assert torch.equal(inherited,expected),delta
     model.scale99=1.
+    model.requires_grad_(True)
     baseline=evaluate(parent,human,probe,True)
     trace=[{'step':0,**evaluate(model,human,probe)}]
     rng=np.random.default_rng(9906)
