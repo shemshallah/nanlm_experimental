@@ -1,0 +1,25 @@
+name: NaNCM v100 persistent signed intention preflight
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_chat100/**', '.github/workflows/nancm-chat100.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  invariant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify inherited and persistent signed intention invariants
+        env:
+          PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99
+          OMP_NUM_THREADS: '2'
+        run: |
+          python tests/nancm_chat99/field99.py
+          python tests/nancm_chat100/field100.py
