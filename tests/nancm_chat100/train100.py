@@ -16,6 +16,7 @@ from field97 import nll
 from field99 import Chat99
 from field100 import Chat100
 from train99 import paired, flatten, crossed, evaluate, digest
+from invariance100 import make_groups, paired_views, equivalence_loss, selftest as invariant_selftest
 
 def ordered_pairs(n,seed,heldout):
     rng=np.random.default_rng(seed)
@@ -69,7 +70,7 @@ def main():
     ap.add_argument('--selftest',action='store_true')
     a=ap.parse_args()
     if a.selftest:
-        selftest();return
+        selftest();invariant_selftest();return
     if any(getattr(a,k) is None for k in ('parent','parent_metrics','parent_integration','data','out')) or a.steps<=0:
         ap.error('all checkpoint, metric, integration, corpus and output paths plus positive steps required')
     torch.set_num_threads(4);torch.manual_seed(10001)
@@ -101,6 +102,10 @@ def main():
     new_train=ordered_pairs(2048,10004,False)
     new_probe=ordered_pairs(64,10005,True)
     assert not values(new_train)&values(new_probe)
+    exclude={v.decode() for v in values(new_train+new_probe)} | {r[1][:-1].decode() for r in flatten(old_train+old_probe)}
+    eq_train,et=make_groups(2048,10021,exclude=exclude)
+    eq_probe,ep=make_groups(48,10022,True,exclude=exclude|et)
+    assert not et&ep and not (et|ep)&exclude
     parent=Chat99().eval().requires_grad_(False)
     parent.load_state_dict(ck['chat99'])
     model=Chat100().eval().requires_grad_(False)
@@ -128,8 +133,18 @@ def main():
     model.scale100=1.
     with torch.no_grad():assert torch.equal(model(x,p),parent(x,p))
     def measure(m,generation=False):
+        eq=evaluate(m,human,paired_views(eq_probe),generation)
+        if generation:
+            categories={r[0].decode():r[3] for g in eq_probe for r in g}
+            by_form={}
+            for row in eq['responses']:
+                name=categories[row['prompt']]
+                stats=by_form.setdefault(name,{'exact':0,'total':0})
+                stats['exact']+=int(row['exact']);stats['total']+=1
+            eq['by_unseen_form']=by_form
         return {'ordered':evaluate(m,human,new_probe,generation),
-                'retention':evaluate(m,human,old_probe,generation)}
+                'retention':evaluate(m,human,old_probe,generation),
+                'unseen_wording':eq}
     baseline=measure(parent,True)
     trace=[{'step':0,**measure(model)}]
     model.requires_grad_(True)
@@ -137,13 +152,16 @@ def main():
     for i in range(a.steps):
         model.train()
         pp=[old_train[int(rng.integers(len(old_train)))],new_train[int(rng.integers(len(new_train)))]]
+        gg=[eq_train[int(rng.integers(len(eq_train)))]]
+        pp.extend(paired_views(gg))
         good=flatten(pp)
         rows=[train[j] for j in rng.choice(len(train),12,replace=False)]+good
         x,y,p=batch(rows)
         opt.zero_grad(set_to_none=True)
         ce=F.cross_entropy(model(x,p).transpose(1,2),y,ignore_index=-100)
         right,_=nll(model,good);wrong,_=nll(model,crossed(pp))
-        loss=ce+.3*F.softplus(.4+right-wrong).mean()+.2*right.mean()
+        js=equivalence_loss(model,gg)
+        loss=ce+.3*F.softplus(.4+right-wrong).mean()+.2*right.mean()+.25*js
         if not torch.isfinite(loss):raise FloatingPointError('nonfinite loss')
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(),1.,error_if_nonfinite=True)
@@ -165,7 +183,8 @@ def main():
                 'data_sha256':manifest['sha256']},a.out.with_suffix('.pt'))
     result={'report_stage':'final','parent_sha256':sha,'baseline':baseline,
             'enabled':final,'disabled_after_training':ablation,'trace':trace,'steps':a.steps,
-            'promotion':False,'scope':'chat field; requires matched full-system generation before promotion'}
+            'promotion':False,'equivalence_train_groups':len(eq_train),'unseen_wording_groups':len(eq_probe),
+            'equivalence_weight':.25,'scope':'chat field; requires matched full-system generation before promotion'}
     a.out.write_text(json.dumps(result,indent=2,allow_nan=False))
     print('CHAT100_FINAL '+json.dumps({k:{m:{i:j for i,j in v.items() if i!='responses'} for m,v in result[k].items()} for k in ('baseline','enabled','disabled_after_training')}),flush=True)
 
