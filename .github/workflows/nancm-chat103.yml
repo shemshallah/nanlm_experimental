@@ -1,0 +1,49 @@
+name: NaNCM v103 supervised prompt-address continuation
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_chat103/**', '.github/workflows/nancm-chat103.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-chat103
+  cancel-in-progress: false
+jobs:
+  continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99:tests/nancm_chat100
+      OMP_NUM_THREADS: '4'
+      OPENBLAS_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify source-address isolation and inherited recurrence
+        run: |
+          python tests/nancm_chat100/field100.py
+          python tests/nancm_chat103/field103.py
+          python tests/nancm_chat103/train103.py --selftest
+          python -m py_compile tests/nancm_chat103/train103.py
+      - name: Recover exact experimental v100 checkpoint and instruction corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh run view 46170212626 -R "${{ github.repository }}" --json conclusion --jq .conclusion)" = success
+          gh run download 46170212626 -R "${{ github.repository }}" -n chat100-checkpoint-and-ordered-generation -D v100
+          curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
+      - name: Continue all inherited AdamW groups with source alignment
+        run: python -u tests/nancm_chat103/train103.py --parent v100/chat100.pt --parent-metrics v100/chat100.json --data dolly.jsonl --steps 512 --out results/chat103.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chat103-checkpoint-and-address-generation
+          path: |
+            results/chat103.json
+            results/chat103.pt
+          if-no-files-found: error
