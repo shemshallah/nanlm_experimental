@@ -33,7 +33,7 @@ jobs:
           python -m py_compile tests/nancm_chat100/train100.py
   continuation:
     needs: invariant
-    if: github.event_name == 'workflow_dispatch' && inputs.parent_run != ''
+    if: (github.event_name == 'workflow_dispatch' && inputs.parent_run != '') || (github.event_name == 'push' && contains(github.event.head_commit.message, 'launch gated v100'))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -45,10 +45,11 @@ jobs:
       - name: Recover completed benchmark and exact v99 checkpoint
         env:
           GH_TOKEN: ${{ github.token }}
-          PARENT_RUN: ${{ inputs.parent_run }}
+          PARENT_RUN: ${{ inputs.parent_run || '46170129179' }}
         run: |
           set -euo pipefail
           [[ "$PARENT_RUN" =~ ^[0-9]+$ ]]
+          timeout 30m gh run watch "$PARENT_RUN" -R "${{ github.repository }}" --exit-status --interval 20
           test "$(gh run view "$PARENT_RUN" -R "${{ github.repository }}" --json conclusion --jq .conclusion)" = success
           gh run download "$PARENT_RUN" -R "${{ github.repository }}" -n chat99-checkpoint-and-grounding -D v99
           gh run download "$PARENT_RUN" -R "${{ github.repository }}" -n integrate99-generation-report -D integration
