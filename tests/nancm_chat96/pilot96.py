@@ -233,8 +233,8 @@ def main():
             x=generate96(factory(),chat,prompt.decode(),len(answer),9601,0.,g,answer)
             bits+=x['sampled_mean_bits']*x['bytes'];n+=x['bytes']
         scores[str(g)]=bits/n
-    selected=float(min(scores,key=scores.get))
-    out['chat_calibration']={'records':len(cal),'response_bpb':scores,'selected_chat_gain':selected}
+    selected=float(min((k for k in scores if float(k)<=.9),key=scores.get))
+    out['chat_calibration']={'records':len(cal),'response_bpb':scores,'selected_chat_gain':selected,'unrestricted_best_gain':float(min(scores,key=scores.get))}
     write_metrics(a.out,out,'chat_calibration')
     out['generation']={'results':[],'selected_chat_gain':selected}
     prompts=[('custom',a.prompt)] if a.prompt is not None else PROMPTS+[(f'heldout_{i}',dev[j][0].decode()) for i,j in enumerate(order[4:6])]
