@@ -72,7 +72,7 @@ def selftest():
     class E:
         def next(self,p):
             q=np.zeros(256);q[ord('a') if not p else ord(' ')]=1.;return q
-        def done(self,p):return bool(p and p[-1]==32)
+        def done(self,p):return bool(p and (not FE.IS_LETTER[p[-1]] or len(p)>=64))
     class F:
         def __init__(self):self.roots=[];self.observed=[]
         def build(self,root):self.roots.append(root);return E()
