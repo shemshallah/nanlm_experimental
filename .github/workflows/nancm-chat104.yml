@@ -1,0 +1,51 @@
+name: NaNCM v104 on-policy conversational recovery
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_chat104/**', '.github/workflows/nancm-chat104.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-chat104
+  cancel-in-progress: false
+jobs:
+  continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99:tests/nancm_chat100:tests/nancm_chat103
+      OMP_NUM_THREADS: '4'
+      OPENBLAS_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify source-address isolation and inherited recurrence
+        run: |
+          python tests/nancm_chat100/field100.py
+          python tests/nancm_chat103/field103.py
+          python tests/nancm_chat104/recovery104.py
+          python tests/nancm_chat104/train104.py --selftest
+          python -m py_compile tests/nancm_chat104/train104.py
+      - name: Recover exact v103 checkpoint after completed training
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          timeout 45m gh run watch 46174917395 -R "${{ github.repository }}" --exit-status --interval 20
+          test "$(gh run view 46174917395 -R "${{ github.repository }}" --json conclusion --jq .conclusion)" = success
+          gh run download 46174917395 -R "${{ github.repository }}" -n chat103-checkpoint-and-address-generation -D v103
+          curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
+      - name: Continue all five AdamW groups with causal on-policy recovery
+        run: python -u tests/nancm_chat104/train104.py --parent v103/chat103.pt --parent-metrics v103/chat103.json --data dolly.jsonl --steps 256 --out results/chat104.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chat104-checkpoint-and-recovery-generation
+          path: |
+            results/chat104.json
+            results/chat104.pt
+          if-no-files-found: error
