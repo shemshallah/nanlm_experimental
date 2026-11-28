@@ -1,0 +1,153 @@
+name: NaNCM v98 transactional generation escape
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_decode98/**', '.github/workflows/nancm-decode98.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-decode98
+  cancel-in-progress: false
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python tests/nancm_crossfit/test_crossfit.py
+          python -m py_compile tests/nancm_crossfit/pilot51.py
+      - name: Download actual public corpus releases and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/{lex,stories,sentences,paragraphs}
+          get_archive() {
+            local dir="$1" tag="$2" asset="$3" sum="$4"
+            (
+              cd "data/$dir"
+              local base="https://github.com/shemshallah/NaNROUTER/releases/download/$tag"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$asset" -o "$asset"
+              curl --fail --location --retry 3 --retry-delay 5 "$base/$sum" -o "$sum"
+              sha256sum -c "$sum"
+              tar --zstd -xf "$asset"
+              rm "$asset"
+            )
+          }
+          get_archive lex wordlist-google-10000-english google-10000-english.tar.zst google-10000-english.SHA256SUMS
+          get_archive stories corpora-short-stories-0001 short_stories-0001.tar.zst short_stories-0001.SHA256SUMS
+          get_archive sentences corpora-sentences-0001 sentences-0001.tar.zst sentences-0001.SHA256SUMS
+          get_archive paragraphs corpora-paragraphs-0001 paragraphs-0001.tar.zst paragraphs-0001.SHA256SUMS
+      - name: Recover completed v50 checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45914210629 -R ${{ github.repository }} -n hierarchical-field-diagnostic -D parent
+      - name: Recover completed v53 memory credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45916534576 -R ${{ github.repository }} -n analogy-cooperative-diagnostic -D analogy
+      - name: Recover completed v55 contrastive credit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45919146461 -R ${{ github.repository }} -n contrastive-cooperative-diagnostic -D contrast
+      - name: Recover exact v57 screened manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45921654373 -R ${{ github.repository }} -n clean-backoff-diagnostic -D screen
+      - name: Exact open-vocabulary and folded-event preflight
+        run: |
+          PYTHONPATH=tests/nancm_folded python tests/nancm_open_bridge/test_open.py
+          python tests/nancm_open_bridge/test_skew.py
+      - name: Bayesian switching exact path-enumeration preflight
+        run: python tests/nancm_switching/test_switch.py
+      - name: Differentiable conserved event credit preflight
+        run: PYTHONPATH=tests/nancm_switching python tests/nancm_geometric_credit/test_credit.py
+      - name: Recover completed v61 trained transition and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45928293939 -R ${{ github.repository }} -n transition-diagnostic -D transition
+      - name: Exact joint gradient and chunk-continuation preflight
+        run: PYTHONPATH=tests/nancm_transition:tests/nancm_geometric_credit python tests/nancm_joint/test_joint.py
+      - name: Actual open-vocabulary bound preflight
+        run: PYTHONPATH=tests/nancm_open_bridge:tests/nancm_folded python tests/nancm_rank_audit/test_bound.py
+      - name: Recover completed v71 discriminator and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46034606077 -R ${{ github.repository }} -n discriminative71-diagnostic -D v71
+      - name: Recover completed v72 generator and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46038828985 -R ${{ github.repository }} -n generator72-diagnostic -D v72
+      - name: Recover retained experimental v73 checkpoint (failed strict replay)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46039182116 -R ${{ github.repository }} -n reconcile73-diagnostic -D v73
+      - name: Recover completed v74 generator, memory and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46051838161 -R ${{ github.repository }} -n persistent74-diagnostic -D v74
+      - name: Recover completed v75 joint field and optimizer history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46052067890 -R ${{ github.repository }} -n joint75-diagnostic -D v75
+      - name: Recover completed v76 context gate and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46055990166 -R ${{ github.repository }} -n context76-diagnostic -D v76
+      - name: Signed address exact hierarchical likelihood preflight
+        run: python tests/nancm_address78/field78.py
+      - name: Recover completed v77 competition and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46060504299 -R ${{ github.repository }} -n competition77-diagnostic -D v77
+      - name: Recover completed v78 signed address and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46062821887 -R ${{ github.repository }} -n address78-diagnostic -D v78
+      - name: Recover completed v79 and v81 checkpoints and optimizer histories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46080380743 -R ${{ github.repository }} -n escape79-diagnostic -D v79
+          gh run download 46083349364 -R ${{ github.repository }} -n hurdle81-diagnostic -D v81
+      - name: Transactional event retry preflight
+        run: python tests/nancm_decode98/field98.py
+      - name: Recover promoted v86 combined checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 46088656440 -R ${{ github.repository }} -n integrate86-diagnostic -D v86
+      - name: Recover v88 trained signed field and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46092572487 -R ${{ github.repository }} -n signed88-diagnostic -D v88
+      - name: Recover v94 trained continuation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46097571614 -R ${{ github.repository }} -n trust94-diagnostic -D v94
+      - name: Conditional word boundary probability preflight
+        run: PYTHONPATH=tests/nancm_folded:tests/nancm_trajectory python tests/nancm_hurdle81/field81.py
+      - name: Candidate competition exact open-law preflight
+        run: |
+          PYTHONPATH=tests/nancm_trajectory70:tests/nancm_trajectory:tests/nancm_open_bridge python tests/nancm_competition77/field77.py
+          python -m py_compile tests/nancm_decode98/pilot98.py
+      - name: Recover completed v96 conversational field and optimizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 46105827511 -R ${{ github.repository }} -n chat96-checkpoint-and-generation -D v96
+      - name: Compare unchanged v96 autoregressive generation with bounded event retries
+        run: OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 python -u tests/nancm_decode98/pilot98.py --data data --checkpoint parent/hierarchical-metrics.pt --analogy analogy/analogy-metrics.pt --contrast contrast/contrastive-metrics.pt --screen screen/clean-backoff-metrics.json --transition transition/transition.pt --transition-metrics transition/transition.json --v71 v71/discriminative71.pt --v71-metrics v71/discriminative71.json --v72 v72/generator72.pt --v72-metrics v72/generator72.json --v73 v73/reconcile73.pt --v73-metrics v73/reconcile73.json --v74 v74/persistent74.pt --v74-metrics v74/persistent74.json --v75 v75/joint75.pt --v75-metrics v75/joint75.json --v76 v76/context76.pt --v76-metrics v76/context76.json --v77 v77/competition77.pt --v77-metrics v77/competition77.json --v78 v78/address78.pt --v78-metrics v78/address78.json --v79 v79/escape79.pt --v79-metrics v79/escape79.json --v81 v81/hurdle81.pt --v81-metrics v81/hurdle81.json --v86 v86/integrate86.pt --v86-metrics v86/integrate86.json --v88 v88/signed88.pt --v88-metrics v88/signed88.json --v94 v94/trust94.pt --v94-metrics v94/trust94.json --v96 v96/chat96.pt --v96-metrics v96/chat96.json --max-bytes 128 --out results/decode98.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decode98-generation-report
+          path: |
+            results/decode98.json
