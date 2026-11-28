@@ -28,7 +28,7 @@ def compiler_from_flat(compiler,a,b,g):
 def evaluate85(run,args,raw,surface,core,scale,bank,net,ancestry,contexts,gate,competition,oldgain,address,optimized=False,audit=False):
     gen,bridge,memory,coupler=ancestry;session=Session(bank);mem=Runtime(gen,memory,bank.ids)
     arms={'selected':('full',0.)};states={k:core.runtime(scale) for k in arms};prev={k:None for k in arms};metrics=C.defaultdict(C.Counter)
-    last=None;previous=None;books={};compiler=Compiler(args[8]);maxerr=0.;timing=C.Counter();startick=time.perf_counter()
+    last=None;previous=None;books={};compiler=Compiler(args[8]);maxerr=0.;timing=C.Counter();start=time.perf_counter()
     for row in rows58([],7604,0,*args,raw=run):
         bid,prefix,event,a,b,_=row
         if bid!=last:
