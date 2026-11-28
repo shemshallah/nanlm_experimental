@@ -4,6 +4,7 @@ root=pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(root/'tests/nancm_integrate86'))
 from pilot86 import *
 from field88 import Field88,features88,apply88,objective88
+from field70 import words
 
 def candidates88(prefix,pool,ls,mode):
     # Retain the existing causal candidate union, with bounded donor additions.
