@@ -1,0 +1,52 @@
+name: NaNCM v106 contextual source admission
+on:
+  push:
+    branches: [nancm-structural-base]
+    paths: ['tests/nancm_chat106/**', '.github/workflows/nancm-chat106.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nancm-chat106
+  cancel-in-progress: false
+jobs:
+  continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99:tests/nancm_chat100:tests/nancm_chat103:tests/nancm_chat104
+      OMP_NUM_THREADS: '4'
+      OPENBLAS_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU numerical dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Verify source-address isolation and inherited recurrence
+        run: |
+          python tests/nancm_chat100/field100.py
+          python tests/nancm_chat103/field103.py
+          python tests/nancm_chat104/recovery104.py
+          python tests/nancm_chat106/field106.py
+          python tests/nancm_chat106/train106.py --selftest
+          python -m py_compile tests/nancm_chat106/train106.py
+      - name: Recover exact v104 recovery checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          timeout 45m gh run watch 46175095454 -R "${{ github.repository }}" --exit-status --interval 20
+          test "$(gh run view 46175095454 -R "${{ github.repository }}" --json conclusion --jq .conclusion)" = success
+          gh run download 46175095454 -R "${{ github.repository }}" -n chat104-checkpoint-and-recovery-generation -D v104
+          curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
+      - name: Learn contextual admission while preserving five inherited optimizer groups
+        run: python -u tests/nancm_chat106/train106.py --parent v104/chat104.pt --parent-metrics v104/chat104.json --data dolly.jsonl --steps 384 --out results/chat106.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chat106-checkpoint-and-admission-generation
+          path: |
+            results/chat106.json
+            results/chat106.pt
+          if-no-files-found: error
