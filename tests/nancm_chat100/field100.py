@@ -44,7 +44,7 @@ class Chat100(Chat99):
         eligible = pos >= plen[:, None]
         base = self.decode99(h, previous, x, anchor,
                              self.memory(h, x, plen), eligible)
-        initial = self.initial100(anchor)
+        initial = .25 * self.initial100(anchor)
         # Pack response time relative to each prompt boundary, not absolute
         # sequence time. The initial goal is never advanced by prompt padding.
         length = x.shape[1] - int(plen.min())
@@ -69,7 +69,7 @@ class Chat100(Chat99):
         h, state = self.gru(self.embed(x))
         anchor = h[:,-1]
         memory = self.memory(h,x,torch.tensor([len(prompt)],device=x.device))
-        initial = self.initial100(anchor)
+        initial = .25 * self.initial100(anchor)
         base = self.decode99(h[:,-1:],h[:,-1:],x[:,-1:],anchor,memory,
                              torch.zeros_like(x[:,-1:],dtype=torch.bool))
         logits = base + self.correction100(initial.transpose(0,1),anchor)
