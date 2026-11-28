@@ -28,20 +28,20 @@ def compiler_from_flat(compiler,a,b,g):
 def evaluate85(run,args,raw,surface,core,scale,bank,net,ancestry,contexts,gate,competition,oldgain,address,optimized=False,audit=False):
     gen,bridge,memory,coupler=ancestry;session=Session(bank);mem=Runtime(gen,memory,bank.ids)
     arms={'selected':('full',0.)};states={k:core.runtime(scale) for k in arms};prev={k:None for k in arms};metrics=C.defaultdict(C.Counter)
-    last=None;previous=None;books={};compiler=Compiler(args[8]);maxerr=0.;timing=C.Counter();start=time.perf_counter()
+    last=None;previous=None;books={};compiler=Compiler(args[8]);maxerr=0.;timing=C.Counter();startick=time.perf_counter()
     for row in rows58([],7604,0,*args,raw=run):
         bid,prefix,event,a,b,_=row
         if bid!=last:
             session.reset();mem.reset()
             for k,s in states.items():s.reset();prev[k]=None
         else:assert prefix==previous
-        t=time.perf_counter()
+        tick=time.perf_counter()
         aa,bb,pool=parent81(prefix,a,b,args[0],bank,session,net,ancestry,mem,contexts,gate,competition,oldgain,address)
-        timing['lexical_prediction']+=time.perf_counter()-t
-        t=time.perf_counter()
+        timing['lexical_prediction']+=time.perf_counter()-tick
+        tick=time.perf_counter()
         if optimized:aa,bb=compiler(aa),compiler(bb)
-        timing['compilation']+=time.perf_counter()-t
-        t=time.perf_counter()
+        timing['compilation']+=time.perf_counter()-tick
+        tick=time.perf_counter()
         q=np.array([likelihood(row,raw,surface,False)[0],component_event(aa,raw,prefix,surface,event),component_event(bb,raw,prefix,surface,event)])
         target=event[:-1].lower().decode('ascii') if len(event)>1 and not FE.IS_LETTER[event[-1]] else None
         bm=books.setdefault(bid,C.defaultdict(C.Counter))
@@ -74,7 +74,7 @@ def evaluate85(run,args,raw,surface,core,scale,bank,net,ancestry,contexts,gate,c
                 code=RAW.encode(prefix,event,lambda h:e.next(h[len(prefix):]))
                 assert RAW.decode(prefix,code,len(event),lambda h:e.next(h[len(prefix):]))==event
                 z['codec_checks']+=1
-        timing['decoder_and_rank']+=time.perf_counter()-t
+        timing['decoder_and_rank']+=time.perf_counter()-tick
         last=bid;previous=prefix+event
     return {'timing':dict(timing,total=time.perf_counter()-start),'modes':{k:dict(v,bpb=v['bits']/v['bytes'],byte_top1=v['byte_t1']/v['bytes'],byte_top5=v['byte_t5']/v['bytes'],word_top1=v['word_t1']/max(1,v['words']),word_top5=v['word_t5']/max(1,v['words'])) for k,v in metrics.items()},'per_book':{b:{k:dict(v) for k,v in m.items()} for b,m in books.items()}}
 
