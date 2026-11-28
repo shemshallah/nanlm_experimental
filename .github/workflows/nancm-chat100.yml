@@ -4,8 +4,14 @@ on:
     branches: [nancm-structural-base]
     paths: ['tests/nancm_chat100/**', '.github/workflows/nancm-chat100.yml']
   workflow_dispatch:
+    inputs:
+      parent_run:
+        description: Completed, benchmarked v99 Actions run ID (optional)
+        type: string
+        required: false
 permissions:
   contents: read
+  actions: read
 jobs:
   invariant:
     runs-on: ubuntu-latest
@@ -23,3 +29,40 @@ jobs:
         run: |
           python tests/nancm_chat99/field99.py
           python tests/nancm_chat100/field100.py
+          python tests/nancm_chat100/train100.py --selftest
+          python -m py_compile tests/nancm_chat100/train100.py
+  continuation:
+    needs: invariant
+    if: github.event_name == 'workflow_dispatch' && inputs.parent_run != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Recover completed benchmark and exact v99 checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_RUN: ${{ inputs.parent_run }}
+        run: |
+          set -euo pipefail
+          [[ "$PARENT_RUN" =~ ^[0-9]+$ ]]
+          test "$(gh run view "$PARENT_RUN" -R "${{ github.repository }}" --json conclusion --jq .conclusion)" = success
+          gh run download "$PARENT_RUN" -R "${{ github.repository }}" -n chat99-checkpoint-and-grounding -D v99
+          gh run download "$PARENT_RUN" -R "${{ github.repository }}" -n integrate99-generation-report -D integration
+          curl --fail --location --retry 3 https://huggingface.co/datasets/databricks/databricks-dolly-15k/resolve/main/databricks-dolly-15k.jsonl -o dolly.jsonl
+      - name: Guarded continuation with ordered semantic completion
+        env:
+          PYTHONPATH: tests/nancm_chat96:tests/nancm_chat97:tests/nancm_chat99
+          OMP_NUM_THREADS: '4'
+          OPENBLAS_NUM_THREADS: '4'
+        run: python -u tests/nancm_chat100/train100.py --parent v99/chat99.pt --parent-metrics v99/chat99.json --parent-integration integration/integrate99.json --data dolly.jsonl --steps 512 --out results/chat100.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chat100-checkpoint-and-ordered-generation
+          path: |
+            results/chat100.json
+            results/chat100.pt
+          if-no-files-found: error
